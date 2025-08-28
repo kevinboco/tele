@@ -1,8 +1,8 @@
 <?php
-$host = "localhost";
-$user = "root";   // tu usuario de MySQL
-$pass = "";       // tu contraseña (vacía por defecto en XAMPP)
-$db   = "viajes"; // el nombre real de tu base de datos
+$host = "mysql.hostinger.com;
+$user =  "u648222299_keboco5";    // tu usuario de MySQL
+$pass = "Bucaramanga3011";       // tu contraseña (vacía por defecto en XAMPP)
+$db   =  "u648222299_viajes";  // el nombre real de tu base de datos
 
 $conexion = new mysqli($host, $user, $pass, $db);
 
