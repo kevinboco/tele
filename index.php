@@ -1,3 +1,9 @@
+<?php
+$input = file_get_contents("php://input");
+file_put_contents("debug.txt", $input . PHP_EOL, FILE_APPEND);
+?>
+
+
 <?php include("conexion.php"); ?>
 <!DOCTYPE html>
 <html lang="es">
