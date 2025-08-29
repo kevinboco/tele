@@ -37,7 +37,7 @@ if ($text == "/start") {
         $vehiculo = $partes[5];
 
         // Conexión a la BD
-        $conn = new mysqli("localhost", "usuario_mysql", "clave_mysql", "base_datos");
+        $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
         if ($conn->connect_error) {
             $mensaje = "❌ Error de conexión BD";
         } else {
