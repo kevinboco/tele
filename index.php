@@ -37,7 +37,7 @@ if ($text == "/start") {
         $ruta     = $partes[3];
         $fecha    = $partes[4];
         $vehiculo = $partes[5];
-        $ruta_imagen = null;
+        $nombreArchivo = null;
 
         // --- Procesar imagen ---
         if ($photo) {
@@ -55,11 +55,12 @@ if ($text == "/start") {
                     mkdir($carpeta, 0777, true);
                 }
 
+                // Generar nombre único SOLO para guardar en BD
                 $nombreArchivo = time() . "_" . basename($file_path);
                 $rutaCompleta  = $carpeta . $nombreArchivo;
 
-                if (file_put_contents($rutaCompleta, file_get_contents($fileUrl))) {
-                    $ruta_imagen = "uploads/" . $nombreArchivo;
+                if (!file_put_contents($rutaCompleta, file_get_contents($fileUrl))) {
+                    $nombreArchivo = null; // si falla
                 }
             }
         }
@@ -70,7 +71,7 @@ if ($text == "/start") {
             $mensaje = "❌ Error de conexión BD";
         } else {
             $sql = "INSERT INTO viajes (nombre, cedula, fecha, ruta, tipo_vehiculo, imagen) 
-                    VALUES ('$nombre','$cedula','$fecha','$ruta','$vehiculo','$ruta_imagen')";
+                    VALUES ('$nombre','$cedula','$fecha','$ruta','$vehiculo','$nombreArchivo')";
             if ($conn->query($sql) === TRUE) {
                 $mensaje = "✅ Viaje registrado con éxito!";
             } else {
