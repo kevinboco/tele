@@ -65,7 +65,7 @@ if(isset($_POST['guardar'])){
     $sql = "INSERT INTO viajes (nombre, cedula, fecha, ruta, tipo_vehiculo, imagen) 
             VALUES ('$nombre','$cedula','$fecha','$ruta','$vehiculo','$imagen')";
     if($conexion->query($sql)){
-        echo "<script>alert('Viaje guardado correctamente');window.location='index.php';</script>";
+        echo "<script>alert('Viaje guardado correctamente');window.location='index2.php';</script>";
     }else{
         echo "Error: ".$conexion->error;
     }

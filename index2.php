@@ -45,7 +45,7 @@
           <button type="submit" class="btn btn-success w-100">🔎 Buscar</button>
         </div>
         <div class="col-md-3 align-self-end">
-          <a href="index.php" class="btn btn-secondary w-100">❌ Limpiar</a>
+          <a href="index2.php" class="btn btn-secondary w-100">❌ Limpiar</a>
         </div>
       </form>
     </div>
