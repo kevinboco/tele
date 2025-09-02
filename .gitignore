@@ -1,1 +1,12 @@
 debug.txt
+# Archivos temporales y logs
+debug.txt
+*.log
+*.json
+
+# Carpeta de uploads (Telegram fotos, etc)
+uploads/
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
