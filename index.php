@@ -10,199 +10,116 @@ $apiURL = "https://api.telegram.org/bot$token/";
 // Recibir datos de Telegram
 $update = json_decode(file_get_contents("php://input"), true);
 
-// Guardar log para depuración
-file_put_contents("debug.txt", print_r($update, true) . PHP_EOL, FILE_APPEND);
-
-// Extraer datos principales
+// Extraer datos
 $chat_id = $update["message"]["chat"]["id"] ?? null;
 $text    = $update["message"]["text"] ?? "";
-$photo   = $update["message"]["photo"] ?? null;
-$caption = $update["message"]["caption"] ?? "";
 
-// --- FUNCIÓN auxiliar para enviar mensajes ---
-function enviarMensaje($apiURL, $chat_id, $mensaje, $replyMarkup = null) {
-    $url = $apiURL."sendMessage?chat_id=".$chat_id."&text=".urlencode($mensaje);
-    if ($replyMarkup) {
-        $url .= "&reply_markup=".urlencode($replyMarkup);
-    }
-    file_get_contents($url);
-}
+// --- ARCHIVO PARA GUARDAR ESTADOS DE USUARIOS ---
+$estadoFile = __DIR__."/estado_$chat_id.json";
 
-// --- FUNCIÓN para guardar en BD ---
-function guardarEnBD($nombre, $cedula, $fecha, $ruta, $vehiculo, $nombreArchivo) {
-    $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
-    if ($conn->connect_error) {
-        return "❌ Error de conexión BD";
-    } else {
-        $sql = "INSERT INTO viajes (nombre, cedula, fecha, ruta, tipo_vehiculo, imagen) 
-                VALUES ('$nombre','$cedula','$fecha','$ruta','$vehiculo','$nombreArchivo')";
-        if ($conn->query($sql) === TRUE) {
-            $msg = "✅ Viaje registrado con éxito!";
-        } else {
-            $msg = "❌ Error al registrar: " . $conn->error;
-        }
-        $conn->close();
-        return $msg;
-    }
-}
+// Inicializar mensaje
+$mensaje = "❓ No te entendí. Usa /start para ver comandos.";
 
-// =========================
-//   FLUJO /start
-// =========================
+// --- /start ---
 if ($text == "/start") {
-    $mensaje = "👋 Hola! Soy el bot de viajes.\n\n"
-             . "📌 Puedes usar:\n"
-             . "1️⃣ /viaje Nombre Cedula Ruta Fecha Vehiculo + Foto (modo rápido)\n"
-             . "2️⃣ /viaje2 (modo guiado con botones)";
+    $mensaje = "👋 Hola! Soy el bot de viajes.\n\n📌 /viaje Nombre Cedula Ruta Fecha Vehiculo\n📌 /agg (registro paso a paso)";
 
-// =========================
-//   FLUJO /viaje2 (GUIADO)
-// =========================
-} elseif ($text == "/viaje2") {
-    $mensaje = "🚍 Vamos a registrar tu viaje.\n\n✍️ Por favor escribe tu nombre:";
-    file_put_contents("estado_$chat_id.txt", "esperando_nombre");
-    file_put_contents("tmp_$chat_id.txt", json_encode([]));
+// --- /agg paso a paso ---
+} elseif ($text == "/agg") {
+    $estado = ["paso" => "nombre"];
+    file_put_contents($estadoFile, json_encode($estado));
+    $mensaje = "✍️ Ingresa tu *Nombre*:";
 
-} elseif (file_exists("estado_$chat_id.txt")) {
-    $estado = trim(file_get_contents("estado_$chat_id.txt"));
-    $tmp = json_decode(file_get_contents("tmp_$chat_id.txt"), true);
+// --- flujo de /agg ---
+} elseif (file_exists($estadoFile)) {
+    $estado = json_decode(file_get_contents($estadoFile), true);
 
-    if ($estado == "esperando_nombre" && $text) {
-        $tmp["nombre"] = $text;
-        file_put_contents("tmp_$chat_id.txt", json_encode($tmp));
-        file_put_contents("estado_$chat_id.txt", "esperando_cedula");
-        $mensaje = "📋 Ahora escribe tu cédula:";
+    switch ($estado["paso"]) {
+        case "nombre":
+            $estado["nombre"] = $text;
+            $estado["paso"] = "cedula";
+            $mensaje = "🔢 Ahora ingresa tu *Cédula*:";
+            break;
 
-    } elseif ($estado == "esperando_cedula" && $text) {
-        $tmp["cedula"] = $text;
-        file_put_contents("tmp_$chat_id.txt", json_encode($tmp));
-        file_put_contents("estado_$chat_id.txt", "esperando_ruta");
-        $mensaje = "🛣️ Escribe la ruta del viaje:";
+        case "cedula":
+            $estado["cedula"] = $text;
+            $estado["paso"] = "ruta";
+            $mensaje = "📍 Ingresa la *Ruta*:";
+            break;
 
-    } elseif ($estado == "esperando_ruta" && $text) {
-        $tmp["ruta"] = $text;
-        file_put_contents("tmp_$chat_id.txt", json_encode($tmp));
-        file_put_contents("estado_$chat_id.txt", "esperando_fecha");
-        $mensaje = "📅 Escribe la fecha del viaje (YYYY-MM-DD):";
+        case "ruta":
+            $estado["ruta"] = $text;
+            $estado["paso"] = "fecha";
+            $mensaje = "📅 Ingresa la *Fecha* (YYYY-MM-DD):";
+            break;
 
-    } elseif ($estado == "esperando_fecha" && $text) {
-        $tmp["fecha"] = $text;
-        file_put_contents("tmp_$chat_id.txt", json_encode($tmp));
-        file_put_contents("estado_$chat_id.txt", "esperando_vehiculo");
+        case "fecha":
+            $estado["fecha"] = $text;
+            $estado["paso"] = "vehiculo";
+            $mensaje = "🚐 Ingresa el *Vehículo*:";
+            break;
 
-        $keyboard = [
-            "keyboard" => [
-                [["text" => "🚐 Bus"], ["text" => "🚖 Taxi"], ["text" => "🚗 Carro"]],
-            ],
-            "resize_keyboard" => true,
-            "one_time_keyboard" => true
-        ];
-        $replyMarkup = json_encode($keyboard);
+        case "vehiculo":
+            $estado["vehiculo"] = $text;
 
-        enviarMensaje($apiURL, $chat_id, "🚘 Selecciona el tipo de vehículo:", $replyMarkup);
-        exit;
+            // Guardar en BD
+            $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
+            if ($conn->connect_error) {
+                $mensaje = "❌ Error de conexión BD";
+            } else {
+                $nombre = $conn->real_escape_string($estado["nombre"]);
+                $cedula = $conn->real_escape_string($estado["cedula"]);
+                $ruta = $conn->real_escape_string($estado["ruta"]);
+                $fecha = $conn->real_escape_string($estado["fecha"]);
+                $vehiculo = $conn->real_escape_string($estado["vehiculo"]);
 
-    } elseif ($estado == "esperando_vehiculo" && $text) {
-        $tmp["vehiculo"] = $text;
-        file_put_contents("tmp_$chat_id.txt", json_encode($tmp));
-        file_put_contents("estado_$chat_id.txt", "esperando_foto");
-        $mensaje = "📸 Ahora adjunta la foto del viaje:";
+                $sql = "INSERT INTO viajes (nombre, cedula, fecha, ruta, tipo_vehiculo) 
+                        VALUES ('$nombre','$cedula','$fecha','$ruta','$vehiculo')";
 
-    } elseif ($estado == "esperando_foto" && $photo) {
-        $tmp = json_decode(file_get_contents("tmp_$chat_id.txt"), true);
-
-        // --- Procesar imagen ---
-        $file_id = end($photo)["file_id"];
-        $fileInfo = file_get_contents("https://api.telegram.org/bot$token/getFile?file_id=$file_id");
-        $fileInfo = json_decode($fileInfo, true);
-
-        $nombreArchivo = null;
-        if (isset($fileInfo["result"]["file_path"])) {
-            $file_path = $fileInfo["result"]["file_path"];
-            $fileUrl   = "https://api.telegram.org/file/bot$token/$file_path";
-
-            $carpeta = __DIR__ . "/uploads/";
-            if (!is_dir($carpeta)) {
-                mkdir($carpeta, 0777, true);
+                if ($conn->query($sql) === TRUE) {
+                    $mensaje = "✅ Viaje registrado con éxito!\n\n👤 Nombre: $nombre\n🔢 Cédula: $cedula\n📍 Ruta: $ruta\n📅 Fecha: $fecha\n🚐 Vehículo: $vehiculo";
+                } else {
+                    $mensaje = "❌ Error al registrar: " . $conn->error;
+                }
+                $conn->close();
             }
 
-            $nombreArchivo = time() . "_" . basename($file_path);
-            $rutaCompleta  = $carpeta . $nombreArchivo;
-
-            if (!file_put_contents($rutaCompleta, file_get_contents($fileUrl))) {
-                $nombreArchivo = null;
-            }
-        }
-
-        if (!$nombreArchivo) {
-            $mensaje = "❌ Error al guardar la imagen. Intenta de nuevo.";
-        } else {
-            $mensaje = guardarEnBD($tmp["nombre"], $tmp["cedula"], $tmp["fecha"], $tmp["ruta"], $tmp["vehiculo"], $nombreArchivo);
-        }
-
-        // limpiar estado
-        unlink("estado_$chat_id.txt");
-        unlink("tmp_$chat_id.txt");
-
-    } else {
-        $mensaje = "⚠️ Respuesta no válida. Intenta de nuevo.";
+            // Eliminar estado
+            unlink($estadoFile);
+            break;
     }
 
-// =========================
-//   FLUJO /viaje (EXISTENTE)
-// =========================
-} elseif ((strpos($text, "/viaje ") === 0) || ($photo && strpos($caption, "/viaje ") === 0)) {
-    $textoViaje = $text ?: $caption; // usa caption si viene con foto
-    $partes = explode(" ", $textoViaje, 6);
+    file_put_contents($estadoFile, json_encode($estado));
+}
 
+// --- /viaje (modo antiguo, todo en una línea) ---
+elseif (strpos($text, "/viaje ") === 0) {
+    $partes = explode(" ", $text, 6); 
     if (count($partes) < 6) {
         $mensaje = "⚠️ Formato incorrecto. Usa:\n/viaje Nombre Cedula Ruta Fecha Vehiculo";
-    } elseif (!$photo) {
-        $mensaje = "⚠️ Debes adjuntar una foto obligatoriamente junto con el comando.";
     } else {
-        $nombre   = $partes[1];
-        $cedula   = $partes[2];
-        $ruta     = $partes[3];
-        $fecha    = $partes[4];
+        $nombre = $partes[1];
+        $cedula = $partes[2];
+        $ruta = $partes[3];
+        $fecha = $partes[4];
         $vehiculo = $partes[5];
-        $nombreArchivo = null;
 
-        // --- Procesar imagen ---
-        $file_id = end($photo)["file_id"]; // tomar la de mejor calidad
-        $fileInfo = file_get_contents("https://api.telegram.org/bot$token/getFile?file_id=$file_id");
-        $fileInfo = json_decode($fileInfo, true);
-
-        if (isset($fileInfo["result"]["file_path"])) {
-            $file_path = $fileInfo["result"]["file_path"];
-            $fileUrl   = "https://api.telegram.org/file/bot$token/$file_path";
-
-            $carpeta = __DIR__ . "/uploads/";
-            if (!is_dir($carpeta)) {
-                mkdir($carpeta, 0777, true);
-            }
-
-            $nombreArchivo = time() . "_" . basename($file_path);
-            $rutaCompleta  = $carpeta . $nombreArchivo;
-
-            if (!file_put_contents($rutaCompleta, file_get_contents($fileUrl))) {
-                $nombreArchivo = null;
-            }
-        }
-
-        if (!$nombreArchivo) {
-            $mensaje = "❌ Error al guardar la imagen. Intenta de nuevo.";
+        $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
+        if ($conn->connect_error) {
+            $mensaje = "❌ Error de conexión BD";
         } else {
-            $mensaje = guardarEnBD($nombre,$cedula,$fecha,$ruta,$vehiculo,$nombreArchivo);
+            $sql = "INSERT INTO viajes (nombre, cedula, fecha, ruta, tipo_vehiculo) 
+                    VALUES ('$nombre','$cedula','$fecha','$ruta','$vehiculo')";
+            if ($conn->query($sql) === TRUE) {
+                $mensaje = "✅ Viaje registrado con éxito!";
+            } else {
+                $mensaje = "❌ Error al registrar: " . $conn->error;
+            }
+            $conn->close();
         }
     }
-
-// =========================
-//   FLUJO DESCONOCIDO
-// =========================
-} else {
-    $mensaje = "❓ No te entendí. Usa /start para ver comandos.";
 }
 
 // --- Enviar respuesta ---
-enviarMensaje($apiURL, $chat_id, $mensaje);
+file_get_contents($apiURL."sendMessage?chat_id=".$chat_id."&text=".urlencode($mensaje)."&parse_mode=Markdown");
 ?>
