@@ -4,7 +4,7 @@ $pdo = new PDO("mysql:host=localhost;dbname=tu_base", "usuario", "clave");
 $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
 // Token del bot
-$token = "TU_TOKEN";
+$token = "7574806582:AAFKWFTIGy-vrqEpijTV9BClkpHAz0lZ2Yw";
 $apiURL = "https://api.telegram.org/bot$token/";
 
 // Leer actualización
