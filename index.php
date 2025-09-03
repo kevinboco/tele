@@ -222,7 +222,7 @@ elseif ($callback_query) {
     file_get_contents($apiURL."answerCallbackQuery?callback_query_id=".$update["callback_query"]["id"]);
 }
 
-// === Cualquier otro texto ===
+
 else {
     if ($chat_id) {
         enviarMensaje($apiURL, $chat_id, "❓ No te entendí. Usa /start para ver comandos.");
