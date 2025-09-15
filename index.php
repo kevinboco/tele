@@ -132,7 +132,6 @@ elseif (!empty($estado) && !$callback_query) {
                 ];
             }
             $opcionesRutas["inline_keyboard"][] = [["text" => "➕ Nueva ruta", "callback_data" => "ruta_nueva"]];
-
             enviarMensaje($apiURL, $chat_id, "🛣️ Selecciona la ruta:", $opcionesRutas);
             break;
 
@@ -174,7 +173,12 @@ elseif (!empty($estado) && !$callback_query) {
                 } else {
                     enviarMensaje($apiURL, $chat_id, "❌ Error al guardar la imagen.");
                 }
-                unlink($estadoFile);
+
+                // 🔴 Siempre borrar el estado al terminar
+                if (file_exists($estadoFile)) {
+                    unlink($estadoFile);
+                }
+
             }
             break;
     }
@@ -223,10 +227,10 @@ elseif ($callback_query) {
     file_get_contents($apiURL."answerCallbackQuery?callback_query_id=".$update["callback_query"]["id"]);
 }
 
-// 🚨 Si no es /agg y tampoco hay estado previo, no deja iniciar nada
+
 else {
     if ($chat_id) {
-        enviarMensaje($apiURL, $chat_id, "⚠️ Empieza el flujo con /agg");
+        enviarMensaje($apiURL, $chat_id, "❓ No te entendí. Usa /start para ver comandos.");
     }
 }
 ?>
