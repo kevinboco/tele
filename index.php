@@ -14,7 +14,7 @@ file_put_contents("debug.txt", print_r($update, true) . PHP_EOL, FILE_APPEND);
 
 // Variables básicas
 $chat_id = $update["message"]["chat"]["id"] ?? null;
-$text    = trim($update["message"]["text"] ?? "");
+$text    = $update["message"]["text"] ?? "";
 $photo   = $update["message"]["photo"] ?? null;
 $callback_query = $update["callback_query"]["data"] ?? null;
 $callback_chat  = $update["callback_query"]["message"]["chat"]["id"] ?? null;
@@ -49,11 +49,10 @@ function obtenerRutasUsuario($conn, $conductor_id) {
 // === Manejo de comandos ===
 if ($text == "/start") {
     enviarMensaje($apiURL, $chat_id, "👋 Hola! Soy el bot de viajes. 
+📌 /viaje Nombre Cedula Ruta Fecha Vehiculo (con foto)
 📌 /agg para agregar viaje paso a paso");
-    exit;
-}
 
-if ($text == "/agg") {
+} elseif ($text == "/agg") {
     // Verificar si ya está registrado
     $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
     $res = $conn->query("SELECT * FROM conductores WHERE chat_id='$chat_id'");
@@ -82,7 +81,6 @@ if ($text == "/agg") {
         file_put_contents($estadoFile, json_encode($estado));
         enviarMensaje($apiURL, $chat_id, "✍️ Ingresa tu *nombre* para registrarte:");
     }
-    exit;
 }
 
 // === Manejo de flujo paso a paso (texto) ===
@@ -119,62 +117,38 @@ elseif (!empty($estado) && !$callback_query) {
             enviarMensaje($apiURL, $chat_id, "📅 Selecciona la fecha del viaje:", $opcionesFecha);
             break;
 
-        // Paso por año
-        case "anio":
-            if (preg_match('/^\d{4}$/', $text) && $text >= 2024 && $text <= 2030) {
-                $estado["anio"] = $text;
-                $estado["paso"] = "mes";
-                enviarMensaje($apiURL, $chat_id, "✅ Año registrado: {$text}\n\nAhora ingresa el *mes* (01 a 12).");
-            } else {
-                enviarMensaje($apiURL, $chat_id, "⚠️ El año debe estar entre 2024 y 2030. Intenta de nuevo.");
-            }
-            break;
-
-        // Paso por mes
-        case "mes":
-            if (preg_match('/^(0?[1-9]|1[0-2])$/', $text)) {
-                $estado["mes"] = str_pad($text, 2, "0", STR_PAD_LEFT);
-                $estado["paso"] = "dia";
-                enviarMensaje($apiURL, $chat_id, "✅ Mes registrado: {$estado['mes']}\n\nAhora ingresa el *día*.");
-            } else {
-                enviarMensaje($apiURL, $chat_id, "⚠️ El mes debe estar entre 01 y 12. Intenta de nuevo.");
-            }
-            break;
-
-        // Paso por día
-        case "dia":
-            $anio = $estado["anio"];
-            $mes  = $estado["mes"];
-            $maxDias = cal_days_in_month(CAL_GREGORIAN, (int)$mes, (int)$anio);
-
-            if (preg_match('/^\d{1,2}$/', $text) && $text >= 1 && $text <= $maxDias) {
-                $estado["dia"] = str_pad($text, 2, "0", STR_PAD_LEFT);
-                $estado["fecha"] = "{$estado['anio']}-{$estado['mes']}-{$estado['dia']}";
-                $estado["paso"] = "ruta";
-
-                // Mostrar rutas guardadas
-                $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
-                $rutas = obtenerRutasUsuario($conn, $estado["conductor_id"]);
-                $opcionesRutas = ["inline_keyboard" => []];
-                foreach ($rutas as $ruta) {
-                    $opcionesRutas["inline_keyboard"][] = [
-                        ["text" => $ruta, "callback_data" => "ruta_" . $ruta]
-                    ];
-                }
-                $opcionesRutas["inline_keyboard"][] = [["text" => "➕ Nueva ruta", "callback_data" => "ruta_nueva"]];
-                enviarMensaje($apiURL, $chat_id, "🛣️ Selecciona la ruta:", $opcionesRutas);
-
-            } else {
-                enviarMensaje($apiURL, $chat_id, "⚠️ Día inválido para ese mes. Debe estar entre 1 y $maxDias. Intenta de nuevo.");
-            }
-            break;
-
-        case "nueva_ruta":
-            $estado["ruta"] = $text;
+        case "fecha_manual":
+            $estado["fecha"] = $text;
+            $estado["paso"] = "ruta";
+            // Mostrar rutas guardadas
             $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
-            $conn->query("INSERT INTO rutas (conductor_id, ruta) VALUES ('{$estado['conductor_id']}','{$estado['ruta']}')");
-            $estado["paso"] = "foto";
-            enviarMensaje($apiURL, $chat_id, "📸 Envía la *foto* del viaje:");
+            $rutas = obtenerRutasUsuario($conn, $estado["conductor_id"]);
+            $opcionesRutas = ["inline_keyboard" => []];
+            foreach ($rutas as $ruta) {
+                $opcionesRutas["inline_keyboard"][] = [
+                    ["text" => $ruta, "callback_data" => "ruta_" . $ruta]
+                ];
+            }
+            $opcionesRutas["inline_keyboard"][] = [["text" => "➕ Nueva ruta", "callback_data" => "ruta_nueva"]]; 
+            enviarMensaje($apiURL, $chat_id, "🛣️ Selecciona la ruta:", $opcionesRutas);
+            break;
+
+        case "nueva_ruta_salida":
+            $estado["salida"] = $text;
+            $estado["paso"] = "nueva_ruta_destino";
+            enviarMensaje($apiURL, $chat_id, "📍 Ingresa el *lugar de destino*:");
+            break;
+
+        case "nueva_ruta_destino":
+            $estado["destino"] = $text;
+            $estado["paso"] = "nueva_ruta_tipo";
+            $opcionesTipo = [
+                "inline_keyboard" => [
+                    [ ["text" => "➡️ Solo ida", "callback_data" => "ruta_tipo_ida"] ],
+                    [ ["text" => "↔️ Ida y regreso", "callback_data" => "ruta_tipo_ida_vuelta"] ]
+                ]
+            ];
+            enviarMensaje($apiURL, $chat_id, "🔄 ¿El viaje es solo ida o ida y regreso?", $opcionesTipo);
             break;
 
         case "foto":
@@ -210,7 +184,9 @@ elseif (!empty($estado) && !$callback_query) {
             }
 
             // 🔴 Siempre cerrar flujo después de este paso
-            if (file_exists($estadoFile)) unlink($estadoFile);
+            if (file_exists($estadoFile)) {
+                unlink($estadoFile);
+            }
             $estado = []; 
             break;
     }
@@ -234,23 +210,34 @@ elseif ($callback_query) {
                 ["text" => $ruta, "callback_data" => "ruta_" . $ruta]
             ];
         }
-        $opcionesRutas["inline_keyboard"][] = [["text" => "➕ Nueva ruta", "callback_data" => "ruta_nueva"]];
+        $opcionesRutas["inline_keyboard"][] = [["text" => "➕ Nueva ruta", "callback_data" => "ruta_nueva"]]; 
         enviarMensaje($apiURL, $chat_id, "🛣️ Selecciona la ruta:", $opcionesRutas);
 
     } elseif ($callback_query == "fecha_manual") {
-        $estado["paso"] = "anio";
-        enviarMensaje($apiURL, $chat_id, "✍️ Ingresa el *año* del viaje (ejemplo: 2025):");
+        $estado["paso"] = "fecha_manual";
+        enviarMensaje($apiURL, $chat_id, "✍️ Escribe la fecha en formato año-mes-dia:");
 
     } elseif (strpos($callback_query, "ruta_") === 0) {
         $ruta = substr($callback_query, 5);
         if ($ruta == "nueva") {
-            $estado["paso"] = "nueva_ruta";
-            enviarMensaje($apiURL, $chat_id, "✍️ Escribe el nombre de la nueva ruta:");
+            $estado["paso"] = "nueva_ruta_salida";
+            enviarMensaje($apiURL, $chat_id, "✍️ Escribe el *lugar de salida*:");
         } else {
             $estado["ruta"] = $ruta;
             $estado["paso"] = "foto";
             enviarMensaje($apiURL, $chat_id, "📸 Envía la *foto* del viaje:");
         }
+    } elseif ($callback_query == "ruta_tipo_ida" || $callback_query == "ruta_tipo_ida_vuelta") {
+        $tipo = ($callback_query == "ruta_tipo_ida") ? "solo ida" : "ida y regreso";
+        $estado["ruta"] = "{$estado['salida']} → {$estado['destino']} ($tipo)";
+
+        // Guardar nueva ruta en BD
+        $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
+        $conn->query("INSERT INTO rutas (conductor_id, ruta) 
+                      VALUES ('{$estado['conductor_id']}','{$estado['ruta']}')");
+
+        $estado["paso"] = "foto";
+        enviarMensaje($apiURL, $chat_id, "📸 Envía la *foto* del viaje:");
     }
 
     file_put_contents($estadoFile, json_encode($estado));
@@ -266,3 +253,4 @@ else {
     }
 }
 ?>
+
