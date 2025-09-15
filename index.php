@@ -219,6 +219,7 @@ elseif ($callback_query) {
 
     } elseif (strpos($callback_query, "ruta_") === 0) {
         $ruta = substr($callback_query, 5);
+
         if ($ruta == "nueva") {
             $estado["paso"] = "nueva_ruta_salida";
             enviarMensaje($apiURL, $chat_id, "✍️ Escribe el *lugar de salida*:");
@@ -227,14 +228,18 @@ elseif ($callback_query) {
             $estado["paso"] = "foto";
             enviarMensaje($apiURL, $chat_id, "📸 Envía la *foto* del viaje:");
         }
+
     } elseif ($callback_query == "ruta_tipo_ida" || $callback_query == "ruta_tipo_ida_vuelta") {
+        // Armar ruta completa
         $tipo = ($callback_query == "ruta_tipo_ida") ? "solo ida" : "ida y regreso";
-        $estado["ruta"] = "{$estado['salida']} → {$estado['destino']} ($tipo)";
+        $rutaCompleta = "{$estado['salida']} → {$estado['destino']} ($tipo)";
+
+        $estado["ruta"] = $rutaCompleta;
 
         // Guardar nueva ruta en BD
         $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
         $conn->query("INSERT INTO rutas (conductor_id, ruta) 
-                      VALUES ('{$estado['conductor_id']}','{$estado['ruta']}')");
+                      VALUES ('{$estado['conductor_id']}','$rutaCompleta')");
 
         $estado["paso"] = "foto";
         enviarMensaje($apiURL, $chat_id, "📸 Envía la *foto* del viaje:");
