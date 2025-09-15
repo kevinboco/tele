@@ -131,7 +131,7 @@ elseif (!empty($estado) && !$callback_query) {
                     ["text" => $ruta, "callback_data" => "ruta_" . $ruta]
                 ];
             }
-            $opcionesRutas["inline_keyboard"][] = [["text" => "➕ Nueva ruta", "callback_data" => "ruta_nueva"]];
+            $opcionesRutas["inline_keyboard"][] = [["text" => "➕ Nueva ruta", "callback_data" => "ruta_nueva"]]; 
             enviarMensaje($apiURL, $chat_id, "🛣️ Selecciona la ruta:", $opcionesRutas);
             break;
 
@@ -173,13 +173,13 @@ elseif (!empty($estado) && !$callback_query) {
                 } else {
                     enviarMensaje($apiURL, $chat_id, "❌ Error al guardar la imagen.");
                 }
-
-                // 🔴 Siempre borrar el estado al terminar
-                if (file_exists($estadoFile)) {
-                    unlink($estadoFile);
-                }
-
             }
+
+            // 🔴 Siempre cerrar flujo después de este paso
+            if (file_exists($estadoFile)) {
+                unlink($estadoFile);
+            }
+            $estado = []; 
             break;
     }
     file_put_contents($estadoFile, json_encode($estado));
@@ -202,7 +202,7 @@ elseif ($callback_query) {
                 ["text" => $ruta, "callback_data" => "ruta_" . $ruta]
             ];
         }
-        $opcionesRutas["inline_keyboard"][] = [["text" => "➕ Nueva ruta", "callback_data" => "ruta_nueva"]];
+        $opcionesRutas["inline_keyboard"][] = [["text" => "➕ Nueva ruta", "callback_data" => "ruta_nueva"]]; 
         enviarMensaje($apiURL, $chat_id, "🛣️ Selecciona la ruta:", $opcionesRutas);
 
     } elseif ($callback_query == "fecha_manual") {
@@ -227,10 +227,10 @@ elseif ($callback_query) {
     file_get_contents($apiURL."answerCallbackQuery?callback_query_id=".$update["callback_query"]["id"]);
 }
 
-
+// === Cualquier otro texto fuera del flujo ===
 else {
     if ($chat_id) {
-        enviarMensaje($apiURL, $chat_id, "❓ No te entendí. Usa /start para ver comandos.");
+        enviarMensaje($apiURL, $chat_id, "❌ Debes usar /agg para agregar un nuevo viaje.");
     }
 }
 ?>
