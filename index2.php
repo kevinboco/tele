@@ -11,6 +11,7 @@
 <?php include("nav.php"); ?>
 
 <div class="container">
+  <!-- Filtros -->
   <div class="card shadow mb-4">
     <div class="card-header bg-primary text-white">
       <h3 class="mb-0">Filtros de búsqueda</h3>
@@ -97,62 +98,80 @@
     </div>
   <?php endif; ?>
 
+  <!-- Listado -->
   <div class="card shadow">
-    <div class="card-header bg-dark text-white">
+    <div class="card-header bg-dark text-white d-flex justify-content-between">
       <h3 class="mb-0">Listado de Viajes</h3>
+      <a href="crear.php" class="btn btn-success">➕ Nuevo Viaje</a>
     </div>
     <div class="card-body">
-      <a href="crear.php" class="btn btn-success mb-3">➕ Nuevo Viaje</a>
-      <table class="table table-bordered table-striped">
-        <thead class="table-dark">
-          <tr>
-            <th>ID</th>
-            <th>Nombre</th>
-            <th>Cédula</th>
-            <th>Fecha</th>
-            <th>Ruta</th>
-            <th>Vehículo</th>
-            <th>Imagen</th>
-            <th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-        <?php while($row = $resultado->fetch_assoc()){ ?>
-          <tr>
-            <td><?= $row['id']; ?></td>
-            <td><?= $row['nombre']; ?></td>
-            <td><?= $row['cedula']; ?></td>
-            <td><?= $row['fecha']; ?></td>
-            <td><?= $row['ruta']; ?></td>
-            <td><?= $row['tipo_vehiculo']; ?></td>
-            <td>
-              <?php if($row['imagen']){ ?>
-                <a href="#" data-bs-toggle="modal" data-bs-target="#imgModal<?= $row['id']; ?>">
-                  <img src="uploads/<?= $row['imagen']; ?>" width="70">
-                </a>
-                <div class="modal fade" id="imgModal<?= $row['id']; ?>" tabindex="-1">
-                  <div class="modal-dialog modal-dialog-centered">
-                    <div class="modal-content">
-                      <div class="modal-body text-center">
-                        <img src="uploads/<?= $row['imagen']; ?>" class="img-fluid rounded">
+      <form method="post" action="acciones_multiple.php">
+        <table class="table table-bordered table-striped">
+          <thead class="table-dark">
+            <tr>
+              <th><input type="checkbox" id="selectAll"></th>
+              <th>ID</th>
+              <th>Nombre</th>
+              <th>Cédula</th>
+              <th>Fecha</th>
+              <th>Ruta</th>
+              <th>Vehículo</th>
+              <th>Imagen</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+          <?php while($row = $resultado->fetch_assoc()){ ?>
+            <tr>
+              <td><input type="checkbox" name="ids[]" value="<?= $row['id']; ?>"></td>
+              <td><?= $row['id']; ?></td>
+              <td><?= $row['nombre']; ?></td>
+              <td><?= $row['cedula']; ?></td>
+              <td><?= $row['fecha']; ?></td>
+              <td><?= $row['ruta']; ?></td>
+              <td><?= $row['tipo_vehiculo']; ?></td>
+              <td>
+                <?php if($row['imagen']){ ?>
+                  <a href="#" data-bs-toggle="modal" data-bs-target="#imgModal<?= $row['id']; ?>">
+                    <img src="uploads/<?= $row['imagen']; ?>" width="70">
+                  </a>
+                  <div class="modal fade" id="imgModal<?= $row['id']; ?>" tabindex="-1">
+                    <div class="modal-dialog modal-dialog-centered">
+                      <div class="modal-content">
+                        <div class="modal-body text-center">
+                          <img src="uploads/<?= $row['imagen']; ?>" class="img-fluid rounded">
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              <?php } else { echo "—"; } ?>
-            </td>
-            <td>
-              <a href="editar.php?id=<?= $row['id']; ?>" class="btn btn-warning btn-sm">✏ Editar</a>
-              <a href="eliminar.php?id=<?= $row['id']; ?>" class="btn btn-danger btn-sm" onclick="return confirm('¿Seguro de eliminar?')">🗑 Eliminar</a>
-            </td>
-          </tr>
-        <?php } ?>
-        </tbody>
-      </table>
+                <?php } else { echo "—"; } ?>
+              </td>
+              <td>
+                <a href="editar.php?id=<?= $row['id']; ?>" class="btn btn-warning btn-sm">✏ Editar</a>
+                <a href="eliminar.php?id=<?= $row['id']; ?>" class="btn btn-danger btn-sm" onclick="return confirm('¿Seguro de eliminar?')">🗑 Eliminar</a>
+              </td>
+            </tr>
+          <?php } ?>
+          </tbody>
+        </table>
+
+        <div class="mt-3">
+          <button type="submit" name="accion" value="eliminar" class="btn btn-danger">🗑 Eliminar Seleccionados</button>
+          <button type="submit" name="accion" value="editar" class="btn btn-warning">✏ Editar Seleccionados</button>
+        </div>
+      </form>
     </div>
   </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+document.getElementById("selectAll").onclick = function() {
+  let checkboxes = document.getElementsByName("ids[]");
+  for (let checkbox of checkboxes) {
+    checkbox.checked = this.checked;
+  }
+}
+</script>
 </body>
 </html>

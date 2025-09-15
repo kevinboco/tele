@@ -202,7 +202,7 @@ elseif ($callback_query) {
 
     } elseif ($callback_query == "fecha_manual") {
         $estado["paso"] = "fecha_manual";
-        enviarMensaje($apiURL, $chat_id, "✍️ Escribe la fecha en formato YYYY-MM-DD:");
+        enviarMensaje($apiURL, $chat_id, "✍️ Escribe la fecha en formato año-mes-dia:");
 
     } elseif (strpos($callback_query, "ruta_") === 0) {
         $ruta = substr($callback_query, 5);
