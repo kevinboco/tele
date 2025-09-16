@@ -46,10 +46,76 @@ function obtenerRutasUsuario($conn, $conductor_id) {
     return $rutas;
 }
 
+// === NUEVO: helper para DB (reuso sencillo) ===
+function abrirDB() {
+    // mismas credenciales que usas en tu código
+    return new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
+}
+
 // === Manejo de comandos ===
 if ($text == "/start") {
     enviarMensaje($apiURL, $chat_id, "👋 Hola! Soy el bot de viajes. 
-📌 /agg para agregar viaje paso a paso");
+📌 /agg para agregar viaje paso a paso
+📌 /mis_viajes para ver tus viajes (fecha y ruta)");
+    exit;
+}
+
+// === NUEVO: /mis_viajes (solo fecha y ruta) ===
+if ($text == "/mis_viajes") {
+    if (!$chat_id) {
+        exit;
+    }
+
+    $conn = abrirDB();
+    if ($conn->connect_error) {
+        enviarMensaje($apiURL, $chat_id, "❌ No se pudo conectar a la base de datos.");
+        exit;
+    }
+
+    // 1) encontrar cédula del conductor por chat_id
+    $cedula = null;
+    $stmt = $conn->prepare("SELECT cedula FROM conductores WHERE chat_id=?");
+    $stmt->bind_param("s", $chat_id);
+    $stmt->execute();
+    $stmt->bind_result($cedula);
+    $stmt->fetch();
+    $stmt->close();
+
+    if (!$cedula) {
+        enviarMensaje($apiURL, $chat_id, "⚠️ Aún no estás registrado. Usa /agg para registrarte y cargar tu primer viaje.");
+        $conn->close();
+        exit;
+    }
+
+    // 2) obtener últimos 10 viajes válidos (con fecha != '0000-00-00')
+    $stmt = $conn->prepare("
+        SELECT fecha, ruta
+        FROM viajes
+        WHERE cedula = ?
+          AND fecha IS NOT NULL
+          AND fecha <> '0000-00-00'
+        ORDER BY fecha DESC, id DESC
+        LIMIT 10
+    ");
+    $stmt->bind_param("s", $cedula);
+    $stmt->execute();
+    $res = $stmt->get_result();
+
+    $lineas = [];
+    while ($row = $res->fetch_assoc()) {
+        $f = $row['fecha'];
+        $r = $row['ruta'] ?: "(sin ruta)";
+        $lineas[] = "• *{$f}* — {$r}";
+    }
+    $stmt->close();
+    $conn->close();
+
+    if (empty($lineas)) {
+        enviarMensaje($apiURL, $chat_id, "📭 *No tienes viajes registrados con fecha válida.*\nUsa /agg para agregar uno nuevo.");
+    } else {
+        $txt = "🧾 *Tus viajes (últimos 10)*\n\n" . implode("\n", $lineas);
+        enviarMensaje($apiURL, $chat_id, $txt);
+    }
     exit;
 }
 
@@ -284,7 +350,7 @@ elseif ($callback_query) {
 // === Cualquier otro texto fuera del flujo ===
 else {
     if ($chat_id) {
-        enviarMensaje($apiURL, $chat_id, "❌ Debes usar /agg para agregar un nuevo viaje.");
+        enviarMensaje($apiURL, $chat_id, "❌ Debes usar /agg para agregar un nuevo viaje o /mis_viajes para verlos.");
     }
 }
 ?>
