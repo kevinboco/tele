@@ -36,6 +36,10 @@ function enviarMensaje($apiURL, $chat_id, $mensaje, $opciones = null) {
     file_get_contents($apiURL . "sendMessage?" . http_build_query($data));
 }
 
+function abrirDB() {
+    return new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
+}
+
 function obtenerRutasUsuario($conn, $conductor_id) {
     $rutas = [];
     $sql = "SELECT ruta FROM rutas WHERE conductor_id='$conductor_id'";
@@ -46,12 +50,6 @@ function obtenerRutasUsuario($conn, $conductor_id) {
     return $rutas;
 }
 
-// === NUEVO: helper para DB (reuso sencillo) ===
-function abrirDB() {
-    // mismas credenciales que usas en tu código
-    return new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
-}
-
 // === Manejo de comandos ===
 if ($text == "/start") {
     enviarMensaje($apiURL, $chat_id, "👋 Hola! Soy el bot de viajes. 
@@ -60,11 +58,9 @@ if ($text == "/start") {
     exit;
 }
 
-// === NUEVO: /mis_viajes (solo fecha y ruta) ===
+// === /mis_viajes (solo fecha y ruta; top 10) ===
 if ($text == "/mis_viajes") {
-    if (!$chat_id) {
-        exit;
-    }
+    if (!$chat_id) { exit; }
 
     $conn = abrirDB();
     if ($conn->connect_error) {
@@ -72,7 +68,7 @@ if ($text == "/mis_viajes") {
         exit;
     }
 
-    // 1) encontrar cédula del conductor por chat_id
+    // buscar cédula por chat_id
     $cedula = null;
     $stmt = $conn->prepare("SELECT cedula FROM conductores WHERE chat_id=?");
     $stmt->bind_param("s", $chat_id);
@@ -87,7 +83,7 @@ if ($text == "/mis_viajes") {
         exit;
     }
 
-    // 2) obtener últimos 10 viajes válidos (con fecha != '0000-00-00')
+    // últimos 10 viajes con fecha válida
     $stmt = $conn->prepare("
         SELECT fecha, ruta
         FROM viajes
@@ -288,9 +284,17 @@ elseif (!empty($estado) && !$callback_query) {
                 }
             }
 
-            // 🔴 Siempre cerrar flujo después de este paso
-            if (file_exists($estadoFile)) unlink($estadoFile);
+            // Siempre cerrar flujo después de este paso
+            if (file_exists($estadoFile)) @unlink($estadoFile);
             $estado = []; 
+            break;
+
+        // === NUEVO: default para estados desconocidos ===
+        default:
+            if (file_exists($estadoFile)) @unlink($estadoFile);
+            $estado = [];
+            enviarMensaje($apiURL, $chat_id,
+                "❌ Debes usar /agg para agregar un nuevo viaje o /mis_viajes para verlos.");
             break;
     }
     file_put_contents($estadoFile, json_encode($estado));
@@ -350,7 +354,9 @@ elseif ($callback_query) {
 // === Cualquier otro texto fuera del flujo ===
 else {
     if ($chat_id) {
-        enviarMensaje($apiURL, $chat_id, "❌ Debes usar /agg para agregar un nuevo viaje o /mis_viajes para verlos.");
+        enviarMensaje($apiURL, $chat_id,
+            "❌ Debes usar /agg para agregar un nuevo viaje o /mis_viajes para verlos.");
     }
+    exit; // importante para no seguir ejecutando nada más
 }
 ?>
