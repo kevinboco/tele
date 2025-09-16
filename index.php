@@ -349,5 +349,18 @@ if ($chat_id && isset($update["message"]["text"])) {
         "HTML" // se puede mezclar con Markdown en otros mensajes sin problema
     );
 }
+// === Cualquier otro texto fuera del flujo ===
+if ($chat_id && isset($update["message"]["text"])) {
+    enviarMensaje(
+        $apiURL,
+        $chat_id,
+        "⚠️ No entendí ese mensaje.\n\n".
+        "Usa:\n".
+        "/agg para registrar un viaje\n".
+        "/mis_viajes o /misviajes para ver tus viajes"
+    );
+}
+exit;
+
 exit;
 ?>
