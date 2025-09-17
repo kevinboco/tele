@@ -10,8 +10,8 @@ if ($conn->connect_error) {
     die("Error conexión BD: " . $conn->connect_error);
 }
 
-// Consultar viajes
-$res = $conn->query("SELECT fecha, nombre, ruta FROM viajes ORDER BY fecha ASC");
+// Consultar viajes en orden ascendente por fecha
+$res = $conn->query("SELECT fecha, nombre, ruta FROM viajes ORDER BY fecha ASC, id ASC");
 
 // Crear documento Word
 $phpWord = new PhpWord();
