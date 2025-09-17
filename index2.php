@@ -9,7 +9,14 @@
 <body class="bg-light">
 
 <?php include("nav.php"); ?>
-
+<a href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/informe.php" 
+   style="background:#28a745; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">
+   ➡️ ir a informe de viajes
+</a>
+<a href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php" 
+   style="background:#28a745; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">
+   ➡️ ir a liquidación de viajes
+</a>
 <div class="container">
   <!-- Filtros -->
   <div class="card shadow mb-4">
