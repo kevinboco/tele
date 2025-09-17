@@ -48,11 +48,18 @@ while ($row = $res->fetch_assoc()) {
                 <input type="number" name="precio_medio[<?= $conductor ?>]" step="1000" value="0" oninput="calcularTotal(this)">
             </td>
             <td>
-                <input type="text" id="total_<?= md5($conductor) ?>" readonly>
+                <input type="text" id="total_<?= md5($conductor) ?>" class="totales" readonly>
             </td>
         </tr>
     <?php endforeach; ?>
 </table>
+<br>
+<h3>🔢 Total General: <span id="total_general">0</span></h3>
+<br>
+<a href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/index2.php" 
+   style="background:#28a745; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">
+   ➡️ Generar Cuenta de Cobro
+</a>
 </form>
 
 <script>
@@ -67,6 +74,19 @@ function calcularTotal(input) {
 
     let total = (completos * precioCompleto) + (medios * precioMedio);
 
+    // Mostrar total por conductor
     fila.cells[5].querySelector("input").value = total.toLocaleString();
+
+    // Recalcular el total general
+    calcularTotalGeneral();
+}
+
+function calcularTotalGeneral() {
+    let sum = 0;
+    document.querySelectorAll(".totales").forEach(input => {
+        let val = parseFloat(input.value.replace(/,/g, "")) || 0;
+        sum += val;
+    });
+    document.getElementById("total_general").innerText = sum.toLocaleString();
 }
 </script>
