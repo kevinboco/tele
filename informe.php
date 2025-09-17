@@ -99,3 +99,7 @@ header("Pragma: public");
 readfile($file);
 exit;
 ?>
+<a href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/index2.php" 
+   style="background:#28a745; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">
+   ➡️ volver a listado de viajes
+</a>
