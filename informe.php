@@ -13,6 +13,7 @@ if ($conn->connect_error) {
 // Consultar viajes
 $res = $conn->query("SELECT fecha, nombre, ruta FROM viajes ORDER BY fecha ASC");
 
+// Crear documento Word
 $phpWord = new PhpWord();
 $section = $phpWord->addSection();
 
@@ -47,16 +48,26 @@ while ($row = $res->fetch_assoc()) {
 
 // === Pie de página ===
 $section->addTextBreak(2);
-$section->addText("Maicao, " . date("d \d\e F \d\e Y"), [], ['align' => 'right']);
+setlocale(LC_TIME, "es_ES.UTF-8");
+$fechaHoy = strftime("%d de %B de %Y");
+$section->addText("Maicao, " . $fechaHoy, [], ['align' => 'right']);
 $section->addText("Cordialmente,", [], ['align' => 'left']);
 $section->addTextBreak(2);
 $section->addText("NUMA IGUARAN IGUARAN", ['bold' => true]);
 $section->addText("Representante Legal");
 
-// Guardar Word
+// Guardar temporalmente
 $file = "informe_viajes.docx";
 $writer = IOFactory::createWriter($phpWord, 'Word2007');
 $writer->save($file);
 
-echo "✅ Informe generado: <a href='$file'>Descargar aquí</a>";
+// Forzar descarga al navegador
+header("Content-Description: File Transfer");
+header("Content-Disposition: attachment; filename=$file");
+header("Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+header("Content-Transfer-Encoding: binary");
+header("Cache-Control: must-revalidate");
+header("Pragma: public");
+readfile($file);
+exit;
 ?>
