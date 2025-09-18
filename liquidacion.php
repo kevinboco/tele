@@ -4,8 +4,27 @@ if ($conn->connect_error) {
     die("Error conexión BD: " . $conn->connect_error);
 }
 
-// 1. Consultar viajes
-$res = $conn->query("SELECT nombre, ruta FROM viajes");
+// Si no hay fechas seleccionadas, mostrar formulario
+if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
+    ?>
+    <h2>📅 Filtrar viajes por rango de fechas</h2>
+    <form method="get">
+        <label>Desde: <input type="date" name="desde" required></label><br><br>
+        <label>Hasta: <input type="date" name="hasta" required></label><br><br>
+        <button type="submit">Filtrar</button>
+    </form>
+    <?php
+    exit;
+}
+
+// Fechas recibidas
+$desde = $_GET['desde'];
+$hasta = $_GET['hasta'];
+
+// 1. Consultar viajes filtrados
+$sql = "SELECT nombre, ruta FROM viajes 
+        WHERE fecha BETWEEN '$desde' AND '$hasta'";
+$res = $conn->query($sql);
 
 // 2. Agrupar por conductor
 $datos = [];
@@ -26,6 +45,8 @@ while ($row = $res->fetch_assoc()) {
 ?>
 
 <h2>💰 Liquidación de Conductores</h2>
+<h3>Periodo: <?= $desde ?> hasta <?= $hasta ?></h3>
+
 <form method="post">
 <table border="1" cellpadding="5" cellspacing="0">
     <tr style="background:#eee;">
@@ -38,17 +59,19 @@ while ($row = $res->fetch_assoc()) {
     </tr>
     <?php foreach ($datos as $conductor => $viajes): ?>
         <tr>
-            <td><?= $conductor ?></td>
+            <td><?= htmlspecialchars($conductor) ?></td>
             <td><?= $viajes["completos"] ?></td>
             <td><?= $viajes["medios"] ?></td>
             <td>
-                <input type="number" name="precio_completo[<?= $conductor ?>]" step="1000" value="0" oninput="calcularTotal(this)">
+                <input type="number" step="1000" value="0" 
+                       oninput="calcularTotal(this, <?= $viajes['completos'] ?>, <?= $viajes['medios'] ?>)">
             </td>
             <td>
-                <input type="number" name="precio_medio[<?= $conductor ?>]" step="1000" value="0" oninput="calcularTotal(this)">
+                <input type="number" step="1000" value="0" 
+                       oninput="calcularTotal(this, <?= $viajes['completos'] ?>, <?= $viajes['medios'] ?>)">
             </td>
             <td>
-                <input type="text" id="total_<?= md5($conductor) ?>" class="totales" readonly>
+                <input type="text" class="totales" readonly>
             </td>
         </tr>
     <?php endforeach; ?>
@@ -63,21 +86,16 @@ while ($row = $res->fetch_assoc()) {
 </form>
 
 <script>
-function calcularTotal(input) {
-    // Buscar la fila actual
+function calcularTotal(input, completos, medios) {
     let fila = input.closest("tr");
-    let completos = parseInt(fila.cells[1].innerText);
-    let medios = parseInt(fila.cells[2].innerText);
 
     let precioCompleto = parseFloat(fila.cells[3].querySelector("input").value) || 0;
     let precioMedio = parseFloat(fila.cells[4].querySelector("input").value) || 0;
 
     let total = (completos * precioCompleto) + (medios * precioMedio);
 
-    // Mostrar total por conductor
     fila.cells[5].querySelector("input").value = total.toLocaleString();
 
-    // Recalcular el total general
     calcularTotalGeneral();
 }
 
