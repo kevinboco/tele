@@ -46,16 +46,16 @@ function obtenerRutasUsuario($conn, $conductor_id) {
     return $rutas;
 }
 
-// === Manejo de comandos ===
+// === Comando /start ===
 if ($text == "/start") {
     enviarMensaje($apiURL, $chat_id, "👋 Hola! Soy el bot de viajes. 
-📌 /agg para agregar viaje paso a paso
-📌 /manual para registrar viaje manualmente");
+📌 /agg → agregar viaje paso a paso  
+📌 /manual → registrar viaje manualmente");
     exit;
 }
 
+// === Flujo normal (/agg) ===
 if ($text == "/agg") {
-    // Igual que antes
     $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
     $res = $conn->query("SELECT * FROM conductores WHERE chat_id='$chat_id'");
     if ($res && $res->num_rows > 0) {
@@ -84,21 +84,18 @@ if ($text == "/agg") {
     exit;
 }
 
-// === 🔹 NUEVO: flujo manual ===
+// === Flujo manual (/manual) ===
 if ($text == "/manual") {
     $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
     $res = $conn->query("SELECT * FROM conductores WHERE chat_id='$chat_id'");
     if ($res && $res->num_rows > 0) {
         $conductor = $res->fetch_assoc();
         $estado = [
-            "paso" => "anio", // empieza directo en año
-            "conductor_id" => $conductor["id"],
-            "nombre" => $conductor["nombre"],
-            "cedula" => $conductor["cedula"],
-            "vehiculo" => $conductor["vehiculo"]
+            "paso" => "nombre_conductor_manual",
+            "conductor_id" => $conductor["id"]
         ];
         file_put_contents($estadoFile, json_encode($estado));
-        enviarMensaje($apiURL, $chat_id, "✍️ Ingresa el *año* del viaje (ejemplo: 2025):");
+        enviarMensaje($apiURL, $chat_id, "✍️ Ingresa el *nombre del conductor*:");
     } else {
         $estado = ["paso" => "nombre"];
         file_put_contents($estadoFile, json_encode($estado));
@@ -107,21 +104,60 @@ if ($text == "/manual") {
     exit;
 }
 
-// === Flujo normal paso a paso ===
+// === Flujo paso a paso (texto) ===
 if (!empty($estado) && !$callback_query) {
     switch ($estado["paso"]) {
-        // aquí sigue todo tu flujo normal (igual que antes)
+
+        // === flujo manual ===
+        case "nombre_conductor_manual":
+            $estado["nombre_conductor"] = $text;
+            $estado["paso"] = "ruta_manual";
+            enviarMensaje($apiURL, $chat_id, "🚐 Ingresa la *ruta* del viaje:");
+            break;
+
+        case "ruta_manual":
+            $estado["ruta"] = $text;
+            $estado["paso"] = "fecha_manual";
+            enviarMensaje($apiURL, $chat_id, "📅 Ingresa la *fecha del viaje* (YYYY-MM-DD):");
+            break;
+
+        case "fecha_manual":
+            $estado["fecha"] = $text;
+            $estado["paso"] = "foto_manual";
+            enviarMensaje($apiURL, $chat_id, "📸 Envía la *foto del viaje*:");
+            break;
+
+        case "foto_manual":
+            if ($photo) {
+                $estado["foto_id"] = end($photo)["file_id"];
+                // Guardar en BD
+                $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
+                $sql = "INSERT INTO viajes (conductor_id, nombre_conductor, ruta, fecha, foto_id)
+                        VALUES ('{$estado["conductor_id"]}', '{$estado["nombre_conductor"]}', '{$estado["ruta"]}', '{$estado["fecha"]}', '{$estado["foto_id"]}')";
+                $conn->query($sql);
+                enviarMensaje($apiURL, $chat_id, "✅ *Viaje registrado con éxito* (modo manual).");
+                unlink($estadoFile);
+            } else {
+                enviarMensaje($apiURL, $chat_id, "⚠️ Debes enviar una *foto* para finalizar.");
+            }
+            break;
+
+        // === aquí siguen los pasos normales de /agg (fecha → año → mes → día → ruta → foto) ===
+        // 🔹 no los copio completos porque ya los tienes funcionando perfecto
     }
+
     file_put_contents($estadoFile, json_encode($estado));
 }
 
-// === Manejo de botones inline ===
+// === Manejo de botones inline (/agg) ===
 if ($callback_query) {
-    // aquí sigue TODO igual, no se tocó nada
+    // 🔹 aquí va todo tu código original para manejar:
+    // fecha_hoy, fecha_manual, selección de rutas, nueva ruta, etc.
+    // NO se toca nada de esta parte
 }
 
-// === Cualquier otro texto fuera del flujo ===
+// === Mensaje fuera de flujo ===
 if ($chat_id && empty($estado) && !$callback_query) {
-    enviarMensaje($apiURL, $chat_id, "❌ Debes usar /agg o /manual para agregar un nuevo viaje.");
+    enviarMensaje($apiURL, $chat_id, "❌ Debes usar /agg o /manual para registrar un viaje.");
 }
 ?>
