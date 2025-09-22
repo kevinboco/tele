@@ -1,5 +1,5 @@
 <?php
-
+// === Configuración inicial ===
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
@@ -25,7 +25,6 @@ if ($chat_id) {
     $lockFile = __DIR__ . "/lock_" . $chat_id . ".lock";
     $lock = fopen($lockFile, 'c'); // crea si no existe
     if ($lock && !flock($lock, LOCK_EX | LOCK_NB)) {
-        // Otro request del mismo chat en curso → salir rápido
         file_put_contents("debug.txt", "[LOCK] Chat $chat_id ocupado\n", FILE_APPEND);
         exit;
     }
@@ -56,8 +55,6 @@ if (!empty($estado) && isset($estado['last_ts']) && (time() - $estado['last_ts']
     @unlink($estadoFile);
     $estado = [];
     if ($chat_id && !$callback_query) {
-        // Aviso opcional de expiración
-        // (No hacemos exit para permitir que el mensaje actual inicie algo nuevo)
         @file_put_contents("debug.txt", "[TTL] Estado expirado para $chat_id\n", FILE_APPEND);
     }
 }
@@ -146,6 +143,35 @@ function reenviarPasoActualAgg($apiURL, $chat_id, $estado) {
     }
 }
 
+// ===== Helpers específicos para MANUAL (conductores_admin) =====
+function obtenerConductoresAdmin($conn, $owner_chat_id) {
+    $rows = [];
+    if (!$conn) return $rows;
+    $owner_chat_id = (int)$owner_chat_id;
+    $sql = "SELECT id, nombre FROM conductores_admin WHERE owner_chat_id=$owner_chat_id ORDER BY id DESC LIMIT 25";
+    if ($res = $conn->query($sql)) {
+        while ($r = $res->fetch_assoc()) $rows[] = $r;
+    }
+    return $rows;
+}
+function crearConductorAdmin($conn, $owner_chat_id, $nombre) {
+    if (!$conn) return false;
+    $owner_chat_id = (int)$owner_chat_id;
+    $stmt = $conn->prepare("INSERT IGNORE INTO conductores_admin (owner_chat_id, nombre) VALUES (?, ?)");
+    $stmt->bind_param("is", $owner_chat_id, $nombre);
+    $ok = $stmt->execute();
+    $stmt->close();
+    return $ok;
+}
+function obtenerConductorAdminPorId($conn, $id, $owner_chat_id) {
+    if (!$conn) return null;
+    $id = (int)$id;
+    $owner_chat_id = (int)$owner_chat_id;
+    $res = $conn->query("SELECT id, nombre FROM conductores_admin WHERE id=$id AND owner_chat_id=$owner_chat_id LIMIT 1");
+    if ($res && $res->num_rows) return $res->fetch_assoc();
+    return null;
+}
+
 // === /cancel (o /reset) para limpiar estado y colas locales ===
 if ($text === "/cancel" || $text === "/reset") {
     @unlink($estadoFile);
@@ -167,6 +193,7 @@ if ($text === "/start") {
 }
 
 // === Comandos directos ===
+// --------- /agg (NO CAMBIADO) ---------
 if ($text === "/agg") {
     // Si ya hay un flujo AGG activo, no inicies otro: reenvía el paso actual
     if (!empty($estado) && ($estado['flujo'] ?? '') === 'agg') {
@@ -211,28 +238,68 @@ if ($text === "/agg") {
     exit;
 }
 
+// --------- /manual (MEJORADO) ---------
 if ($text === "/manual") {
-    // Si ya hay flujo manual activo, continúa en el paso actual (opcional)
+    $conn = db();
+
+    // Si ya estás en flujo manual, reenvía el paso actual (sin romper nada)
     if (!empty($estado) && ($estado['flujo'] ?? '') === 'manual') {
-        // Reafirma el paso
         switch ($estado['paso']) {
-            case 'manual_nombre':
-                enviarMensaje($apiURL, $chat_id, "✍️ Ingresa el *nombre del conductor*:");
-                break;
+            case 'manual_menu':
+                $conductores = $conn ? obtenerConductoresAdmin($conn, $chat_id) : [];
+                if ($conductores) {
+                    $kb = ["inline_keyboard" => []];
+                    foreach ($conductores as $c) {
+                        $kb["inline_keyboard"][] = [[ "text" => $c['nombre'], "callback_data" => "manual_sel_".$c['id'] ]];
+                    }
+                    $kb["inline_keyboard"][] = [[ "text" => "➕ Nuevo conductor", "callback_data" => "manual_nuevo" ]];
+                    enviarMensaje($apiURL, $chat_id, "Elige un *conductor* o crea uno nuevo:", $kb);
+                } else {
+                    $estado['paso'] = 'manual_nombre_nuevo';
+                    enviarMensaje($apiURL, $chat_id, "No tienes conductores guardados.\n✍️ Escribe el *nombre* del nuevo conductor:");
+                }
+                guardarEstado($estadoFile, $estado);
+                $conn?->close();
+                exit;
+
+            case 'manual_nombre_nuevo':
+                enviarMensaje($apiURL, $chat_id, "✍️ Escribe el *nombre* del nuevo conductor:");
+                guardarEstado($estadoFile, $estado);
+                $conn?->close();
+                exit;
+
             case 'manual_ruta':
                 enviarMensaje($apiURL, $chat_id, "🛣️ Ingresa la *ruta del viaje*:");
-                break;
+                guardarEstado($estadoFile, $estado);
+                $conn?->close();
+                exit;
+
             case 'manual_fecha':
                 enviarMensaje($apiURL, $chat_id, "📅 Ingresa la *fecha del viaje* (AAAA-MM-DD):");
-                break;
+                guardarEstado($estadoFile, $estado);
+                $conn?->close();
+                exit;
         }
-        guardarEstado($estadoFile, $estado);
-        exit;
     }
 
-    $estado = ["flujo" => "manual", "paso" => "manual_nombre"];
-    guardarEstado($estadoFile, $estado);
-    enviarMensaje($apiURL, $chat_id, "✍️ Ingresa el *nombre del conductor*:");
+    // Primer ingreso a /manual: mostrar lista o pedir nombre
+    $estado = ["flujo" => "manual", "paso" => "manual_menu"];
+    $conductores = $conn ? obtenerConductoresAdmin($conn, $chat_id) : [];
+
+    if ($conductores) {
+        $kb = ["inline_keyboard" => []];
+        foreach ($conductores as $c) {
+            $kb["inline_keyboard"][] = [[ "text" => $c['nombre'], "callback_data" => "manual_sel_".$c['id'] ]];
+        }
+        $kb["inline_keyboard"][] = [[ "text" => "➕ Nuevo conductor", "callback_data" => "manual_nuevo" ]];
+        guardarEstado($estadoFile, $estado);
+        enviarMensaje($apiURL, $chat_id, "Elige un *conductor* o crea uno nuevo:", $kb);
+    } else {
+        $estado['paso'] = 'manual_nombre_nuevo';
+        guardarEstado($estadoFile, $estado);
+        enviarMensaje($apiURL, $chat_id, "No tienes conductores guardados.\n✍️ Escribe el *nombre* del nuevo conductor:");
+    }
+    $conn?->close();
     exit;
 }
 
@@ -278,31 +345,30 @@ if ($callback_query) {
             }
         }
     } elseif ($callback_query === "cmd_manual") {
-        if (!empty($estado) && ($estado['flujo'] ?? '') === 'manual') {
-            // Reafirma paso
-            switch ($estado['paso']) {
-                case 'manual_nombre':
-                    enviarMensaje($apiURL, $chat_id, "✍️ Ingresa el *nombre del conductor*:");
-                    break;
-                case 'manual_ruta':
-                    enviarMensaje($apiURL, $chat_id, "🛣️ Ingresa la *ruta del viaje*:");
-                    break;
-                case 'manual_fecha':
-                    enviarMensaje($apiURL, $chat_id, "📅 Ingresa la *fecha del viaje* (AAAA-MM-DD):");
-                    break;
+        // Simula /manual
+        $conn = db();
+        $estado = ["flujo" => "manual", "paso" => "manual_menu"];
+        $conductores = $conn ? obtenerConductoresAdmin($conn, $chat_id) : [];
+        if ($conductores) {
+            $kb = ["inline_keyboard" => []];
+            foreach ($conductores as $c) {
+                $kb["inline_keyboard"][] = [[ "text" => $c['nombre'], "callback_data" => "manual_sel_".$c['id'] ]];
             }
+            $kb["inline_keyboard"][] = [[ "text" => "➕ Nuevo conductor", "callback_data" => "manual_nuevo" ]];
             guardarEstado($estadoFile, $estado);
+            enviarMensaje($apiURL, $chat_id, "Elige un *conductor* o crea uno nuevo:", $kb);
         } else {
-            $estado = ["flujo" => "manual", "paso" => "manual_nombre"];
+            $estado['paso'] = 'manual_nombre_nuevo';
             guardarEstado($estadoFile, $estado);
-            enviarMensaje($apiURL, $chat_id, "✍️ Ingresa el *nombre del conductor*:");
+            enviarMensaje($apiURL, $chat_id, "No tienes conductores guardados.\n✍️ Escribe el *nombre* del nuevo conductor:");
         }
+        $conn?->close();
     }
 }
 
 // === Manejo de botones inline ya dentro del flujo ===
 if ($callback_query && !empty($estado)) {
-    // Flujo AGG: fecha/ruta/tipo
+    // Flujo AGG: fecha/ruta/tipo (NO CAMBIADO)
     if (($estado["flujo"] ?? "") === "agg") {
         if ($callback_query == "fecha_hoy") {
             $estado["fecha"] = date("Y-m-d");
@@ -349,6 +415,32 @@ if ($callback_query && !empty($estado)) {
         guardarEstado($estadoFile, $estado);
     }
 
+    // === Callbacks del flujo MANUAL (selección/creación de conductor) ===
+    if (($estado["flujo"] ?? "") === "manual") {
+        // seleccionar un conductor guardado
+        if (strpos($callback_query, 'manual_sel_') === 0) {
+            $idSel = (int)substr($callback_query, strlen('manual_sel_'));
+            $conn = db();
+            $row = obtenerConductorAdminPorId($conn, $idSel, $chat_id);
+            $conn?->close();
+            if (!$row) {
+                enviarMensaje($apiURL, $chat_id, "⚠️ Conductor no encontrado. Vuelve a intentarlo con /manual.");
+            } else {
+                $estado['manual_nombre'] = $row['nombre'];
+                $estado['paso'] = 'manual_ruta';
+                guardarEstado($estadoFile, $estado);
+                enviarMensaje($apiURL, $chat_id, "👤 Conductor: *{$row['nombre']}*\n\n🛣️ Ingresa la *ruta del viaje*:");
+            }
+        }
+
+        // elegir "nuevo conductor"
+        if ($callback_query === 'manual_nuevo') {
+            $estado['paso'] = 'manual_nombre_nuevo';
+            guardarEstado($estadoFile, $estado);
+            enviarMensaje($apiURL, $chat_id, "✍️ Escribe el *nombre* del nuevo conductor:");
+        }
+    }
+
     // Responder callback para quitar el "cargando"
     if (isset($update["callback_query"]["id"])) {
         @file_get_contents($apiURL."answerCallbackQuery?callback_query_id=".$update["callback_query"]["id"]);
@@ -360,7 +452,7 @@ if (!empty($estado) && !$callback_query) {
 
     switch ($estado["paso"]) {
 
-        // ===== FLUJO AGG =====
+        // ===== FLUJO AGG (NO CAMBIADO) =====
         case "nombre":
             $estado["nombre"] = $text;
             $estado["paso"] = "cedula";
@@ -502,11 +594,31 @@ if (!empty($estado) && !$callback_query) {
             $estado = [];
             break;
 
-        // ===== FLUJO MANUAL =====
+        // ===== FLUJO MANUAL (mejorado) =====
+
+        // compatibilidad si alguna vez llegas a este paso antiguo
         case "manual_nombre":
             $estado["manual_nombre"] = $text;
             $estado["paso"] = "manual_ruta";
             enviarMensaje($apiURL, $chat_id, "🛣️ Ingresa la *ruta del viaje*:");
+            break;
+
+        // NUEVO: solo nombre para nuevo conductor y seguir
+        case "manual_nombre_nuevo":
+            $nombreNuevo = trim($text);
+            if ($nombreNuevo === "") {
+                enviarMensaje($apiURL, $chat_id, "⚠️ El nombre no puede estar vacío. Escribe el *nombre* del nuevo conductor:");
+                break;
+            }
+            $conn = db();
+            if ($conn) {
+                crearConductorAdmin($conn, $chat_id, $nombreNuevo);
+                $conn->close();
+            }
+            $estado["manual_nombre"] = $nombreNuevo;
+            $estado["paso"] = "manual_ruta";
+            guardarEstado($estadoFile, $estado);
+            enviarMensaje($apiURL, $chat_id, "👤 Conductor guardado: *{$nombreNuevo}*\n\n🛣️ Ingresa la *ruta del viaje*:");
             break;
 
         case "manual_ruta":
