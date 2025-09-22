@@ -737,7 +737,7 @@ if (!empty($estado) && !$callback_query) {
                     $stmt->bind_param("ssssss", $estado['nombre'], $estado['cedula'], $estado['fecha'], $estado['ruta'], $estado['vehiculo'], $nombreArchivo);
                     if ($stmt->execute()) {
                         enviarMensaje($apiURL, $chat_id, "✅ Viaje registrado con éxito!");
-                        enviarMensaje($apiURL, $chat_id, "puedes usar /agg para agregar otro viaje");
+                        
                     } else {
                         enviarMensaje($apiURL, $chat_id, "❌ Error al registrar: " . $conn->error);
                     }
@@ -846,8 +846,14 @@ if (!empty($estado) && !$callback_query) {
             $stmt = $conn->prepare("INSERT INTO viajes (nombre, ruta, fecha, cedula, tipo_vehiculo, imagen) VALUES (?, ?, ?, NULL, NULL, NULL)");
             $stmt->bind_param("sss", $estado["manual_nombre"], $estado["manual_ruta"], $estado["manual_fecha"]);
             if ($stmt->execute()) {
-                enviarMensaje($apiURL, $chat_id, "✅ Viaje (manual) registrado:\n👤 " . $estado["manual_nombre"] . "\n🛣️ " . $estado["manual_ruta"] . "\n📅 " . $estado["manual_fecha"]);
-                enviarMensaje($apiURL, $chat_id, "Puedes usar /manual para registrar otro viaje ");
+                enviarMensaje(
+                    $apiURL,
+                    $chat_id,
+                    "✅ Viaje (manual) registrado:\n👤 " . $estado["manual_nombre"] .
+                    "\n🛣️ " . $estado["manual_ruta"] .
+                    "\n📅 " . $estado["manual_fecha"] .
+                    "\n\nAtajos rápidos: /agg /manual"
+                );
             } else {
                 enviarMensaje($apiURL, $chat_id, "❌ Error al guardar el viaje: " . $conn->error);
             }
