@@ -711,7 +711,7 @@ if ($callback_query && empty($estado)) {
     }
 }
 
-// === Cualquier otro texto fuera del flujo ===
+
 if ($chat_id && empty($estado) && !$callback_query) {
     enviarMensaje($apiURL, $chat_id, "❌ Debes usar */agg* para agregar un viaje asistido o */manual* para registrar un viaje manual. También */cancel* para reiniciar.");
 }
