@@ -19,9 +19,48 @@ $text           = trim($update["message"]["text"] ?? "");
 $photo          = $update["message"]["photo"] ?? null;
 $callback_query = $update["callback_query"]["data"] ?? null;
 
+// ===== Candado por chat (mutex) para evitar flujos simultáneos =====
+$lock = null;
+if ($chat_id) {
+    $lockFile = __DIR__ . "/lock_" . $chat_id . ".lock";
+    $lock = fopen($lockFile, 'c'); // crea si no existe
+    if ($lock && !flock($lock, LOCK_EX | LOCK_NB)) {
+        // Otro request del mismo chat en curso → salir rápido
+        file_put_contents("debug.txt", "[LOCK] Chat $chat_id ocupado\n", FILE_APPEND);
+        exit;
+    }
+    // Liberar candado al terminar
+    register_shutdown_function(function() use ($lock) {
+        if ($lock) { flock($lock, LOCK_UN); fclose($lock); }
+    });
+}
+
+// ===== Deduplicación por update_id (evita reprocesar reintentos) =====
+$update_id = $update['update_id'] ?? null;
+if ($chat_id && $update_id !== null) {
+    $uidFile = __DIR__ . "/last_update_" . $chat_id . ".txt";
+    $last = is_file($uidFile) ? (int)file_get_contents($uidFile) : -1;
+    if ($update_id <= $last) {
+        // Ya procesado o viejo
+        exit;
+    }
+    file_put_contents($uidFile, (string)$update_id, LOCK_EX);
+}
+
 // Manejo de estados
 $estadoFile = __DIR__ . "/estado_" . ($chat_id ?: "unknown") . ".json";
 $estado = file_exists($estadoFile) ? json_decode(file_get_contents($estadoFile), true) : [];
+
+// ===== TTL de estado (expira tras 10 minutos de inactividad) =====
+if (!empty($estado) && isset($estado['last_ts']) && (time() - $estado['last_ts'] > 600)) {
+    @unlink($estadoFile);
+    $estado = [];
+    if ($chat_id && !$callback_query) {
+        // Aviso opcional de expiración
+        // (No hacemos exit para permitir que el mensaje actual inicie algo nuevo)
+        @file_put_contents("debug.txt", "[TTL] Estado expirado para $chat_id\n", FILE_APPEND);
+    }
+}
 
 // === Helpers ===
 function enviarMensaje($apiURL, $chat_id, $mensaje, $opciones = null) {
@@ -52,11 +91,67 @@ function obtenerRutasUsuario($conn, $conductor_id) {
 }
 
 function guardarEstado($estadoFile, $estado) {
-    file_put_contents($estadoFile, json_encode($estado, JSON_UNESCAPED_UNICODE));
+    $estado['last_ts'] = time(); // marca de tiempo para TTL
+    file_put_contents($estadoFile, json_encode($estado, JSON_UNESCAPED_UNICODE), LOCK_EX);
 }
 
 function limpiarEstado($estadoFile) {
     if (file_exists($estadoFile)) unlink($estadoFile);
+}
+
+// Helper para re-enviar el paso actual del flujo AGG si el usuario repite /agg
+function reenviarPasoActualAgg($apiURL, $chat_id, $estado) {
+    switch ($estado['paso'] ?? '') {
+        case 'fecha':
+            $opcionesFecha = [
+                "inline_keyboard" => [
+                    [ ["text"=>"📅 Hoy","callback_data"=>"fecha_hoy"] ],
+                    [ ["text"=>"✍️ Otra fecha","callback_data"=>"fecha_manual"] ],
+                ]
+            ];
+            enviarMensaje($apiURL, $chat_id, "📅 Ya estás en este paso: selecciona la fecha del viaje:", $opcionesFecha);
+            break;
+        case 'anio':
+            enviarMensaje($apiURL, $chat_id, "✍️ Ingresa el *año* del viaje (ejemplo: 2025):");
+            break;
+        case 'mes':
+            enviarMensaje($apiURL, $chat_id, "📅 Ingresa el *mes* (01 a 12):");
+            break;
+        case 'dia':
+            enviarMensaje($apiURL, $chat_id, "📅 Ingresa el *día*:");
+            break;
+        case 'ruta':
+            enviarMensaje($apiURL, $chat_id, "🛣️ Selecciona la ruta (o crea una nueva):");
+            break;
+        case 'nueva_ruta_salida':
+            enviarMensaje($apiURL, $chat_id, "📍 Ingresa el *punto de salida* de la nueva ruta:");
+            break;
+        case 'nueva_ruta_destino':
+            enviarMensaje($apiURL, $chat_id, "🏁 Ingresa el *destino* de la ruta:");
+            break;
+        case 'nueva_ruta_tipo':
+            $opcionesTipo = [
+                "inline_keyboard" => [
+                    [ ["text"=>"➡️ Solo ida","callback_data"=>"tipo_ida"] ],
+                    [ ["text"=>"↔️ Ida y vuelta","callback_data"=>"tipo_idavuelta"] ],
+                ]
+            ];
+            enviarMensaje($apiURL, $chat_id, "🚦 Selecciona el *tipo de viaje*:", $opcionesTipo);
+            break;
+        case 'foto':
+            enviarMensaje($apiURL, $chat_id, "📸 Envía la *foto* del viaje:");
+            break;
+        default:
+            enviarMensaje($apiURL, $chat_id, "Continuamos donde ibas. Si quieres cancelar, escribe /cancel.");
+    }
+}
+
+// === /cancel (o /reset) para limpiar estado y colas locales ===
+if ($text === "/cancel" || $text === "/reset") {
+    @unlink($estadoFile);
+    @unlink(__DIR__ . "/last_update_" . $chat_id . ".txt");
+    enviarMensaje($apiURL, $chat_id, "🧹 Listo. Se canceló el flujo y limpié tu estado. Usa /agg o /manual para empezar de nuevo.");
+    exit;
 }
 
 // === /start ===
@@ -67,12 +162,19 @@ if ($text === "/start") {
             [ ["text" => "📝 Registrar viaje (manual)", "callback_data" => "cmd_manual"] ],
         ]
     ];
-    enviarMensaje($apiURL, $chat_id, "👋 ¡Hola! Soy el bot de viajes.\n\n• Usa */agg* para flujo asistido.\n• Usa */manual* para registrar *nombre, ruta y fecha* directamente.", $opts);
+    enviarMensaje($apiURL, $chat_id, "👋 ¡Hola! Soy el bot de viajes.\n\n• Usa */agg* para flujo asistido.\n• Usa */manual* para registrar *nombre, ruta y fecha* directamente.\n• Usa */cancel* para reiniciar tu sesión.", $opts);
     exit;
 }
 
 // === Comandos directos ===
 if ($text === "/agg") {
+    // Si ya hay un flujo AGG activo, no inicies otro: reenvía el paso actual
+    if (!empty($estado) && ($estado['flujo'] ?? '') === 'agg') {
+        reenviarPasoActualAgg($apiURL, $chat_id, $estado);
+        guardarEstado($estadoFile, $estado); // refresca TTL
+        exit;
+    }
+
     // Verificar si ya está registrado
     $conn = db();
     if ($conn) {
@@ -110,6 +212,24 @@ if ($text === "/agg") {
 }
 
 if ($text === "/manual") {
+    // Si ya hay flujo manual activo, continúa en el paso actual (opcional)
+    if (!empty($estado) && ($estado['flujo'] ?? '') === 'manual') {
+        // Reafirma el paso
+        switch ($estado['paso']) {
+            case 'manual_nombre':
+                enviarMensaje($apiURL, $chat_id, "✍️ Ingresa el *nombre del conductor*:");
+                break;
+            case 'manual_ruta':
+                enviarMensaje($apiURL, $chat_id, "🛣️ Ingresa la *ruta del viaje*:");
+                break;
+            case 'manual_fecha':
+                enviarMensaje($apiURL, $chat_id, "📅 Ingresa la *fecha del viaje* (AAAA-MM-DD):");
+                break;
+        }
+        guardarEstado($estadoFile, $estado);
+        exit;
+    }
+
     $estado = ["flujo" => "manual", "paso" => "manual_nombre"];
     guardarEstado($estadoFile, $estado);
     enviarMensaje($apiURL, $chat_id, "✍️ Ingresa el *nombre del conductor*:");
@@ -121,41 +241,62 @@ if ($callback_query) {
     // Atajos desde /start
     if ($callback_query === "cmd_agg") {
         // Simula /agg
-        $conn = db();
-        if ($conn) {
-            $chat_id_int = (int)$chat_id;
-            $res = $conn->query("SELECT * FROM conductores WHERE chat_id='$chat_id_int' LIMIT 1");
-            if ($res && $res->num_rows > 0) {
-                $conductor = $res->fetch_assoc();
-                $estado = [
-                    "flujo" => "agg",
-                    "paso" => "fecha",
-                    "conductor_id" => $conductor["id"],
-                    "nombre" => $conductor["nombre"],
-                    "cedula" => $conductor["cedula"],
-                    "vehiculo" => $conductor["vehiculo"]
-                ];
-                guardarEstado($estadoFile, $estado);
-                $opcionesFecha = [
-                    "inline_keyboard" => [
-                        [ ["text" => "📅 Hoy", "callback_data" => "fecha_hoy"] ],
-                        [ ["text" => "✍️ Otra fecha", "callback_data" => "fecha_manual"] ]
-                    ]
-                ];
-                enviarMensaje($apiURL, $chat_id, "📅 Selecciona la fecha del viaje:", $opcionesFecha);
-            } else {
-                $estado = ["flujo" => "agg", "paso" => "nombre"];
-                guardarEstado($estadoFile, $estado);
-                enviarMensaje($apiURL, $chat_id, "✍️ Ingresa tu *nombre* para registrarte:");
-            }
-            $conn->close();
+        if (!empty($estado) && ($estado['flujo'] ?? '') === 'agg') {
+            reenviarPasoActualAgg($apiURL, $chat_id, $estado);
+            guardarEstado($estadoFile, $estado);
         } else {
-            enviarMensaje($apiURL, $chat_id, "❌ Error de conexión a la base de datos.");
+            $conn = db();
+            if ($conn) {
+                $chat_id_int = (int)$chat_id;
+                $res = $conn->query("SELECT * FROM conductores WHERE chat_id='$chat_id_int' LIMIT 1");
+                if ($res && $res->num_rows > 0) {
+                    $conductor = $res->fetch_assoc();
+                    $estado = [
+                        "flujo" => "agg",
+                        "paso" => "fecha",
+                        "conductor_id" => $conductor["id"],
+                        "nombre" => $conductor["nombre"],
+                        "cedula" => $conductor["cedula"],
+                        "vehiculo" => $conductor["vehiculo"]
+                    ];
+                    guardarEstado($estadoFile, $estado);
+                    $opcionesFecha = [
+                        "inline_keyboard" => [
+                            [ ["text" => "📅 Hoy", "callback_data" => "fecha_hoy"] ],
+                            [ ["text" => "✍️ Otra fecha", "callback_data" => "fecha_manual"] ]
+                        ]
+                    ];
+                    enviarMensaje($apiURL, $chat_id, "📅 Selecciona la fecha del viaje:", $opcionesFecha);
+                } else {
+                    $estado = ["flujo" => "agg", "paso" => "nombre"];
+                    guardarEstado($estadoFile, $estado);
+                    enviarMensaje($apiURL, $chat_id, "✍️ Ingresa tu *nombre* para registrarte:");
+                }
+                $conn->close();
+            } else {
+                enviarMensaje($apiURL, $chat_id, "❌ Error de conexión a la base de datos.");
+            }
         }
     } elseif ($callback_query === "cmd_manual") {
-        $estado = ["flujo" => "manual", "paso" => "manual_nombre"];
-        guardarEstado($estadoFile, $estado);
-        enviarMensaje($apiURL, $chat_id, "✍️ Ingresa el *nombre del conductor*:");
+        if (!empty($estado) && ($estado['flujo'] ?? '') === 'manual') {
+            // Reafirma paso
+            switch ($estado['paso']) {
+                case 'manual_nombre':
+                    enviarMensaje($apiURL, $chat_id, "✍️ Ingresa el *nombre del conductor*:");
+                    break;
+                case 'manual_ruta':
+                    enviarMensaje($apiURL, $chat_id, "🛣️ Ingresa la *ruta del viaje*:");
+                    break;
+                case 'manual_fecha':
+                    enviarMensaje($apiURL, $chat_id, "📅 Ingresa la *fecha del viaje* (AAAA-MM-DD):");
+                    break;
+            }
+            guardarEstado($estadoFile, $estado);
+        } else {
+            $estado = ["flujo" => "manual", "paso" => "manual_nombre"];
+            guardarEstado($estadoFile, $estado);
+            enviarMensaje($apiURL, $chat_id, "✍️ Ingresa el *nombre del conductor*:");
+        }
     }
 }
 
@@ -208,7 +349,7 @@ if ($callback_query && !empty($estado)) {
         guardarEstado($estadoFile, $estado);
     }
 
-    // Siempre responder callback para quitar el "cargando"
+    // Responder callback para quitar el "cargando"
     if (isset($update["callback_query"]["id"])) {
         @file_get_contents($apiURL."answerCallbackQuery?callback_query_id=".$update["callback_query"]["id"]);
     }
@@ -323,8 +464,8 @@ if (!empty($estado) && !$callback_query) {
                 enviarMensaje($apiURL, $chat_id, "⚠️ Debes enviar una *foto*.");
                 break;
             }
-            // Descargar y guardar la foto
-            $file_id = end($photo)["file_id"];
+            // Descargar y guardar la foto (elige el tamaño más pequeño para rapidez)
+            $file_id = $photo[0]["file_id"] ?? end($photo)["file_id"];
             $fileInfo = json_decode(file_get_contents("https://api.telegram.org/bot$token/getFile?file_id=$file_id"), true);
             $nombreArchivo = null;
             if (isset($fileInfo["result"]["file_path"])) {
@@ -406,7 +547,7 @@ if (!empty($estado) && !$callback_query) {
 
         default:
             // Sin estado válido: pedir comando
-            enviarMensaje($apiURL, $chat_id, "❌ Debes usar */agg* o */manual* para registrar un viaje.");
+            enviarMensaje($apiURL, $chat_id, "❌ Debes usar */agg* o */manual* para registrar un viaje. Escribe */cancel* para reiniciar si algo quedó colgado.");
             limpiarEstado($estadoFile);
             $estado = [];
             break;
@@ -417,8 +558,16 @@ if (!empty($estado) && !$callback_query) {
     exit;
 }
 
+// === Manejo de callbacks sin estado (por si llegan sueltos) ===
+if ($callback_query && empty($estado)) {
+    // Quita el "cargando" aunque no tengamos estado
+    if (isset($update["callback_query"]["id"])) {
+        @file_get_contents($apiURL."answerCallbackQuery?callback_query_id=".$update["callback_query"]["id"]);
+    }
+}
+
 // === Cualquier otro texto fuera del flujo ===
 if ($chat_id && empty($estado) && !$callback_query) {
-    enviarMensaje($apiURL, $chat_id, "❌ Debes usar */agg* para agregar un viaje asistido o */manual* para registrar un viaje manual.");
+    enviarMensaje($apiURL, $chat_id, "❌ Debes usar */agg* para agregar un viaje asistido o */manual* para registrar un viaje manual. También */cancel* para reiniciar.");
 }
 ?>
