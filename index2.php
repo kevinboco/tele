@@ -9,15 +9,15 @@
 <body class="bg-light">
 
 <?php include("nav.php"); ?>
-<a href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/informe.php" 
-   style="background:#28a745; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">
-   ➡️ ir a informe de viajes
-</a>
-<a href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php" 
-   style="background:#28a745; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">
-   ➡️ ir a liquidación de viajes
-</a>
-<div class="container">
+
+<div class="container py-3">
+  <div class="d-flex gap-2 mb-3">
+    <a href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/informe.php" 
+       class="btn btn-success">➡️ ir a informe de viajes</a>
+    <a href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php" 
+       class="btn btn-success">➡️ ir a liquidación de viajes</a>
+  </div>
+
   <!-- Filtros -->
   <div class="card shadow mb-4">
     <div class="card-header bg-primary text-white">
@@ -26,28 +26,32 @@
     <div class="card-body">
       <form method="GET" class="row g-3">
         <div class="col-md-3">
-          <label>Nombre</label>
-          <input type="text" name="nombre" value="<?= $_GET['nombre'] ?? '' ?>" class="form-control">
+          <label class="form-label">Nombre</label>
+          <input type="text" name="nombre" value="<?= isset($_GET['nombre']) ? htmlspecialchars($_GET['nombre']) : '' ?>" class="form-control">
         </div>
         <div class="col-md-3">
-          <label>Cédula</label>
-          <input type="text" name="cedula" value="<?= $_GET['cedula'] ?? '' ?>" class="form-control">
+          <label class="form-label">Cédula</label>
+          <input type="text" name="cedula" value="<?= isset($_GET['cedula']) ? htmlspecialchars($_GET['cedula']) : '' ?>" class="form-control">
         </div>
         <div class="col-md-3">
-          <label>Fecha desde</label>
-          <input type="date" name="desde" value="<?= $_GET['desde'] ?? '' ?>" class="form-control">
+          <label class="form-label">Fecha desde</label>
+          <input type="date" name="desde" value="<?= isset($_GET['desde']) ? htmlspecialchars($_GET['desde']) : '' ?>" class="form-control">
         </div>
         <div class="col-md-3">
-          <label>Fecha hasta</label>
-          <input type="date" name="hasta" value="<?= $_GET['hasta'] ?? '' ?>" class="form-control">
+          <label class="form-label">Fecha hasta</label>
+          <input type="date" name="hasta" value="<?= isset($_GET['hasta']) ? htmlspecialchars($_GET['hasta']) : '' ?>" class="form-control">
         </div>
         <div class="col-md-3">
-          <label>Ruta</label>
-          <input type="text" name="ruta" value="<?= $_GET['ruta'] ?? '' ?>" class="form-control">
+          <label class="form-label">Ruta</label>
+          <input type="text" name="ruta" value="<?= isset($_GET['ruta']) ? htmlspecialchars($_GET['ruta']) : '' ?>" class="form-control">
         </div>
         <div class="col-md-3">
-          <label>Vehículo</label>
-          <input type="text" name="vehiculo" value="<?= $_GET['vehiculo'] ?? '' ?>" class="form-control">
+          <label class="form-label">Vehículo</label>
+          <input type="text" name="vehiculo" value="<?= isset($_GET['vehiculo']) ? htmlspecialchars($_GET['vehiculo']) : '' ?>" class="form-control">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Empresa</label>
+          <input type="text" name="empresa" value="<?= isset($_GET['empresa']) ? htmlspecialchars($_GET['empresa']) : '' ?>" class="form-control">
         </div>
         <div class="col-md-3 align-self-end">
           <button type="submit" class="btn btn-success w-100">🔎 Buscar</button>
@@ -74,6 +78,12 @@
     $desde = $conexion->real_escape_string($_GET['desde']);
     $hasta = $conexion->real_escape_string($_GET['hasta']);
     $where[] = "fecha BETWEEN '$desde' AND '$hasta'";
+  } elseif (!empty($_GET['desde'])) {
+    $desde = $conexion->real_escape_string($_GET['desde']);
+    $where[] = "fecha >= '$desde'";
+  } elseif (!empty($_GET['hasta'])) {
+    $hasta = $conexion->real_escape_string($_GET['hasta']);
+    $where[] = "fecha <= '$hasta'";
   }
   if (!empty($_GET['ruta'])) {
     $ruta = $conexion->real_escape_string($_GET['ruta']);
@@ -83,6 +93,10 @@
     $vehiculo = $conexion->real_escape_string($_GET['vehiculo']);
     $where[] = "tipo_vehiculo LIKE '%$vehiculo%'";
   }
+  if (!empty($_GET['empresa'])) {
+    $empresa = $conexion->real_escape_string($_GET['empresa']);
+    $where[] = "empresa LIKE '%$empresa%'";
+  }
 
   $sql = "SELECT * FROM viajes";
   if (count($where) > 0) {
@@ -91,15 +105,14 @@
   $sql .= " ORDER BY id DESC";
 
   $resultado = $conexion->query($sql);
-  ?>
 
-  <?php if (!empty($_GET['nombre'])): ?>
-    <?php
+  // Aviso de cantidad de viajes por nombre (si se filtró por nombre)
+  if (!empty($_GET['nombre'])):
       $nombreFiltro = $conexion->real_escape_string($_GET['nombre']);
-      $sqlContar = "SELECT COUNT(*) as total FROM viajes WHERE nombre LIKE '%$nombreFiltro%'";
+      $sqlContar = "SELECT COUNT(*) AS total FROM viajes WHERE nombre LIKE '%$nombreFiltro%'";
       $resContar = $conexion->query($sqlContar);
-      $totalViajes = $resContar->fetch_assoc()['total'];
-    ?>
+      $totalViajes = $resContar ? (int)$resContar->fetch_assoc()['total'] : 0;
+  ?>
     <div class="alert alert-info">
       <strong><?= htmlspecialchars($_GET['nombre']) ?></strong> ha hecho <b><?= $totalViajes ?></b> viajes.
     </div>
@@ -107,62 +120,74 @@
 
   <!-- Listado -->
   <div class="card shadow">
-    <div class="card-header bg-dark text-white d-flex justify-content-between">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
       <h3 class="mb-0">Listado de Viajes</h3>
       <a href="crear.php" class="btn btn-success">➕ Nuevo Viaje</a>
     </div>
     <div class="card-body">
       <form method="post" action="acciones_multiple.php">
-        <table class="table table-bordered table-striped">
-          <thead class="table-dark">
-            <tr>
-              <th><input type="checkbox" id="selectAll"></th>
-              <th>ID</th>
-              <th>Nombre</th>
-              <th>Cédula</th>
-              <th>Fecha</th>
-              <th>Ruta</th>
-              <th>Vehículo</th>
-              <th>Imagen</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-          <?php while($row = $resultado->fetch_assoc()){ ?>
-            <tr>
-              <td><input type="checkbox" name="ids[]" value="<?= $row['id']; ?>"></td>
-              <td><?= $row['id']; ?></td>
-              <td><?= $row['nombre']; ?></td>
-              <td><?= $row['cedula']; ?></td>
-              <td><?= $row['fecha']; ?></td>
-              <td><?= $row['ruta']; ?></td>
-              <td><?= $row['tipo_vehiculo']; ?></td>
-              <td>
-                <?php if($row['imagen']){ ?>
-                  <a href="#" data-bs-toggle="modal" data-bs-target="#imgModal<?= $row['id']; ?>">
-                    <img src="uploads/<?= $row['imagen']; ?>" width="70">
-                  </a>
-                  <div class="modal fade" id="imgModal<?= $row['id']; ?>" tabindex="-1">
-                    <div class="modal-dialog modal-dialog-centered">
-                      <div class="modal-content">
-                        <div class="modal-body text-center">
-                          <img src="uploads/<?= $row['imagen']; ?>" class="img-fluid rounded">
+        <div class="table-responsive">
+          <table class="table table-bordered table-striped align-middle">
+            <thead class="table-dark">
+              <tr>
+                <th style="width:32px;"><input type="checkbox" id="selectAll"></th>
+                <th>ID</th>
+                <th>Nombre</th>
+                <th>Cédula</th>
+                <th>Fecha</th>
+                <th>Ruta</th>
+                <th>Vehículo</th>
+                <th>Empresa</th>
+                <th>Imagen</th>
+                <th style="width:160px;">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+            <?php if ($resultado && $resultado->num_rows > 0): ?>
+              <?php while($row = $resultado->fetch_assoc()): ?>
+                <tr>
+                  <td><input type="checkbox" name="ids[]" value="<?= (int)$row['id']; ?>"></td>
+                  <td><?= (int)$row['id']; ?></td>
+                  <td><?= htmlspecialchars($row['nombre']); ?></td>
+                  <td><?= htmlspecialchars($row['cedula']); ?></td>
+                  <td><?= htmlspecialchars($row['fecha']); ?></td>
+                  <td><?= htmlspecialchars($row['ruta']); ?></td>
+                  <td><?= htmlspecialchars($row['tipo_vehiculo']); ?></td>
+                  <td><?= htmlspecialchars($row['empresa'] ?? '—'); ?></td>
+                  <td>
+                    <?php if(!empty($row['imagen'])): ?>
+                      <a href="#" data-bs-toggle="modal" data-bs-target="#imgModal<?= (int)$row['id']; ?>">
+                        <img src="uploads/<?= htmlspecialchars($row['imagen']); ?>" width="70" class="rounded">
+                      </a>
+                      <div class="modal fade" id="imgModal<?= (int)$row['id']; ?>" tabindex="-1" aria-hidden="true">
+                        <div class="modal-dialog modal-dialog-centered">
+                          <div class="modal-content">
+                            <div class="modal-body text-center">
+                              <img src="uploads/<?= htmlspecialchars($row['imagen']); ?>" class="img-fluid rounded">
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
-                <?php } else { echo "—"; } ?>
-              </td>
-              <td>
-                <a href="editar.php?id=<?= $row['id']; ?>" class="btn btn-warning btn-sm">✏ Editar</a>
-                <a href="eliminar.php?id=<?= $row['id']; ?>" class="btn btn-danger btn-sm" onclick="return confirm('¿Seguro de eliminar?')">🗑 Eliminar</a>
-              </td>
-            </tr>
-          <?php } ?>
-          </tbody>
-        </table>
+                    <?php else: ?>
+                      —
+                    <?php endif; ?>
+                  </td>
+                  <td>
+                    <a href="editar.php?id=<?= (int)$row['id']; ?>" class="btn btn-warning btn-sm">✏ Editar</a>
+                    <a href="eliminar.php?id=<?= (int)$row['id']; ?>" class="btn btn-danger btn-sm" onclick="return confirm('¿Seguro de eliminar?')">🗑 Eliminar</a>
+                  </td>
+                </tr>
+              <?php endwhile; ?>
+            <?php else: ?>
+              <tr>
+                <td colspan="10" class="text-center py-4">No se encontraron resultados.</td>
+              </tr>
+            <?php endif; ?>
+            </tbody>
+          </table>
+        </div>
 
-        <div class="mt-3">
+        <div class="mt-3 d-flex gap-2">
           <button type="submit" name="accion" value="eliminar" class="btn btn-danger">🗑 Eliminar Seleccionados</button>
           <button type="submit" name="accion" value="editar" class="btn btn-warning">✏ Editar Seleccionados</button>
         </div>
@@ -174,11 +199,11 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 document.getElementById("selectAll").onclick = function() {
-  let checkboxes = document.getElementsByName("ids[]");
-  for (let checkbox of checkboxes) {
+  const checkboxes = document.getElementsByName("ids[]");
+  for (const checkbox of checkboxes) {
     checkbox.checked = this.checked;
   }
-}
+};
 </script>
 </body>
 </html>
