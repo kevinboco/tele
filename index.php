@@ -178,6 +178,32 @@ function obtenerRutaAdminPorId($conn, $id, $owner_chat_id) {
     return null;
 }
 
+// ======= NUEVO: Helpers para vehículos (vehiculos_admin) =======
+function obtenerVehiculosAdmin($conn, $owner_chat_id) {
+    $rows = [];
+    if (!$conn) return $rows;
+    $owner_chat_id = (int)$owner_chat_id;
+    $res = $conn->query("SELECT id, vehiculo FROM vehiculos_admin WHERE owner_chat_id=$owner_chat_id ORDER BY id DESC LIMIT 25");
+    if ($res) while ($r = $res->fetch_assoc()) $rows[] = $r;
+    return $rows;
+}
+function crearVehiculoAdmin($conn, $owner_chat_id, $vehiculo) {
+    if (!$conn) return false;
+    $owner_chat_id = (int)$owner_chat_id;
+    $stmt = $conn->prepare("INSERT IGNORE INTO vehiculos_admin (owner_chat_id, vehiculo) VALUES (?, ?)");
+    $stmt->bind_param("is", $owner_chat_id, $vehiculo);
+    $ok = $stmt->execute();
+    $stmt->close();
+    return $ok;
+}
+function obtenerVehiculoAdminPorId($conn, $id, $owner_chat_id) {
+    if (!$conn) return null;
+    $id = (int)$id; $owner_chat_id = (int)$owner_chat_id;
+    $res = $conn->query("SELECT id, vehiculo FROM vehiculos_admin WHERE id=$id AND owner_chat_id=$owner_chat_id LIMIT 1");
+    if ($res && $res->num_rows) return $res->fetch_assoc();
+    return null;
+}
+
 // ======= Helpers NUEVOS para fecha con botones (solo MANUAL) =======
 function kbFechaManual() {
     return [
@@ -269,7 +295,7 @@ if ($text === "/agg") {
     exit;
 }
 
-// --------- /manual (conductores + rutas + fecha con botones) ---------
+// --------- /manual (conductores + rutas + fecha con botones + **vehículo**) ---------
 if ($text === "/manual") {
     $conn = db();
 
@@ -329,14 +355,12 @@ if ($text === "/manual") {
                 exit;
 
             case 'manual_fecha':
-                // NUEVO: botones Hoy / Otra fecha
                 enviarMensaje($apiURL, $chat_id, "📅 Selecciona la *fecha*:", kbFechaManual());
                 guardarEstado($estadoFile, $estado);
                 $conn?->close();
                 exit;
 
             case 'manual_fecha_mes':
-                // Repite selección de mes si se vuelve a entrar
                 $anio = $estado["anio"] ?? date("Y");
                 enviarMensaje($apiURL, $chat_id, "📆 Selecciona el *mes*:", kbMeses($anio));
                 guardarEstado($estadoFile, $estado);
@@ -344,11 +368,34 @@ if ($text === "/manual") {
                 exit;
 
             case 'manual_fecha_dia_input':
-                // Repite petición de día si ya está en ese paso
                 $anio = (int)($estado["anio"] ?? date("Y"));
                 $mes  = (int)($estado["mes"]  ?? date("m"));
                 $maxDias = cal_days_in_month(CAL_GREGORIAN, $mes, $anio);
                 enviarMensaje($apiURL, $chat_id, "✍️ Escribe el *día* del mes (1–$maxDias):");
+                guardarEstado($estadoFile, $estado);
+                $conn?->close();
+                exit;
+
+            // ===== NUEVOS PASOS: Vehículo =====
+            case 'manual_vehiculo_menu':
+                $vehiculos = $conn ? obtenerVehiculosAdmin($conn, $chat_id) : [];
+                if ($vehiculos) {
+                    $kb = ["inline_keyboard" => []];
+                    foreach ($vehiculos as $v) {
+                        $kb["inline_keyboard"][] = [[ "text" => $v['vehiculo'], "callback_data" => "manual_vehiculo_sel_".$v['id'] ]];
+                    }
+                    $kb["inline_keyboard"][] = [[ "text" => "➕ Nuevo vehículo", "callback_data" => "manual_vehiculo_nuevo" ]];
+                    enviarMensaje($apiURL, $chat_id, "🚐 Selecciona el *tipo de vehículo* o crea uno nuevo:", $kb);
+                } else {
+                    $estado['paso'] = 'manual_vehiculo_nuevo_texto';
+                    enviarMensaje($apiURL, $chat_id, "No tienes vehículos guardados.\n✍️ Escribe el *tipo de vehículo* (ej.: Toyota Hilux 4x4):");
+                }
+                guardarEstado($estadoFile, $estado);
+                $conn?->close();
+                exit;
+
+            case 'manual_vehiculo_nuevo_texto':
+                enviarMensaje($apiURL, $chat_id, "✍️ Escribe el *tipo de vehículo*:");
                 guardarEstado($estadoFile, $estado);
                 $conn?->close();
                 exit;
@@ -558,21 +605,24 @@ if ($callback_query && !empty($estado)) {
             $fecha = date("Y-m-d");
             $estado['manual_fecha'] = $fecha;
 
-            // Insertar viaje manual y cerrar
+            // EN LUGAR DE INSERTAR, pasamos a seleccionar vehículo
+            $estado['paso'] = 'manual_vehiculo_menu';
+            guardarEstado($estadoFile, $estado);
+
             $conn = db();
-            if (!$conn) {
-                enviarMensaje($apiURL, $chat_id, "❌ Error de conexión a la base de datos.");
-                limpiarEstado($estadoFile); $estado = [];
-            } else {
-                $stmt = $conn->prepare("INSERT INTO viajes (nombre, ruta, fecha, cedula, tipo_vehiculo, imagen) VALUES (?, ?, ?, NULL, NULL, NULL)");
-                $stmt->bind_param("sss", $estado["manual_nombre"], $estado["manual_ruta"], $estado["manual_fecha"]);
-                if ($stmt->execute()) {
-                    enviarMensaje($apiURL, $chat_id, "✅ Viaje (manual) registrado:\n👤 " . $estado["manual_nombre"] . "\n🛣️ " . $estado["manual_ruta"] . "\n📅 " . $estado["manual_fecha"]);
-                } else {
-                    enviarMensaje($apiURL, $chat_id, "❌ Error al guardar el viaje: " . $conn->error);
+            $vehiculos = $conn ? obtenerVehiculosAdmin($conn, $chat_id) : [];
+            $conn?->close();
+            if ($vehiculos) {
+                $kb = ["inline_keyboard" => []];
+                foreach ($vehiculos as $v) {
+                    $kb["inline_keyboard"][] = [[ "text" => $v['vehiculo'], "callback_data" => "manual_vehiculo_sel_".$v['id'] ]];
                 }
-                $stmt->close(); $conn->close();
-                limpiarEstado($estadoFile); $estado = [];
+                $kb["inline_keyboard"][] = [[ "text" => "➕ Nuevo vehículo", "callback_data" => "manual_vehiculo_nuevo" ]];
+                enviarMensaje($apiURL, $chat_id, "🚐 Selecciona el *tipo de vehículo* o crea uno nuevo:", $kb);
+            } else {
+                $estado['paso'] = 'manual_vehiculo_nuevo_texto';
+                guardarEstado($estadoFile, $estado);
+                enviarMensaje($apiURL, $chat_id, "No tienes vehículos guardados.\n✍️ Escribe el *tipo de vehículo* (ej.: Toyota Hilux 4x4):");
             }
         }
 
@@ -598,6 +648,49 @@ if ($callback_query && !empty($estado)) {
             $estado["paso"] = "manual_fecha_dia_input";
             guardarEstado($estadoFile, $estado);
             enviarMensaje($apiURL, $chat_id, "✍️ Escribe el *día* del mes (1–$maxDias):");
+        }
+
+        // ===== NUEVOS callbacks de VEHÍCULO =====
+        if (strpos($callback_query, 'manual_vehiculo_sel_') === 0) {
+            $idVeh = (int)substr($callback_query, strlen('manual_vehiculo_sel_'));
+            $conn = db();
+            $v = obtenerVehiculoAdminPorId($conn, $idVeh, $chat_id);
+            $conn?->close();
+            if (!$v) {
+                enviarMensaje($apiURL, $chat_id, "⚠️ Vehículo no encontrado. Vuelve a intentarlo.");
+            } else {
+                $estado['manual_vehiculo'] = $v['vehiculo'];
+                // Insertar viaje y cerrar
+                $conn = db();
+                if (!$conn) {
+                    enviarMensaje($apiURL, $chat_id, "❌ Error de conexión a la base de datos.");
+                    limpiarEstado($estadoFile); $estado = [];
+                } else {
+                    $stmt = $conn->prepare("INSERT INTO viajes (nombre, ruta, fecha, cedula, tipo_vehiculo, imagen) VALUES (?, ?, ?, NULL, ?, NULL)");
+                    $stmt->bind_param("ssss", $estado["manual_nombre"], $estado["manual_ruta"], $estado["manual_fecha"], $estado["manual_vehiculo"]);
+                    if ($stmt->execute()) {
+                        enviarMensaje(
+                            $apiURL,
+                            $chat_id,
+                            "✅ Viaje (manual) registrado:\n👤 " . $estado["manual_nombre"] .
+                            "\n🛣️ " . $estado["manual_ruta"] .
+                            "\n📅 " . $estado["manual_fecha"] .
+                            "\n🚐 " . $estado["manual_vehiculo"] .
+                            "\n\nAtajos rápidos: /agg /manual"
+                        );
+                    } else {
+                        enviarMensaje($apiURL, $chat_id, "❌ Error al guardar el viaje: " . $conn->error);
+                    }
+                    $stmt->close(); $conn->close();
+                    limpiarEstado($estadoFile); $estado = [];
+                }
+            }
+        }
+
+        if ($callback_query === 'manual_vehiculo_nuevo') {
+            $estado['paso'] = 'manual_vehiculo_nuevo_texto';
+            guardarEstado($estadoFile, $estado);
+            enviarMensaje($apiURL, $chat_id, "✍️ Escribe el *tipo de vehículo*:");
         }
     }
 
@@ -755,7 +848,7 @@ if (!empty($estado) && !$callback_query) {
             $estado = [];
             break;
 
-        // ===== MANUAL (mejorado con conductores, rutas y fecha) =====
+        // ===== MANUAL (mejorado con conductores, rutas, fecha y **vehículo**) =====
 
         case "manual_nombre": // compat
             $estado["manual_nombre"] = $text;
@@ -836,15 +929,43 @@ if (!empty($estado) && !$callback_query) {
             $fecha = sprintf("%04d-%02d-%02d", $anio, $mes, $dia);
             $estado["manual_fecha"] = $fecha;
 
-            // Insertar viaje manual y cerrar
+            // En lugar de insertar, mostrar menú de vehículos
+            $estado['paso'] = 'manual_vehiculo_menu';
+            guardarEstado($estadoFile, $estado);
+
+            $conn = db();
+            $vehiculos = $conn ? obtenerVehiculosAdmin($conn, $chat_id) : [];
+            $conn?->close();
+            if ($vehiculos) {
+                $kb = ["inline_keyboard" => []];
+                foreach ($vehiculos as $v) {
+                    $kb["inline_keyboard"][] = [[ "text"=>$v['vehiculo'], "callback_data"=>"manual_vehiculo_sel_".$v['id'] ]];
+                }
+                $kb["inline_keyboard"][] = [[ "text"=>"➕ Nuevo vehículo", "callback_data"=>"manual_vehiculo_nuevo" ]];
+                enviarMensaje($apiURL, $chat_id, "🚐 Selecciona el *tipo de vehículo* o crea uno nuevo:", $kb);
+            } else {
+                $estado['paso'] = 'manual_vehiculo_nuevo_texto';
+                guardarEstado($estadoFile, $estado);
+                enviarMensaje($apiURL, $chat_id, "No tienes vehículos guardados.\n✍️ Escribe el *tipo de vehículo* (ej.: Toyota Hilux 4x4):");
+            }
+            break;
+
+        // ===== NUEVO: entrada de texto para crear VEHÍCULO =====
+        case "manual_vehiculo_nuevo_texto":
+            $vehTxt = trim($text);
+            if ($vehTxt === "") { enviarMensaje($apiURL, $chat_id, "⚠️ El *tipo de vehículo* no puede estar vacío. Escríbelo nuevamente:"); break; }
+            $conn = db(); if ($conn) { crearVehiculoAdmin($conn, $chat_id, $vehTxt); $conn->close(); }
+            $estado["manual_vehiculo"] = $vehTxt;
+
+            // Insertar viaje y cerrar
             $conn = db();
             if (!$conn) {
                 enviarMensaje($apiURL, $chat_id, "❌ Error de conexión a la base de datos.");
                 limpiarEstado($estadoFile); $estado = [];
                 break;
             }
-            $stmt = $conn->prepare("INSERT INTO viajes (nombre, ruta, fecha, cedula, tipo_vehiculo, imagen) VALUES (?, ?, ?, NULL, NULL, NULL)");
-            $stmt->bind_param("sss", $estado["manual_nombre"], $estado["manual_ruta"], $estado["manual_fecha"]);
+            $stmt = $conn->prepare("INSERT INTO viajes (nombre, ruta, fecha, cedula, tipo_vehiculo, imagen) VALUES (?, ?, ?, NULL, ?, NULL)");
+            $stmt->bind_param("ssss", $estado["manual_nombre"], $estado["manual_ruta"], $estado["manual_fecha"], $estado["manual_vehiculo"]);
             if ($stmt->execute()) {
                 enviarMensaje(
                     $apiURL,
@@ -852,6 +973,7 @@ if (!empty($estado) && !$callback_query) {
                     "✅ Viaje (manual) registrado:\n👤 " . $estado["manual_nombre"] .
                     "\n🛣️ " . $estado["manual_ruta"] .
                     "\n📅 " . $estado["manual_fecha"] .
+                    "\n🚐 " . $estado["manual_vehiculo"] .
                     "\n\nAtajos rápidos: /agg /manual"
                 );
             } else {
