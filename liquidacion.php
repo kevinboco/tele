@@ -6,11 +6,29 @@ if ($conn->connect_error) {
 
 // Si no hay fechas seleccionadas, mostrar formulario
 if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
+
+    // Consultar todas las empresas distintas para el select
+    $empresas = [];
+    $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
+    while ($r = $resEmp->fetch_assoc()) {
+        $empresas[] = $r['empresa'];
+    }
     ?>
     <h2>📅 Filtrar viajes por rango de fechas</h2>
     <form method="get">
         <label>Desde: <input type="date" name="desde" required></label><br><br>
         <label>Hasta: <input type="date" name="hasta" required></label><br><br>
+
+        <label>Empresa: 
+            <select name="empresa">
+                <option value="">-- Todas --</option>
+                <?php foreach($empresas as $e): ?>
+                    <option value="<?= htmlspecialchars($e) ?>"><?= htmlspecialchars($e) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <br><br>
+
         <button type="submit">Filtrar</button>
     </form>
     <?php
@@ -20,10 +38,15 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
 // Fechas recibidas
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
+$empresaFiltro = $_GET['empresa'] ?? "";
 
-// 1. Consultar viajes filtrados
-$sql = "SELECT nombre, ruta FROM viajes 
+// 1. Construir consulta
+$sql = "SELECT nombre, ruta, empresa FROM viajes 
         WHERE fecha BETWEEN '$desde' AND '$hasta'";
+if ($empresaFiltro !== "") {
+    $empresaFiltro = $conn->real_escape_string($empresaFiltro);
+    $sql .= " AND empresa = '$empresaFiltro'";
+}
 $res = $conn->query($sql);
 
 // 2. Agrupar por conductor
@@ -45,7 +68,10 @@ while ($row = $res->fetch_assoc()) {
 ?>
 
 <h2>💰 Liquidación de Conductores</h2>
-<h3>Periodo: <?= $desde ?> hasta <?= $hasta ?></h3>
+<h3>Periodo: <?= htmlspecialchars($desde) ?> hasta <?= htmlspecialchars($hasta) ?></h3>
+<?php if ($empresaFiltro !== ""): ?>
+    <h4>Empresa: <?= htmlspecialchars($empresaFiltro) ?></h4>
+<?php endif; ?>
 
 <form method="post">
 <table border="1" cellpadding="5" cellspacing="0">
