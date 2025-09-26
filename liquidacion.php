@@ -53,13 +53,17 @@ $res = $conn->query($sql);
 $datos = [];
 while ($row = $res->fetch_assoc()) {
     $nombre = $row['nombre'];
-    $guiones = substr_count($row['ruta'], '-');
+    $ruta   = $row['ruta'];
+    $guiones = substr_count($ruta, '-');
 
     if (!isset($datos[$nombre])) {
-        $datos[$nombre] = ["completos" => 0, "medios" => 0];
+        $datos[$nombre] = ["completos" => 0, "medios" => 0, "extras" => 0];
     }
 
-    if ($guiones == 2) {
+    if (stripos($ruta, "Maicao") === false) {
+        // 🚨 No contiene "Maicao" → viaje extra
+        $datos[$nombre]["extras"]++;
+    } elseif ($guiones == 2) {
         $datos[$nombre]["completos"]++;
     } elseif ($guiones == 1) {
         $datos[$nombre]["medios"]++;
@@ -79,8 +83,10 @@ while ($row = $res->fetch_assoc()) {
         <th>Conductor</th>
         <th>Viajes Completos</th>
         <th>Viajes Medios</th>
+        <th>Viajes Extras</th>
         <th>Valor Viaje Completo</th>
         <th>Valor Viaje Medio</th>
+        <th>Valor Viaje Extra</th>
         <th>Total a Pagar</th>
     </tr>
     <?php foreach ($datos as $conductor => $viajes): ?>
@@ -88,13 +94,18 @@ while ($row = $res->fetch_assoc()) {
             <td><?= htmlspecialchars($conductor) ?></td>
             <td><?= $viajes["completos"] ?></td>
             <td><?= $viajes["medios"] ?></td>
+            <td><?= $viajes["extras"] ?></td>
             <td>
-                <input type="number" step="1000" value="0" 
-                       oninput="calcularTotal(this, <?= $viajes['completos'] ?>, <?= $viajes['medios'] ?>)">
+                <input type="number" step="1000" value="0"
+                       oninput="calcularTotal(this, <?= $viajes['completos'] ?>, <?= $viajes['medios'] ?>, <?= $viajes['extras'] ?>)">
             </td>
             <td>
-                <input type="number" step="1000" value="0" 
-                       oninput="calcularTotal(this, <?= $viajes['completos'] ?>, <?= $viajes['medios'] ?>)">
+                <input type="number" step="1000" value="0"
+                       oninput="calcularTotal(this, <?= $viajes['completos'] ?>, <?= $viajes['medios'] ?>, <?= $viajes['extras'] ?>)">
+            </td>
+            <td>
+                <input type="number" step="1000" value="0"
+                       oninput="calcularTotal(this, <?= $viajes['completos'] ?>, <?= $viajes['medios'] ?>, <?= $viajes['extras'] ?>)">
             </td>
             <td>
                 <input type="text" class="totales" readonly>
@@ -112,15 +123,18 @@ while ($row = $res->fetch_assoc()) {
 </form>
 
 <script>
-function calcularTotal(input, completos, medios) {
+function calcularTotal(input, completos, medios, extras) {
     let fila = input.closest("tr");
 
-    let precioCompleto = parseFloat(fila.cells[3].querySelector("input").value) || 0;
-    let precioMedio = parseFloat(fila.cells[4].querySelector("input").value) || 0;
+    let precioCompleto = parseFloat(fila.cells[4].querySelector("input").value) || 0;
+    let precioMedio    = parseFloat(fila.cells[5].querySelector("input").value) || 0;
+    let precioExtra    = parseFloat(fila.cells[6].querySelector("input").value) || 0;
 
-    let total = (completos * precioCompleto) + (medios * precioMedio);
+    let total = (completos * precioCompleto) +
+                (medios * precioMedio) +
+                (extras * precioExtra);
 
-    fila.cells[5].querySelector("input").value = total.toLocaleString();
+    fila.cells[7].querySelector("input").value = total.toLocaleString();
 
     calcularTotalGeneral();
 }
