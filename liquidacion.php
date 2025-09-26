@@ -134,7 +134,8 @@ function calcularTotal(input, completos, medios, extras) {
                 (medios * precioMedio) +
                 (extras * precioExtra);
 
-    fila.cells[7].querySelector("input").value = total.toLocaleString();
+    // Mostrar con puntos cada 3 dígitos (formato colombiano)
+    fila.cells[7].querySelector("input").value = total.toLocaleString("es-CO");
 
     calcularTotalGeneral();
 }
@@ -142,9 +143,11 @@ function calcularTotal(input, completos, medios, extras) {
 function calcularTotalGeneral() {
     let sum = 0;
     document.querySelectorAll(".totales").forEach(input => {
-        let val = parseFloat(input.value.replace(/,/g, "")) || 0;
+        let val = input.value.replace(/\./g, ""); // quitar puntos
+        val = parseFloat(val) || 0;
         sum += val;
     });
-    document.getElementById("total_general").innerText = sum.toLocaleString();
+
+    document.getElementById("total_general").innerText = sum.toLocaleString("es-CO");
 }
 </script>
