@@ -52,20 +52,29 @@ $res = $conn->query($sql);
 $datos = [];
 $vehiculos = [];
 while ($row = $res->fetch_assoc()) {
-    $nombre = $row['nombre'];
-    $ruta   = $row['ruta'];
+    $nombre   = $row['nombre'];
+    $ruta     = $row['ruta'];
     $vehiculo = $row['tipo_vehiculo'];
-    $guiones = substr_count($ruta, '-');
+    $guiones  = substr_count($ruta, '-');
 
     if (!isset($datos[$nombre])) {
-        $datos[$nombre] = ["vehiculo" => $vehiculo, "completos" => 0, "medios" => 0, "extras" => 0];
+        $datos[$nombre] = [
+            "vehiculo"     => $vehiculo, 
+            "completos"    => 0, 
+            "medios"       => 0, 
+            "extras"       => 0,
+            "carrotanques" => 0
+        ];
     }
 
     if (!in_array($vehiculo, $vehiculos)) {
         $vehiculos[] = $vehiculo;
     }
 
-    if (stripos($ruta, "Maicao") === false) {
+    if ($vehiculo === "Carrotanque" && $guiones == 0) {
+        // Caso especial: viaje carro tanque en Nazaret
+        $datos[$nombre]["carrotanques"]++;
+    } elseif (stripos($ruta, "Maicao") === false) {
         $datos[$nombre]["extras"]++;
     } elseif ($guiones == 2) {
         $datos[$nombre]["completos"]++;
@@ -89,13 +98,22 @@ while ($row = $res->fetch_assoc()) {
         <th>Valor Viaje Completo</th>
         <th>Valor Viaje Medio</th>
         <th>Valor Viaje Extra</th>
+        <th>Valor Viaje Carrotanque</th>
     </tr>
     <?php foreach ($vehiculos as $veh): ?>
         <tr>
             <td><?= htmlspecialchars($veh) ?></td>
-            <td><input type="number" step="1000" value="0" oninput="recalcular()"></td>
-            <td><input type="number" step="1000" value="0" oninput="recalcular()"></td>
-            <td><input type="number" step="1000" value="0" oninput="recalcular()"></td>
+            <?php if ($veh === "Carrotanque"): ?>
+                <td>-</td>
+                <td>-</td>
+                <td>-</td>
+                <td><input type="number" step="1000" value="0" oninput="recalcular()"></td>
+            <?php else: ?>
+                <td><input type="number" step="1000" value="0" oninput="recalcular()"></td>
+                <td><input type="number" step="1000" value="0" oninput="recalcular()"></td>
+                <td><input type="number" step="1000" value="0" oninput="recalcular()"></td>
+                <td>-</td>
+            <?php endif; ?>
         </tr>
     <?php endforeach; ?>
 </table>
@@ -110,6 +128,7 @@ while ($row = $res->fetch_assoc()) {
         <th>Viajes Completos</th>
         <th>Viajes Medios</th>
         <th>Viajes Extras</th>
+        <th>Viajes Carrotanque</th>
         <th>Total a Pagar</th>
     </tr>
     <?php foreach ($datos as $conductor => $viajes): ?>
@@ -119,6 +138,7 @@ while ($row = $res->fetch_assoc()) {
             <td><?= $viajes["completos"] ?></td>
             <td><?= $viajes["medios"] ?></td>
             <td><?= $viajes["extras"] ?></td>
+            <td><?= $viajes["carrotanques"] ?></td>
             <td><input type="text" class="totales" readonly></td>
         </tr>
     <?php endforeach; ?>
@@ -137,16 +157,23 @@ function getTarifas() {
     let tabla = document.getElementById("tabla_tarifas");
     for (let i = 1; i < tabla.rows.length; i++) {
         let vehiculo = tabla.rows[i].cells[0].innerText.trim();
-        let completo = parseFloat(tabla.rows[i].cells[1].querySelector("input").value) || 0;
-        let medio    = parseFloat(tabla.rows[i].cells[2].querySelector("input").value) || 0;
-        let extra    = parseFloat(tabla.rows[i].cells[3].querySelector("input").value) || 0;
-        tarifas[vehiculo] = {completo, medio, extra};
+
+        let completo = tabla.rows[i].cells[1].querySelector("input") ? 
+            parseFloat(tabla.rows[i].cells[1].querySelector("input").value) || 0 : 0;
+        let medio = tabla.rows[i].cells[2].querySelector("input") ? 
+            parseFloat(tabla.rows[i].cells[2].querySelector("input").value) || 0 : 0;
+        let extra = tabla.rows[i].cells[3].querySelector("input") ? 
+            parseFloat(tabla.rows[i].cells[3].querySelector("input").value) || 0 : 0;
+        let carrotanque = tabla.rows[i].cells[4].querySelector("input") ? 
+            parseFloat(tabla.rows[i].cells[4].querySelector("input").value) || 0 : 0;
+
+        tarifas[vehiculo] = {completo, medio, extra, carrotanque};
     }
     return tarifas;
 }
 
 function formatNumber(num) {
-    return num.toLocaleString('es-CO'); // formato colombiano con puntos cada 3 dígitos
+    return num.toLocaleString('es-CO');
 }
 
 function recalcular() {
@@ -160,13 +187,15 @@ function recalcular() {
         let completos = parseInt(fila.cells[2].innerText) || 0;
         let medios    = parseInt(fila.cells[3].innerText) || 0;
         let extras    = parseInt(fila.cells[4].innerText) || 0;
+        let carrotanques = parseInt(fila.cells[5].innerText) || 0;
 
         if (tarifas[vehiculo]) {
             let total = (completos * tarifas[vehiculo].completo) +
                         (medios * tarifas[vehiculo].medio) +
-                        (extras * tarifas[vehiculo].extra);
+                        (extras * tarifas[vehiculo].extra) +
+                        (carrotanques * tarifas[vehiculo].carrotanque);
 
-            fila.cells[5].querySelector("input").value = formatNumber(total);
+            fila.cells[6].querySelector("input").value = formatNumber(total);
             totalGeneral += total;
         }
     }
