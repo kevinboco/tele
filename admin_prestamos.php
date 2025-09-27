@@ -8,10 +8,10 @@
  ******************************************************/
 
 // =================== CONFIG ===================
-const DB_HOST = 'localhost';
-const DB_USER = 'usuario';
-const DB_PASS = 'password';
-const DB_NAME = 'basededatos';
+define('DB_HOST', 'mysql.hostinger.com');
+define('DB_USER', 'u648222299_keboco5');
+define('DB_PASS', 'Bucaramanga3011');
+define('DB_NAME', 'u648222299_viajes');
 
 // Ruta de subidas (carpeta local)
 const UPLOAD_DIR = __DIR__ . '/uploads/';
