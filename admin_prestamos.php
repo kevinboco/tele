@@ -1,273 +1,256 @@
 <?php
-/******************************************************
- *  admin_prestamos.php  —  CRUD simple para "prestamos"
- ******************************************************/
+/*********************************************************
+ * admin_prestamos.php  —  CRUD muy claro con TABLA SIEMPRE
+ *********************************************************/
 
-// =================== CONFIG ===================
-define('DB_HOST', 'mysql.hostinger.com');
-define('DB_USER', 'u648222299_keboco5');
-define('DB_PASS', 'Bucaramanga3011');
-define('DB_NAME', 'u648222299_viajes');
-
-// Ruta de subidas (carpeta local)
+// ======= CONFIG =======
+const DB_HOST = 'localhost';
+const DB_USER = 'usuario';
+const DB_PASS = 'password';
+const DB_NAME = 'basededatos';
 const UPLOAD_DIR = __DIR__ . '/uploads/';
-// URL base opcional (si lo sirves en subcarpeta), si no, déjalo vacío:
-const BASE_PATH = ''; 
-
-// Tamaño máx imagen 10 MB
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+// ======================
 
-// ==============================================
-
-/** Conexión a DB */
-function db(): mysqli {
-    $m = @new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
-    if ($m->connect_errno) {
-        http_response_code(500);
-        exit("Error DB: " . $m->connect_error);
-    }
-    $m->set_charset('utf8mb4');
-    return $m;
-}
-
-/** Escape HTML */
-function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
-
-/** Redirección */
-function redirect($path) {
-    header("Location: " . (BASE_PATH . $path));
-    exit;
-}
-
-/** Asegura carpeta de subidas */
 if (!is_dir(UPLOAD_DIR)) @mkdir(UPLOAD_DIR, 0775, true);
 
-// ---- Router simple por query string ----
+function db(): mysqli {
+  $m = @new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
+  if ($m->connect_errno) { exit("Error DB: ".$m->connect_error); }
+  $m->set_charset('utf8mb4'); return $m;
+}
+function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES,'UTF-8'); }
+function money($n){ return number_format((float)$n,0,',','.'); }
+function go($qs){ header("Location: ".$qs); exit; }
+
 $action = $_GET['action'] ?? 'list';
-$id     = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+$id = (int)($_GET['id'] ?? 0);
 
-// ---- Filtro, orden y paginación (list) ----
-$search     = trim($_GET['q'] ?? '');
-$order_col  = $_GET['oc'] ?? 'id';           
-$order_dir  = (strtolower($_GET['od'] ?? 'desc') === 'asc') ? 'ASC' : 'DESC';
-$page       = max(1, (int)($_GET['page'] ?? 1));
-$per_page   = 15;
-$offset     = ($page - 1) * $per_page;
-
-// Columnas de orden permitidas
-$allowed_cols = ['id','deudor','prestamista','monto','fecha','created_at'];
-if (!in_array($order_col, $allowed_cols, true)) $order_col = 'id';
-
-// ============== HANDLERS (CREATE / UPDATE / DELETE) ==============
-
-/** Subida de imagen */
-function handle_upload(?array $file): ?string {
-    if (empty($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) return null;
-    if (!empty($file['error']) && $file['error'] !== UPLOAD_ERR_OK) return null;
-    if (($file['size'] ?? 0) > MAX_UPLOAD_BYTES) return null;
-
-    $finfo = new finfo(FILEINFO_MIME_TYPE);
-    $mime = $finfo->file($file['tmp_name']);
-    $ext = match ($mime) {
-        'image/jpeg' => 'jpg',
-        'image/png'  => 'png',
-        'image/webp' => 'webp',
-        'image/gif'  => 'gif',
-        default      => null
-    };
-    if (!$ext) return null;
-
-    $name = time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
-    $dest = UPLOAD_DIR . $name;
-    if (!move_uploaded_file($file['tmp_name'], $dest)) return null;
-    return $name;
+// ===== helpers subida =====
+function save_image($file): ?string {
+  if (empty($file) || ($file['error']??4) === 4) return null;
+  if ($file['error'] !== UPLOAD_ERR_OK) return null;
+  if ($file['size'] > MAX_UPLOAD_BYTES) return null;
+  $finfo = new finfo(FILEINFO_MIME_TYPE);
+  $mime = $finfo->file($file['tmp_name']);
+  $ext = match ($mime) {
+    'image/jpeg'=>'jpg','image/png'=>'png','image/webp'=>'webp','image/gif'=>'gif', default=>null
+  };
+  if(!$ext) return null;
+  $name = time().'_'.bin2hex(random_bytes(4)).'.'.$ext;
+  if (!move_uploaded_file($file['tmp_name'], UPLOAD_DIR.$name)) return null;
+  return $name;
 }
 
-/** CREATE */
-if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $deudor      = trim($_POST['deudor'] ?? '');
-    $prestamista = trim($_POST['prestamista'] ?? '');
-    $monto       = trim($_POST['monto'] ?? '');
-    $fecha       = trim($_POST['fecha'] ?? ''); 
-    $imagen_name = handle_upload($_FILES['imagen'] ?? null);
+// ===== operaciones =====
+if ($action==='create' && $_SERVER['REQUEST_METHOD']==='POST'){
+  $deudor = trim($_POST['deudor']??'');
+  $prestamista = trim($_POST['prestamista']??'');
+  $monto = trim($_POST['monto']??'');
+  $fecha = trim($_POST['fecha']??'');
+  $img = save_image($_FILES['imagen']??null);
 
-    $errors = [];
-    if ($deudor === '')       $errors[] = "El deudor es obligatorio.";
-    if ($prestamista === '')  $errors[] = "El prestamista es obligatorio.";
-    if ($monto === '' || !is_numeric($monto)) $errors[] = "El monto debe ser numérico.";
-    if ($fecha === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/',$fecha)) $errors[] = "La fecha debe tener formato YYYY-MM-DD.";
+  if ($deudor && $prestamista && is_numeric($monto) && preg_match('/^\d{4}-\d{2}-\d{2}$/',$fecha)){
+    $c=db(); $st=$c->prepare("INSERT INTO prestamos (deudor,prestamista,monto,fecha,imagen,created_at) VALUES (?,?,?,?,?,NOW())");
+    $st->bind_param("ssdss",$deudor,$prestamista,$monto,$fecha,$img); $st->execute();
+    $st->close(); $c->close(); go('?msg=creado');
+  } else { $err="Completa todos los campos correctamente."; }
+}
 
-    if (empty($errors)) {
-        $conn = db();
-        $stmt = $conn->prepare("INSERT INTO prestamos (deudor, prestamista, monto, fecha, imagen, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
-        $stmt->bind_param("ssdss", $deudor, $prestamista, $monto, $fecha, $imagen_name);
-        $ok = $stmt->execute();
-        $stmt->close(); $conn->close();
-        if ($ok) redirect('/admin_prestamos.php?action=list&msg=creado');
-        $errors[] = "Error al insertar.";
+if ($action==='edit' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
+  $deudor=trim($_POST['deudor']??''); $prestamista=trim($_POST['prestamista']??'');
+  $monto=trim($_POST['monto']??'');   $fecha=trim($_POST['fecha']??'');
+  $keep = isset($_POST['keep']) ? 1:0;
+  $img = save_image($_FILES['imagen']??null);
+
+  if ($deudor && $prestamista && is_numeric($monto) && preg_match('/^\d{4}-\d{2}-\d{2}$/',$fecha)){
+    $c=db();
+    if ($img){ // nueva imagen
+      $st=$c->prepare("UPDATE prestamos SET deudor=?,prestamista=?,monto=?,fecha=?,imagen=? WHERE id=?");
+      $st->bind_param("ssdssi",$deudor,$prestamista,$monto,$fecha,$img,$id);
+    } else {
+      if ($keep){
+        $st=$c->prepare("UPDATE prestamos SET deudor=?,prestamista=?,monto=?,fecha=? WHERE id=?");
+        $st->bind_param("ssdsi",$deudor,$prestamista,$monto,$fecha,$id);
+      } else {
+        $st=$c->prepare("UPDATE prestamos SET deudor=?,prestamista=?,monto=?,fecha=?,imagen=NULL WHERE id=?");
+        $st->bind_param("ssdsi",$deudor,$prestamista,$monto,$fecha,$id);
+      }
     }
+    $st->execute(); $st->close(); $c->close(); go('?msg=editado');
+  } else { $err="Completa todos los campos correctamente."; }
 }
 
-/** UPDATE o DELETE desde la vista EDITAR */
-if ($action === 'edit' && $_SERVER['REQUEST_METHOD'] === 'POST' && $id > 0) {
-    // Si viene delete, borramos
-    if (isset($_POST['delete'])) {
-        $conn = db();
-        $stmt = $conn->prepare("SELECT imagen FROM prestamos WHERE id=?");
-        $stmt->bind_param("i", $id);
-        $stmt->execute(); $stmt->bind_result($img); $stmt->fetch(); $stmt->close();
-        if ($img && is_file(UPLOAD_DIR . $img)) @unlink(UPLOAD_DIR . $img);
-
-        $stmt = $conn->prepare("DELETE FROM prestamos WHERE id=?");
-        $stmt->bind_param("i", $id);
-        $stmt->execute(); $stmt->close(); $conn->close();
-        redirect('/admin_prestamos.php?action=list&msg=eliminado');
-    }
-
-    // Si viene update, actualizamos
-    if (isset($_POST['update'])) {
-        $deudor      = trim($_POST['deudor'] ?? '');
-        $prestamista = trim($_POST['prestamista'] ?? '');
-        $monto       = trim($_POST['monto'] ?? '');
-        $fecha       = trim($_POST['fecha'] ?? '');
-        $imagen_name = handle_upload($_FILES['imagen'] ?? null);
-        $keep_image  = isset($_POST['keep_image']) ? (bool)$_POST['keep_image'] : false;
-
-        $errors = [];
-        if ($deudor === '')       $errors[] = "El deudor es obligatorio.";
-        if ($prestamista === '')  $errors[] = "El prestamista es obligatorio.";
-        if ($monto === '' || !is_numeric($monto)) $errors[] = "El monto debe ser numérico.";
-        if ($fecha === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/',$fecha)) $errors[] = "La fecha debe tener formato YYYY-MM-DD.";
-
-        if (empty($errors)) {
-            $conn = db();
-            if ($imagen_name) {
-                $stmt = $conn->prepare("UPDATE prestamos SET deudor=?, prestamista=?, monto=?, fecha=?, imagen=? WHERE id=?");
-                $stmt->bind_param("ssdssi", $deudor, $prestamista, $monto, $fecha, $imagen_name, $id);
-            } else {
-                if ($keep_image) {
-                    $stmt = $conn->prepare("UPDATE prestamos SET deudor=?, prestamista=?, monto=?, fecha=? WHERE id=?");
-                    $stmt->bind_param("ssdsi", $deudor, $prestamista, $monto, $fecha, $id);
-                } else {
-                    $stmt = $conn->prepare("UPDATE prestamos SET deudor=?, prestamista=?, monto=?, fecha=?, imagen=NULL WHERE id=?");
-                    $stmt->bind_param("ssdsi", $deudor, $prestamista, $monto, $fecha, $id);
-                }
-            }
-            $ok = $stmt->execute();
-            $stmt->close(); $conn->close();
-            if ($ok) redirect('/admin_prestamos.php?action=list&msg=editado');
-            $errors[] = "Error al actualizar.";
-        }
-    }
+if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
+  $c=db();
+  $st=$c->prepare("SELECT imagen FROM prestamos WHERE id=?"); $st->bind_param("i",$id);
+  $st->execute(); $st->bind_result($img); $st->fetch(); $st->close();
+  if ($img && is_file(UPLOAD_DIR.$img)) @unlink(UPLOAD_DIR.$img);
+  $st=$c->prepare("DELETE FROM prestamos WHERE id=?"); $st->bind_param("i",$id); $st->execute();
+  $st->close(); $c->close(); go('?msg=eliminado');
 }
 
-// =================== VISTAS ===================
+// ===== UI =====
+?><!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prestamos | Admin</title>
+<style>
+ body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:22px;background:#f6f7fb;color:#222}
+ .btn{display:inline-block;padding:8px 12px;border-radius:10px;background:#0b5ed7;color:#fff;text-decoration:none}
+ .btn.gray{background:#6c757d}.btn.red{background:#dc3545}
+ .card{background:#fff;border-radius:14px;box-shadow:0 6px 20px rgba(0,0,0,.06);padding:16px;margin-bottom:16px}
+ table{width:100%;border-collapse:collapse;border-radius:12px;overflow:hidden;background:#fff}
+ th,td{padding:10px;border-bottom:1px solid #eee;vertical-align:top}
+ th{background:#eef2ff;text-align:left}
+ tr:hover{background:#fafcff}
+ .fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+ .field{display:flex;flex-direction:column;gap:6px}
+ input,select{padding:10px;border:1px solid #ddd;border-radius:10px}
+ input[type=file]{border:1px dashed #bbb;background:#fafafa}
+ img.thumb{max-height:70px;border-radius:8px;border:1px solid #eee}
+ .muted{color:#777}.msg{background:#e8f7ee;color:#196a3b;padding:8px 12px;border-radius:10px;display:inline-block}
+ .error{background:#fdecec;color:#b02a37;padding:8px 12px;border-radius:10px;display:inline-block}
+ .toolbar{display:flex;gap:10px;align-items:center;margin-bottom:12px}
+</style>
+</head><body>
 
-function header_html($title='Prestamos Admin'){
-    echo "<!doctype html><html lang='es'><head><meta charset='utf-8'>
-    <meta name='viewport' content='width=device-width, initial-scale=1'>
-    <title>".h($title)."</title>
-    <style>
-        body{font-family:sans-serif;margin:20px;background:#f7f7fb;color:#222}
-        a{color:#0b5ed7;text-decoration:none}
-        .topbar{display:flex;gap:10px;align-items:center;margin-bottom:16px}
-        .btn{display:inline-block;padding:8px 12px;border-radius:8px;background:#0b5ed7;color:#fff;border:none;cursor:pointer}
-        .btn.secondary{background:#6c757d}
-        .btn.danger{background:#dc3545}
-        .card{background:#fff;border-radius:14px;box-shadow:0 4px 20px rgba(0,0,0,.06);padding:16px;margin-bottom:16px}
-        table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden}
-        th,td{padding:10px;border-bottom:1px solid #eee}
-        th{background:#f0f3f8;text-align:left}
-        .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-        .field{display:flex;flex-direction:column;gap:6px}
-        input[type=text],input[type=number],input[type=date]{padding:10px;border:1px solid #ddd;border-radius:10px}
-        input[type=file]{border:1px dashed #bbb;padding:8px;border-radius:10px;background:#fafafa}
-        .muted{color:#666}
-        img.thumb{max-height:70px;border-radius:8px;border:1px solid #eee}
-    </style>
-    </head><body>";
-}
-function footer_html(){ echo "</body></html>"; }
-function nav(){
-    echo "<div class='topbar'>
-        <a class='btn' href='".BASE_PATH."/admin_prestamos.php?action=list'>📄 Listado</a>
-        <a class='btn secondary' href='".BASE_PATH."/admin_prestamos.php?action=create'>➕ Crear</a>
-    </div>";
-}
+<div class="toolbar">
+  <a class="btn" href="?">📄 Listado</a>
+  <a class="btn gray" href="?action=new">➕ Crear</a>
+</div>
 
-// ---- Render listado ----
-if ($action === 'list') {
-    // aquí dejas tu listado original
-}
+<?php if (!empty($_GET['msg'])): ?>
+  <div class="msg">
+    <?php
+      echo match($_GET['msg']){
+        'creado'=>'Registro creado correctamente.',
+        'editado'=>'Cambios guardados.',
+        'eliminado'=>'Registro eliminado.',
+        default=>'Operación realizada.'
+      };
+    ?>
+  </div>
+<?php endif; ?>
 
-// ---- Render crear ----
-if ($action === 'create' && $_SERVER['REQUEST_METHOD'] !== 'POST') {
-    // aquí dejas tu vista de crear original
-}
-
-// ---- Render editar ----
-if ($action === 'edit' && $_SERVER['REQUEST_METHOD'] !== 'POST' && $id > 0) {
-    $conn = db();
-    $stmt = $conn->prepare("SELECT id, deudor, prestamista, monto, fecha, imagen FROM prestamos WHERE id=?");
-    $stmt->bind_param("i", $id);
-    $stmt->execute(); $res = $stmt->get_result();
-    $row = $res->fetch_assoc();
-    $stmt->close(); $conn->close();
-
-    if (!$row) { redirect('/admin_prestamos.php?action=list&msg=error'); }
-
-    header_html('Prestamos | Editar'); nav();
-
-    echo "<div class='card'><h2>Editar préstamo #".h($row['id'])."</h2>
-    <form method='post' enctype='multipart/form-data'>
-        <input type='hidden' name='update' value='1'>
-        <div class='grid'>
-            <div class='field'>
-                <label>Deudor *</label>
-                <input type='text' name='deudor' value='".h($row['deudor'])."' required>
-            </div>
-            <div class='field'>
-                <label>Prestamista *</label>
-                <input type='text' name='prestamista' value='".h($row['prestamista'])."' required>
-            </div>
-            <div class='field'>
-                <label>Monto *</label>
-                <input type='number' name='monto' value='".h($row['monto'])."' required>
-            </div>
-            <div class='field'>
-                <label>Fecha *</label>
-                <input type='date' name='fecha' value='".h($row['fecha'])."' required>
-            </div>
-            <div class='field' style='grid-column:1 / -1'>
-                <label>Imagen actual</label>";
-                if ($row['imagen']) {
-                    $imgPath = 'uploads/' . rawurlencode($row['imagen']);
-                    echo "<div><a href='".h($imgPath)."' target='_blank'>
-                        <img class='thumb' src='".h($imgPath)."'></a></div>
-                        <label><input type='checkbox' name='keep_image' checked> Mantener imagen actual</label>";
-                } else {
-                    echo "<div class='muted'>— (sin imagen)</div>
-                    <input type='hidden' name='keep_image' value='0'>";
-                }
-                echo "<div style='margin-top:6px'>
-                    <label>Subir nueva (opcional)</label>
-                    <input type='file' name='imagen' accept='image/*'>
-                </div>
-            </div>
+<?php
+// ====== NEW / EDIT FORMS ======
+if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!=='POST')):
+  $row = ['deudor'=>'','prestamista'=>'','monto'=>'','fecha'=>'','imagen'=>null];
+  if ($action==='edit'){
+    $c=db(); $st=$c->prepare("SELECT deudor,prestamista,monto,fecha,imagen FROM prestamos WHERE id=?");
+    $st->bind_param("i",$id); $st->execute(); $res=$st->get_result(); $row=$res->fetch_assoc() ?: $row;
+    $st->close(); $c->close();
+  }
+?>
+  <div class="card">
+    <h2><?= $action==='new'?'Nuevo préstamo':'Editar préstamo #'.h($id) ?></h2>
+    <?php if(!empty($err)): ?><div class="error"><?= h($err) ?></div><?php endif; ?>
+    <form method="post" enctype="multipart/form-data" action="?action=<?= $action==='new'?'create':'edit&id='.$id ?>">
+      <div class="fields">
+        <div class="field">
+          <label>Deudor *</label>
+          <input name="deudor" required value="<?= h($row['deudor']) ?>">
         </div>
-        <div style='margin-top:12px'>
-            <button class='btn' type='submit'>💾 Guardar cambios</button>
-            <button class='btn danger' type='submit' name='delete' value='1' 
-                    onclick='return confirm(\"¿Seguro que deseas eliminar este registro?\")'>🗑️ Eliminar</button>
-            <a class='btn secondary' href='".BASE_PATH."/admin_prestamos.php?action=list'>Cancelar</a>
+        <div class="field">
+          <label>Prestamista *</label>
+          <input name="prestamista" required value="<?= h($row['prestamista']) ?>">
         </div>
+        <div class="field">
+          <label>Monto *</label>
+          <input name="monto" type="number" step="1" min="0" required value="<?= h($row['monto']) ?>">
+        </div>
+        <div class="field">
+          <label>Fecha *</label>
+          <input name="fecha" type="date" required value="<?= h($row['fecha']) ?>">
+        </div>
+        <div class="field" style="grid-column:1/-1">
+          <label>Imagen (opcional)</label>
+          <?php if ($action==='edit' && $row['imagen']): ?>
+            <div style="margin-bottom:6px">
+              <img class="thumb" src="uploads/<?= h($row['imagen']) ?>" alt="">
+            </div>
+            <label><input type="checkbox" name="keep" checked> Mantener imagen actual</label>
+          <?php endif; ?>
+          <input type="file" name="imagen" accept="image/*">
+        </div>
+      </div>
+      <div style="margin-top:12px">
+        <button class="btn" type="submit">💾 Guardar</button>
+        <a class="btn gray" href="?">Cancelar</a>
+      </div>
     </form>
-    </div>";
+  </div>
+<?php
+// ====== LIST ======
+else:
+  // filtros simples
+  $q = trim($_GET['q'] ?? '');
+  $conn=db();
+  $where = "1";
+  $types=""; $params=[];
+  if ($q!==''){ $where.=" AND (deudor LIKE CONCAT('%',?,'%') OR prestamista LIKE CONCAT('%',?,'%'))";
+    $types="ss"; $params=[$q,$q]; }
 
-    footer_html(); exit;
-}
+  // obtén todo (sin paginación para que VEAS la tabla; si tienes miles, le metemos paginación)
+  $sql="SELECT id,deudor,prestamista,monto,fecha,imagen,created_at FROM prestamos WHERE $where ORDER BY id DESC";
+  $st=$conn->prepare($sql);
+  if($types) $st->bind_param($types, ...$params);
+  $st->execute(); $rs=$st->get_result();
+?>
+  <div class="card">
+    <form class="toolbar" method="get">
+      <input type="hidden" name="action" value="list">
+      <input name="q" placeholder="Buscar (deudor/prestamista)" value="<?= h($q) ?>">
+      <button class="btn" type="submit">Filtrar</button>
+    </form>
 
-// ---- 404 ----
-header_html(); nav();
-echo "<div class='card'><h2>Ups</h2><p>Acción no válida.</p></div>";
-footer_html();
+    <div style="overflow:auto">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Deudor</th>
+            <th>Prestamista</th>
+            <th>Monto</th>
+            <th>Fecha</th>
+            <th>Imagen</th>
+            <th>Creado</th>
+            <th style="min-width:170px">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+        <?php if ($rs->num_rows === 0): ?>
+          <tr><td colspan="8" class="muted">(sin registros)</td></tr>
+        <?php else: while($r=$rs->fetch_assoc()): ?>
+          <tr>
+            <td><?= h($r['id']) ?></td>
+            <td><?= h($r['deudor']) ?></td>
+            <td><?= h($r['prestamista']) ?></td>
+            <td>$ <?= money($r['monto']) ?></td>
+            <td><?= h($r['fecha']) ?></td>
+            <td>
+              <?php if ($r['imagen']): ?>
+                <a href="uploads/<?= h($r['imagen']) ?>" target="_blank">
+                  <img class="thumb" src="uploads/<?= h($r['imagen']) ?>" alt="">
+                </a>
+              <?php else: ?><span class="muted">—</span><?php endif; ?>
+            </td>
+            <td><?= h($r['created_at']) ?></td>
+            <td>
+              <a class="btn gray" href="?action=edit&id=<?= $r['id'] ?>">✏️ Editar</a>
+              <form style="display:inline" method="post" action="?action=delete&id=<?= $r['id'] ?>" onsubmit="return confirm('¿Eliminar #<?= $r['id'] ?>?')">
+                <button class="btn red" type="submit">🗑️ Eliminar</button>
+              </form>
+            </td>
+          </tr>
+        <?php endwhile; endif; ?>
+        </tbody>
+      </table>
+    </div>
+  </div>
+<?php
+  $st->close(); $conn->close();
+endif; // list
+?>
+</body></html>
