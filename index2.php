@@ -16,6 +16,8 @@
        class="btn btn-success">➡️ ir a informe de viajes</a>
     <a href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php" 
        class="btn btn-success">➡️ ir a liquidación de viajes</a>
+    <a href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/admin_prestamos.php" 
+       class="btn btn-success">➡️ ir a administración de préstamos</a>
   </div>
 
   <!-- Filtros -->
