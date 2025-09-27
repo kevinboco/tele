@@ -1,4 +1,3 @@
-
 <?php
 require 'vendor/autoload.php';
 
@@ -13,11 +12,28 @@ if ($conn->connect_error) {
 
 // Si no se han enviado fechas, mostramos formulario
 if (!isset($_POST['desde']) || !isset($_POST['hasta'])) {
+    // Consultar empresas distintas
+    $empresas = [];
+    $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
+    while ($r = $resEmp->fetch_assoc()) {
+        $empresas[] = $r['empresa'];
+    }
     ?>
     <form method="post">
         <h2>📅 Generar Informe de Viajes</h2>
         <label>Desde: <input type="date" name="desde" required></label><br><br>
         <label>Hasta: <input type="date" name="hasta" required></label><br><br>
+
+        <label>Empresa: 
+            <select name="empresa">
+                <option value="">-- Todas --</option>
+                <?php foreach($empresas as $e): ?>
+                    <option value="<?= htmlspecialchars($e) ?>"><?= htmlspecialchars($e) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <br><br>
+
         <button type="submit">Generar Informe</button>
     </form>
     <?php
@@ -27,11 +43,17 @@ if (!isset($_POST['desde']) || !isset($_POST['hasta'])) {
 // Fechas recibidas
 $desde = $_POST['desde'];
 $hasta = $_POST['hasta'];
+$empresaFiltro = $_POST['empresa'] ?? "";
 
-// Consultar viajes en el rango
-$sql = "SELECT fecha, nombre, ruta FROM viajes 
-        WHERE fecha BETWEEN '$desde' AND '$hasta'
-        ORDER BY fecha ASC, id ASC";
+// Construir SQL con filtro opcional
+$sql = "SELECT fecha, nombre, ruta, empresa FROM viajes 
+        WHERE fecha BETWEEN '$desde' AND '$hasta'";
+if ($empresaFiltro !== "") {
+    $empresaFiltro = $conn->real_escape_string($empresaFiltro);
+    $sql .= " AND empresa = '$empresaFiltro'";
+}
+$sql .= " ORDER BY fecha ASC, id ASC";
+
 $res = $conn->query($sql);
 
 // Crear documento Word
@@ -47,6 +69,9 @@ $section->addText("OBJETO: TRASLADO DE PERSONAL ASISTENCIAL DE LA ESE HOSPITAL S
 $section->addTextBreak(1);
 
 $section->addText("Periodo: desde $desde hasta $hasta", ['italic' => true]);
+if ($empresaFiltro !== "") {
+    $section->addText("Empresa: $empresaFiltro", ['italic' => true]);
+}
 $section->addTextBreak(1);
 
 // === Tabla de viajes ===
@@ -61,6 +86,7 @@ $table->addRow();
 $table->addCell(2000)->addText("FECHA DEL VIAJE", ['bold' => true]);
 $table->addCell(4000)->addText("CONDUCTOR", ['bold' => true]);
 $table->addCell(4000)->addText("RUTA", ['bold' => true]);
+$table->addCell(3000)->addText("EMPRESA", ['bold' => true]);
 
 // Filas con los datos
 if ($res->num_rows > 0) {
@@ -69,10 +95,11 @@ if ($res->num_rows > 0) {
         $table->addCell(2000)->addText($row['fecha']);
         $table->addCell(4000)->addText($row['nombre']);
         $table->addCell(4000)->addText($row['ruta']);
+        $table->addCell(3000)->addText($row['empresa']);
     }
 } else {
     $table->addRow();
-    $table->addCell(10000, ['gridSpan' => 3])->addText("📭 No hay viajes en este rango de fechas.");
+    $table->addCell(13000, ['gridSpan' => 4])->addText("📭 No hay viajes en este rango de fechas.");
 }
 
 // === Pie de página ===
