@@ -48,14 +48,15 @@ function routeUpdate($update) {
     if ($text === "/manual"){ $release(); return manual_entrypoint($chat_id, $estado); }
 
     // Callbacks: rutea por flujo en curso
-    if ($cb_data && $flujo === 'agg')    { agg_handle_callback($chat_id, $estado, $cb_data, $cb_id);   saveState($chat_id, $estado); $release(); return; }
-    if ($cb_data && $flujo === 'manual') { manual_handle_callback($chat_id, $estado, $cb_data, $cb_id); saveState($chat_id, $estado); $release(); return; }
+    if ($cb_data && $flujo === 'agg')    { agg_handle_callback($chat_id, $estado, $cb_data, $cb_id);   $release(); return; }
+    if ($cb_data && $flujo === 'manual') { manual_handle_callback($chat_id, $estado, $cb_data, $cb_id); $release(); return; }
+
     if ($cb_id) answerCallbackQuery($cb_id);
 
     // Mensajes de texto: rutea por flujo
     if (!empty($estado)) {
-        if ($flujo === 'agg')    { agg_handle_text($chat_id, $estado, $text, $photo);   saveState($chat_id, $estado); $release(); return; }
-        if ($flujo === 'manual') { manual_handle_text($chat_id, $estado, $text, $photo); saveState($chat_id, $estado); $release(); return; }
+        if ($flujo === 'agg')    { agg_handle_text($chat_id, $estado, $text, $photo);   $release(); return; }
+        if ($flujo === 'manual') { manual_handle_text($chat_id, $estado, $text, $photo); $release(); return; }
     }
 
     // Fuera de flujo
