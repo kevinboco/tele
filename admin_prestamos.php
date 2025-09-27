@@ -4,10 +4,10 @@
  *********************************************************/
 
 // ======= CONFIG =======
-const DB_HOST = 'localhost';
-const DB_USER = 'usuario';
-const DB_PASS = 'password';
-const DB_NAME = 'basededatos';
+define('DB_HOST', 'mysql.hostinger.com');
+define('DB_USER', 'u648222299_keboco5');
+define('DB_PASS', 'Bucaramanga3011');
+define('DB_NAME', 'u648222299_viajes');
 const UPLOAD_DIR = __DIR__ . '/uploads/';
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 // ======================
