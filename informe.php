@@ -81,12 +81,11 @@ $table = $section->addTable([
     'cellMargin' => 50
 ]);
 
-// Encabezados
+// Encabezados (solo 3 columnas)
 $table->addRow();
 $table->addCell(2000)->addText("FECHA DEL VIAJE", ['bold' => true]);
 $table->addCell(4000)->addText("CONDUCTOR", ['bold' => true]);
 $table->addCell(4000)->addText("RUTA", ['bold' => true]);
-$table->addCell(3000)->addText("EMPRESA", ['bold' => true]);
 
 // Filas con los datos
 if ($res->num_rows > 0) {
@@ -95,11 +94,10 @@ if ($res->num_rows > 0) {
         $table->addCell(2000)->addText($row['fecha']);
         $table->addCell(4000)->addText($row['nombre']);
         $table->addCell(4000)->addText($row['ruta']);
-        $table->addCell(3000)->addText($row['empresa']);
     }
 } else {
     $table->addRow();
-    $table->addCell(13000, ['gridSpan' => 4])->addText("📭 No hay viajes en este rango de fechas.");
+    $table->addCell(10000, ['gridSpan' => 3])->addText("📭 No hay viajes en este rango de fechas.");
 }
 
 // === Pie de página ===
