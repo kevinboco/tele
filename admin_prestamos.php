@@ -108,55 +108,57 @@ if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-/** UPDATE */
-if ($action === 'edit' && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update']) && $id > 0) {
-    $deudor      = trim($_POST['deudor'] ?? '');
-    $prestamista = trim($_POST['prestamista'] ?? '');
-    $monto       = trim($_POST['monto'] ?? '');
-    $fecha       = trim($_POST['fecha'] ?? '');
-    $imagen_name = handle_upload($_FILES['imagen'] ?? null);
-    $keep_image  = isset($_POST['keep_image']) ? (bool)$_POST['keep_image'] : false;
-
-    $errors = [];
-    if ($deudor === '')       $errors[] = "El deudor es obligatorio.";
-    if ($prestamista === '')  $errors[] = "El prestamista es obligatorio.";
-    if ($monto === '' || !is_numeric($monto)) $errors[] = "El monto debe ser numérico.";
-    if ($fecha === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/',$fecha)) $errors[] = "La fecha debe tener formato YYYY-MM-DD.";
-
-    if (empty($errors)) {
+/** UPDATE o DELETE desde la vista EDITAR */
+if ($action === 'edit' && $_SERVER['REQUEST_METHOD'] === 'POST' && $id > 0) {
+    // Si viene delete, borramos
+    if (isset($_POST['delete'])) {
         $conn = db();
-        if ($imagen_name) {
-            $stmt = $conn->prepare("UPDATE prestamos SET deudor=?, prestamista=?, monto=?, fecha=?, imagen=? WHERE id=?");
-            $stmt->bind_param("ssdssi", $deudor, $prestamista, $monto, $fecha, $imagen_name, $id);
-        } else {
-            if ($keep_image) {
-                $stmt = $conn->prepare("UPDATE prestamos SET deudor=?, prestamista=?, monto=?, fecha=? WHERE id=?");
-                $stmt->bind_param("ssdsi", $deudor, $prestamista, $monto, $fecha, $id);
-            } else {
-                $stmt = $conn->prepare("UPDATE prestamos SET deudor=?, prestamista=?, monto=?, fecha=?, imagen=NULL WHERE id=?");
-                $stmt->bind_param("ssdsi", $deudor, $prestamista, $monto, $fecha, $id);
-            }
-        }
-        $ok = $stmt->execute();
-        $stmt->close(); $conn->close();
-        if ($ok) redirect('/admin_prestamos.php?action=list&msg=editado');
-        $errors[] = "Error al actualizar.";
+        $stmt = $conn->prepare("SELECT imagen FROM prestamos WHERE id=?");
+        $stmt->bind_param("i", $id);
+        $stmt->execute(); $stmt->bind_result($img); $stmt->fetch(); $stmt->close();
+        if ($img && is_file(UPLOAD_DIR . $img)) @unlink(UPLOAD_DIR . $img);
+
+        $stmt = $conn->prepare("DELETE FROM prestamos WHERE id=?");
+        $stmt->bind_param("i", $id);
+        $stmt->execute(); $stmt->close(); $conn->close();
+        redirect('/admin_prestamos.php?action=list&msg=eliminado');
     }
-}
 
-/** DELETE */
-if ($action === 'edit' && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete']) && $id > 0) {
-    $conn = db();
-    $stmt = $conn->prepare("SELECT imagen FROM prestamos WHERE id=?");
-    $stmt->bind_param("i", $id);
-    $stmt->execute(); $stmt->bind_result($img); $stmt->fetch(); $stmt->close();
-    if ($img && is_file(UPLOAD_DIR . $img)) @unlink(UPLOAD_DIR . $img);
+    // Si viene update, actualizamos
+    if (isset($_POST['update'])) {
+        $deudor      = trim($_POST['deudor'] ?? '');
+        $prestamista = trim($_POST['prestamista'] ?? '');
+        $monto       = trim($_POST['monto'] ?? '');
+        $fecha       = trim($_POST['fecha'] ?? '');
+        $imagen_name = handle_upload($_FILES['imagen'] ?? null);
+        $keep_image  = isset($_POST['keep_image']) ? (bool)$_POST['keep_image'] : false;
 
-    $stmt = $conn->prepare("DELETE FROM prestamos WHERE id=?");
-    $stmt->bind_param("i", $id);
-    $ok = $stmt->execute();
-    $stmt->close(); $conn->close();
-    redirect('/admin_prestamos.php?action=list&msg=' . ($ok ? 'eliminado' : 'error'));
+        $errors = [];
+        if ($deudor === '')       $errors[] = "El deudor es obligatorio.";
+        if ($prestamista === '')  $errors[] = "El prestamista es obligatorio.";
+        if ($monto === '' || !is_numeric($monto)) $errors[] = "El monto debe ser numérico.";
+        if ($fecha === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/',$fecha)) $errors[] = "La fecha debe tener formato YYYY-MM-DD.";
+
+        if (empty($errors)) {
+            $conn = db();
+            if ($imagen_name) {
+                $stmt = $conn->prepare("UPDATE prestamos SET deudor=?, prestamista=?, monto=?, fecha=?, imagen=? WHERE id=?");
+                $stmt->bind_param("ssdssi", $deudor, $prestamista, $monto, $fecha, $imagen_name, $id);
+            } else {
+                if ($keep_image) {
+                    $stmt = $conn->prepare("UPDATE prestamos SET deudor=?, prestamista=?, monto=?, fecha=? WHERE id=?");
+                    $stmt->bind_param("ssdsi", $deudor, $prestamista, $monto, $fecha, $id);
+                } else {
+                    $stmt = $conn->prepare("UPDATE prestamos SET deudor=?, prestamista=?, monto=?, fecha=?, imagen=NULL WHERE id=?");
+                    $stmt->bind_param("ssdsi", $deudor, $prestamista, $monto, $fecha, $id);
+                }
+            }
+            $ok = $stmt->execute();
+            $stmt->close(); $conn->close();
+            if ($ok) redirect('/admin_prestamos.php?action=list&msg=editado');
+            $errors[] = "Error al actualizar.";
+        }
+    }
 }
 
 // =================== VISTAS ===================
@@ -195,13 +197,12 @@ function nav(){
 
 // ---- Render listado ----
 if ($action === 'list') {
-    // igual que en tu código original
-    // (no lo repito por espacio, pero permanece idéntico)
+    // aquí dejas tu listado original
 }
 
 // ---- Render crear ----
 if ($action === 'create' && $_SERVER['REQUEST_METHOD'] !== 'POST') {
-    // igual que en tu código original
+    // aquí dejas tu vista de crear original
 }
 
 // ---- Render editar ----
@@ -256,14 +257,10 @@ if ($action === 'edit' && $_SERVER['REQUEST_METHOD'] !== 'POST' && $id > 0) {
         </div>
         <div style='margin-top:12px'>
             <button class='btn' type='submit'>💾 Guardar cambios</button>
+            <button class='btn danger' type='submit' name='delete' value='1' 
+                    onclick='return confirm(\"¿Seguro que deseas eliminar este registro?\")'>🗑️ Eliminar</button>
             <a class='btn secondary' href='".BASE_PATH."/admin_prestamos.php?action=list'>Cancelar</a>
         </div>
-    </form>
-
-    <form method='post' style='margin-top:20px' 
-          onsubmit='return confirm(\"¿Seguro que deseas eliminar este registro?\")'>
-        <input type='hidden' name='delete' value='1'>
-        <button class='btn danger' type='submit'>🗑️ Eliminar préstamo</button>
     </form>
     </div>";
 
