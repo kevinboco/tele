@@ -2,9 +2,10 @@
 /*********************************************************
  * admin_prestamos.php — CRUD + Tarjetas + Visual 3-nodos
  * - Normaliza nombres (no distingue mayúsc/minúsc)
- * - Interés cobra desde el día 1 (10% inicial) + 10% cada mes
+ * - Interés 10% desde el día 1 + 10% por mes
  * - Deudor: valor prestado + fecha + interés + total
  * - Selector de deudores (fuera del SVG) + "Préstamo pagado"
+ * - En el 3er nodo: Ganancia + Total prestado (pendiente)
  *********************************************************/
 
 // ======= CONFIG =======
@@ -43,8 +44,7 @@ function save_image($file): ?string {
   return $name;
 }
 
-/* ===== Acción: marcar pagado SOLO deudores seleccionados =====
-   Cada checkbox lleva un CSV con los IDs de préstamos abiertos de ese nodo (prestamista+deudor). */
+/* ===== Acción: marcar pagado SOLO deudores seleccionados ===== */
 if ($action==='mark_paid' && $_SERVER['REQUEST_METHOD']==='POST'){
   $nodes = $_POST['nodes'] ?? []; // array de CSVs de ids
   if (!is_array($nodes)) $nodes = [];
@@ -235,7 +235,7 @@ else:
 
   $conn=db();
 
-  // Combo de prestamistas (sin duplicar por mayús/minús). Para graph solo listamos con préstamos pendientes.
+  // Combo de prestamistas
   $prestMap = [];
   $resPL = ($view==='graph')
     ? $conn->query("SELECT prestamista FROM prestamos WHERE (pagado IS NULL OR pagado=0)")
@@ -248,7 +248,7 @@ else:
   ksort($prestMap, SORT_NATURAL);
 
   if ($view==='cards'){
-    // -------- TARJETAS (todos, pagados o no) --------
+    // -------- TARJETAS --------
     $where = "1"; $types=""; $params=[];
     if ($q!==''){ $where.=" AND (LOWER(deudor) LIKE CONCAT('%',?,'%') OR LOWER(prestamista) LIKE CONCAT('%',?,'%'))"; $types.="ss"; $params[]=$qNorm; $params[]=$qNorm; }
     if ($fpNorm!==''){ $where.=" AND LOWER(TRIM(prestamista)) = ?"; $types.="s"; $params[]=$fpNorm; }
@@ -343,13 +343,14 @@ else:
     }
     $st2->close();
 
-    // Estructura por prestamista
-    $groups=[]; $ganPrest=[];
+    // Estructura por prestamista + cálculo de ganancia y capital pendiente por prestamista
+    $groups=[]; $ganPrest=[]; $capPendPrest=[];
     while($r=$rs->fetch_assoc()){
       $pkey=$r['prest_key']; $pdisp=$r['prest_display'];
       if(!isset($groups[$pkey])) $groups[$pkey]=['label'=>$pdisp,'rows'=>[]];
       $groups[$pkey]['rows'][]=$r;
-      $ganPrest[$pkey] = ($ganPrest[$pkey] ?? 0) + (float)$r['interes'];
+      $ganPrest[$pkey]  = ($ganPrest[$pkey]  ?? 0) + (float)$r['interes'];
+      $capPendPrest[$pkey] = ($capPendPrest[$pkey] ?? 0) + (float)$r['capital']; // << solo capital NO pagado
     }
 ?>
     <div class="card" style="margin-bottom:16px">
@@ -362,7 +363,7 @@ else:
         <button class="btn" type="submit">Filtrar</button>
         <?php if ($q!=='' || $fpNorm!==''): ?><a class="btn gray" href="?view=graph">Quitar filtro</a><?php endif; ?>
       </form>
-      <div class="subtitle">Diagrama: <strong>Prestamista ➜ Deudores (valor, fecha, interés, total) ➜ Ganancia</strong>. Luego selecciona abajo los deudores y pulsa <strong>Préstamo pagado</strong>.</div>
+      <div class="subtitle">Diagrama: <strong>Prestamista ➜ Deudores (valor, fecha, interés, total) ➜ Ganancia</strong>. Debajo hay un selector para marcar <strong>Préstamo pagado</strong>. El recuadro adicional muestra <strong>Total prestado (pendiente)</strong>.</div>
     </div>
 
     <?php if (empty($groups)): ?>
@@ -371,8 +372,9 @@ else:
         $rows = $ginfo['rows']; $prestLabel = mbtitle($ginfo['label']); $n = count($rows);
         // Geometría
         $rowGap=100; $nodeH=100; $nodeW=320; $headH=52; $topPad=30;
-        $firstY=$topPad+80; $lastY=$firstY+max(0,($n-1)*$rowGap); $centerY=($firstY+$lastY)/2; $height=max(220,(int)($lastY+80));
+        $firstY=$topPad+80; $lastY=$firstY+max(0,($n-1)*$rowGap); $centerY=($firstY+$lastY)/2; $height=max(250,(int)($lastY+110));
         $xL=140; $xC=560; $xR=1080; $prestY=(int)($centerY-$headH/2); $gainY=$prestY;
+        $capPend = $capPendPrest[$pkey] ?? 0.0; // capital no pagado de ese prestamista
     ?>
       <form class="group" method="post" action="?action=mark_paid">
         <input type="hidden" name="view" value="graph">
@@ -393,7 +395,12 @@ else:
             <text class="txt" x="<?= $xR-105 ?>" y="<?= $gainY+20 ?>">Ganancia (interés)</text>
             <text class="txt" x="<?= $xR-105 ?>" y="<?= $gainY+40 ?>">$ <?= money($ganPrest[$pkey] ?? 0) ?></text>
 
-            <?php $i=0; foreach($rows as $r): 
+            <!-- NUEVO: Total prestado (pendiente) -->
+            <rect class="nodeRect" x="<?= $xR-120 ?>" y="<?= $gainY + $headH + 12 ?>" rx="12" ry="12" width="240" height="<?= $headH ?>"/>
+            <text class="txt" x="<?= $xR-105 ?>" y="<?= $gainY + $headH + 12 + 20 ?>">Total prestado (pend.)</text>
+            <text class="txt" x="<?= $xR-105 ?>" y="<?= $gainY + $headH + 12 + 40 ?>">$ <?= money($capPend) ?></text>
+
+            <?php $i=0; foreach($rows as $r):
               $y=$firstY+($i*$rowGap); $boxY=$y-($nodeH/2);
               $cap='$ '.money($r['capital']); $int='$ '.money($r['interes']); $tot='$ '.money($r['total']); $date=h($r['fecha_min']); $deudLbl=mbtitle($r['deud_display']);
             ?>
@@ -421,7 +428,7 @@ else:
             <?php foreach($rows as $r):
               $p = $r['prest_key']; $d = $r['deud_key'];
               $idsCsv = $idsMap[$p][$d] ?? '';
-              if ($idsCsv==='') continue; // nada abierto
+              if ($idsCsv==='') continue;
             ?>
               <label class="selitem">
                 <input class="cb" type="checkbox" name="nodes[]" value="<?= h($idsCsv) ?>">
