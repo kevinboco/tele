@@ -1,8 +1,9 @@
 <?php
 /*********************************************************
  * admin_prestamos.php — CRUD + Tarjetas + Visual 3-nodos
- * - Normalización de texto (no distingue mayúsc/minúsc)
+ * - Normaliza nombres (no distingue mayúsc/minúsc)
  * - Nodos 1 y 3 centrados verticalmente
+ * - En cada deudor: valor prestado + interés + total
  * Interés simple 10% mensual por MESES COMPLETOS
  *********************************************************/
 
@@ -213,7 +214,7 @@ else:
   $conn=db();
 
   // Combo de prestamistas sin duplicados por mayúsculas/minúsculas
-  $prestMap = []; // normKey => original (el primero que aparezca)
+  $prestMap = []; // normKey => original
   $resPL = $conn->query("SELECT prestamista FROM prestamos");
   while($rowPL=$resPL->fetch_row()){
     $norm = mbnorm($rowPL[0]);
@@ -311,15 +312,16 @@ else:
     }
     if ($fpNorm!==''){ $where.=" AND LOWER(TRIM(prestamista)) = ?"; $types.="s"; $params[]=$fpNorm; }
 
-    // Agrupar por prestamista y deudor normalizados
+    // Agrupar por prestamista y deudor (NORMALIZADO) + interés y total por deudor
     $sql = "
       SELECT 
         LOWER(TRIM(prestamista)) AS prest_key,
-        MIN(prestamista) AS prest_display,   -- para mostrar
+        MIN(prestamista) AS prest_display,
         LOWER(TRIM(deudor)) AS deud_key,
         MIN(deudor) AS deud_display,
         SUM(monto) AS capital,
-        SUM(monto*0.10*GREATEST(TIMESTAMPDIFF(MONTH, fecha, CURDATE()),0)) AS interes
+        SUM(monto*0.10*GREATEST(TIMESTAMPDIFF(MONTH, fecha, CURDATE()),0)) AS interes,
+        SUM(monto + (monto*0.10*GREATEST(TIMESTAMPDIFF(MONTH, fecha, CURDATE()),0))) AS total
       FROM prestamos
       WHERE $where
       GROUP BY prest_key, deud_key
@@ -339,10 +341,7 @@ else:
       $ganPrest[$pkey] = ($ganPrest[$pkey] ?? 0) + (float)$r['interes'];
     }
 
-    // Si se cambió la caja de opciones, queremos que muestre el label titulado
-    $labelFor = function($pkey, $fallback) {
-      return mbtitle($fallback);
-    };
+    $labelFor = function($pkey, $fallback) { return mbtitle($fallback); };
 ?>
     <div class="card" style="margin-bottom:16px">
       <form class="toolbar" method="get">
@@ -357,7 +356,7 @@ else:
         <button class="btn" type="submit">Filtrar</button>
         <?php if ($q!=='' || $fpNorm!==''): ?><a class="btn gray" href="?view=graph">Quitar filtro</a><?php endif; ?>
       </form>
-      <div class="subtitle">Diagrama de 3 nodos: <strong>Prestamista ➜ Deudores (valor prestado) ➜ Ganancia</strong> (suma de intereses 10%/mes). No diferencia mayúsculas/minúsculas.</div>
+      <div class="subtitle">Diagrama: <strong>Prestamista ➜ Deudores (valor prestado / interés / total) ➜ Ganancia</strong> (interés 10%/mes). No diferencia mayúsculas/minúsculas.</div>
     </div>
 
     <?php if (empty($groups)): ?>
@@ -366,39 +365,40 @@ else:
         $rows = $ginfo['rows'];
         $prestLabel = $labelFor($pkey, $ginfo['label']);
         $n = count($rows);
-        $rowGap = 80;                 // distancia entre deudores
-        $nodeH  = 60;                 // alto de rect de deudor
-        $headH  = 52;                 // alto de rect prest/ganancia
-        $topPad = 30;
-        $firstCenterY = $topPad + 70;                 // centro del primer deudor
-        $lastCenterY  = $firstCenterY + ($n-1)*$rowGap;
-        $centerY      = ($firstCenterY + $lastCenterY)/2; // centro del conjunto
 
-        // Altura total del SVG
-        $height = max(180, (int)($lastCenterY + 70));
+        // Geometría
+        $rowGap = 88;                 // distancia entre deudores
+        $nodeH  = 78;                 // alto nodo deudor (3 líneas)
+        $nodeW  = 300;                // ancho nodo deudor
+        $headH  = 52;                 // alto cabecera prest/ganancia
+        $topPad = 30;
+        $firstCenterY = $topPad + 80;
+        $lastCenterY  = $firstCenterY + ($n-1)*$rowGap;
+        $centerY      = ($firstCenterY + $lastCenterY)/2;
+        $height       = max(200, (int)($lastCenterY + 80));
 
         // posiciones X (3 columnas)
         $xL = 140;           // prestamista
-        $xC = 540;           // deudores
-        $xR = 940;           // ganancia
+        $xC = 560;           // deudores
+        $xR = 1060;          // ganancia (más a la derecha por nodoW)
 
-        // Y de prestamista y ganancia (centrados)
+        // Y centrados para prestamista y ganancia
         $prestY = (int)($centerY - $headH/2);
         $gainY  = $prestY;
     ?>
       <div class="group">
         <div class="title" style="margin:6px 10px 10px">Prestamista: <?= h($prestLabel) ?></div>
         <div class="svgwrap">
-          <svg width="1120" height="<?= $height ?>" viewBox="0 0 1120 <?= $height ?>" xmlns="http://www.w3.org/2000/svg">
+          <svg width="1280" height="<?= $height ?>" viewBox="0 0 1280 <?= $height ?>" xmlns="http://www.w3.org/2000/svg">
             <!-- Nodo Prestamista (izquierda, centrado) -->
             <rect class="nodeRect" x="<?= $xL-90 ?>" y="<?= $prestY ?>" rx="12" ry="12" width="180" height="<?= $headH ?>"/>
             <text class="txt" x="<?= $xL-80 ?>" y="<?= $prestY+20 ?>">Prestamista</text>
             <text class="txt" x="<?= $xL-80 ?>" y="<?= $prestY+40 ?>"><tspan font-weight="800"><?= h($prestLabel) ?></tspan></text>
 
             <!-- Nodo Ganancia (derecha, centrado) -->
-            <rect class="nodeRect" x="<?= $xR-110 ?>" y="<?= $gainY ?>" rx="12" ry="12" width="220" height="<?= $headH ?>"/>
-            <text class="txt" x="<?= $xR-95 ?>" y="<?= $gainY+20 ?>">Ganancia (interés)</text>
-            <text class="txt" x="<?= $xR-95 ?>" y="<?= $gainY+40 ?>">$ <?= money($ganPrest[$pkey] ?? 0) ?></text>
+            <rect class="nodeRect" x="<?= $xR-120 ?>" y="<?= $gainY ?>" rx="12" ry="12" width="240" height="<?= $headH ?>"/>
+            <text class="txt" x="<?= $xR-105 ?>" y="<?= $gainY+20 ?>">Ganancia (interés)</text>
+            <text class="txt" x="<?= $xR-105 ?>" y="<?= $gainY+40 ?>">$ <?= money($ganPrest[$pkey] ?? 0) ?></text>
 
             <?php
               $i=0;
@@ -406,17 +406,20 @@ else:
                 $y = $firstCenterY + ($i*$rowGap); // centro y de cada deudor
                 $boxY = $y - ($nodeH/2);
                 $cap = '$ '.money($r['capital']);
+                $int = '$ '.money($r['interes']);
+                $tot = '$ '.money($r['total']);
                 $deudLbl = mbtitle($r['deud_display']);
             ?>
               <!-- líneas desde prestamista al deudor (desde el centro del nodo prestamista) -->
               <line x1="<?= $xL+90 ?>" y1="<?= $prestY + $headH/2 ?>" x2="<?= $xC-10 ?>" y2="<?= $y ?>" stroke="#9ca3af" stroke-width="1.5" />
               <!-- líneas desde deudor al nodo ganancia (al centro de ganancia) -->
-              <line x1="<?= $xC+230 ?>" y1="<?= $y ?>" x2="<?= $xR-110 ?>" y2="<?= $gainY + $headH/2 ?>" stroke="#9ca3af" stroke-width="1.2" />
+              <line x1="<?= $xC + $nodeW ?>" y1="<?= $y ?>" x2="<?= $xR-120 ?>" y2="<?= $gainY + $headH/2 ?>" stroke="#9ca3af" stroke-width="1.2" />
 
               <!-- Nodo Deudor (centro) -->
-              <rect class="nodeRect" x="<?= $xC-10 ?>" y="<?= $boxY ?>" rx="12" ry="12" width="240" height="<?= $nodeH ?>"/>
+              <rect class="nodeRect" x="<?= $xC-10 ?>" y="<?= $boxY ?>" rx="12" ry="12" width="<?= $nodeW ?>" height="<?= $nodeH ?>"/>
               <text class="txt" x="<?= $xC ?>" y="<?= $boxY+22 ?>"><tspan font-weight="800"><?= h($deudLbl) ?></tspan></text>
               <text class="txt mut" x="<?= $xC ?>" y="<?= $boxY+40 ?>">valor prestado: <tspan class="amt" fill="#111"><?= $cap ?></tspan></text>
+              <text class="txt mut" x="<?= $xC ?>" y="<?= $boxY+58 ?>">interés: <tspan class="amt" fill="#111"><?= $int ?></tspan> • total <tspan class="amt" fill="#111"><?= $tot ?></tspan></text>
             <?php $i++; endforeach; ?>
           </svg>
         </div>
