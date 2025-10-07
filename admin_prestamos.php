@@ -1,6 +1,8 @@
 <?php
 /*********************************************************
- * admin_prestamos.php — CRUD + Tarjetas + Vista Visual (líneas)
+ * admin_prestamos.php — CRUD + Tarjetas + Visual 3-nodos
+ * Visual:
+ *   [Prestamista] --> [Deudores (valor prestado)] --> [Ganancia (interés)]
  * Interés simple 10% mensual por MESES COMPLETOS
  *********************************************************/
 
@@ -129,16 +131,12 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  .title{font-size:18px;font-weight:800}
  .chip{display:inline-block;background:var(--chip);padding:4px 8px;border-radius:999px;font-size:12px;font-weight:600}
 
- /* VISUAL (grupos con svg) */
- .visual-group{background:#fff;border-radius:16px;box-shadow:0 6px 20px rgba(0,0,0,.06);padding:12px;margin-bottom:16px}
- .vg-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
- .pill{background:#111;color:#fff;border-radius:999px;padding:6px 10px;font-weight:700}
- .vg-legend{font-size:12px;color:var(--muted)}
+ /* VISUAL 3-nodos en un único lienzo por prestamista */
+ .group{background:#fff;border-radius:16px;box-shadow:0 6px 20px rgba(0,0,0,.06);padding:12px;margin-bottom:18px}
  .svgwrap{width:100%;overflow:auto;border:1px dashed #e5e7eb;border-radius:12px;background:#fafafa}
- .node{fill:#ffffff;stroke:#cbd5e1;stroke-width:1.2}
- .node text{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;font-size:13px}
- .node-title{font-weight:800}
- .node-sub{fill:#6b7280}
+ .nodeRect{fill:#ffffff;stroke:#cbd5e1;stroke-width:1.2}
+ .txt{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;font-size:13px;fill:#111}
+ .mut{fill:#6b7280}
  .amt{font-weight:800}
  @media (max-width:760px){ .pairs{grid-template-columns:1fr} }
 </style>
@@ -203,9 +201,9 @@ if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!
 // ====== LIST ======
 else:
 
-  // ==== filtros comunes ====
-  $q = trim($_GET['q'] ?? '');              // buscar por deudor/prestamista
-  $fp = trim($_GET['fp'] ?? '');            // filtro prestamista exacto
+  // ==== filtros y listas ====
+  $q = trim($_GET['q'] ?? '');
+  $fp = trim($_GET['fp'] ?? '');
   $conn=db();
 
   // Para dropdown de prestamistas
@@ -213,11 +211,9 @@ else:
   $resPL = $conn->query("SELECT DISTINCT prestamista FROM prestamos ORDER BY prestamista ASC");
   while($rowPL=$resPL->fetch_row()) $prestList[] = $rowPL[0];
 
-  // ====== TARJETAS ======
   if ($view==='cards'){
-
-    $where = "1";
-    $types=""; $params=[];
+    // -------- TARJETAS --------
+    $where = "1"; $types=""; $params=[];
     if ($q!==''){ $where.=" AND (deudor LIKE CONCAT('%',?,'%') OR prestamista LIKE CONCAT('%',?,'%'))"; $types.="ss"; $params[]=$q; $params[]=$q; }
     if ($fp!==''){ $where.=" AND prestamista = ?"; $types.="s"; $params[]=$fp; }
 
@@ -248,7 +244,7 @@ else:
         <button class="btn" type="submit">Filtrar</button>
         <?php if ($q!=='' || $fp!==''): ?><a class="btn gray" href="?view=cards">Quitar filtro</a><?php endif; ?>
       </form>
-      <div class="subtitle">Interés simple al <strong>10% mensual</strong> por <strong>meses completos</strong> desde la fecha del préstamo.</div>
+      <div class="subtitle">Interés simple 10% mensual por meses completos desde la fecha.</div>
     </div>
 
     <?php if ($rs->num_rows === 0): ?>
@@ -272,8 +268,8 @@ else:
             <div class="pairs" style="margin-top:12px">
               <div class="item"><div class="k">Monto</div><div class="v">$ <?= money($r['monto']) ?></div></div>
               <div class="item"><div class="k">Meses</div><div class="v"><?= h($r['meses']) ?></div></div>
-              <div class="item"><div class="k">Interés (10% x mes)</div><div class="v">$ <?= money($r['interes']) ?></div></div>
-              <div class="item"><div class="k">Total a la fecha</div><div class="v">$ <?= money($r['total']) ?></div></div>
+              <div class="item"><div class="k">Interés</div><div class="v">$ <?= money($r['interes']) ?></div></div>
+              <div class="item"><div class="k">Total</div><div class="v">$ <?= money($r['total']) ?></div></div>
             </div>
             <div class="row" style="margin-top:12px">
               <div class="subtitle">Creado: <?= h($r['created_at']) ?></div>
@@ -292,16 +288,11 @@ else:
 <?php
     $st->close();
 
-  // ====== VISTA VISUAL (líneas) ======
   } else {
-
-    // Traer datos agregados por prestamista-deudor
-    $where = "1";
-    $types=""; $params=[];
-    if ($q!==''){
-      $where.=" AND (deudor LIKE CONCAT('%',?,'%') OR prestamista LIKE CONCAT('%',?,'%'))";
-      $types.="ss"; $params[]=$q; $params[]=$q;
-    }
+    // -------- VISUAL 3-NODOS --------
+    // Agregar por prestamista y deudor: capital prestado (suma de montos) y ganancia total (suma de intereses)
+    $where = "1"; $types=""; $params=[];
+    if ($q!==''){ $where.=" AND (deudor LIKE CONCAT('%',?,'%') OR prestamista LIKE CONCAT('%',?,'%'))"; $types.="ss"; $params[]=$q; $params[]=$q; }
     if ($fp!==''){ $where.=" AND prestamista = ?"; $types.="s"; $params[]=$fp; }
 
     $sql = "
@@ -309,9 +300,7 @@ else:
         prestamista,
         deudor,
         SUM(monto) AS capital,
-        GREATEST(TIMESTAMPDIFF(MONTH, MIN(fecha), CURDATE()),0) AS meses_aprox,
-        SUM(monto*0.10*GREATEST(TIMESTAMPDIFF(MONTH, fecha, CURDATE()),0)) AS interes,
-        SUM(monto + (monto*0.10*GREATEST(TIMESTAMPDIFF(MONTH, fecha, CURDATE()),0))) AS total
+        SUM(monto*0.10*GREATEST(TIMESTAMPDIFF(MONTH, fecha, CURDATE()),0)) AS interes
       FROM prestamos
       WHERE $where
       GROUP BY prestamista, deudor
@@ -321,13 +310,13 @@ else:
     if($types) $st->bind_param($types, ...$params);
     $st->execute(); $rs=$st->get_result();
 
-    // Organizar por prestamista
-    $data=[]; $sumByPrest=[];
+    // Estructura por prestamista
+    $groups=[]; $ganPrest=[];
     while($r=$rs->fetch_assoc()){
       $p=$r['prestamista'];
-      if(!isset($data[$p])) $data[$p]=[];
-      $data[$p][]=$r;
-      $sumByPrest[$p] = ($sumByPrest[$p] ?? 0) + (float)$r['interes'];
+      if(!isset($groups[$p])) $groups[$p]=[];
+      $groups[$p][]=$r;
+      $ganPrest[$p] = ($ganPrest[$p] ?? 0) + (float)$r['interes'];
     }
 ?>
     <div class="card" style="margin-bottom:16px">
@@ -343,57 +332,54 @@ else:
         <button class="btn" type="submit">Filtrar</button>
         <?php if ($q!=='' || $fp!==''): ?><a class="btn gray" href="?view=graph">Quitar filtro</a><?php endif; ?>
       </form>
-      <div class="subtitle">Diagrama: cada <strong>prestamista</strong> conecta a sus <strong>deudores</strong>.  
-      Las etiquetas muestran <em>capital</em>, <em>interés acumulado (10%/mes)</em> y <em>total</em>. La pastilla a la derecha resume la <strong>ganancia (interés)</strong> del prestamista.</div>
+      <div class="subtitle">Diagrama de 3 nodos: <strong>Prestamista ➜ Deudores (valor prestado) ➜ Ganancia</strong> (suma de intereses 10%/mes).</div>
     </div>
 
-    <?php if (empty($data)): ?>
+    <?php if (empty($groups)): ?>
       <div class="card"><span class="subtitle">(sin registros)</span></div>
-    <?php else: foreach($data as $prest => $rows): 
+    <?php else: foreach($groups as $prest => $rows):
         $n = count($rows);
-        $height = max(120, 70*$n + 40); // alto del svg
-        $leftX = 140;                   // nodo prestamista
-        $rightX = 680;                  // nodos deudor
+        $height = max(160, 80*$n + 60);
+        // posiciones X (3 columnas)
+        $xL = 120;           // prestamista
+        $xC = 520;           // deudores
+        $xR = 900;           // ganancia
         $topPad = 30;
     ?>
-      <div class="visual-group">
-        <div class="vg-head">
-          <div class="title">Prestamista: <?= h($prest) ?></div>
-          <div class="pill">Ganancia (interés): $ <?= money($sumByPrest[$prest] ?? 0) ?></div>
-        </div>
+      <div class="group">
+        <div class="title" style="margin:6px 10px 10px">Prestamista: <?= h($prest) ?></div>
         <div class="svgwrap">
-          <svg width="960" height="<?= $height ?>" viewBox="0 0 960 <?= $height ?>" xmlns="http://www.w3.org/2000/svg">
-            <!-- Nodo izquierdo (prestamista) -->
-            <g class="node">
-              <rect x="<?= $leftX-120 ?>" y="<?= $topPad ?>" rx="12" ry="12" width="220" height="44" fill="#ffffff" stroke="#cbd5e1"/>
-              <text x="<?= $leftX-110 ?>" y="<?= $topPad+18 ?>" class="node-title" fill="#111"><?= h($prest) ?></text>
-              <text x="<?= $leftX-110 ?>" y="<?= $topPad+36 ?>" class="node-sub" fill="#6b7280">origen</text>
-            </g>
+          <svg width="1080" height="<?= $height ?>" viewBox="0 0 1080 <?= $height ?>" xmlns="http://www.w3.org/2000/svg">
+            <!-- Nodo Prestamista (izquierda) -->
+            <rect class="nodeRect" x="<?= $xL-90 ?>" y="<?= $topPad ?>" rx="12" ry="12" width="180" height="52"/>
+            <text class="txt" x="<?= $xL-80 ?>" y="<?= $topPad+20 ?>">Prestamista</text>
+            <text class="txt" x="<?= $xL-80 ?>" y="<?= $topPad+40 ?>"><tspan font-weight="800"><?= h($prest) ?></tspan></text>
 
-            <?php 
+            <!-- Nodo Ganancia (derecha) -->
+            <rect class="nodeRect" x="<?= $xR-110 ?>" y="<?= $topPad ?>" rx="12" ry="12" width="220" height="52" fill="#111" stroke="#111"/>
+            <text class="txt" x="<?= $xR-95 ?>" y="<?= $topPad+20 ?>" fill="#fff">Ganancia (interés)</text>
+            <text class="txt" x="<?= $xR-95 ?>" y="<?= $topPad+40 ?>" fill="#fff">$ <?= money($ganPrest[$prest] ?? 0) ?></text>
+
+            <?php
               $i=0;
               foreach($rows as $r):
-                $y = $topPad + 15 + ($i*70) + 30; // centro del rectángulo deudor
+                $y = $topPad + 30 + ($i*80) + 30; // centro y de cada deudor
                 $boxY = $y-30;
                 $cap = '$ '.money($r['capital']);
-                $int = '$ '.money($r['interes']);
-                $tot = '$ '.money($r['total']);
             ?>
-              <!-- línea -->
-              <line x1="<?= $leftX+100 ?>" y1="<?= $topPad+22 ?>" x2="<?= $rightX-20 ?>" y2="<?= $y ?>" stroke="#9ca3af" stroke-width="1.5" />
+              <!-- líneas desde prestamista al deudor -->
+              <line x1="<?= $xL+90 ?>" y1="<?= $topPad+26 ?>" x2="<?= $xC-10 ?>" y2="<?= $y ?>" stroke="#9ca3af" stroke-width="1.5" />
+              <!-- líneas desde deudor a ganancia -->
+              <line x1="<?= $xC+220 ?>" y1="<?= $y ?>" x2="<?= $xR-110 ?>" y2="<?= $topPad+26 ?>" stroke="#9ca3af" stroke-width="1.2" />
 
-              <!-- Nodo derecho (deudor) -->
-              <g class="node">
-                <rect x="<?= $rightX-10 ?>" y="<?= $boxY ?>" rx="12" ry="12" width="260" height="60" fill="#ffffff" stroke="#cbd5e1"/>
-                <text x="<?= $rightX ?>" y="<?= $boxY+20 ?>" class="node-title" fill="#111"><?= h($r['deudor']) ?></text>
-                <text x="<?= $rightX ?>" y="<?= $boxY+38 ?>" class="node-sub" fill="#6b7280">
-                  capital <?= $cap ?> • interés <?= $int ?> • total <tspan class="amt" fill="#111"><?= $tot ?></tspan>
-                </text>
-              </g>
+              <!-- Nodo Deudor (centro) -->
+              <rect class="nodeRect" x="<?= $xC-10 ?>" y="<?= $boxY ?>" rx="12" ry="12" width="230" height="60"/>
+              <text class="txt" x="<?= $xC ?>" y="<?= $boxY+20 ?>"><tspan font-weight="800"><?= h($r['deudor']) ?></tspan></text>
+              <text class="txt mut" x="<?= $xC ?>" y="<?= $boxY+38 ?>">valor prestado: <tspan class="amt" fill="#111"><?= $cap ?></tspan></text>
             <?php $i++; endforeach; ?>
           </svg>
         </div>
-        <div class="vg-legend">Consejo: usa el filtro arriba para ver solo un prestamista o buscar un deudor.</div>
+        <div class="subtitle" style="margin-top:6px">Consejo: usa el filtro para ver uno o varios prestamistas.</div>
       </div>
     <?php endforeach; endif; ?>
 
