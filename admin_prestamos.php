@@ -1,10 +1,10 @@
 <?php
 /*********************************************************
  * admin_prestamos.php — CRUD + Tarjetas + Visual 3-nodos
+ * Pago por selección (solo IDs marcados)
  * - Normaliza nombres (no distingue mayúsc/minúsc)
- * - Interés cobra desde el día 1 (10% inicial) + 10% cada mes
- * - Nodos 1 y 3 centrados verticalmente
- * - Deudor: valor prestado + fecha + interés + total
+ * - Interés: 10% desde el día 1 + 10% por mes
+ * - Visual: valor, fecha, interés, total
  *********************************************************/
 
 // ======= CONFIG =======
@@ -14,11 +14,10 @@ define('DB_PASS', 'Bucaramanga3011');
 define('DB_NAME', 'u648222299_viajes');
 const UPLOAD_DIR = __DIR__ . '/uploads/';
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
-// ======================
 
 if (!is_dir(UPLOAD_DIR)) @mkdir(UPLOAD_DIR, 0775, true);
 
-// Helpers
+// ===== Helpers =====
 function db(): mysqli {
   $m = @new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
   if ($m->connect_errno) { exit("Error DB: ".$m->connect_error); }
@@ -30,11 +29,28 @@ function go($qs){ header("Location: ".$qs); exit; }
 function mbnorm($s){ return mb_strtolower(trim((string)$s),'UTF-8'); }
 function mbtitle($s){ return function_exists('mb_convert_case') ? mb_convert_case((string)$s, MB_CASE_TITLE, 'UTF-8') : ucwords(strtolower((string)$s)); }
 
+// Crea columnas pagado/pagado_at si no existen
+function ensure_schema(){
+  $c=db(); $db=DB_NAME;
+  $need_pagado = 0; $need_pagado_at = 0;
+  if($st=$c->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=? AND TABLE_NAME='prestamos' AND COLUMN_NAME='pagado'")){
+    $st->bind_param("s",$db); $st->execute(); $st->bind_result($cnt); $st->fetch(); $st->close(); if((int)$cnt===0) $need_pagado=1;
+  }
+  if($st=$c->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=? AND TABLE_NAME='prestamos' AND COLUMN_NAME='pagado_at'")){
+    $st->bind_param("s",$db); $st->execute(); $st->bind_result($cnt2); $st->fetch(); $st->close(); if((int)$cnt2===0) $need_pagado_at=1;
+  }
+  if($need_pagado){    @$c->query("ALTER TABLE prestamos ADD COLUMN pagado TINYINT(1) NOT NULL DEFAULT 0"); }
+  if($need_pagado_at){ @$c->query("ALTER TABLE prestamos ADD COLUMN pagado_at DATETIME NULL"); }
+  @$c->query("ALTER TABLE prestamos ADD INDEX idx_pagado (pagado)");
+  $c->close();
+}
+ensure_schema();
+
 $action = $_GET['action'] ?? 'list';
 $view   = $_GET['view']   ?? 'cards'; // 'cards' | 'graph'
 $id = (int)($_GET['id'] ?? 0);
 
-// ===== helpers subida =====
+// ===== Upload helper =====
 function save_image($file): ?string {
   if (empty($file) || ($file['error']??4) === 4) return null;
   if ($file['error'] !== UPLOAD_ERR_OK) return null;
@@ -50,7 +66,38 @@ function save_image($file): ?string {
   return $name;
 }
 
-// ===== operaciones =====
+// ===== Acción: marcar pagado SOLO ids seleccionados =====
+if ($action==='mark_paid' && $_SERVER['REQUEST_METHOD']==='POST'){
+  $idsPacks = $_POST['ids'] ?? [];                // cada valor es CSV de ids del nodo
+  if (!is_array($idsPacks)) $idsPacks = [];
+  $allIds = [];
+  foreach($idsPacks as $pack){
+    foreach(explode(',', (string)$pack) as $raw){
+      $n = (int)trim($raw);
+      if ($n>0) $allIds[$n]=1;
+    }
+  }
+  $idList = array_keys($allIds);
+  if (!empty($idList)){
+    $c=db();
+    $chunks = array_chunk($idList, 200);
+    foreach($chunks as $chunk){
+      $ph = implode(',', array_fill(0, count($chunk), '?'));
+      $types = str_repeat('i', count($chunk));
+      $sql = "UPDATE prestamos SET pagado=1, pagado_at=NOW() WHERE id IN ($ph) AND (pagado IS NULL OR pagado=0)";
+      $st = $c->prepare($sql);
+      $st->bind_param($types, ...$chunk);
+      $st->execute();
+      $st->close();
+    }
+    $c->close();
+    go('?view=graph&msg=pagados');
+  } else {
+    go('?view=graph&msg=nada');
+  }
+}
+
+// ===== CRUD =====
 if ($action==='create' && $_SERVER['REQUEST_METHOD']==='POST'){
   $deudor = trim($_POST['deudor']??'');
   $prestamista = trim($_POST['prestamista']??'');
@@ -73,7 +120,7 @@ if ($action==='edit' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
 
   if ($deudor && $prestamista && is_numeric($monto) && preg_match('/^\d{4}-\d{2}-\d{2}$/',$fecha)){
     $c=db();
-    if ($img){ // nueva imagen
+    if ($img){
       $st=$c->prepare("UPDATE prestamos SET deudor=?,prestamista=?,monto=?,fecha=?,imagen=? WHERE id=?");
       $st->bind_param("ssdssi",$deudor,$prestamista,$monto,$fecha,$img,$id);
     } else {
@@ -111,7 +158,7 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  *{box-sizing:border-box}
  body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:22px;background:var(--bg);color:var(--fg)}
  a{text-decoration:none}
- .btn{display:inline-flex;align-items:center;gap:8px;padding:9px 12px;border-radius:12px;background:var(--primary);color:#fff;font-weight:600;border:0}
+ .btn{display:inline-flex;align-items:center;gap:8px;padding:9px 12px;border-radius:12px;background:var(--primary);color:#fff;font-weight:600;border:0;cursor:pointer}
  .btn.gray{background:var(--gray)} .btn.red{background:var(--red)}
  .btn.small{padding:7px 10px;font-weight:600;border-radius:10px}
  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
@@ -135,13 +182,16 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  .title{font-size:18px;font-weight:800}
  .chip{display:inline-block;background:var(--chip);padding:4px 8px;border-radius:999px;font-size:12px;font-weight:600}
 
- /* VISUAL 3-nodos */
+ /* VISUAL */
  .group{background:#fff;border-radius:16px;box-shadow:0 6px 20px rgba(0,0,0,.06);padding:12px;margin-bottom:18px}
- .svgwrap{width:100%;overflow:auto;border:1px dashed #e5e7eb;border-radius:12px;background:#fafafa}
+ .svgwrap{width:100%;overflow:auto;border:1px dashed #e5e7eb;border-radius:12px;background:#fafafa;position:relative}
  .nodeRect{fill:#ffffff;stroke:#cbd5e1;stroke-width:1.2}
  .txt{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;font-size:13px;fill:#111}
  .mut{fill:#6b7280}
  .amt{font-weight:800}
+ .tools{display:flex;justify-content:flex-end;gap:10px;align-items:center;margin-top:8px}
+ .tools label{font-size:13px;color:#111;display:flex;gap:8px;align-items:center}
+ .cb{width:18px;height:18px}
  @media (max-width:760px){ .pairs{grid-template-columns:1fr} }
 </style>
 </head><body>
@@ -159,6 +209,8 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
         'creado'=>'Registro creado correctamente.',
         'editado'=>'Cambios guardados.',
         'eliminado'=>'Registro eliminado.',
+        'pagados'=>'Marcados como pagados.',
+        'nada'=>'No seleccionaste deudores.',
         default=>'Operación realizada.'
       };
     ?>
@@ -176,9 +228,7 @@ if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!
   }
 ?>
   <div class="card">
-    <div class="row" style="margin-bottom:10px">
-      <div class="title"><?= $action==='new'?'Nuevo préstamo':'Editar préstamo #'.h($id) ?></div>
-    </div>
+    <div class="row" style="margin-bottom:10px"><div class="title"><?= $action==='new'?'Nuevo préstamo':'Editar préstamo #'.h($id) ?></div></div>
     <?php if(!empty($err)): ?><div class="error" style="margin-bottom:10px"><?= h($err) ?></div><?php endif; ?>
     <form method="post" enctype="multipart/form-data" action="?action=<?= $action==='new'?'create':'edit&id='.$id ?>&view=<?= h($view) ?>">
       <div class="row" style="gap:12px;flex-wrap:wrap">
@@ -207,15 +257,15 @@ else:
 
   // ==== filtros ====
   $q  = trim($_GET['q'] ?? '');
-  $fp = trim($_GET['fp'] ?? '');          // valor de la opción (normalizada)
+  $fp = trim($_GET['fp'] ?? '');
   $qNorm  = mbnorm($q);
   $fpNorm = mbnorm($fp);
 
   $conn=db();
 
-  // Combo de prestamistas sin duplicados por mayúsculas/minúsculas
-  $prestMap = []; // normKey => original
-  $resPL = $conn->query("SELECT prestamista FROM prestamos");
+  // Combo prestamistas (solo NO pagados)
+  $prestMap = [];
+  $resPL = $conn->query("SELECT prestamista FROM prestamos WHERE (pagado IS NULL OR pagado=0)");
   while($rowPL=$resPL->fetch_row()){
     $norm = mbnorm($rowPL[0]);
     if ($norm==='') continue;
@@ -225,14 +275,13 @@ else:
 
   if ($view==='cards'){
     // -------- TARJETAS --------
-    $where = "1"; $types=""; $params=[];
+    $where = "(pagado IS NULL OR pagado=0)"; $types=""; $params=[];
     if ($q!==''){
       $where.=" AND (LOWER(deudor) LIKE CONCAT('%',?,'%') OR LOWER(prestamista) LIKE CONCAT('%',?,'%'))";
       $types.="ss"; $params[]=$qNorm; $params[]=$qNorm;
     }
     if ($fpNorm!==''){ $where.=" AND LOWER(TRIM(prestamista)) = ?"; $types.="s"; $params[]=$fpNorm; }
 
-    // meses_cobrados: día 1 ya cuenta 1 mes; si fecha futura -> 0
     $sql = "
       SELECT 
         id,deudor,prestamista,monto,fecha,imagen,created_at,
@@ -260,7 +309,7 @@ else:
         <button class="btn" type="submit">Filtrar</button>
         <?php if ($q!=='' || $fpNorm!==''): ?><a class="btn gray" href="?view=cards">Quitar filtro</a><?php endif; ?>
       </form>
-      <div class="subtitle">Interés 10% cobrado desde el día 1 y luego 10% por mes.</div>
+      <div class="subtitle">Mostrando SOLO préstamos pendientes. Interés 10% desde el día 1.</div>
     </div>
 
     <?php if ($rs->num_rows === 0): ?>
@@ -305,22 +354,23 @@ else:
     $st->close();
 
   } else {
-    // -------- VISUAL 3-NODOS (normalizado) --------
-    $where = "1"; $types=""; $params=[];
+    // -------- VISUAL (solo NO pagados) --------
+    $where = "(pagado IS NULL OR pagado=0)"; $types=""; $params=[];
     if ($q!==''){
       $where.=" AND (LOWER(deudor) LIKE CONCAT('%',?,'%') OR LOWER(prestamista) LIKE CONCAT('%',?,'%'))";
       $types.="ss"; $params[]=$qNorm; $params[]=$qNorm;
     }
     if ($fpNorm!==''){ $where.=" AND LOWER(TRIM(prestamista)) = ?"; $types.="s"; $params[]=$fpNorm; }
 
-    // meses_cobrados por fila: if future -> 0; else months diff + 1 (día 1 cuenta)
+    // GROUP_CONCAT seguro (order by id)
     $sql = "
       SELECT 
         LOWER(TRIM(prestamista)) AS prest_key,
         MIN(prestamista) AS prest_display,
         LOWER(TRIM(deudor)) AS deud_key,
         MIN(deudor) AS deud_display,
-        MIN(fecha) AS fecha_min, -- primera fecha de préstamo entre este prestamista y deudor
+        MIN(fecha) AS fecha_min,
+        GROUP_CONCAT(id ORDER BY id) AS ids,
         SUM(monto) AS capital,
         SUM(monto*0.10*
             CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
@@ -337,16 +387,13 @@ else:
     if($types) $st->bind_param($types, ...$params);
     $st->execute(); $rs=$st->get_result();
 
-    // Estructura por prestamista
     $groups=[]; $ganPrest=[];
     while($r=$rs->fetch_assoc()){
-      $pkey=$r['prest_key'];
-      $pdisp=$r['prest_display'];
+      $pkey=$r['prest_key']; $pdisp=$r['prest_display'];
       if(!isset($groups[$pkey])) $groups[$pkey]=['label'=>$pdisp,'rows'=>[]];
       $groups[$pkey]['rows'][]=$r;
       $ganPrest[$pkey] = ($ganPrest[$pkey] ?? 0) + (float)$r['interes'];
     }
-
     $labelFor = function($pkey, $fallback) { return mbtitle($fallback); };
 ?>
     <div class="card" style="margin-bottom:16px">
@@ -362,7 +409,7 @@ else:
         <button class="btn" type="submit">Filtrar</button>
         <?php if ($q!=='' || $fpNorm!==''): ?><a class="btn gray" href="?view=graph">Quitar filtro</a><?php endif; ?>
       </form>
-      <div class="subtitle">Diagrama: <strong>Prestamista ➜ Deudores (valor, fecha, interés, total) ➜ Ganancia</strong>. Interés 10% desde día 1.</div>
+      <div class="subtitle">Marca 1 o varios deudores (nodo 2) y pulsa <strong>Préstamo pagado</strong>. Solo afecta los seleccionados.</div>
     </div>
 
     <?php if (empty($groups)): ?>
@@ -373,35 +420,32 @@ else:
         $n = count($rows);
 
         // Geometría
-        $rowGap = 100;                // distancia entre deudores
-        $nodeH  = 100;                // alto nodo deudor (4 líneas)
-        $nodeW  = 320;                // ancho nodo deudor
-        $headH  = 52;                 // alto cabecera prest/ganancia
-        $topPad = 30;
+        $rowGap = 100;  $nodeH  = 100;  $nodeW  = 320;
+        $headH  = 52;   $topPad = 30;
         $firstCenterY = $topPad + 80;
         $lastCenterY  = $firstCenterY + ($n-1)*$rowGap;
         $centerY      = ($firstCenterY + $lastCenterY)/2;
         $height       = max(220, (int)($lastCenterY + 80));
 
-        // posiciones X (3 columnas)
-        $xL = 140;           // prestamista
-        $xC = 560;           // deudores
-        $xR = 1080;          // ganancia
-
-        // Y centrados para prestamista y ganancia
+        $xL = 140; $xC = 560; $xR = 1080;
         $prestY = (int)($centerY - $headH/2);
         $gainY  = $prestY;
     ?>
-      <div class="group">
+      <form class="group" method="post" action="?action=mark_paid">
+        <input type="hidden" name="view" value="graph">
+        <input type="hidden" name="q" value="<?= h($q) ?>">
+        <input type="hidden" name="fp" value="<?= h($fpNorm) ?>">
+
         <div class="title" style="margin:6px 10px 10px">Prestamista: <?= h($prestLabel) ?></div>
+
         <div class="svgwrap">
           <svg width="1320" height="<?= $height ?>" viewBox="0 0 1320 <?= $height ?>" xmlns="http://www.w3.org/2000/svg">
-            <!-- Nodo Prestamista (izquierda, centrado) -->
+            <!-- Prestamista -->
             <rect class="nodeRect" x="<?= $xL-90 ?>" y="<?= $prestY ?>" rx="12" ry="12" width="180" height="<?= $headH ?>"/>
             <text class="txt" x="<?= $xL-80 ?>" y="<?= $prestY+20 ?>">Prestamista</text>
             <text class="txt" x="<?= $xL-80 ?>" y="<?= $prestY+40 ?>"><tspan font-weight="800"><?= h($prestLabel) ?></tspan></text>
 
-            <!-- Nodo Ganancia (derecha, centrado) -->
+            <!-- Ganancia -->
             <rect class="nodeRect" x="<?= $xR-120 ?>" y="<?= $gainY ?>" rx="12" ry="12" width="240" height="<?= $headH ?>"/>
             <text class="txt" x="<?= $xR-105 ?>" y="<?= $gainY+20 ?>">Ganancia (interés)</text>
             <text class="txt" x="<?= $xR-105 ?>" y="<?= $gainY+40 ?>">$ <?= money($ganPrest[$pkey] ?? 0) ?></text>
@@ -409,37 +453,45 @@ else:
             <?php
               $i=0;
               foreach($rows as $r):
-                $y = $firstCenterY + ($i*$rowGap); // centro y de cada deudor
+                $y = $firstCenterY + ($i*$rowGap);
                 $boxY = $y - ($nodeH/2);
                 $cap = '$ '.money($r['capital']);
                 $int = '$ '.money($r['interes']);
                 $tot = '$ '.money($r['total']);
                 $date = h($r['fecha_min']);
                 $deudLbl = mbtitle($r['deud_display']);
+                $idsStr = preg_replace('/[^0-9,]/','',(string)$r['ids']); // ids CSV
             ?>
-              <!-- líneas desde prestamista al deudor (desde el centro del nodo prestamista) -->
               <line x1="<?= $xL+90 ?>" y1="<?= $prestY + $headH/2 ?>" x2="<?= $xC-10 ?>" y2="<?= $y ?>" stroke="#9ca3af" stroke-width="1.5" />
-              <!-- líneas desde deudor al nodo ganancia (al centro de ganancia) -->
               <line x1="<?= $xC + $nodeW ?>" y1="<?= $y ?>" x2="<?= $xR-120 ?>" y2="<?= $gainY + $headH/2 ?>" stroke="#9ca3af" stroke-width="1.2" />
 
-              <!-- Nodo Deudor (centro) -->
               <rect class="nodeRect" x="<?= $xC-10 ?>" y="<?= $boxY ?>" rx="12" ry="12" width="<?= $nodeW ?>" height="<?= $nodeH ?>"/>
               <text class="txt" x="<?= $xC ?>" y="<?= $boxY+22 ?>"><tspan font-weight="800"><?= h($deudLbl) ?></tspan></text>
               <text class="txt mut" x="<?= $xC ?>" y="<?= $boxY+40 ?>">valor prestado: <tspan class="amt" fill="#111"><?= $cap ?></tspan></text>
               <text class="txt mut" x="<?= $xC ?>" y="<?= $boxY+58 ?>">fecha: <tspan class="amt" fill="#111"><?= $date ?></tspan></text>
               <text class="txt mut" x="<?= $xC ?>" y="<?= $boxY+76 ?>">interés: <tspan class="amt" fill="#111"><?= $int ?></tspan> • total <tspan class="amt" fill="#111"><?= $tot ?></tspan></text>
+
+              <!-- Checkbox con IDs exactos -->
+              <foreignObject x="<?= $xC-10 + 8 ?>" y="<?= $boxY+8 ?>" width="26" height="26">
+                <body xmlns="http://www.w3.org/1999/xhtml">
+                  <input class="cb" type="checkbox" name="ids[]" value="<?= h($idsStr) ?>" />
+                </body>
+              </foreignObject>
             <?php $i++; endforeach; ?>
           </svg>
         </div>
-        <div class="subtitle" style="margin-top:6px">Consejo: usa el filtro para ver uno o varios prestamistas. (Texto normalizado: sin diferencia mayúsculas/minúsculas.)</div>
-      </div>
+
+        <div class="tools">
+          <label><input type="checkbox" onclick="(function(ch){ const form=ch.closest('form'); form.querySelectorAll('input[name=\'ids[]\']').forEach(i=>i.checked=ch.checked); })(this)"> Seleccionar todo</label>
+          <button class="btn small" type="submit" onclick="return confirm('¿Marcar como pagados los nodos seleccionados?')">✔ Préstamo pagado</button>
+        </div>
+      </form>
     <?php endforeach; endif; ?>
 
 <?php
     $st->close();
   }
-
   $conn->close();
-endif; // list / graph
+endif;
 ?>
 </body></html>
