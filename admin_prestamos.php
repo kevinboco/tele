@@ -1,8 +1,8 @@
 <?php
 /*********************************************************
  * admin_prestamos.php — CRUD + Tarjetas + Visual 3-nodos
- * Visual:
- *   [Prestamista] --> [Deudores (valor prestado)] --> [Ganancia (interés)]
+ * - Normalización de texto (no distingue mayúsc/minúsc)
+ * - Nodos 1 y 3 centrados verticalmente
  * Interés simple 10% mensual por MESES COMPLETOS
  *********************************************************/
 
@@ -17,6 +17,7 @@ const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 if (!is_dir(UPLOAD_DIR)) @mkdir(UPLOAD_DIR, 0775, true);
 
+// Helpers
 function db(): mysqli {
   $m = @new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
   if ($m->connect_errno) { exit("Error DB: ".$m->connect_error); }
@@ -25,6 +26,8 @@ function db(): mysqli {
 function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES,'UTF-8'); }
 function money($n){ return number_format((float)$n,0,',','.'); }
 function go($qs){ header("Location: ".$qs); exit; }
+function mbnorm($s){ return mb_strtolower(trim((string)$s),'UTF-8'); }
+function mbtitle($s){ return function_exists('mb_convert_case') ? mb_convert_case((string)$s, MB_CASE_TITLE, 'UTF-8') : ucwords(strtolower((string)$s)); }
 
 $action = $_GET['action'] ?? 'list';
 $view   = $_GET['view']   ?? 'cards'; // 'cards' | 'graph'
@@ -57,7 +60,7 @@ if ($action==='create' && $_SERVER['REQUEST_METHOD']==='POST'){
   if ($deudor && $prestamista && is_numeric($monto) && preg_match('/^\d{4}-\d{2}-\d{2}$/',$fecha)){
     $c=db(); $st=$c->prepare("INSERT INTO prestamos (deudor,prestamista,monto,fecha,imagen,created_at) VALUES (?,?,?,?,?,NOW())");
     $st->bind_param("ssdss",$deudor,$prestamista,$monto,$fecha,$img); $st->execute();
-    $st->close(); $c->close(); go('?msg=creado');
+    $st->close(); $c->close(); go('?msg=creado&view='.urlencode($view));
   } else { $err="Completa todos los campos correctamente."; }
 }
 
@@ -81,7 +84,7 @@ if ($action==='edit' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
         $st->bind_param("ssdsi",$deudor,$prestamista,$monto,$fecha,$id);
       }
     }
-    $st->execute(); $st->close(); $c->close(); go('?msg=editado');
+    $st->execute(); $st->close(); $c->close(); go('?msg=editado&view='.urlencode($view));
   } else { $err="Completa todos los campos correctamente."; }
 }
 
@@ -91,7 +94,7 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
   $st->execute(); $st->bind_result($img); $st->fetch(); $st->close();
   if ($img && is_file(UPLOAD_DIR.$img)) @unlink(UPLOAD_DIR.$img);
   $st=$c->prepare("DELETE FROM prestamos WHERE id=?"); $st->bind_param("i",$id); $st->execute();
-  $st->close(); $c->close(); go('?msg=eliminado');
+  $st->close(); $c->close(); go('?msg=eliminado&view='.urlencode($view));
 }
 
 // ===== UI =====
@@ -131,7 +134,7 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  .title{font-size:18px;font-weight:800}
  .chip{display:inline-block;background:var(--chip);padding:4px 8px;border-radius:999px;font-size:12px;font-weight:600}
 
- /* VISUAL 3-nodos en un único lienzo por prestamista */
+ /* VISUAL 3-nodos */
  .group{background:#fff;border-radius:16px;box-shadow:0 6px 20px rgba(0,0,0,.06);padding:12px;margin-bottom:18px}
  .svgwrap{width:100%;overflow:auto;border:1px dashed #e5e7eb;border-radius:12px;background:#fafafa}
  .nodeRect{fill:#ffffff;stroke:#cbd5e1;stroke-width:1.2}
@@ -145,7 +148,7 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
 <div class="tabs">
   <a class="<?= $view==='cards'?'active':'' ?>" href="?view=cards">📇 Tarjetas</a>
   <a class="<?= $view==='graph'?'active':'' ?>" href="?view=graph">🕸️ Visual</a>
-  <a class="btn gray" href="?action=new" style="margin-left:auto">➕ Crear</a>
+  <a class="btn gray" href="?action=new&view=<?= h($view) ?>" style="margin-left:auto">➕ Crear</a>
 </div>
 
 <?php if (!empty($_GET['msg'])): ?>
@@ -176,7 +179,7 @@ if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!
       <div class="title"><?= $action==='new'?'Nuevo préstamo':'Editar préstamo #'.h($id) ?></div>
     </div>
     <?php if(!empty($err)): ?><div class="error" style="margin-bottom:10px"><?= h($err) ?></div><?php endif; ?>
-    <form method="post" enctype="multipart/form-data" action="?action=<?= $action==='new'?'create':'edit&id='.$id ?>">
+    <form method="post" enctype="multipart/form-data" action="?action=<?= $action==='new'?'create':'edit&id='.$id ?>&view=<?= h($view) ?>">
       <div class="row" style="gap:12px;flex-wrap:wrap">
         <div class="field" style="min-width:220px;flex:1"><label>Deudor *</label><input name="deudor" required value="<?= h($row['deudor']) ?>"></div>
         <div class="field" style="min-width:220px;flex:1"><label>Prestamista *</label><input name="prestamista" required value="<?= h($row['prestamista']) ?>"></div>
@@ -201,21 +204,32 @@ if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!
 // ====== LIST ======
 else:
 
-  // ==== filtros y listas ====
-  $q = trim($_GET['q'] ?? '');
-  $fp = trim($_GET['fp'] ?? '');
+  // ==== filtros ====
+  $q  = trim($_GET['q'] ?? '');
+  $fp = trim($_GET['fp'] ?? '');          // valor de la opción (normalizada)
+  $qNorm  = mbnorm($q);
+  $fpNorm = mbnorm($fp);
+
   $conn=db();
 
-  // Para dropdown de prestamistas
-  $prestList = [];
-  $resPL = $conn->query("SELECT DISTINCT prestamista FROM prestamos ORDER BY prestamista ASC");
-  while($rowPL=$resPL->fetch_row()) $prestList[] = $rowPL[0];
+  // Combo de prestamistas sin duplicados por mayúsculas/minúsculas
+  $prestMap = []; // normKey => original (el primero que aparezca)
+  $resPL = $conn->query("SELECT prestamista FROM prestamos");
+  while($rowPL=$resPL->fetch_row()){
+    $norm = mbnorm($rowPL[0]);
+    if ($norm==='') continue;
+    if (!isset($prestMap[$norm])) $prestMap[$norm] = $rowPL[0];
+  }
+  ksort($prestMap, SORT_NATURAL);
 
   if ($view==='cards'){
     // -------- TARJETAS --------
     $where = "1"; $types=""; $params=[];
-    if ($q!==''){ $where.=" AND (deudor LIKE CONCAT('%',?,'%') OR prestamista LIKE CONCAT('%',?,'%'))"; $types.="ss"; $params[]=$q; $params[]=$q; }
-    if ($fp!==''){ $where.=" AND prestamista = ?"; $types.="s"; $params[]=$fp; }
+    if ($q!==''){
+      $where.=" AND (LOWER(deudor) LIKE CONCAT('%',?,'%') OR LOWER(prestamista) LIKE CONCAT('%',?,'%'))";
+      $types.="ss"; $params[]=$qNorm; $params[]=$qNorm;
+    }
+    if ($fpNorm!==''){ $where.=" AND LOWER(TRIM(prestamista)) = ?"; $types.="s"; $params[]=$fpNorm; }
 
     $sql = "
       SELECT 
@@ -237,12 +251,12 @@ else:
         <input name="q" placeholder="🔎 Buscar (deudor / prestamista)" value="<?= h($q) ?>" style="flex:1;min-width:220px">
         <select name="fp">
           <option value="">Todos los prestamistas</option>
-          <?php foreach($prestList as $p): ?>
-            <option value="<?= h($p) ?>" <?= $fp===$p?'selected':'' ?>><?= h($p) ?></option>
+          <?php foreach($prestMap as $norm=>$label): ?>
+            <option value="<?= h($norm) ?>" <?= $fpNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
           <?php endforeach; ?>
         </select>
         <button class="btn" type="submit">Filtrar</button>
-        <?php if ($q!=='' || $fp!==''): ?><a class="btn gray" href="?view=cards">Quitar filtro</a><?php endif; ?>
+        <?php if ($q!=='' || $fpNorm!==''): ?><a class="btn gray" href="?view=cards">Quitar filtro</a><?php endif; ?>
       </form>
       <div class="subtitle">Interés simple 10% mensual por meses completos desde la fecha.</div>
     </div>
@@ -289,22 +303,27 @@ else:
     $st->close();
 
   } else {
-    // -------- VISUAL 3-NODOS --------
-    // Agregar por prestamista y deudor: capital prestado (suma de montos) y ganancia total (suma de intereses)
+    // -------- VISUAL 3-NODOS (normalizado) --------
     $where = "1"; $types=""; $params=[];
-    if ($q!==''){ $where.=" AND (deudor LIKE CONCAT('%',?,'%') OR prestamista LIKE CONCAT('%',?,'%'))"; $types.="ss"; $params[]=$q; $params[]=$q; }
-    if ($fp!==''){ $where.=" AND prestamista = ?"; $types.="s"; $params[]=$fp; }
+    if ($q!==''){
+      $where.=" AND (LOWER(deudor) LIKE CONCAT('%',?,'%') OR LOWER(prestamista) LIKE CONCAT('%',?,'%'))";
+      $types.="ss"; $params[]=$qNorm; $params[]=$qNorm;
+    }
+    if ($fpNorm!==''){ $where.=" AND LOWER(TRIM(prestamista)) = ?"; $types.="s"; $params[]=$fpNorm; }
 
+    // Agrupar por prestamista y deudor normalizados
     $sql = "
       SELECT 
-        prestamista,
-        deudor,
+        LOWER(TRIM(prestamista)) AS prest_key,
+        MIN(prestamista) AS prest_display,   -- para mostrar
+        LOWER(TRIM(deudor)) AS deud_key,
+        MIN(deudor) AS deud_display,
         SUM(monto) AS capital,
         SUM(monto*0.10*GREATEST(TIMESTAMPDIFF(MONTH, fecha, CURDATE()),0)) AS interes
       FROM prestamos
       WHERE $where
-      GROUP BY prestamista, deudor
-      ORDER BY prestamista ASC, deudor ASC
+      GROUP BY prest_key, deud_key
+      ORDER BY prest_key ASC, deud_display ASC
     ";
     $st=$conn->prepare($sql);
     if($types) $st->bind_param($types, ...$params);
@@ -313,11 +332,17 @@ else:
     // Estructura por prestamista
     $groups=[]; $ganPrest=[];
     while($r=$rs->fetch_assoc()){
-      $p=$r['prestamista'];
-      if(!isset($groups[$p])) $groups[$p]=[];
-      $groups[$p][]=$r;
-      $ganPrest[$p] = ($ganPrest[$p] ?? 0) + (float)$r['interes'];
+      $pkey=$r['prest_key'];
+      $pdisp=$r['prest_display'];
+      if(!isset($groups[$pkey])) $groups[$pkey]=['label'=>$pdisp,'rows'=>[]];
+      $groups[$pkey]['rows'][]=$r;
+      $ganPrest[$pkey] = ($ganPrest[$pkey] ?? 0) + (float)$r['interes'];
     }
+
+    // Si se cambió la caja de opciones, queremos que muestre el label titulado
+    $labelFor = function($pkey, $fallback) {
+      return mbtitle($fallback);
+    };
 ?>
     <div class="card" style="margin-bottom:16px">
       <form class="toolbar" method="get">
@@ -325,61 +350,77 @@ else:
         <input name="q" placeholder="🔎 Buscar (deudor / prestamista)" value="<?= h($q) ?>" style="flex:1;min-width:220px">
         <select name="fp">
           <option value="">Todos los prestamistas</option>
-          <?php foreach($prestList as $p): ?>
-            <option value="<?= h($p) ?>" <?= $fp===$p?'selected':'' ?>><?= h($p) ?></option>
+          <?php foreach($prestMap as $norm=>$label): ?>
+            <option value="<?= h($norm) ?>" <?= $fpNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
           <?php endforeach; ?>
         </select>
         <button class="btn" type="submit">Filtrar</button>
-        <?php if ($q!=='' || $fp!==''): ?><a class="btn gray" href="?view=graph">Quitar filtro</a><?php endif; ?>
+        <?php if ($q!=='' || $fpNorm!==''): ?><a class="btn gray" href="?view=graph">Quitar filtro</a><?php endif; ?>
       </form>
-      <div class="subtitle">Diagrama de 3 nodos: <strong>Prestamista ➜ Deudores (valor prestado) ➜ Ganancia</strong> (suma de intereses 10%/mes).</div>
+      <div class="subtitle">Diagrama de 3 nodos: <strong>Prestamista ➜ Deudores (valor prestado) ➜ Ganancia</strong> (suma de intereses 10%/mes). No diferencia mayúsculas/minúsculas.</div>
     </div>
 
     <?php if (empty($groups)): ?>
       <div class="card"><span class="subtitle">(sin registros)</span></div>
-    <?php else: foreach($groups as $prest => $rows):
+    <?php else: foreach($groups as $pkey => $ginfo):
+        $rows = $ginfo['rows'];
+        $prestLabel = $labelFor($pkey, $ginfo['label']);
         $n = count($rows);
-        $height = max(160, 80*$n + 60);
-        // posiciones X (3 columnas)
-        $xL = 120;           // prestamista
-        $xC = 520;           // deudores
-        $xR = 900;           // ganancia
+        $rowGap = 80;                 // distancia entre deudores
+        $nodeH  = 60;                 // alto de rect de deudor
+        $headH  = 52;                 // alto de rect prest/ganancia
         $topPad = 30;
+        $firstCenterY = $topPad + 70;                 // centro del primer deudor
+        $lastCenterY  = $firstCenterY + ($n-1)*$rowGap;
+        $centerY      = ($firstCenterY + $lastCenterY)/2; // centro del conjunto
+
+        // Altura total del SVG
+        $height = max(180, (int)($lastCenterY + 70));
+
+        // posiciones X (3 columnas)
+        $xL = 140;           // prestamista
+        $xC = 540;           // deudores
+        $xR = 940;           // ganancia
+
+        // Y de prestamista y ganancia (centrados)
+        $prestY = (int)($centerY - $headH/2);
+        $gainY  = $prestY;
     ?>
       <div class="group">
-        <div class="title" style="margin:6px 10px 10px">Prestamista: <?= h($prest) ?></div>
+        <div class="title" style="margin:6px 10px 10px">Prestamista: <?= h($prestLabel) ?></div>
         <div class="svgwrap">
-          <svg width="1080" height="<?= $height ?>" viewBox="0 0 1080 <?= $height ?>" xmlns="http://www.w3.org/2000/svg">
-            <!-- Nodo Prestamista (izquierda) -->
-            <rect class="nodeRect" x="<?= $xL-90 ?>" y="<?= $topPad ?>" rx="12" ry="12" width="180" height="52"/>
-            <text class="txt" x="<?= $xL-80 ?>" y="<?= $topPad+20 ?>">Prestamista</text>
-            <text class="txt" x="<?= $xL-80 ?>" y="<?= $topPad+40 ?>"><tspan font-weight="800"><?= h($prest) ?></tspan></text>
+          <svg width="1120" height="<?= $height ?>" viewBox="0 0 1120 <?= $height ?>" xmlns="http://www.w3.org/2000/svg">
+            <!-- Nodo Prestamista (izquierda, centrado) -->
+            <rect class="nodeRect" x="<?= $xL-90 ?>" y="<?= $prestY ?>" rx="12" ry="12" width="180" height="<?= $headH ?>"/>
+            <text class="txt" x="<?= $xL-80 ?>" y="<?= $prestY+20 ?>">Prestamista</text>
+            <text class="txt" x="<?= $xL-80 ?>" y="<?= $prestY+40 ?>"><tspan font-weight="800"><?= h($prestLabel) ?></tspan></text>
 
-            <!-- Nodo Ganancia (derecha) -->
-            <rect class="nodeRect" x="<?= $xR-110 ?>" y="<?= $topPad ?>" rx="12" ry="12" width="220" height="52" fill="#111" stroke="#111"/>
-            <text class="txt" x="<?= $xR-95 ?>" y="<?= $topPad+20 ?>" fill="#fff">Ganancia (interés)</text>
-            <text class="txt" x="<?= $xR-95 ?>" y="<?= $topPad+40 ?>" fill="#fff">$ <?= money($ganPrest[$prest] ?? 0) ?></text>
+            <!-- Nodo Ganancia (derecha, centrado) -->
+            <rect class="nodeRect" x="<?= $xR-110 ?>" y="<?= $gainY ?>" rx="12" ry="12" width="220" height="<?= $headH ?>"/>
+            <text class="txt" x="<?= $xR-95 ?>" y="<?= $gainY+20 ?>">Ganancia (interés)</text>
+            <text class="txt" x="<?= $xR-95 ?>" y="<?= $gainY+40 ?>">$ <?= money($ganPrest[$pkey] ?? 0) ?></text>
 
             <?php
               $i=0;
               foreach($rows as $r):
-                $y = $topPad + 30 + ($i*80) + 30; // centro y de cada deudor
-                $boxY = $y-30;
+                $y = $firstCenterY + ($i*$rowGap); // centro y de cada deudor
+                $boxY = $y - ($nodeH/2);
                 $cap = '$ '.money($r['capital']);
+                $deudLbl = mbtitle($r['deud_display']);
             ?>
-              <!-- líneas desde prestamista al deudor -->
-              <line x1="<?= $xL+90 ?>" y1="<?= $topPad+26 ?>" x2="<?= $xC-10 ?>" y2="<?= $y ?>" stroke="#9ca3af" stroke-width="1.5" />
-              <!-- líneas desde deudor a ganancia -->
-              <line x1="<?= $xC+220 ?>" y1="<?= $y ?>" x2="<?= $xR-110 ?>" y2="<?= $topPad+26 ?>" stroke="#9ca3af" stroke-width="1.2" />
+              <!-- líneas desde prestamista al deudor (desde el centro del nodo prestamista) -->
+              <line x1="<?= $xL+90 ?>" y1="<?= $prestY + $headH/2 ?>" x2="<?= $xC-10 ?>" y2="<?= $y ?>" stroke="#9ca3af" stroke-width="1.5" />
+              <!-- líneas desde deudor al nodo ganancia (al centro de ganancia) -->
+              <line x1="<?= $xC+230 ?>" y1="<?= $y ?>" x2="<?= $xR-110 ?>" y2="<?= $gainY + $headH/2 ?>" stroke="#9ca3af" stroke-width="1.2" />
 
               <!-- Nodo Deudor (centro) -->
-              <rect class="nodeRect" x="<?= $xC-10 ?>" y="<?= $boxY ?>" rx="12" ry="12" width="230" height="60"/>
-              <text class="txt" x="<?= $xC ?>" y="<?= $boxY+20 ?>"><tspan font-weight="800"><?= h($r['deudor']) ?></tspan></text>
-              <text class="txt mut" x="<?= $xC ?>" y="<?= $boxY+38 ?>">valor prestado: <tspan class="amt" fill="#111"><?= $cap ?></tspan></text>
+              <rect class="nodeRect" x="<?= $xC-10 ?>" y="<?= $boxY ?>" rx="12" ry="12" width="240" height="<?= $nodeH ?>"/>
+              <text class="txt" x="<?= $xC ?>" y="<?= $boxY+22 ?>"><tspan font-weight="800"><?= h($deudLbl) ?></tspan></text>
+              <text class="txt mut" x="<?= $xC ?>" y="<?= $boxY+40 ?>">valor prestado: <tspan class="amt" fill="#111"><?= $cap ?></tspan></text>
             <?php $i++; endforeach; ?>
           </svg>
         </div>
-        <div class="subtitle" style="margin-top:6px">Consejo: usa el filtro para ver uno o varios prestamistas.</div>
+        <div class="subtitle" style="margin-top:6px">Consejo: usa el filtro para ver uno o varios prestamistas. (Texto normalizado: no diferencia mayúsculas/minúsculas.)</div>
       </div>
     <?php endforeach; endif; ?>
 
