@@ -1,6 +1,7 @@
 <?php
 /*********************************************************
  * admin_prestamos.php  —  CRUD muy claro con TABLA SIEMPRE
+ * + cálculo de 10% mensual (interés simple) por meses cumplidos
  *********************************************************/
 
 // ======= CONFIG =======
@@ -112,6 +113,9 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  .muted{color:#777}.msg{background:#e8f7ee;color:#196a3b;padding:8px 12px;border-radius:10px;display:inline-block}
  .error{background:#fdecec;color:#b02a37;padding:8px 12px;border-radius:10px;display:inline-block}
  .toolbar{display:flex;gap:10px;align-items:center;margin-bottom:12px}
+ @media (max-width:760px){
+   .fields{grid-template-columns:1fr}
+ }
 </style>
 </head><body>
 
@@ -189,11 +193,29 @@ else:
   $conn=db();
   $where = "1";
   $types=""; $params=[];
-  if ($q!==''){ $where.=" AND (deudor LIKE CONCAT('%',?,'%') OR prestamista LIKE CONCAT('%',?,'%'))";
-    $types="ss"; $params=[$q,$q]; }
+  if ($q!==''){
+    $where.=" AND (deudor LIKE CONCAT('%',?,'%') OR prestamista LIKE CONCAT('%',?,'%'))";
+    $types="ss"; $params=[$q,$q];
+  }
 
-  // obtén todo (sin paginación para que VEAS la tabla; si tienes miles, le metemos paginación)
-  $sql="SELECT id,deudor,prestamista,monto,fecha,imagen,created_at FROM prestamos WHERE $where ORDER BY id DESC";
+  // === SELECT con cálculos de meses, interés y total ===
+  // Interés = 10% del monto original por cada MES COMPLETO desde la fecha del préstamo (interés simple)
+  $sql = "
+    SELECT 
+      id,
+      deudor,
+      prestamista,
+      monto,
+      fecha,
+      imagen,
+      created_at,
+      GREATEST(TIMESTAMPDIFF(MONTH, fecha, CURDATE()), 0) AS meses,
+      (monto * 0.10 * GREATEST(TIMESTAMPDIFF(MONTH, fecha, CURDATE()), 0)) AS interes,
+      (monto + (monto * 0.10 * GREATEST(TIMESTAMPDIFF(MONTH, fecha, CURDATE()), 0))) AS total
+    FROM prestamos
+    WHERE $where
+    ORDER BY id DESC
+  ";
   $st=$conn->prepare($sql);
   if($types) $st->bind_param($types, ...$params);
   $st->execute(); $rs=$st->get_result();
@@ -213,6 +235,9 @@ else:
             <th>Deudor</th>
             <th>Prestamista</th>
             <th>Monto</th>
+            <th>Meses</th>
+            <th>Interés</th>
+            <th>Total</th>
             <th>Fecha</th>
             <th>Imagen</th>
             <th>Creado</th>
@@ -221,16 +246,19 @@ else:
         </thead>
         <tbody>
         <?php if ($rs->num_rows === 0): ?>
-          <tr><td colspan="8" class="muted">(sin registros)</td></tr>
+          <tr><td colspan="11" class="muted">(sin registros)</td></tr>
         <?php else: while($r=$rs->fetch_assoc()): ?>
           <tr>
             <td><?= h($r['id']) ?></td>
             <td><?= h($r['deudor']) ?></td>
             <td><?= h($r['prestamista']) ?></td>
             <td>$ <?= money($r['monto']) ?></td>
+            <td><?= h($r['meses']) ?></td>
+            <td>$ <?= money($r['interes']) ?></td>
+            <td><strong>$ <?= money($r['total']) ?></strong></td>
             <td><?= h($r['fecha']) ?></td>
             <td>
-              <?php if ($r['imagen']): ?>
+              <?php if (!empty($r['imagen'])): ?>
                 <a href="uploads/<?= h($r['imagen']) ?>" target="_blank">
                   <img class="thumb" src="uploads/<?= h($r['imagen']) ?>" alt="">
                 </a>
@@ -248,6 +276,10 @@ else:
         </tbody>
       </table>
     </div>
+
+    <p class="muted" style="margin-top:8px">
+      * Interés calculado al <strong>10% mensual</strong> (interés simple) por <strong>meses completos</strong> desde la fecha del préstamo.
+    </p>
   </div>
 <?php
   $st->close(); $conn->close();
