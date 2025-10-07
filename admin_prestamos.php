@@ -2,9 +2,9 @@
 /*********************************************************
  * admin_prestamos.php — CRUD + Tarjetas + Visual 3-nodos
  * - Normaliza nombres (no distingue mayúsc/minúsc)
+ * - Interés cobra desde el día 1 (10% inicial) + 10% cada mes
  * - Nodos 1 y 3 centrados verticalmente
- * - En cada deudor: valor prestado + interés + total
- * Interés simple 10% mensual por MESES COMPLETOS
+ * - Deudor: valor prestado + fecha + interés + total
  *********************************************************/
 
 // ======= CONFIG =======
@@ -232,12 +232,13 @@ else:
     }
     if ($fpNorm!==''){ $where.=" AND LOWER(TRIM(prestamista)) = ?"; $types.="s"; $params[]=$fpNorm; }
 
+    // meses_cobrados: día 1 ya cuenta 1 mes; si fecha futura -> 0
     $sql = "
       SELECT 
         id,deudor,prestamista,monto,fecha,imagen,created_at,
-        GREATEST(TIMESTAMPDIFF(MONTH, fecha, CURDATE()),0) AS meses,
-        (monto*0.10*GREATEST(TIMESTAMPDIFF(MONTH, fecha, CURDATE()),0)) AS interes,
-        (monto + (monto*0.10*GREATEST(TIMESTAMPDIFF(MONTH, fecha, CURDATE()),0))) AS total
+        CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS meses,
+        (monto*0.10*CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes,
+        (monto + (monto*0.10*CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
       FROM prestamos
       WHERE $where
       ORDER BY id DESC
@@ -259,7 +260,7 @@ else:
         <button class="btn" type="submit">Filtrar</button>
         <?php if ($q!=='' || $fpNorm!==''): ?><a class="btn gray" href="?view=cards">Quitar filtro</a><?php endif; ?>
       </form>
-      <div class="subtitle">Interés simple 10% mensual por meses completos desde la fecha.</div>
+      <div class="subtitle">Interés 10% cobrado desde el día 1 y luego 10% por mes.</div>
     </div>
 
     <?php if ($rs->num_rows === 0): ?>
@@ -282,7 +283,7 @@ else:
             </div>
             <div class="pairs" style="margin-top:12px">
               <div class="item"><div class="k">Monto</div><div class="v">$ <?= money($r['monto']) ?></div></div>
-              <div class="item"><div class="k">Meses</div><div class="v"><?= h($r['meses']) ?></div></div>
+              <div class="item"><div class="k">Meses cobrados</div><div class="v"><?= h($r['meses']) ?></div></div>
               <div class="item"><div class="k">Interés</div><div class="v">$ <?= money($r['interes']) ?></div></div>
               <div class="item"><div class="k">Total</div><div class="v">$ <?= money($r['total']) ?></div></div>
             </div>
@@ -312,16 +313,21 @@ else:
     }
     if ($fpNorm!==''){ $where.=" AND LOWER(TRIM(prestamista)) = ?"; $types.="s"; $params[]=$fpNorm; }
 
-    // Agrupar por prestamista y deudor (NORMALIZADO) + interés y total por deudor
+    // meses_cobrados por fila: if future -> 0; else months diff + 1 (día 1 cuenta)
     $sql = "
       SELECT 
         LOWER(TRIM(prestamista)) AS prest_key,
         MIN(prestamista) AS prest_display,
         LOWER(TRIM(deudor)) AS deud_key,
         MIN(deudor) AS deud_display,
+        MIN(fecha) AS fecha_min, -- primera fecha de préstamo entre este prestamista y deudor
         SUM(monto) AS capital,
-        SUM(monto*0.10*GREATEST(TIMESTAMPDIFF(MONTH, fecha, CURDATE()),0)) AS interes,
-        SUM(monto + (monto*0.10*GREATEST(TIMESTAMPDIFF(MONTH, fecha, CURDATE()),0))) AS total
+        SUM(monto*0.10*
+            CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
+        ) AS interes,
+        SUM(monto + monto*0.10*
+            CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
+        ) AS total
       FROM prestamos
       WHERE $where
       GROUP BY prest_key, deud_key
@@ -356,7 +362,7 @@ else:
         <button class="btn" type="submit">Filtrar</button>
         <?php if ($q!=='' || $fpNorm!==''): ?><a class="btn gray" href="?view=graph">Quitar filtro</a><?php endif; ?>
       </form>
-      <div class="subtitle">Diagrama: <strong>Prestamista ➜ Deudores (valor prestado / interés / total) ➜ Ganancia</strong> (interés 10%/mes). No diferencia mayúsculas/minúsculas.</div>
+      <div class="subtitle">Diagrama: <strong>Prestamista ➜ Deudores (valor, fecha, interés, total) ➜ Ganancia</strong>. Interés 10% desde día 1.</div>
     </div>
 
     <?php if (empty($groups)): ?>
@@ -367,20 +373,20 @@ else:
         $n = count($rows);
 
         // Geometría
-        $rowGap = 88;                 // distancia entre deudores
-        $nodeH  = 78;                 // alto nodo deudor (3 líneas)
-        $nodeW  = 300;                // ancho nodo deudor
+        $rowGap = 100;                // distancia entre deudores
+        $nodeH  = 100;                // alto nodo deudor (4 líneas)
+        $nodeW  = 320;                // ancho nodo deudor
         $headH  = 52;                 // alto cabecera prest/ganancia
         $topPad = 30;
         $firstCenterY = $topPad + 80;
         $lastCenterY  = $firstCenterY + ($n-1)*$rowGap;
         $centerY      = ($firstCenterY + $lastCenterY)/2;
-        $height       = max(200, (int)($lastCenterY + 80));
+        $height       = max(220, (int)($lastCenterY + 80));
 
         // posiciones X (3 columnas)
         $xL = 140;           // prestamista
         $xC = 560;           // deudores
-        $xR = 1060;          // ganancia (más a la derecha por nodoW)
+        $xR = 1080;          // ganancia
 
         // Y centrados para prestamista y ganancia
         $prestY = (int)($centerY - $headH/2);
@@ -389,7 +395,7 @@ else:
       <div class="group">
         <div class="title" style="margin:6px 10px 10px">Prestamista: <?= h($prestLabel) ?></div>
         <div class="svgwrap">
-          <svg width="1280" height="<?= $height ?>" viewBox="0 0 1280 <?= $height ?>" xmlns="http://www.w3.org/2000/svg">
+          <svg width="1320" height="<?= $height ?>" viewBox="0 0 1320 <?= $height ?>" xmlns="http://www.w3.org/2000/svg">
             <!-- Nodo Prestamista (izquierda, centrado) -->
             <rect class="nodeRect" x="<?= $xL-90 ?>" y="<?= $prestY ?>" rx="12" ry="12" width="180" height="<?= $headH ?>"/>
             <text class="txt" x="<?= $xL-80 ?>" y="<?= $prestY+20 ?>">Prestamista</text>
@@ -408,6 +414,7 @@ else:
                 $cap = '$ '.money($r['capital']);
                 $int = '$ '.money($r['interes']);
                 $tot = '$ '.money($r['total']);
+                $date = h($r['fecha_min']);
                 $deudLbl = mbtitle($r['deud_display']);
             ?>
               <!-- líneas desde prestamista al deudor (desde el centro del nodo prestamista) -->
@@ -419,11 +426,12 @@ else:
               <rect class="nodeRect" x="<?= $xC-10 ?>" y="<?= $boxY ?>" rx="12" ry="12" width="<?= $nodeW ?>" height="<?= $nodeH ?>"/>
               <text class="txt" x="<?= $xC ?>" y="<?= $boxY+22 ?>"><tspan font-weight="800"><?= h($deudLbl) ?></tspan></text>
               <text class="txt mut" x="<?= $xC ?>" y="<?= $boxY+40 ?>">valor prestado: <tspan class="amt" fill="#111"><?= $cap ?></tspan></text>
-              <text class="txt mut" x="<?= $xC ?>" y="<?= $boxY+58 ?>">interés: <tspan class="amt" fill="#111"><?= $int ?></tspan> • total <tspan class="amt" fill="#111"><?= $tot ?></tspan></text>
+              <text class="txt mut" x="<?= $xC ?>" y="<?= $boxY+58 ?>">fecha: <tspan class="amt" fill="#111"><?= $date ?></tspan></text>
+              <text class="txt mut" x="<?= $xC ?>" y="<?= $boxY+76 ?>">interés: <tspan class="amt" fill="#111"><?= $int ?></tspan> • total <tspan class="amt" fill="#111"><?= $tot ?></tspan></text>
             <?php $i++; endforeach; ?>
           </svg>
         </div>
-        <div class="subtitle" style="margin-top:6px">Consejo: usa el filtro para ver uno o varios prestamistas. (Texto normalizado: no diferencia mayúsculas/minúsculas.)</div>
+        <div class="subtitle" style="margin-top:6px">Consejo: usa el filtro para ver uno o varios prestamistas. (Texto normalizado: sin diferencia mayúsculas/minúsculas.)</div>
       </div>
     <?php endforeach; endif; ?>
 
