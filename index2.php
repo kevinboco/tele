@@ -11,14 +11,7 @@
 <?php include("nav.php"); ?>
 
 <div class="container py-3">
-  <div class="d-flex gap-2 mb-3">
-    <a href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/informe.php" 
-       class="btn btn-success">➡️ ir a informe de viajes</a>
-    <a href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php" 
-       class="btn btn-success">➡️ ir a liquidación de viajes</a>
-    <a href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/admin_prestamos.php" 
-       class="btn btn-success">➡️ ir a administración de préstamos</a>
-  </div>
+  
 
   <!-- Filtros -->
   <div class="card shadow mb-4">
