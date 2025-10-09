@@ -120,18 +120,15 @@ body {
 
 <!-- Menú lateral -->
 <div class="menu" id="menu">
-  <a href="bienvenida.php">Inicio</a>
-  <a href="formulario_asociado.php">Asociados</a>
-  <a href="ver_documentos.php">Documentos</a>
-  <a href="ver_cuentas_cobro.php">Cuentas</a>
-  <a href="estadisticas.php">Estadísticas</a>
+  <a href="index2.php">Inicio</a>
+  <a href="informe.php">informe de viajes</a>
+  <a href="liquidacion.php">liquidación de viajes</a>
+  <a href="admin_prestamos.php">administrar prestamos</a>
+  
 </div>
 
 <!-- Contenido de ejemplo -->
-<div class="content">
-  <h1>Bienvenido</h1>
-  <p>Haz clic en el botón de la esquina superior derecha para abrir el menú.</p>
-</div>
+
 
 <script>
 const toggle = document.getElementById('menu-toggle');
