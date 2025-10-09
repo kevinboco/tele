@@ -1,6 +1,6 @@
 <?php
 require 'vendor/autoload.php';
-
+include("nav.php");
 use PhpOffice\PhpWord\PhpWord;
 use PhpOffice\PhpWord\IOFactory;
 

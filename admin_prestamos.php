@@ -7,7 +7,7 @@
  * - Selector de deudores (fuera del SVG) + "Préstamo pagado"
  * - En el 3er nodo: Ganancia + Total prestado (pendiente)
  *********************************************************/
-
+include("nav.php");
 // ======= CONFIG =======
 define('DB_HOST', 'mysql.hostinger.com');
 define('DB_USER', 'u648222299_keboco5');
