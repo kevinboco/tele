@@ -349,9 +349,7 @@ document.querySelectorAll("#tabla_conductores td:first-child").forEach(td => {
 });
 </script>
 
-<!-- =====================================================
-     🟦 Script para hacer el modal arrastrable
-===================================================== -->
+
 <style>
 #modalViajes .modal-dialog.draggable {
     position: fixed;
