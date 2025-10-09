@@ -5,7 +5,51 @@ if ($conn->connect_error) {
     die("Error conexión BD: " . $conn->connect_error);
 }
 
-// Si no hay fechas seleccionadas, mostrar formulario
+// =======================================================
+// 🔹 Mostrar viajes de un conductor (para el modal AJAX)
+// =======================================================
+if (isset($_GET['viajes_conductor'])) {
+    $nombre = $conn->real_escape_string($_GET['viajes_conductor']);
+    $desde = $_GET['desde'];
+    $hasta = $_GET['hasta'];
+    $empresa = $_GET['empresa'] ?? "";
+
+    $sql = "SELECT fecha, ruta, empresa, tipo_vehiculo 
+            FROM viajes 
+            WHERE nombre = '$nombre' 
+            AND fecha BETWEEN '$desde' AND '$hasta'";
+    if ($empresa !== "") {
+        $sql .= " AND empresa = '$empresa'";
+    }
+    $sql .= " ORDER BY fecha ASC";
+
+    $res = $conn->query($sql);
+    if ($res->num_rows > 0) {
+        echo "<table class='table table-bordered table-striped'>
+                <tr class='table-primary text-center'>
+                    <th>Fecha</th>
+                    <th>Ruta</th>
+                    <th>Empresa</th>
+                    <th>Vehículo</th>
+                </tr>";
+        while ($r = $res->fetch_assoc()) {
+            echo "<tr>
+                    <td>{$r['fecha']}</td>
+                    <td>{$r['ruta']}</td>
+                    <td>{$r['empresa']}</td>
+                    <td>{$r['tipo_vehiculo']}</td>
+                  </tr>";
+        }
+        echo "</table>";
+    } else {
+        echo "<p class='text-center text-muted'>No se encontraron viajes para este conductor en ese rango.</p>";
+    }
+    exit;
+}
+
+// =======================================================
+// 🔹 Formulario inicial (si no se han seleccionado fechas)
+// =======================================================
 if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
     $empresas = [];
     $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
@@ -20,42 +64,22 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
         color: #333;
         padding: 40px;
     }
-    h2 {
-        text-align: center;
-        color: #333;
-    }
+    h2 { text-align: center; color: #333; }
     form {
-        max-width: 400px;
-        margin: 40px auto;
-        background: white;
-        padding: 25px;
-        border-radius: 12px;
+        max-width: 400px; margin: 40px auto; background: white;
+        padding: 25px; border-radius: 12px;
         box-shadow: 0 4px 15px rgba(0,0,0,0.1);
     }
-    label {
-        display: block;
-        margin-bottom: 12px;
-        font-weight: 500;
-    }
+    label { display: block; margin-bottom: 12px; font-weight: 500; }
     input, select, button {
-        width: 100%;
-        padding: 10px;
-        border-radius: 8px;
-        border: 1px solid #ccc;
-        margin-top: 6px;
-        font-size: 15px;
+        width: 100%; padding: 10px; border-radius: 8px;
+        border: 1px solid #ccc; margin-top: 6px; font-size: 15px;
     }
     button {
-        background: #007bff;
-        color: white;
-        border: none;
-        cursor: pointer;
-        margin-top: 15px;
-        transition: background 0.3s;
+        background: #007bff; color: white; border: none;
+        cursor: pointer; margin-top: 15px; transition: background 0.3s;
     }
-    button:hover {
-        background: #0056b3;
-    }
+    button:hover { background: #0056b3; }
     </style>
 
     <h2>📅 Filtrar viajes por rango de fechas</h2>
@@ -82,11 +106,14 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
     exit;
 }
 
+// =======================================================
+// 🔹 Mostrar la liquidación de conductores
+// =======================================================
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
 $empresaFiltro = $_GET['empresa'] ?? "";
 
-$sql = "SELECT nombre, ruta, empresa, tipo_vehiculo, fecha FROM viajes 
+$sql = "SELECT nombre, ruta, empresa, tipo_vehiculo FROM viajes 
         WHERE fecha BETWEEN '$desde' AND '$hasta'";
 if ($empresaFiltro !== "") {
     $empresaFiltro = $conn->real_escape_string($empresaFiltro);
@@ -128,9 +155,12 @@ while ($row = $res->fetch_assoc()) {
 }
 ?>
 
-<!-- ===== ESTILOS ===== -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Liquidación de Conductores</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-
 <style>
 body {
     font-family: 'Segoe UI', sans-serif;
@@ -140,40 +170,27 @@ body {
 }
 h2, h3, h4 { text-align: center; }
 table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 25px;
-    background: white;
-    border-radius: 10px;
-    overflow: hidden;
+    width: 100%; border-collapse: collapse; margin-top: 25px;
+    background: white; border-radius: 10px; overflow: hidden;
     box-shadow: 0 2px 10px rgba(0,0,0,0.05);
 }
 th {
-    background: #007bff;
-    color: white;
-    text-align: center;
-    padding: 10px;
+    background: #007bff; color: white; text-align: center; padding: 10px;
 }
 td {
-    text-align: center;
-    padding: 8px;
-    border-bottom: 1px solid #eee;
+    text-align: center; padding: 8px; border-bottom: 1px solid #eee;
 }
-tr:hover { background: #f1f7ff; cursor: pointer; }
+tr:hover { background: #f1f7ff; }
 input[type=number], input[readonly] {
-    width: 90%;
-    padding: 5px;
-    border: 1px solid #ccc;
-    border-radius: 6px;
-    text-align: right;
+    width: 90%; padding: 5px; border: 1px solid #ccc;
+    border-radius: 6px; text-align: right;
 }
-#total_general {
-    color: #007bff;
-    font-weight: bold;
-}
+#total_general { color: #007bff; font-weight: bold; }
 .container { max-width: 1100px; margin: auto; }
 </style>
+</head>
 
+<body>
 <div class="container">
     <h2>💰 Liquidación de Conductores</h2>
     <h3>Periodo: <?= htmlspecialchars($desde) ?> hasta <?= htmlspecialchars($hasta) ?></h3>
@@ -218,10 +235,8 @@ input[type=number], input[readonly] {
             <th>Total a Pagar</th>
         </tr>
         <?php foreach ($datos as $conductor => $viajes): ?>
-            <tr data-conductor="<?= htmlspecialchars($conductor) ?>" data-vehiculo="<?= htmlspecialchars($viajes['vehiculo']) ?>">
-                <td class="nombre-conductor text-primary" style="text-decoration:underline;">
-                    <?= htmlspecialchars($conductor) ?>
-                </td>
+            <tr data-vehiculo="<?= htmlspecialchars($viajes['vehiculo']) ?>">
+                <td><?= htmlspecialchars($conductor) ?></td>
                 <td><?= htmlspecialchars($viajes['vehiculo']) ?></td>
                 <td><?= $viajes["completos"] ?></td>
                 <td><?= $viajes["medios"] ?></td>
@@ -235,16 +250,16 @@ input[type=number], input[readonly] {
     <h3>🔢 Total General: <span id="total_general">0</span></h3>
 </div>
 
-<!-- ===== MODAL ===== -->
-<div class="modal fade" id="modalViajes" tabindex="-1">
+<!-- Modal de viajes -->
+<div class="modal fade" id="modalViajes" tabindex="-1" aria-labelledby="tituloModal" aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Viajes del conductor</h5>
-        <button class="btn-close" data-bs-dismiss="modal"></button>
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title" id="tituloModal"></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
-      <div class="modal-body" id="detalleViajes">
-        <div class="text-center text-muted">Selecciona un conductor para ver sus viajes...</div>
+      <div class="modal-body" id="contenidoModal">
+        <p class="text-center text-muted">Cargando viajes...</p>
       </div>
     </div>
   </div>
@@ -303,45 +318,37 @@ function recalcular() {
     document.getElementById("total_general").innerText = formatNumber(totalGeneral);
 }
 
-// === CLICK EN NOMBRE DE CONDUCTOR ===
-document.querySelectorAll('.nombre-conductor').forEach(el => {
-    el.addEventListener('click', async () => {
-        const conductor = el.parentElement.getAttribute('data-conductor');
-        const desde = "<?= $desde ?>";
-        const hasta = "<?= $hasta ?>";
+// --- Al hacer clic en el nombre del conductor ---
+document.querySelectorAll("#tabla_conductores td:first-child").forEach(td => {
+    td.style.cursor = "pointer";
+    td.style.color = "#007bff";
+    td.style.textDecoration = "underline";
 
-        const resp = await fetch("?ajax=viajes&nombre=" + encodeURIComponent(conductor) + "&desde=" + desde + "&hasta=" + hasta);
-        const html = await resp.text();
-        document.getElementById("detalleViajes").innerHTML = html;
-        new bootstrap.Modal(document.getElementById('modalViajes')).show();
+    td.addEventListener("click", () => {
+        let nombre = td.innerText.trim();
+        let desde = "<?= $desde ?>";
+        let hasta = "<?= $hasta ?>";
+        let empresa = "<?= $empresaFiltro ?>";
+
+        document.getElementById("tituloModal").innerHTML =
+            `🚗 Viajes de <b>${nombre}</b> entre ${desde} y ${hasta}`;
+
+        // Mostrar modal vacío mientras carga
+        let modal = new bootstrap.Modal(document.getElementById("modalViajes"));
+        document.getElementById("contenidoModal").innerHTML = "<p class='text-center text-muted'>Cargando viajes...</p>";
+        modal.show();
+
+        // Hacer petición AJAX a este mismo archivo
+        fetch(`<?= basename(__FILE__) ?>?viajes_conductor=${encodeURIComponent(nombre)}&desde=${desde}&hasta=${hasta}&empresa=${encodeURIComponent(empresa)}`)
+            .then(res => res.text())
+            .then(html => {
+                document.getElementById("contenidoModal").innerHTML = html;
+            })
+            .catch(() => {
+                document.getElementById("contenidoModal").innerHTML = "<p class='text-danger text-center'>Error al cargar los viajes.</p>";
+            });
     });
 });
 </script>
-
-<?php
-// === RESPUESTA AJAX (viajes del conductor) ===
-if (isset($_GET['ajax']) && $_GET['ajax'] === 'viajes') {
-    $nombre = $conn->real_escape_string($_GET['nombre']);
-    $desde = $_GET['desde'];
-    $hasta = $_GET['hasta'];
-
-    $sql = "SELECT fecha, ruta, empresa, tipo_vehiculo FROM viajes 
-            WHERE nombre='$nombre' AND fecha BETWEEN '$desde' AND '$hasta' 
-            ORDER BY fecha ASC";
-    $res = $conn->query($sql);
-
-    echo "<h5>🚗 Viajes de <b>".htmlspecialchars($nombre)."</b> entre $desde y $hasta</h5>";
-    echo "<table class='table table-bordered mt-3'>";
-    echo "<tr><th>Fecha</th><th>Ruta</th><th>Empresa</th><th>Vehículo</th></tr>";
-    while ($row = $res->fetch_assoc()) {
-        echo "<tr>
-                <td>{$row['fecha']}</td>
-                <td>{$row['ruta']}</td>
-                <td>{$row['empresa']}</td>
-                <td>{$row['tipo_vehiculo']}</td>
-              </tr>";
-    }
-    echo "</table>";
-    exit;
-}
-?>
+</body>
+</html>
