@@ -250,8 +250,8 @@ input[type=number], input[readonly] {
     <h3>🔢 Total General: <span id="total_general">0</span></h3>
 </div>
 
-<!-- Modal de viajes -->
-<div class="modal fade" id="modalViajes" tabindex="-1" aria-labelledby="tituloModal" aria-hidden="true">
+<!-- Modal de viajes (arrastrable) -->
+<div class="modal fade" id="modalViajes" tabindex="-1" aria-labelledby="tituloModal" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header bg-primary text-white">
@@ -333,12 +333,10 @@ document.querySelectorAll("#tabla_conductores td:first-child").forEach(td => {
         document.getElementById("tituloModal").innerHTML =
             `🚗 Viajes de <b>${nombre}</b> entre ${desde} y ${hasta}`;
 
-        // Mostrar modal vacío mientras carga
         let modal = new bootstrap.Modal(document.getElementById("modalViajes"));
         document.getElementById("contenidoModal").innerHTML = "<p class='text-center text-muted'>Cargando viajes...</p>";
         modal.show();
 
-        // Hacer petición AJAX a este mismo archivo
         fetch(`<?= basename(__FILE__) ?>?viajes_conductor=${encodeURIComponent(nombre)}&desde=${desde}&hasta=${hasta}&empresa=${encodeURIComponent(empresa)}`)
             .then(res => res.text())
             .then(html => {
@@ -349,7 +347,89 @@ document.querySelectorAll("#tabla_conductores td:first-child").forEach(td => {
             });
     });
 });
+</script>
 
+<!-- =====================================================
+     🟦 Script para hacer el modal arrastrable
+===================================================== -->
+<style>
+#modalViajes .modal-dialog.draggable {
+    position: fixed;
+    margin: 0;
+}
+#modalViajes.modal.fade .modal-dialog {
+    transition: none !important;
+}
+#modalViajes .modal-header {
+    cursor: move;
+}
+</style>
+
+<script>
+(function () {
+  const modalEl = document.getElementById('modalViajes');
+  if (!modalEl) return;
+
+  const dialog = modalEl.querySelector('.modal-dialog');
+  const header = modalEl.querySelector('.modal-header');
+
+  let isDown = false, offsetX = 0, offsetY = 0;
+
+  function getPoint(e){
+    if (e.touches && e.touches[0]) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    return { x: e.clientX, y: e.clientY };
+  }
+
+  function onDown(e){
+    if (e.button !== undefined && e.button !== 0) return;
+    isDown = true;
+    dialog.classList.add('draggable');
+    dialog.style.transform = 'none';
+    const rect = dialog.getBoundingClientRect();
+    const p = getPoint(e);
+    offsetX = p.x - rect.left;
+    offsetY = p.y - rect.top;
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onUp);
+  }
+
+  function onMove(e){
+    if (!isDown) return;
+    if (e.cancelable) e.preventDefault();
+    const p = getPoint(e);
+    let left = p.x - offsetX;
+    let top  = p.y - offsetY;
+
+    const maxLeft = window.innerWidth  - dialog.offsetWidth;
+    const maxTop  = window.innerHeight - dialog.offsetHeight;
+    left = Math.max(0, Math.min(left, maxLeft));
+    top  = Math.max(0, Math.min(top,  maxTop));
+
+    dialog.style.left = left + 'px';
+    dialog.style.top  = top  + 'px';
+  }
+
+  function onUp(){
+    isDown = false;
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    document.removeEventListener('touchmove', onMove);
+    document.removeEventListener('touchend', onUp);
+  }
+
+  modalEl.addEventListener('shown.bs.modal', () => {
+    dialog.classList.remove('draggable');
+    dialog.style.left = '';
+    dialog.style.top = '';
+    dialog.style.transform = '';
+  });
+
+  header.addEventListener('mousedown', onDown);
+  header.addEventListener('touchstart', onDown, { passive: true });
+})();
 </script>
 </body>
 </html>
