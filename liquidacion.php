@@ -114,8 +114,17 @@ while($r=$re->fetch_assoc()) $empresas[]=$r['empresa'];
   tr:hover{background:#f6faff}
   .conductor-link{cursor:pointer;color:#0d6efd;text-decoration:underline;}
 
-  /* 🔹 Filtro */
-  .filtro-form label{font-weight:500;}
+  /* 🔹 Filtro compacto */
+  .filtro-inline .form-control,
+  .filtro-inline .form-select{
+    height:32px;
+    padding:2px 8px;
+    font-size:14px;
+    min-width:120px;
+  }
+  .filtro-inline label{font-weight:600;}
+  .filtro-form{margin-bottom:8px;}
+  .box-left{padding-top:10px;padding-bottom:12px;}
 </style>
 </head>
 <body>
@@ -123,31 +132,31 @@ while($r=$re->fetch_assoc()) $empresas[]=$r['empresa'];
 <div class="layout">
   <!-- ===== Columna 1 ===== -->
   <section class="box box-left">
-    <!-- 🔹 Formulario de Filtro arriba -->
-    <form class="filtro-form mb-3" method="get">
-      <h5 class="text-center mb-2">📅 Filtrar viajes</h5>
-      <div class="mb-2">
-        <label>Desde:</label>
-        <input type="date" name="desde" value="<?= $desde ?>" class="form-control" required>
-      </div>
-      <div class="mb-2">
-        <label>Hasta:</label>
-        <input type="date" name="hasta" value="<?= $hasta ?>" class="form-control" required>
-      </div>
-      <div class="mb-2">
-        <label>Empresa:</label>
-        <select name="empresa" class="form-select">
+    <!-- 🔎 Filtro compacto -->
+    <form class="filtro-form filtro-inline mb-2" method="get">
+      <div class="d-flex flex-wrap align-items-center gap-2">
+        <label class="me-1 mb-0">Desde:</label>
+        <input type="date" name="desde" value="<?= $desde ?>" class="form-control form-control-sm w-auto" required>
+
+        <label class="ms-2 me-1 mb-0">Hasta:</label>
+        <input type="date" name="hasta" value="<?= $hasta ?>" class="form-control form-control-sm w-auto" required>
+
+        <label class="ms-2 me-1 mb-0">Empresa:</label>
+        <select name="empresa" class="form-select form-select-sm w-auto">
           <option value="">-- Todas --</option>
           <?php foreach($empresas as $e): ?>
-            <option value="<?= $e ?>" <?= $empresaFiltro==$e?'selected':'' ?>><?= $e ?></option>
+            <option value="<?= htmlspecialchars($e) ?>" <?= $empresaFiltro==$e?'selected':'' ?>>
+              <?= htmlspecialchars($e) ?>
+            </option>
           <?php endforeach; ?>
         </select>
+
+        <button class="btn btn-primary btn-sm ms-2" type="submit">Filtrar</button>
       </div>
-      <button class="btn btn-primary w-100" type="submit">Filtrar</button>
     </form>
 
     <!-- 🔹 Tabla de tarifas -->
-    <h3 class="section-title">🚐 Tarifas por Tipo de Vehículo</h3>
+    <h3 class="section-title mt-2">🚐 Tarifas por Tipo de Vehículo</h3>
     <table id="tabla_tarifas" class="table mb-0">
       <thead>
         <tr><th>Vehículo</th><th>Completo</th><th>Medio</th><th>Extra</th><th>Carrotanque</th></tr>
