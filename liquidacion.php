@@ -9,22 +9,23 @@ if ($conn->connect_error) {
 // 🔹 Mostrar viajes de un conductor (para el modal AJAX)
 // =======================================================
 if (isset($_GET['viajes_conductor'])) {
-    $nombre = $conn->real_escape_string($_GET['viajes_conductor']);
-    $desde = $_GET['desde'];
-    $hasta = $_GET['hasta'];
+    $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
+    $desde   = $_GET['desde'];
+    $hasta   = $_GET['hasta'];
     $empresa = $_GET['empresa'] ?? "";
 
     $sql = "SELECT fecha, ruta, empresa, tipo_vehiculo 
             FROM viajes 
             WHERE nombre = '$nombre' 
-            AND fecha BETWEEN '$desde' AND '$hasta'";
+              AND fecha BETWEEN '$desde' AND '$hasta'";
     if ($empresa !== "") {
+        $empresa = $conn->real_escape_string($empresa);
         $sql .= " AND empresa = '$empresa'";
     }
     $sql .= " ORDER BY fecha ASC";
 
     $res = $conn->query($sql);
-    if ($res->num_rows > 0) {
+    if ($res && $res->num_rows > 0) {
         echo "<table class='table table-bordered table-striped'>
                 <tr class='table-primary text-center'>
                     <th>Fecha</th>
@@ -34,10 +35,10 @@ if (isset($_GET['viajes_conductor'])) {
                 </tr>";
         while ($r = $res->fetch_assoc()) {
             echo "<tr>
-                    <td>{$r['fecha']}</td>
-                    <td>{$r['ruta']}</td>
-                    <td>{$r['empresa']}</td>
-                    <td>{$r['tipo_vehiculo']}</td>
+                    <td>".htmlspecialchars($r['fecha'])."</td>
+                    <td>".htmlspecialchars($r['ruta'])."</td>
+                    <td>".htmlspecialchars($r['empresa'])."</td>
+                    <td>".htmlspecialchars($r['tipo_vehiculo'])."</td>
                   </tr>";
         }
         echo "</table>";
@@ -53,8 +54,10 @@ if (isset($_GET['viajes_conductor'])) {
 if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
     $empresas = [];
     $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
-    while ($r = $resEmp->fetch_assoc()) {
-        $empresas[] = $r['empresa'];
+    if ($resEmp) {
+        while ($r = $resEmp->fetch_assoc()) {
+            $empresas[] = $r['empresa'];
+        }
     }
     ?>
     <style>
@@ -123,34 +126,36 @@ $res = $conn->query($sql);
 
 $datos = [];
 $vehiculos = [];
-while ($row = $res->fetch_assoc()) {
-    $nombre   = $row['nombre'];
-    $ruta     = $row['ruta'];
-    $vehiculo = $row['tipo_vehiculo'];
-    $guiones  = substr_count($ruta, '-');
+if ($res) {
+    while ($row = $res->fetch_assoc()) {
+        $nombre   = $row['nombre'];
+        $ruta     = $row['ruta'];
+        $vehiculo = $row['tipo_vehiculo'];
+        $guiones  = substr_count($ruta, '-');
 
-    if (!isset($datos[$nombre])) {
-        $datos[$nombre] = [
-            "vehiculo"     => $vehiculo, 
-            "completos"    => 0, 
-            "medios"       => 0, 
-            "extras"       => 0,
-            "carrotanques" => 0
-        ];
-    }
+        if (!isset($datos[$nombre])) {
+            $datos[$nombre] = [
+                "vehiculo"     => $vehiculo, 
+                "completos"    => 0, 
+                "medios"       => 0, 
+                "extras"       => 0,
+                "carrotanques" => 0
+            ];
+        }
 
-    if (!in_array($vehiculo, $vehiculos)) {
-        $vehiculos[] = $vehiculo;
-    }
+        if (!in_array($vehiculo, $vehiculos, true)) {
+            $vehiculos[] = $vehiculo;
+        }
 
-    if ($vehiculo === "Carrotanque" && $guiones == 0) {
-        $datos[$nombre]["carrotanques"]++;
-    } elseif (stripos($ruta, "Maicao") === false) {
-        $datos[$nombre]["extras"]++;
-    } elseif ($guiones == 2) {
-        $datos[$nombre]["completos"]++;
-    } elseif ($guiones == 1) {
-        $datos[$nombre]["medios"]++;
+        if ($vehiculo === "Carrotanque" && $guiones == 0) {
+            $datos[$nombre]["carrotanques"]++;
+        } elseif (stripos($ruta, "Maicao") === false) {
+            $datos[$nombre]["extras"]++;
+        } elseif ($guiones == 2) {
+            $datos[$nombre]["completos"]++;
+        } elseif ($guiones == 1) {
+            $datos[$nombre]["medios"]++;
+        }
     }
 }
 ?>
@@ -187,6 +192,15 @@ input[type=number], input[readonly] {
 }
 #total_general { color: #007bff; font-weight: bold; }
 .container { max-width: 1100px; margin: auto; }
+
+/* 🔹 MODAL LIBRE Y NO BLOQUEANTE + ARRASTRABLE 🔹 */
+#modalViajes { pointer-events: none; }           /* deja pasar clics fuera del cuadro */
+#modalViajes .modal-dialog,
+#modalViajes .modal-content { pointer-events: auto; } /* el modal sí recibe eventos */
+#modalViajes .modal-dialog.draggable { position: fixed; margin: 0; }
+#modalViajes.modal.fade .modal-dialog { transition: none !important; }
+#modalViajes .modal-header { cursor: move; }
+body.modal-open { overflow: auto !important; }   /* permite scroll del fondo */
 </style>
 </head>
 
@@ -238,10 +252,10 @@ input[type=number], input[readonly] {
             <tr data-vehiculo="<?= htmlspecialchars($viajes['vehiculo']) ?>">
                 <td><?= htmlspecialchars($conductor) ?></td>
                 <td><?= htmlspecialchars($viajes['vehiculo']) ?></td>
-                <td><?= $viajes["completos"] ?></td>
-                <td><?= $viajes["medios"] ?></td>
-                <td><?= $viajes["extras"] ?></td>
-                <td><?= $viajes["carrotanques"] ?></td>
+                <td><?= (int)$viajes["completos"] ?></td>
+                <td><?= (int)$viajes["medios"] ?></td>
+                <td><?= (int)$viajes["extras"] ?></td>
+                <td><?= (int)$viajes["carrotanques"] ?></td>
                 <td><input type="text" class="totales" readonly></td>
             </tr>
         <?php endforeach; ?>
@@ -250,8 +264,9 @@ input[type=number], input[readonly] {
     <h3>🔢 Total General: <span id="total_general">0</span></h3>
 </div>
 
-<!-- Modal de viajes (arrastrable) -->
-<div class="modal fade" id="modalViajes" tabindex="-1" aria-labelledby="tituloModal" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+<!-- 🔹 Modal de viajes NO bloqueante -->
+<div class="modal fade" id="modalViajes" tabindex="-1" aria-labelledby="tituloModal" aria-hidden="true"
+     data-bs-backdrop="false" data-bs-focus="false" data-bs-keyboard="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header bg-primary text-white">
@@ -273,17 +288,11 @@ function getTarifas() {
     let tabla = document.getElementById("tabla_tarifas");
     for (let i = 1; i < tabla.rows.length; i++) {
         let vehiculo = tabla.rows[i].cells[0].innerText.trim();
-
-        let completo = tabla.rows[i].cells[1].querySelector("input") ? 
-            parseFloat(tabla.rows[i].cells[1].querySelector("input").value) || 0 : 0;
-        let medio = tabla.rows[i].cells[2].querySelector("input") ? 
-            parseFloat(tabla.rows[i].cells[2].querySelector("input").value) || 0 : 0;
-        let extra = tabla.rows[i].cells[3].querySelector("input") ? 
-            parseFloat(tabla.rows[i].cells[3].querySelector("input").value) || 0 : 0;
-        let carrotanque = tabla.rows[i].cells[4].querySelector("input") ? 
-            parseFloat(tabla.rows[i].cells[4].querySelector("input").value) || 0 : 0;
-
-        tarifas[vehiculo] = {completo, medio, extra, carrotanque};
+        let completo = tabla.rows[i].cells[1].querySelector("input") ? parseFloat(tabla.rows[i].cells[1].querySelector("input").value) || 0 : 0;
+        let medio    = tabla.rows[i].cells[2].querySelector("input") ? parseFloat(tabla.rows[i].cells[2].querySelector("input").value) || 0 : 0;
+        let extra    = tabla.rows[i].cells[3].querySelector("input") ? parseFloat(tabla.rows[i].cells[3].querySelector("input").value) || 0 : 0;
+        let carro    = tabla.rows[i].cells[4].querySelector("input") ? parseFloat(tabla.rows[i].cells[4].querySelector("input").value) || 0 : 0;
+        tarifas[vehiculo] = {completo, medio, extra, carrotanque: carro};
     }
     return tarifas;
 }
@@ -310,7 +319,6 @@ function recalcular() {
                         (medios * tarifas[vehiculo].medio) +
                         (extras * tarifas[vehiculo].extra) +
                         (carrotanques * tarifas[vehiculo].carrotanque);
-
             fila.cells[6].querySelector("input").value = formatNumber(total);
             totalGeneral += total;
         }
@@ -318,7 +326,7 @@ function recalcular() {
     document.getElementById("total_general").innerText = formatNumber(totalGeneral);
 }
 
-// --- Al hacer clic en el nombre del conductor ---
+// --- Clic en nombre del conductor (abre modal no bloqueante) ---
 document.querySelectorAll("#tabla_conductores td:first-child").forEach(td => {
     td.style.cursor = "pointer";
     td.style.color = "#007bff";
@@ -333,7 +341,12 @@ document.querySelectorAll("#tabla_conductores td:first-child").forEach(td => {
         document.getElementById("tituloModal").innerHTML =
             `🚗 Viajes de <b>${nombre}</b> entre ${desde} y ${hasta}`;
 
-        let modal = new bootstrap.Modal(document.getElementById("modalViajes"));
+        // Modal que NO bloquea el fondo
+        let modal = new bootstrap.Modal(document.getElementById("modalViajes"), {
+            backdrop: false,
+            focus: false,
+            keyboard: true
+        });
         document.getElementById("contenidoModal").innerHTML = "<p class='text-center text-muted'>Cargando viajes...</p>";
         modal.show();
 
@@ -347,23 +360,8 @@ document.querySelectorAll("#tabla_conductores td:first-child").forEach(td => {
             });
     });
 });
-</script>
 
-
-<style>
-#modalViajes .modal-dialog.draggable {
-    position: fixed;
-    margin: 0;
-}
-#modalViajes.modal.fade .modal-dialog {
-    transition: none !important;
-}
-#modalViajes .modal-header {
-    cursor: move;
-}
-</style>
-
-<script>
+// --- Arrastrar el modal (mouse y táctil) ---
 (function () {
   const modalEl = document.getElementById('modalViajes');
   if (!modalEl) return;
@@ -379,7 +377,7 @@ document.querySelectorAll("#tabla_conductores td:first-child").forEach(td => {
   }
 
   function onDown(e){
-    if (e.button !== undefined && e.button !== 0) return;
+    if (e.button !== undefined && e.button !== 0) return; // solo botón izq
     isDown = true;
     dialog.classList.add('draggable');
     dialog.style.transform = 'none';
@@ -403,8 +401,8 @@ document.querySelectorAll("#tabla_conductores td:first-child").forEach(td => {
 
     const maxLeft = window.innerWidth  - dialog.offsetWidth;
     const maxTop  = window.innerHeight - dialog.offsetHeight;
-    left = Math.max(0, Math.min(left, maxLeft));
-    top  = Math.max(0, Math.min(top,  maxTop));
+    left = Math.max(0, Math.min(left, Math.max(0, maxLeft)));
+    top  = Math.max(0, Math.min(top,  Math.max(0, maxTop)));
 
     dialog.style.left = left + 'px';
     dialog.style.top  = top  + 'px';
@@ -419,6 +417,7 @@ document.querySelectorAll("#tabla_conductores td:first-child").forEach(td => {
   }
 
   modalEl.addEventListener('shown.bs.modal', () => {
+    // Al abrir, céntralo por defecto (Bootstrap), y limpia posición previa
     dialog.classList.remove('draggable');
     dialog.style.left = '';
     dialog.style.top = '';
