@@ -5,9 +5,9 @@ if ($conn->connect_error) {
     die("Error conexión BD: " . $conn->connect_error);
 }
 
-/* ================================================
-   🔹 Endpoint AJAX: viajes por conductor
-================================================ */
+// =======================================================
+// 🔹 Endpoint AJAX: viajes por conductor
+// =======================================================
 if (isset($_GET['viajes_conductor'])) {
     $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
     $desde   = $_GET['desde'];
@@ -51,9 +51,9 @@ if (isset($_GET['viajes_conductor'])) {
     exit;
 }
 
-/* ================================================
-   🔹 Formulario inicial
-================================================ */
+// =======================================================
+// 🔹 Formulario inicial
+// =======================================================
 if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
     $empresas = [];
     $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
@@ -89,9 +89,9 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
     exit;
 }
 
-/* ================================================
-   🔹 Cálculo y armado de tablas
-================================================ */
+// =======================================================
+// 🔹 Cálculo y armado de tablas
+// =======================================================
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
 $empresaFiltro = $_GET['empresa'] ?? "";
@@ -137,13 +137,19 @@ if ($res) {
 <title>Liquidación de Conductores</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <style>
-  :root{ --gap:18px; --box-bg:#fff; --box-radius:14px; }
+  :root{ --gap:18px; --box-radius:14px; }
   body{font-family:'Segoe UI',sans-serif;background:#eef2f6;color:#333;padding:20px}
   .page-title{ text-align:center;background:#fff;border-radius:var(--box-radius);
     padding:16px 18px;margin-bottom:var(--gap);box-shadow:0 2px 8px rgba(0,0,0,.05) }
   .layout{ display:grid; grid-template-columns: 1fr 2fr 1.2fr; gap:var(--gap); align-items:start; }
   @media (max-width:1200px){ .layout{grid-template-columns:1fr;} #panelViajes{position:relative;top:auto;} }
-  .box{ background:var(--box-bg); border-radius:var(--box-radius); box-shadow:0 2px 10px rgba(0,0,0,.06); padding:14px; }
+
+  /* 🔹 Colores personalizados */
+  .box-left  { background:#e8f0ff; }  /* azul claro */
+  .box-center{ background:#e9f9ee; }  /* verde claro */
+  .box-right { background:#fff9e6; }  /* amarillo claro */
+  .box{ border-radius:var(--box-radius); box-shadow:0 2px 10px rgba(0,0,0,.06); padding:14px; }
+
   h3.section-title{ text-align:center; margin:6px 0 12px 0; }
   table{ background:#fff; border-radius:10px; overflow:hidden }
   th{ background:#0d6efd; color:#fff; text-align:center; padding:10px }
@@ -169,8 +175,6 @@ if ($res) {
   #panelViajes .panel-body{ padding:10px; max-height:70vh; overflow:auto; }
   .btn-clear{background:transparent;border:none;color:#fff;opacity:.9}
   .btn-clear:hover{opacity:1}
-
-  /* Enlaces conductores */
   .conductor-link{cursor:pointer;color:#0d6efd;text-decoration:underline;}
 </style>
 </head>
@@ -186,7 +190,7 @@ if ($res) {
 
 <div class="layout">
   <!-- ===== Columna 1: Tarifas ===== -->
-  <section class="box">
+  <section class="box box-left">
     <h3 class="section-title">🚐 Tarifas por Tipo de Vehículo</h3>
     <table id="tabla_tarifas" class="table mb-0">
       <thead>
@@ -218,10 +222,9 @@ if ($res) {
   </section>
 
   <!-- ===== Columna 2: Resumen conductores ===== -->
-  <section class="box">
+  <section class="box box-center">
     <h3 class="section-title">🧑‍✈️ Resumen por Conductor</h3>
 
-    <!-- 🔹 Total General arriba (derecha) -->
     <div class="total-chip">🔢 Total General: <span id="total_general">0</span></div>
 
     <table id="tabla_conductores" class="table">
@@ -253,7 +256,7 @@ if ($res) {
   </section>
 
   <!-- ===== Columna 3: Panel de viajes ===== -->
-  <aside id="panelViajes" class="box">
+  <aside id="panelViajes" class="box box-right">
     <div class="panel-header">
       <div id="tituloPanel">🧳 Viajes</div>
       <button class="btn-clear" title="Limpiar" onclick="limpiarPanel()">✕</button>
@@ -266,7 +269,6 @@ if ($res) {
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-/* ===== Tarifas / Totales ===== */
 function getTarifas() {
   const tarifas = {};
   document.querySelectorAll('#tabla_tarifas tbody tr').forEach(row => {
@@ -298,7 +300,6 @@ function recalcular(){
   document.getElementById('total_general').innerText = formatNumber(totalGeneral);
 }
 
-/* ===== Panel lateral ===== */
 function limpiarPanel(){
   document.getElementById('tituloPanel').innerHTML = '🧳 Viajes';
   document.getElementById('contenidoPanel').innerHTML =
@@ -323,7 +324,6 @@ document.querySelectorAll('#tabla_conductores .conductor-link').forEach(td => {
   });
 });
 
-/* Inicializa totales al cargar */
 recalcular();
 </script>
 </body>
