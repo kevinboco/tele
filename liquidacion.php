@@ -5,9 +5,9 @@ if ($conn->connect_error) {
     die("Error conexión BD: " . $conn->connect_error);
 }
 
-// =======================================================
-// 🔹 Endpoint AJAX: viajes por conductor
-// =======================================================
+/* =======================================================
+   🔹 Endpoint AJAX: viajes por conductor
+======================================================= */
 if (isset($_GET['viajes_conductor'])) {
     $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
     $desde   = $_GET['desde'];
@@ -51,9 +51,9 @@ if (isset($_GET['viajes_conductor'])) {
     exit;
 }
 
-// =======================================================
-// 🔹 Formulario inicial
-// =======================================================
+/* =======================================================
+   🔹 Formulario inicial (si faltan fechas)
+======================================================= */
 if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
     $empresas = [];
     $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
@@ -89,9 +89,9 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
     exit;
 }
 
-// =======================================================
-// 🔹 Cálculo y armado de tablas
-// =======================================================
+/* =======================================================
+   🔹 Cálculo y armado de tablas
+======================================================= */
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
 $empresaFiltro = $_GET['empresa'] ?? "";
@@ -129,6 +129,11 @@ if ($res) {
         }
     }
 }
+
+/* Empresas para el SELECT del header */
+$empresas = [];
+$resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
+if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -139,17 +144,48 @@ if ($res) {
 <style>
   :root{ --gap:18px; --box-radius:14px; }
   body{font-family:'Segoe UI',sans-serif;background:#eef2f6;color:#333;padding:20px}
-  .page-title{ text-align:center;background:#fff;border-radius:var(--box-radius);
-    padding:16px 18px;margin-bottom:var(--gap);box-shadow:0 2px 8px rgba(0,0,0,.05) }
+
+  /* ===== Encabezado con filtro a la izquierda y título centrado ===== */
+  .page-title{
+    background:#fff;border-radius:var(--box-radius);
+    padding:12px 16px;margin-bottom:var(--gap);
+    box-shadow:0 2px 8px rgba(0,0,0,.05)
+  }
+  .header-grid{
+    display:grid;
+    grid-template-columns: auto 1fr auto; /* izq filtro / centro título / derecha espacio */
+    align-items:center;
+    gap:12px;
+  }
+  .header-center{ text-align:center; }
+  .header-center h2{ margin:4px 0 2px 0; }
+  .header-sub{ font-size:14px; color:#555; }
+
+  /* Filtro compacto en header */
+  .filtro-inline .form-control,
+  .filtro-inline .form-select{
+    height:32px; padding:2px 8px; font-size:14px; min-width:120px;
+  }
+  .filtro-inline label{ font-weight:600; margin:0 4px 0 0; }
+  .filtro-inline .btn{ height:32px; padding:2px 10px; }
+
+  @media (max-width: 992px){
+    .header-grid{ grid-template-columns: 1fr; }
+    .header-center{ order:-1; } /* el título arriba, filtro abajo */
+    .filtro-inline .form-control, .filtro-inline .form-select{ width:100%; min-width:0; }
+  }
+
+  /* ===== Layout 3 columnas ===== */
   .layout{ display:grid; grid-template-columns: 1fr 2fr 1.2fr; gap:var(--gap); align-items:start; }
   @media (max-width:1200px){ .layout{grid-template-columns:1fr;} #panelViajes{position:relative;top:auto;} }
 
-  /* 🔹 Colores personalizados */
-  .box-left  { background:#e8f0ff; }  /* azul claro */
-  .box-center{ background:#e9f9ee; }  /* verde claro */
-  .box-right { background:#fff9e6; }  /* amarillo claro */
+  /* Colores cajas */
+  .box-left  { background:#e8f0ff; }
+  .box-center{ background:#e9f9ee; }
+  .box-right { background:#fff9e6; }
   .box{ border-radius:var(--box-radius); box-shadow:0 2px 10px rgba(0,0,0,.06); padding:14px; }
 
+  /* Tablas */
   h3.section-title{ text-align:center; margin:6px 0 12px 0; }
   table{ background:#fff; border-radius:10px; overflow:hidden }
   th{ background:#0d6efd; color:#fff; text-align:center; padding:10px }
@@ -157,7 +193,7 @@ if ($res) {
   tr:hover{ background:#f6faff }
   input[type=number], input[readonly]{ width:100%; max-width:160px; padding:6px; border:1px solid #ced4da; border-radius:8px; text-align:right }
 
-  /* 🔹 Total General arriba (chip) */
+  /* Total arriba */
   .total-chip{
     display:inline-block; padding:6px 12px; border-radius:999px;
     background:#e9f2ff; color:#0d6efd; font-weight:700; border:1px solid #d6e6ff;
@@ -165,7 +201,7 @@ if ($res) {
   }
   .section-title::after{ content:""; display:block; clear:both; }
 
-  /* 🔹 Panel derecho adaptativo */
+  /* Panel derecho */
   #panelViajes{ position:sticky; top:12px; }
   #panelViajes .panel-header{
     display:flex;align-items:center;justify-content:space-between;
@@ -180,16 +216,51 @@ if ($res) {
 </head>
 <body>
 
+<!-- ===== Encabezado con filtro a la izquierda ===== -->
 <div class="page-title">
-  <h2 class="mb-1">🪙 Liquidación de Conductores</h2>
-  <div>Periodo: <strong><?= htmlspecialchars($desde) ?></strong> hasta <strong><?= htmlspecialchars($hasta) ?></strong></div>
-  <?php if ($empresaFiltro !== ""): ?>
-    <div>Empresa: <strong><?= htmlspecialchars($empresaFiltro) ?></strong></div>
-  <?php endif; ?>
+  <div class="header-grid">
+    <!-- Filtro compacto -->
+    <form class="filtro-inline" method="get">
+      <div class="d-flex flex-wrap align-items-center gap-2">
+        <label class="mb-0">Desde:</label>
+        <input type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" class="form-control form-control-sm w-auto" required>
+
+        <label class="ms-2 mb-0">Hasta:</label>
+        <input type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" class="form-control form-control-sm w-auto" required>
+
+        <label class="ms-2 mb-0">Empresa:</label>
+        <select name="empresa" class="form-select form-select-sm w-auto">
+          <option value="">-- Todas --</option>
+          <?php foreach($empresas as $e): ?>
+            <option value="<?= htmlspecialchars($e) ?>" <?= $empresaFiltro==$e?'selected':'' ?>>
+              <?= htmlspecialchars($e) ?>
+            </option>
+          <?php endforeach; ?>
+        </select>
+
+        <button class="btn btn-primary btn-sm ms-2" type="submit">Filtrar</button>
+      </div>
+    </form>
+
+    <!-- Centro: Título -->
+    <div class="header-center">
+      <h2>🪙 Liquidación de Conductores</h2>
+      <div class="header-sub">
+        Periodo: <strong><?= htmlspecialchars($desde) ?></strong> hasta <strong><?= htmlspecialchars($hasta) ?></strong>
+        <?php if ($empresaFiltro !== ""): ?>
+          &nbsp;•&nbsp; Empresa: <strong><?= htmlspecialchars($empresaFiltro) ?></strong>
+        <?php endif; ?>
+      </div>
+    </div>
+
+    <!-- Derecha: espacio (para mantener el centrado perfecto) -->
+    <div></div>
+  </div>
 </div>
 
+<!-- ===== 3 columnas ===== -->
 <div class="layout">
-  <!-- ===== Columna 1: Tarifas ===== -->
+  <!-- Columna 1 -->
   <section class="box box-left">
     <h3 class="section-title">🚐 Tarifas por Tipo de Vehículo</h3>
     <table id="tabla_tarifas" class="table mb-0">
@@ -221,10 +292,9 @@ if ($res) {
     </table>
   </section>
 
-  <!-- ===== Columna 2: Resumen conductores ===== -->
+  <!-- Columna 2 -->
   <section class="box box-center">
     <h3 class="section-title">🧑‍✈️ Resumen por Conductor</h3>
-
     <div class="total-chip">🔢 Total General: <span id="total_general">0</span></div>
 
     <table id="tabla_conductores" class="table">
@@ -255,7 +325,7 @@ if ($res) {
     </table>
   </section>
 
-  <!-- ===== Columna 3: Panel de viajes ===== -->
+  <!-- Columna 3 -->
   <aside id="panelViajes" class="box box-right">
     <div class="panel-header">
       <div id="tituloPanel">🧳 Viajes</div>
@@ -320,7 +390,7 @@ document.querySelectorAll('#tabla_conductores .conductor-link').forEach(td => {
     fetch(`<?= basename(__FILE__) ?>?viajes_conductor=${encodeURIComponent(nombre)}&desde=${desde}&hasta=${hasta}&empresa=${encodeURIComponent(empresa)}`)
       .then(res => res.text())
       .then(html => { document.getElementById('contenidoPanel').innerHTML = html; })
-      .catch(()  => { document.getElementById('contenidoPanel').innerHTML = "<p class='text-danger'>Error al cargar los viajes.</p>"; });
+      .catch(()  => { document.getElementById('contenidoPanel').innerHTML = "<p class='text-danger text-center'>Error al cargar los viajes.</p>"; });
   });
 });
 
