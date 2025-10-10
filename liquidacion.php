@@ -5,9 +5,9 @@ if ($conn->connect_error) {
     die("Error conexión BD: " . $conn->connect_error);
 }
 
-// =======================================================
-// 🔹 Endpoint AJAX: viajes por conductor
-// =======================================================
+/* ================================================
+   🔹 Endpoint AJAX: viajes por conductor
+================================================ */
 if (isset($_GET['viajes_conductor'])) {
     $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
     $desde   = $_GET['desde'];
@@ -44,23 +44,20 @@ if (isset($_GET['viajes_conductor'])) {
                     <td>".htmlspecialchars($r['tipo_vehiculo'])."</td>
                   </tr>";
         }
-        echo "  </tbody>
-              </table>";
+        echo "  </tbody></table>";
     } else {
         echo "<p class='text-center text-muted mb-0'>No se encontraron viajes para este conductor en ese rango.</p>";
     }
     exit;
 }
 
-// =======================================================
-// 🔹 Formulario inicial
-// =======================================================
+/* ================================================
+   🔹 Formulario inicial
+================================================ */
 if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
     $empresas = [];
     $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
-    if ($resEmp) {
-        while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
-    }
+    if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
     ?>
     <style>
       body{font-family:'Segoe UI',sans-serif;background:#f8f9fa;color:#333;padding:40px}
@@ -92,9 +89,9 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
     exit;
 }
 
-// =======================================================
-// 🔹 Cálculo y armado de tablas
-// =======================================================
+/* ================================================
+   🔹 Cálculo y armado de tablas
+================================================ */
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
 $empresaFiltro = $_GET['empresa'] ?? "";
@@ -140,66 +137,41 @@ if ($res) {
 <title>Liquidación de Conductores</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <style>
-  :root{
-    --gap: 18px;
-    --box-bg: #fff;
-    --box-radius: 14px;
-  }
+  :root{ --gap:18px; --box-bg:#fff; --box-radius:14px; }
   body{font-family:'Segoe UI',sans-serif;background:#eef2f6;color:#333;padding:20px}
-  .page-title{
-    text-align:center;background:#fff;border-radius:var(--box-radius);
-    padding:16px 18px;margin-bottom:var(--gap);box-shadow:0 2px 8px rgba(0,0,0,.05)
-  }
-  /* ===== Grid 3 columnas (como el boceto) ===== */
-  .layout{
-    display:grid;
-    grid-template-columns: 1fr 2fr 1.2fr; /* izquierda / centro / derecha */
-    gap: var(--gap);
-    align-items:start;
-  }
-  /* Responsive: se apila en pantallas pequeñas */
-  @media (max-width: 1200px){
-    .layout{grid-template-columns: 1fr; }
-    #panelViajes{position:relative; top:auto; height:auto;}
-  }
+  .page-title{ text-align:center;background:#fff;border-radius:var(--box-radius);
+    padding:16px 18px;margin-bottom:var(--gap);box-shadow:0 2px 8px rgba(0,0,0,.05) }
+  .layout{ display:grid; grid-template-columns: 1fr 2fr 1.2fr; gap:var(--gap); align-items:start; }
+  @media (max-width:1200px){ .layout{grid-template-columns:1fr;} #panelViajes{position:relative;top:auto;} }
+  .box{ background:var(--box-bg); border-radius:var(--box-radius); box-shadow:0 2px 10px rgba(0,0,0,.06); padding:14px; }
+  h3.section-title{ text-align:center; margin:6px 0 12px 0; }
+  table{ background:#fff; border-radius:10px; overflow:hidden }
+  th{ background:#0d6efd; color:#fff; text-align:center; padding:10px }
+  td{ text-align:center; padding:8px; border-bottom:1px solid #eee }
+  tr:hover{ background:#f6faff }
+  input[type=number], input[readonly]{ width:100%; max-width:160px; padding:6px; border:1px solid #ced4da; border-radius:8px; text-align:right }
 
-  .box{
-    background:var(--box-bg);
-    border-radius:var(--box-radius);
-    box-shadow:0 2px 10px rgba(0,0,0,.06);
-    padding:14px;
+  /* 🔹 Total General arriba (chip) */
+  .total-chip{
+    display:inline-block; padding:6px 12px; border-radius:999px;
+    background:#e9f2ff; color:#0d6efd; font-weight:700; border:1px solid #d6e6ff;
+    margin-bottom:8px; float:right;
   }
-  h3.section-title{
-    text-align:center;margin:6px 0 12px 0;
-  }
+  .section-title::after{ content:""; display:block; clear:both; }
 
-  /* Tablas */
-  table{background:#fff;border-radius:10px;overflow:hidden}
-  th{background:#0d6efd;color:#fff;text-align:center;padding:10px}
-  td{text-align:center;padding:8px;border-bottom:1px solid #eee}
-  tr:hover{background:#f6faff}
-  input[type=number], input[readonly]{
-    width:100%;max-width:160px;padding:6px;border:1px solid #ced4da;border-radius:8px;text-align:right
-  }
-
-  /* Panel lateral (reemplaza modal) */
-  #panelViajes{
-    position: sticky;
-    top: 12px;          /* queda fijo al hacer scroll */
-    height: calc(100vh - 24px);
-    overflow:auto;
-  }
-  .panel-header{
+  /* 🔹 Panel derecho adaptativo */
+  #panelViajes{ position:sticky; top:12px; }
+  #panelViajes .panel-header{
     display:flex;align-items:center;justify-content:space-between;
     background:#0d6efd;color:#fff;padding:10px 12px;border-radius:10px;
     position:sticky;top:0;z-index:2;
   }
-  .panel-body{padding:10px}
+  #panelViajes .panel-body{ padding:10px; max-height:70vh; overflow:auto; }
   .btn-clear{background:transparent;border:none;color:#fff;opacity:.9}
   .btn-clear:hover{opacity:1}
 
-  /* Totales */
-  #total_general{color:#0d6efd;font-weight:700}
+  /* Enlaces conductores */
+  .conductor-link{cursor:pointer;color:#0d6efd;text-decoration:underline;}
 </style>
 </head>
 <body>
@@ -248,6 +220,10 @@ if ($res) {
   <!-- ===== Columna 2: Resumen conductores ===== -->
   <section class="box">
     <h3 class="section-title">🧑‍✈️ Resumen por Conductor</h3>
+
+    <!-- 🔹 Total General arriba (derecha) -->
+    <div class="total-chip">🔢 Total General: <span id="total_general">0</span></div>
+
     <table id="tabla_conductores" class="table">
       <thead>
         <tr>
@@ -263,9 +239,7 @@ if ($res) {
       <tbody>
       <?php foreach ($datos as $conductor => $viajes): ?>
         <tr data-vehiculo="<?= htmlspecialchars($viajes['vehiculo']) ?>">
-          <td class="conductor-link" style="cursor:pointer;color:#0d6efd;text-decoration:underline;">
-            <?= htmlspecialchars($conductor) ?>
-          </td>
+          <td class="conductor-link"><?= htmlspecialchars($conductor) ?></td>
           <td><?= htmlspecialchars($viajes['vehiculo']) ?></td>
           <td><?= (int)$viajes["completos"] ?></td>
           <td><?= (int)$viajes["medios"] ?></td>
@@ -276,11 +250,9 @@ if ($res) {
       <?php endforeach; ?>
       </tbody>
     </table>
-
-    <h4 class="text-center mt-3">🔢 Total General: <span id="total_general">0</span></h4>
   </section>
 
-  <!-- ===== Columna 3: Panel de viajes (dock) ===== -->
+  <!-- ===== Columna 3: Panel de viajes ===== -->
   <aside id="panelViajes" class="box">
     <div class="panel-header">
       <div id="tituloPanel">🧳 Viajes</div>
@@ -294,11 +266,10 @@ if ($res) {
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-// ===== Tarifas / Totales =====
+/* ===== Tarifas / Totales ===== */
 function getTarifas() {
   const tarifas = {};
-  const filas = document.querySelectorAll('#tabla_tarifas tbody tr');
-  filas.forEach(row => {
+  document.querySelectorAll('#tabla_tarifas tbody tr').forEach(row => {
     const vehiculo = row.cells[0].innerText.trim();
     const completo = row.cells[1].querySelector('input') ? parseFloat(row.cells[1].querySelector('input').value)||0 : 0;
     const medio    = row.cells[2].querySelector('input') ? parseFloat(row.cells[2].querySelector('input').value)||0 : 0;
@@ -327,13 +298,12 @@ function recalcular(){
   document.getElementById('total_general').innerText = formatNumber(totalGeneral);
 }
 
-// ===== Panel lateral (reemplaza al modal) =====
+/* ===== Panel lateral ===== */
 function limpiarPanel(){
   document.getElementById('tituloPanel').innerHTML = '🧳 Viajes';
-  document.getElementById('contenidoPanel').innerHTML = '<p class="text-muted mb-0">Selecciona un conductor en la tabla para ver sus viajes aquí.</p>';
+  document.getElementById('contenidoPanel').innerHTML =
+    '<p class="text-muted mb-0">Selecciona un conductor en la tabla para ver sus viajes aquí.</p>';
 }
-
-// Click en el nombre del conductor para cargar en panel
 document.querySelectorAll('#tabla_conductores .conductor-link').forEach(td => {
   td.addEventListener('click', () => {
     const nombre = td.innerText.trim();
@@ -341,8 +311,10 @@ document.querySelectorAll('#tabla_conductores .conductor-link').forEach(td => {
     const hasta  = "<?= htmlspecialchars($hasta) ?>";
     const empresa= "<?= htmlspecialchars($empresaFiltro) ?>";
 
-    document.getElementById('tituloPanel').innerHTML = `🚗 Viajes de <b>${nombre}</b> entre ${desde} y ${hasta}`;
-    document.getElementById('contenidoPanel').innerHTML = "<p class='text-center text-muted mb-0'>Cargando viajes...</p>";
+    document.getElementById('tituloPanel').innerHTML =
+      `🚗 Viajes de <b>${nombre}</b> entre ${desde} y ${hasta}`;
+    document.getElementById('contenidoPanel').innerHTML =
+      "<p class='text-center text-muted mb-0'>Cargando viajes...</p>";
 
     fetch(`<?= basename(__FILE__) ?>?viajes_conductor=${encodeURIComponent(nombre)}&desde=${desde}&hasta=${hasta}&empresa=${encodeURIComponent(empresa)}`)
       .then(res => res.text())
@@ -351,7 +323,7 @@ document.querySelectorAll('#tabla_conductores .conductor-link').forEach(td => {
   });
 });
 
-// Inicializa totales
+/* Inicializa totales al cargar */
 recalcular();
 </script>
 </body>
