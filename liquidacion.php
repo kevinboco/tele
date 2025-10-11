@@ -6,22 +6,22 @@ if ($conn->connect_error) {
 }
 
 /* =======================================================
-   🔹 Endpoint AJAX: guardar tarifas
+   🔹 Endpoint AJAX: guardar tarifa
 ======================================================= */
 if (isset($_POST['guardar_tarifa'])) {
-    $empresa = $conn->real_escape_string($_POST['empresa']);
+    $empresa  = $conn->real_escape_string($_POST['empresa']);
     $vehiculo = $conn->real_escape_string($_POST['vehiculo']);
-    $campo = $conn->real_escape_string($_POST['campo']);
-    $valor = floatval($_POST['valor']);
+    $campo    = $conn->real_escape_string($_POST['campo']);
+    $valor    = floatval($_POST['valor']);
 
+    // Verificar si ya existe una fila para esa empresa y vehículo
     $check = $conn->query("SELECT id FROM tarifas WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'");
     if ($check && $check->num_rows > 0) {
-        $conn->query("UPDATE tarifas SET $campo='$valor' WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'");
+        $conn->query("UPDATE tarifas SET $campo=$valor WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'");
     } else {
-        $conn->query("INSERT INTO tarifas (empresa, tipo_vehiculo, $campo) VALUES ('$empresa','$vehiculo','$valor')");
+        $conn->query("INSERT INTO tarifas (empresa, tipo_vehiculo, $campo) VALUES ('$empresa', '$vehiculo', $valor)");
     }
-    echo "ok";
-    exit;
+    exit("ok");
 }
 
 /* =======================================================
@@ -71,20 +71,6 @@ if (isset($_GET['viajes_conductor'])) {
 }
 
 /* =======================================================
-   🔹 Crear tabla tarifas si no existe
-======================================================= */
-$conn->query("CREATE TABLE IF NOT EXISTS tarifas (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  empresa VARCHAR(100) NOT NULL,
-  tipo_vehiculo VARCHAR(100) NOT NULL,
-  completo DECIMAL(10,2) DEFAULT 0,
-  medio DECIMAL(10,2) DEFAULT 0,
-  extra DECIMAL(10,2) DEFAULT 0,
-  carrotanque DECIMAL(10,2) DEFAULT 0,
-  UNIQUE KEY (empresa, tipo_vehiculo)
-)");
-
-/* =======================================================
    🔹 Formulario inicial (si faltan fechas)
 ======================================================= */
 if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
@@ -129,6 +115,7 @@ $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
 $empresaFiltro = $_GET['empresa'] ?? "";
 
+/* === Cargar viajes === */
 $sql = "SELECT nombre, ruta, empresa, tipo_vehiculo FROM viajes
         WHERE fecha BETWEEN '$desde' AND '$hasta'";
 if ($empresaFiltro !== "") {
@@ -163,20 +150,17 @@ if ($res) {
     }
 }
 
+/* === Cargar tarifas guardadas === */
+$tarifasGuardadas = [];
+$resT = $conn->query("SELECT * FROM tarifas");
+if ($resT) while ($t = $resT->fetch_assoc()) {
+    $tarifasGuardadas[$t['empresa']][$t['tipo_vehiculo']] = $t;
+}
+
 /* Empresas para el SELECT del header */
 $empresas = [];
 $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
 if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
-
-/* Cargar tarifas guardadas */
-$tarifasGuardadas = [];
-$sqlT = "SELECT * FROM tarifas";
-$resT = $conn->query($sqlT);
-if ($resT) {
-    while ($t = $resT->fetch_assoc()) {
-        $tarifasGuardadas[$t['empresa']][$t['tipo_vehiculo']] = $t;
-    }
-}
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -184,71 +168,121 @@ if ($resT) {
 <meta charset="UTF-8">
 <title>Liquidación de Conductores</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-<style>/* tu css intacto */</style>
+<style>
+  body{font-family:'Segoe UI',sans-serif;background:#eef2f6;color:#333;padding:20px}
+  .page-title{background:#fff;border-radius:14px;padding:12px 16px;margin-bottom:18px;box-shadow:0 2px 8px rgba(0,0,0,.05)}
+  .layout{display:grid;grid-template-columns:1fr 2fr 1.2fr;gap:18px}
+  @media (max-width:1200px){.layout{grid-template-columns:1fr;}}
+  .box{border-radius:14px;box-shadow:0 2px 10px rgba(0,0,0,.06);padding:14px;background:#fff}
+  th{background:#0d6efd;color:#fff;text-align:center}
+  td{text-align:center}
+  input[type=number]{width:100%;text-align:right;border-radius:8px}
+  .conductor-link{cursor:pointer;color:#0d6efd;text-decoration:underline;}
+</style>
 </head>
 <body>
 
-<!-- ===== Encabezado y tu layout original ===== -->
-<?php /* (todo tu HTML se mantiene exactamente igual) */ ?>
+<div class="page-title">
+  <form class="d-flex flex-wrap align-items-center gap-2" method="get">
+    <label>Desde:</label>
+    <input type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" required>
+    <label>Hasta:</label>
+    <input type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" required>
+    <label>Empresa:</label>
+    <select name="empresa">
+      <option value="">-- Todas --</option>
+      <?php foreach($empresas as $e): ?>
+        <option value="<?= htmlspecialchars($e) ?>" <?= $empresaFiltro==$e?'selected':'' ?>><?= htmlspecialchars($e) ?></option>
+      <?php endforeach; ?>
+    </select>
+    <button class="btn btn-primary btn-sm" type="submit">Filtrar</button>
+  </form>
+</div>
 
-<!-- Solo reemplazo la parte donde generas la tabla de tarifas -->
-<section class="box box-left">
-  <h3 class="section-title">🚐 Tarifas por Tipo de Vehículo</h3>
-  <table id="tabla_tarifas" class="table mb-0">
-    <thead>
-      <tr>
-        <th>Tipo de Vehículo</th>
-        <th>Viaje Completo</th>
-        <th>Viaje Medio</th>
-        <th>Viaje Extra</th>
-        <th>Carrotanque</th>
-      </tr>
-    </thead>
-    <tbody>
-    <?php foreach ($vehiculos as $veh): ?>
-      <tr>
-        <td><?= htmlspecialchars($veh) ?></td>
-        <?php if ($veh === "Carrotanque"): ?>
-          <td>-</td><td>-</td><td>-</td>
-          <td><input type="number" step="1000"
-              value="<?= isset($tarifasGuardadas[$empresaFiltro][$veh]) ? $tarifasGuardadas[$empresaFiltro][$veh]['carrotanque'] : 0 ?>"
-              oninput="guardarTarifa('<?= $veh ?>','carrotanque',this.value)" data-tipo="carrotanque"></td>
-        <?php else: ?>
-          <td><input type="number" step="1000"
-              value="<?= isset($tarifasGuardadas[$empresaFiltro][$veh]) ? $tarifasGuardadas[$empresaFiltro][$veh]['completo'] : 0 ?>"
-              oninput="guardarTarifa('<?= $veh ?>','completo',this.value)" data-tipo="completo"></td>
-          <td><input type="number" step="1000"
-              value="<?= isset($tarifasGuardadas[$empresaFiltro][$veh]) ? $tarifasGuardadas[$empresaFiltro][$veh]['medio'] : 0 ?>"
-              oninput="guardarTarifa('<?= $veh ?>','medio',this.value)" data-tipo="medio"></td>
-          <td><input type="number" step="1000"
-              value="<?= isset($tarifasGuardadas[$empresaFiltro][$veh]) ? $tarifasGuardadas[$empresaFiltro][$veh]['extra'] : 0 ?>"
-              oninput="guardarTarifa('<?= $veh ?>','extra',this.value)" data-tipo="extra"></td>
-          <td>-</td>
-        <?php endif; ?>
-      </tr>
-    <?php endforeach; ?>
-    </tbody>
-  </table>
-</section>
+<div class="layout">
+  <!-- Columna 1 -->
+  <section class="box">
+    <h3 class="text-center">🚐 Tarifas por Tipo de Vehículo</h3>
+    <table id="tabla_tarifas" class="table">
+      <thead><tr>
+        <th>Vehículo</th><th>Completo</th><th>Medio</th><th>Extra</th><th>Carrotanque</th>
+      </tr></thead>
+      <tbody>
+      <?php foreach ($vehiculos as $veh): ?>
+        <tr>
+          <td><?= htmlspecialchars($veh) ?></td>
+          <?php if ($veh === "Carrotanque"): ?>
+            <td>-</td><td>-</td><td>-</td>
+            <td><input type="number" value="<?= isset($tarifasGuardadas[$empresaFiltro][$veh]) ? $tarifasGuardadas[$empresaFiltro][$veh]['carrotanque'] : 0 ?>"
+              oninput="guardarTarifa('<?= $veh ?>','carrotanque',this.value)"></td>
+          <?php else: ?>
+            <td><input type="number" value="<?= isset($tarifasGuardadas[$empresaFiltro][$veh]) ? $tarifasGuardadas[$empresaFiltro][$veh]['completo'] : 0 ?>"
+              oninput="guardarTarifa('<?= $veh ?>','completo',this.value)"></td>
+            <td><input type="number" value="<?= isset($tarifasGuardadas[$empresaFiltro][$veh]) ? $tarifasGuardadas[$empresaFiltro][$veh]['medio'] : 0 ?>"
+              oninput="guardarTarifa('<?= $veh ?>','medio',this.value)"></td>
+            <td><input type="number" value="<?= isset($tarifasGuardadas[$empresaFiltro][$veh]) ? $tarifasGuardadas[$empresaFiltro][$veh]['extra'] : 0 ?>"
+              oninput="guardarTarifa('<?= $veh ?>','extra',this.value)"></td>
+            <td>-</td>
+          <?php endif; ?>
+        </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Columna 2 -->
+  <section class="box">
+    <h3 class="text-center">🧑‍✈️ Resumen por Conductor</h3>
+    <table id="tabla_conductores" class="table">
+      <thead>
+        <tr><th>Conductor</th><th>Vehículo</th><th>Completos</th><th>Medios</th><th>Extras</th><th>Carrotanques</th></tr>
+      </thead>
+      <tbody>
+      <?php foreach ($datos as $c => $v): ?>
+        <tr data-vehiculo="<?= htmlspecialchars($v['vehiculo']) ?>">
+          <td class="conductor-link"><?= htmlspecialchars($c) ?></td>
+          <td><?= htmlspecialchars($v['vehiculo']) ?></td>
+          <td><?= $v['completos'] ?></td>
+          <td><?= $v['medios'] ?></td>
+          <td><?= $v['extras'] ?></td>
+          <td><?= $v['carrotanques'] ?></td>
+        </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Columna 3 -->
+  <aside class="box" id="panelViajes">
+    <h4 id="tituloPanel">🧳 Viajes</h4>
+    <div id="contenidoPanel"><p class="text-muted mb-0">Selecciona un conductor en la tabla.</p></div>
+  </aside>
+</div>
 
 <script>
 function guardarTarifa(vehiculo, campo, valor){
-  const empresa = "<?= $empresaFiltro ?>";
-  if (!empresa) return;
-  fetch(location.href, {
-    method: 'POST',
-    headers: {'Content-Type':'application/x-www-form-urlencoded'},
-    body: new URLSearchParams({
-      guardar_tarifa: 1,
-      empresa: empresa,
-      vehiculo: vehiculo,
-      campo: campo,
-      valor: valor
-    })
-  });
-  recalcular();
+  const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
+  fetch("<?= basename(__FILE__) ?>", {
+    method: "POST",
+    headers: {"Content-Type": "application/x-www-form-urlencoded"},
+    body: new URLSearchParams({guardar_tarifa:1, empresa, vehiculo, campo, valor})
+  }).then(r=>r.text()).then(()=>console.log("Tarifa guardada"))
+  .catch(()=>alert("Error guardando tarifa"));
 }
-</script>
 
+document.querySelectorAll('#tabla_conductores .conductor-link').forEach(td=>{
+  td.addEventListener('click',()=>{
+    const nombre = td.innerText.trim();
+    const desde  = "<?= htmlspecialchars($desde) ?>";
+    const hasta  = "<?= htmlspecialchars($hasta) ?>";
+    const empresa= "<?= htmlspecialchars($empresaFiltro) ?>";
+    document.getElementById('tituloPanel').innerHTML = `🚗 Viajes de <b>${nombre}</b>`;
+    document.getElementById('contenidoPanel').innerHTML = "Cargando...";
+    fetch(`<?= basename(__FILE__) ?>?viajes_conductor=${encodeURIComponent(nombre)}&desde=${desde}&hasta=${hasta}&empresa=${encodeURIComponent(empresa)}`)
+      .then(r=>r.text()).then(h=>document.getElementById('contenidoPanel').innerHTML=h)
+      .catch(()=>document.getElementById('contenidoPanel').innerHTML="Error al cargar");
+  });
+});
+</script>
 </body>
 </html>
