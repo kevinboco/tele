@@ -1,208 +1,184 @@
 <?php
 include("nav.php");
-
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
 if ($conn->connect_error) {
     die("Error conexión BD: " . $conn->connect_error);
 }
 
 /* =======================================================
-   🔹 Valores predeterminados
+   🔹 Guardar tarifas por vehículo y empresa (AJAX)
 ======================================================= */
-$desde_default = '2025-10-01'; // 👉 cámbialo cuando quieras
-$hasta_default = date('Y-m-d'); // 👉 siempre será la fecha actual
-$empresa_default = 'Hospital';  // 👉 empresa predeterminada
+if (isset($_POST['guardar_tarifa'])) {
+    $empresa = $conn->real_escape_string($_POST['empresa']);
+    $vehiculo = $conn->real_escape_string($_POST['tipo_vehiculo']);
+    $campo = $conn->real_escape_string($_POST['campo']);
+    $valor = (int)$_POST['valor'];
 
-if (!isset($_GET['desde'])) $_GET['desde'] = $desde_default;
-if (!isset($_GET['hasta'])) $_GET['hasta'] = $hasta_default;
-if (!isset($_GET['empresa'])) $_GET['empresa'] = $empresa_default;
+    // Crear registro si no existe
+    $conn->query("INSERT IGNORE INTO tarifas (empresa, tipo_vehiculo) VALUES ('$empresa', '$vehiculo')");
 
-$desde = $_GET['desde'];
-$hasta = $_GET['hasta'];
-$empresa = $_GET['empresa'];
-
-/* =======================================================
-   🔹 Endpoint AJAX: Guardar tarifas
-======================================================= */
-if (isset($_GET['accion']) && $_GET['accion'] == 'guardar_tarifas') {
-    $empresa = $_GET['empresa'];
-    $vehiculo = $_GET['vehiculo'];
-    $tarifa = $_GET['tarifa'];
-
-    $sql_check = "SELECT * FROM tarifas WHERE empresa='$empresa' AND vehiculo='$vehiculo'";
-    $res = $conn->query($sql_check);
-
-    if ($res->num_rows > 0) {
-        $sql_update = "UPDATE tarifas SET tarifa='$tarifa' WHERE empresa='$empresa' AND vehiculo='$vehiculo'";
-        $conn->query($sql_update);
+    // Actualizar el valor específico
+    $sql = "UPDATE tarifas SET $campo = $valor WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'";
+    if ($conn->query($sql)) {
+        echo "ok";
     } else {
-        $sql_insert = "INSERT INTO tarifas (empresa, vehiculo, tarifa) VALUES ('$empresa', '$vehiculo', '$tarifa')";
-        $conn->query($sql_insert);
+        echo "error: " . $conn->error;
     }
-
-    echo "ok";
     exit;
 }
 
 /* =======================================================
-   🔹 Endpoint AJAX: Obtener viajes por conductor
+   🔹 Endpoint AJAX: viajes por conductor
 ======================================================= */
-if (isset($_GET['accion']) && $_GET['accion'] == 'viajes_conductor') {
-    $empresa = $_GET['empresa'];
-    $desde = $_GET['desde'];
-    $hasta = $_GET['hasta'];
+if (isset($_GET['viajes_conductor'])) {
+    $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
+    $desde   = $_GET['desde'];
+    $hasta   = $_GET['hasta'];
+    $empresa = $_GET['empresa'] ?? "";
 
-    $sql = "SELECT conductor, tipo_vehiculo, COUNT(*) AS total_viajes
+    $sql = "SELECT fecha, ruta, empresa, tipo_vehiculo
             FROM viajes
-            WHERE empresa='$empresa' AND fecha BETWEEN '$desde' AND '$hasta'
-            GROUP BY conductor, tipo_vehiculo
-            ORDER BY conductor";
+            WHERE nombre = '$nombre'
+              AND fecha BETWEEN '$desde' AND '$hasta'";
+    if ($empresa !== "") {
+        $empresa = $conn->real_escape_string($empresa);
+        $sql .= " AND empresa = '$empresa'";
+    }
+    $sql .= " ORDER BY fecha ASC";
 
     $res = $conn->query($sql);
-    $data = [];
-    while ($row = $res->fetch_assoc()) {
-        $data[] = $row;
+    if ($res && $res->num_rows > 0) {
+        echo "<table class='table table-bordered table-striped mb-0'>
+                <thead>
+                  <tr class='table-primary text-center'>
+                    <th>Fecha</th>
+                    <th>Ruta</th>
+                    <th>Empresa</th>
+                    <th>Vehículo</th>
+                  </tr>
+                </thead>
+                <tbody>";
+        while ($r = $res->fetch_assoc()) {
+            echo "<tr>
+                    <td>".htmlspecialchars($r['fecha'])."</td>
+                    <td>".htmlspecialchars($r['ruta'])."</td>
+                    <td>".htmlspecialchars($r['empresa'])."</td>
+                    <td>".htmlspecialchars($r['tipo_vehiculo'])."</td>
+                  </tr>";
+        }
+        echo "  </tbody></table>";
+    } else {
+        echo "<p class='text-center text-muted mb-0'>No se encontraron viajes para este conductor en ese rango.</p>";
     }
-    header('Content-Type: application/json');
-    echo json_encode($data);
     exit;
 }
 
 /* =======================================================
-   🔹 Filtros de búsqueda
+   🔹 Formulario inicial (si faltan fechas)
 ======================================================= */
-?>
-<div class="container mt-4">
-    <h3 class="mb-3">💰 Liquidación por Conductor</h3>
+if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
+    $empresas = [];
+    $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
+    if ($resEmp && $resEmp->num_rows > 0) {
+        while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
+    }
+    // Si no hay empresas, se muestra una opción por defecto
+    if (empty($empresas)) $empresas = ["Hospital", "Otra Empresa"];
 
-    <form method="GET" class="row g-3 mb-4">
-        <div class="col-md-3">
-            <label class="form-label">Desde</label>
-            <input type="date" name="desde" class="form-control" value="<?php echo $desde; ?>">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">Hasta</label>
-            <input type="date" name="hasta" class="form-control" value="<?php echo $hasta; ?>">
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">Empresa</label>
-            <input type="text" name="empresa" class="form-control" value="<?php echo $empresa; ?>">
-        </div>
-        <div class="col-md-3 d-flex align-items-end">
-            <button type="submit" class="btn btn-primary w-100">Filtrar</button>
-        </div>
-    </form>
+    ?>
+    <style>
+      body{font-family:'Segoe UI',sans-serif;background:#f8f9fa;color:#333;padding:40px}
+      .card{max-width:460px;margin:0 auto}
+    </style>
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h2 class="text-center mb-3">📅 Filtrar viajes por rango de fechas</h2>
+        <form method="get" class="vstack gap-3">
+          <label class="form-label">Desde:
+            <input type="date" name="desde" class="form-control" required>
+          </label>
+          <label class="form-label">Hasta:
+            <input type="date" name="hasta" class="form-control" required>
+          </label>
+          <label class="form-label">Empresa:
+            <select name="empresa" class="form-select">
+              <option value="">-- Todas --</option>
+              <?php foreach($empresas as $e): ?>
+                <option value="<?= htmlspecialchars($e) ?>" <?= $e=="Hospital"?"selected":"" ?>>
+                  <?= htmlspecialchars($e) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </label>
+          <button class="btn btn-primary w-100" type="submit">Filtrar</button>
+        </form>
+      </div>
+    </div>
+    <?php
+    exit;
+}
 
-<?php
 /* =======================================================
-   🔹 Tabla de tarifas por vehículo
+   🔹 Cálculo y armado de tablas
 ======================================================= */
-$sql_tarifas = "SELECT * FROM tarifas WHERE empresa='$empresa'";
-$res_tarifas = $conn->query($sql_tarifas);
+$desde = $_GET['desde'];
+$hasta = $_GET['hasta'];
+$empresaFiltro = $_GET['empresa'] ?? "";
 
-$tarifas = [];
-if ($res_tarifas->num_rows > 0) {
-    while ($t = $res_tarifas->fetch_assoc()) {
-        $tarifas[$t['vehiculo']] = $t['tarifa'];
+// Si no se selecciona empresa, se usa una por defecto
+if ($empresaFiltro === "") $empresaFiltro = "Hospital";
+
+$sql = "SELECT nombre, ruta, empresa, tipo_vehiculo FROM viajes
+        WHERE fecha BETWEEN '$desde' AND '$hasta'";
+if ($empresaFiltro !== "") {
+    $empresaFiltro = $conn->real_escape_string($empresaFiltro);
+    $sql .= " AND empresa = '$empresaFiltro'";
+}
+$res = $conn->query($sql);
+
+$datos = [];
+$vehiculos = [];
+if ($res && $res->num_rows > 0) {
+    while ($row = $res->fetch_assoc()) {
+        $nombre   = $row['nombre'];
+        $ruta     = $row['ruta'];
+        $vehiculo = $row['tipo_vehiculo'] ?: "Desconocido";
+        $guiones  = substr_count($ruta, '-');
+
+        if (!isset($datos[$nombre])) {
+            $datos[$nombre] = ["vehiculo"=>$vehiculo,"completos"=>0,"medios"=>0,"extras"=>0,"carrotanques"=>0];
+        }
+        if (!in_array($vehiculo, $vehiculos, true)) $vehiculos[] = $vehiculo;
+
+        if ($vehiculo === "Carrotanque" && $guiones == 0) {
+            $datos[$nombre]["carrotanques"]++;
+        } elseif (stripos($ruta, "Maicao") === false) {
+            $datos[$nombre]["extras"]++;
+        } elseif ($guiones == 2) {
+            $datos[$nombre]["completos"]++;
+        } elseif ($guiones == 1) {
+            $datos[$nombre]["medios"]++;
+        }
     }
 }
 
-$tipos = ['Moto', 'Carro', 'Camioneta', 'Camión'];
+// Si no hay datos, creamos una fila vacía para mostrar igual la vista
+if (empty($vehiculos)) $vehiculos = ["Bus", "Camioneta", "Carrotanque"];
 
-echo "<h5>🚗 Tarifas de la empresa <b>$empresa</b></h5>";
-echo "<table class='table table-bordered table-sm align-middle text-center' id='tabla_tarifas'>";
-echo "<thead class='table-dark'><tr><th>Tipo Vehículo</th><th>Tarifa ($)</th></tr></thead><tbody>";
-foreach ($tipos as $tipo) {
-    $tarifa_valor = isset($tarifas[$tipo]) ? $tarifas[$tipo] : 0;
-    echo "<tr>
-            <td>$tipo</td>
-            <td><input type='number' class='form-control text-end tarifa_input' data-vehiculo='$tipo' value='$tarifa_valor'></td>
-          </tr>";
+/* Empresas para el SELECT del header */
+$empresas = [];
+$resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
+if ($resEmp && $resEmp->num_rows > 0) {
+    while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
 }
-echo "</tbody></table>";
+if (empty($empresas)) $empresas = ["Hospital"];
+
+/* Tarifa guardada en la BD */
+$tarifas_guardadas = [];
+$resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa='$empresaFiltro'");
+if ($resTarifas && $resTarifas->num_rows > 0) {
+  while ($r = $resTarifas->fetch_assoc()) {
+    $tarifas_guardadas[$r['tipo_vehiculo']] = $r;
+  }
+}
 ?>
-    <button id="guardar_tarifas" class="btn btn-success">💾 Guardar Tarifas</button>
-
-    <hr>
-
-    <div id="tabla_resultados">
-        <h5 class="mt-4">📊 Viajes del <?php echo $desde; ?> al <?php echo $hasta; ?></h5>
-        <table class="table table-bordered table-striped text-center">
-            <thead class="table-dark">
-                <tr>
-                    <th>Conductor</th>
-                    <th>Tipo Vehículo</th>
-                    <th>Total Viajes</th>
-                    <th>Tarifa ($)</th>
-                    <th>Total ($)</th>
-                </tr>
-            </thead>
-            <tbody id="body_viajes"></tbody>
-            <tfoot>
-                <tr class="table-secondary">
-                    <th colspan="4" class="text-end">💰 Total General:</th>
-                    <th id="total_general">$0</th>
-                </tr>
-            </tfoot>
-        </table>
-    </div>
-</div>
-
-<script>
-document.getElementById("guardar_tarifas").addEventListener("click", () => {
-    document.querySelectorAll(".tarifa_input").forEach(input => {
-        let vehiculo = input.dataset.vehiculo;
-        let tarifa = input.value;
-        let empresa = "<?php echo $empresa; ?>";
-
-        fetch(`?accion=guardar_tarifas&empresa=${empresa}&vehiculo=${vehiculo}&tarifa=${tarifa}`)
-            .then(r => r.text())
-            .then(resp => {
-                if (resp.trim() === "ok") {
-                    input.classList.add("table-success");
-                    setTimeout(() => input.classList.remove("table-success"), 1000);
-                }
-            });
-    });
-    alert("✅ Tarifas actualizadas correctamente");
-});
-
-/* =======================================================
-   🔹 Cargar viajes por conductor con AJAX
-======================================================= */
-function cargarViajes() {
-    const params = new URLSearchParams({
-        accion: 'viajes_conductor',
-        empresa: '<?php echo $empresa; ?>',
-        desde: '<?php echo $desde; ?>',
-        hasta: '<?php echo $hasta; ?>'
-    });
-    fetch(`?${params}`)
-        .then(res => res.json())
-        .then(data => {
-            const tbody = document.getElementById("body_viajes");
-            tbody.innerHTML = '';
-            let totalGeneral = 0;
-
-            data.forEach(row => {
-                let tarifa = parseFloat(document.querySelector(`.tarifa_input[data-vehiculo='${row.tipo_vehiculo}']`)?.value || 0);
-                let total = tarifa * row.total_viajes;
-                totalGeneral += total;
-
-                tbody.innerHTML += `
-                    <tr>
-                        <td>${row.conductor}</td>
-                        <td>${row.tipo_vehiculo}</td>
-                        <td>${row.total_viajes}</td>
-                        <td>$${tarifa.toLocaleString()}</td>
-                        <td>$${total.toLocaleString()}</td>
-                    </tr>
-                `;
-            });
-
-            document.getElementById("total_general").innerText = "$" + totalGeneral.toLocaleString();
-        });
-}
-
-cargarViajes();
-</script>
