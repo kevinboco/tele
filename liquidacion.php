@@ -1,4 +1,4 @@
-<?php
+funciona pero me dañaste el codigo  <?php
 include("nav.php");
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
 if ($conn->connect_error) {
@@ -397,4 +397,4 @@ document.querySelectorAll('#tabla_conductores .conductor-link').forEach(td => {
 recalcular();
 </script>
 </body>
-</html>
+</html> 
