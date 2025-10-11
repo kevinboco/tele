@@ -1,93 +1,12 @@
 <?php
 include("nav.php");
-mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
-
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
-$conn->set_charset('utf8mb4');
 if ($conn->connect_error) {
     die("Error conexión BD: " . $conn->connect_error);
 }
 
 /* =======================================================
-   🔸 Helpers JSON
-======================================================= */
-function json_response($arr, $code = 200) {
-    http_response_code($code);
-    header('Content-Type: application/json; charset=utf-8');
-    echo json_encode($arr, JSON_UNESCAPED_UNICODE);
-    exit;
-}
-
-/* =======================================================
-   🔸 AJAX: Guardar tarifas por empresa
-   POST JSON: { accion:"guardar_tarifas", empresa:"...", tarifas:{ "Camion 750":{completo,medio,extra,carrotanque}, ... } }
-======================================================= */
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $raw = file_get_contents('php://input');
-    $payload = json_decode($raw, true);
-
-    if (is_array($payload) && ($payload['accion'] ?? '') === 'guardar_tarifas') {
-        $empresa = trim($payload['empresa'] ?? '');
-        $tarifas = $payload['tarifas'] ?? null;
-
-        if ($empresa === '') json_response(['ok'=>false,'msg'=>'Falta empresa'], 400);
-        if (!is_array($tarifas)) json_response(['ok'=>false,'msg'=>'Formato de tarifas inválido'], 400);
-
-        $empresa = $conn->real_escape_string($empresa);
-
-        $stmt = $conn->prepare("
-            INSERT INTO tarifas_empresa (empresa, tipo_vehiculo, completo, medio, extra, carrotanque)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE
-              completo = VALUES(completo),
-              medio    = VALUES(medio),
-              extra    = VALUES(extra),
-              carrotanque = VALUES(carrotanque),
-              updated_at = CURRENT_TIMESTAMP
-        ");
-
-        foreach ($tarifas as $vehiculo => $vals) {
-            $tipo  = (string)$vehiculo;
-            $c = (int)($vals['completo'] ?? 0);
-            $m = (int)($vals['medio'] ?? 0);
-            $e = (int)($vals['extra'] ?? 0);
-            $ca= (int)($vals['carrotanque'] ?? 0);
-            $stmt->bind_param('ssiiii', $empresa, $tipo, $c, $m, $e, $ca);
-            $stmt->execute();
-        }
-        $stmt->close();
-
-        json_response(['ok'=>true,'msg'=>'Tarifas guardadas']);
-    }
-}
-
-/* =======================================================
-   🔸 AJAX: Cargar tarifas por empresa
-   GET ?accion=cargar_tarifas&empresa=...
-======================================================= */
-if (isset($_GET['accion']) && $_GET['accion']==='cargar_tarifas') {
-    $empresa = trim($_GET['empresa'] ?? '');
-    if ($empresa === '') json_response(['ok'=>false,'msg'=>'Falta empresa'], 400);
-
-    $empresa = $conn->real_escape_string($empresa);
-    $res = $conn->query("SELECT tipo_vehiculo, completo, medio, extra, carrotanque
-                         FROM tarifas_empresa WHERE empresa = '$empresa'");
-    $out = [];
-    if ($res) {
-        while ($r = $res->fetch_assoc()) {
-            $out[$r['tipo_vehiculo']] = [
-                'completo' => (int)$r['completo'],
-                'medio' => (int)$r['medio'],
-                'extra' => (int)$r['extra'],
-                'carrotanque' => (int)$r['carrotanque'],
-            ];
-        }
-    }
-    json_response(['ok'=>true, 'empresa'=>$empresa, 'tarifas'=>$out]);
-}
-
-/* =======================================================
-   🔹 Endpoint AJAX: viajes por conductor (panel derecho)
+   🔹 Endpoint AJAX: viajes por conductor
 ======================================================= */
 if (isset($_GET['viajes_conductor'])) {
     $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
@@ -234,7 +153,7 @@ if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
   }
   .header-grid{
     display:grid;
-    grid-template-columns: auto 1fr auto;
+    grid-template-columns: auto 1fr auto; /* izq filtro / centro título / derecha espacio */
     align-items:center;
     gap:12px;
   }
@@ -242,6 +161,7 @@ if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
   .header-center h2{ margin:4px 0 2px 0; }
   .header-sub{ font-size:14px; color:#555; }
 
+  /* Filtro compacto en header */
   .filtro-inline .form-control,
   .filtro-inline .form-select{
     height:32px; padding:2px 8px; font-size:14px; min-width:120px;
@@ -251,18 +171,21 @@ if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
 
   @media (max-width: 992px){
     .header-grid{ grid-template-columns: 1fr; }
-    .header-center{ order:-1; }
+    .header-center{ order:-1; } /* el título arriba, filtro abajo */
     .filtro-inline .form-control, .filtro-inline .form-select{ width:100%; min-width:0; }
   }
 
+  /* ===== Layout 3 columnas ===== */
   .layout{ display:grid; grid-template-columns: 1fr 2fr 1.2fr; gap:var(--gap); align-items:start; }
   @media (max-width:1200px){ .layout{grid-template-columns:1fr;} #panelViajes{position:relative;top:auto;} }
 
+  /* Colores cajas */
   .box-left  { background:#e8f0ff; }
   .box-center{ background:#e9f9ee; }
   .box-right { background:#fff9e6; }
   .box{ border-radius:var(--box-radius); box-shadow:0 2px 10px rgba(0,0,0,.06); padding:14px; }
 
+  /* Tablas */
   h3.section-title{ text-align:center; margin:6px 0 12px 0; }
   table{ background:#fff; border-radius:10px; overflow:hidden }
   th{ background:#0d6efd; color:#fff; text-align:center; padding:10px }
@@ -270,6 +193,7 @@ if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
   tr:hover{ background:#f6faff }
   input[type=number], input[readonly]{ width:100%; max-width:160px; padding:6px; border:1px solid #ced4da; border-radius:8px; text-align:right }
 
+  /* Total arriba */
   .total-chip{
     display:inline-block; padding:6px 12px; border-radius:999px;
     background:#e9f2ff; color:#0d6efd; font-weight:700; border:1px solid #d6e6ff;
@@ -277,6 +201,7 @@ if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
   }
   .section-title::after{ content:""; display:block; clear:both; }
 
+  /* Panel derecho */
   #panelViajes{ position:sticky; top:12px; }
   #panelViajes .panel-header{
     display:flex;align-items:center;justify-content:space-between;
@@ -287,8 +212,6 @@ if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
   .btn-clear{background:transparent;border:none;color:#fff;opacity:.9}
   .btn-clear:hover{opacity:1}
   .conductor-link{cursor:pointer;color:#0d6efd;text-decoration:underline;}
-
-  .tarifas-actions{ display:flex; gap:8px; justify-content:flex-end; margin-top:8px; }
 </style>
 </head>
 <body>
@@ -297,7 +220,7 @@ if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
 <div class="page-title">
   <div class="header-grid">
     <!-- Filtro compacto -->
-    <form class="filtro-inline" method="get" id="formFiltro">
+    <form class="filtro-inline" method="get">
       <div class="d-flex flex-wrap align-items-center gap-2">
         <label class="mb-0">Desde:</label>
         <input type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" class="form-control form-control-sm w-auto" required>
@@ -306,7 +229,7 @@ if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
         <input type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" class="form-control form-control-sm w-auto" required>
 
         <label class="ms-2 mb-0">Empresa:</label>
-        <select name="empresa" id="empresaSelect" class="form-select form-select-sm w-auto">
+        <select name="empresa" class="form-select form-select-sm w-auto">
           <option value="">-- Todas --</option>
           <?php foreach($empresas as $e): ?>
             <option value="<?= htmlspecialchars($e) ?>" <?= $empresaFiltro==$e?'selected':'' ?>>
@@ -325,13 +248,12 @@ if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
       <div class="header-sub">
         Periodo: <strong><?= htmlspecialchars($desde) ?></strong> hasta <strong><?= htmlspecialchars($hasta) ?></strong>
         <?php if ($empresaFiltro !== ""): ?>
-          &nbsp;•&nbsp; Empresa: <strong id="empresaActual"><?= htmlspecialchars($empresaFiltro) ?></strong>
-        <?php else: ?>
-          &nbsp;•&nbsp; Empresa: <strong id="empresaActual">—</strong>
+          &nbsp;•&nbsp; Empresa: <strong><?= htmlspecialchars($empresaFiltro) ?></strong>
         <?php endif; ?>
       </div>
     </div>
 
+    <!-- Derecha: espacio (para mantener el centrado perfecto) -->
     <div></div>
   </div>
 </div>
@@ -341,7 +263,6 @@ if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
   <!-- Columna 1 -->
   <section class="box box-left">
     <h3 class="section-title">🚐 Tarifas por Tipo de Vehículo</h3>
-
     <table id="tabla_tarifas" class="table mb-0">
       <thead>
         <tr>
@@ -355,25 +276,20 @@ if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
       <tbody>
       <?php foreach ($vehiculos as $veh): ?>
         <tr>
-          <td class="veh-col"><?= htmlspecialchars($veh) ?></td>
+          <td><?= htmlspecialchars($veh) ?></td>
           <?php if ($veh === "Carrotanque"): ?>
             <td>-</td><td>-</td><td>-</td>
-            <td><input type="number" step="1000" value="0" oninput="recalcular()" class="inp-tarifa carrotanque"></td>
+            <td><input type="number" step="1000" value="0" oninput="recalcular()"></td>
           <?php else: ?>
-            <td><input type="number" step="1000" value="0" oninput="recalcular()" class="inp-tarifa completo"></td>
-            <td><input type="number" step="1000" value="0" oninput="recalcular()" class="inp-tarifa medio"></td>
-            <td><input type="number" step="1000" value="0" oninput="recalcular()" class="inp-tarifa extra"></td>
+            <td><input type="number" step="1000" value="0" oninput="recalcular()"></td>
+            <td><input type="number" step="1000" value="0" oninput="recalcular()"></td>
+            <td><input type="number" step="1000" value="0" oninput="recalcular()"></td>
             <td>-</td>
           <?php endif; ?>
         </tr>
       <?php endforeach; ?>
       </tbody>
     </table>
-
-    <div class="tarifas-actions">
-      <button id="btnCargarTarifas" class="btn btn-outline-secondary btn-sm">↻ Cargar tarifas de la empresa</button>
-      <button id="btnGuardarTarifas" class="btn btn-success btn-sm">💾 Guardar tarifas de la empresa</button>
-    </div>
   </section>
 
   <!-- Columna 2 -->
@@ -423,43 +339,17 @@ if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-function getEmpresaActual(){
-  const sel = document.getElementById('empresaSelect');
-  return sel ? sel.value.trim() : '';
-}
-
 function getTarifas() {
   const tarifas = {};
   document.querySelectorAll('#tabla_tarifas tbody tr').forEach(row => {
-    const vehiculo = row.querySelector('.veh-col').innerText.trim();
-    const completo = row.querySelector('input.completo') ? parseFloat(row.querySelector('input.completo').value)||0 : 0;
-    const medio    = row.querySelector('input.medio') ? parseFloat(row.querySelector('input.medio').value)||0 : 0;
-    const extra    = row.querySelector('input.extra') ? parseFloat(row.querySelector('input.extra').value)||0 : 0;
-    const carro    = row.querySelector('input.carrotanque') ? parseFloat(row.querySelector('input.carrotanque').value)||0 : 0;
+    const vehiculo = row.cells[0].innerText.trim();
+    const completo = row.cells[1].querySelector('input') ? parseFloat(row.cells[1].querySelector('input').value)||0 : 0;
+    const medio    = row.cells[2].querySelector('input') ? parseFloat(row.cells[2].querySelector('input').value)||0 : 0;
+    const extra    = row.cells[3].querySelector('input') ? parseFloat(row.cells[3].querySelector('input').value)||0 : 0;
+    const carro    = row.cells[4].querySelector('input') ? parseFloat(row.cells[4].querySelector('input').value)||0 : 0;
     tarifas[vehiculo] = {completo, medio, extra, carrotanque: carro};
   });
   return tarifas;
-}
-function setTarifaFila(row, vals){
-  const ci = row.querySelector('input.completo');
-  const mi = row.querySelector('input.medio');
-  const ei = row.querySelector('input.extra');
-  const cai= row.querySelector('input.carrotanque');
-  if (ci) ci.value = vals.completo ?? 0;
-  if (mi) mi.value = vals.medio ?? 0;
-  if (ei) ei.value = vals.extra ?? 0;
-  if (cai) cai.value= vals.carrotanque ?? 0;
-}
-function applyTarifasToTable(tarifasObj){
-  document.querySelectorAll('#tabla_tarifas tbody tr').forEach(row=>{
-    const veh = row.querySelector('.veh-col').innerText.trim();
-    if (tarifasObj[veh]){
-      setTarifaFila(row, tarifasObj[veh]);
-    }else{
-      setTarifaFila(row, {completo:0,medio:0,extra:0,carrotanque:0});
-    }
-  });
-  recalcular();
 }
 function formatNumber(num){ return (num||0).toLocaleString('es-CO'); }
 function recalcular(){
@@ -485,14 +375,12 @@ function limpiarPanel(){
   document.getElementById('contenidoPanel').innerHTML =
     '<p class="text-muted mb-0">Selecciona un conductor en la tabla para ver sus viajes aquí.</p>';
 }
-
-/* -------- Panel de viajes por conductor -------- */
 document.querySelectorAll('#tabla_conductores .conductor-link').forEach(td => {
   td.addEventListener('click', () => {
     const nombre = td.innerText.trim();
     const desde  = "<?= htmlspecialchars($desde) ?>";
     const hasta  = "<?= htmlspecialchars($hasta) ?>";
-    const empresa= getEmpresaActual();
+    const empresa= "<?= htmlspecialchars($empresaFiltro) ?>";
 
     document.getElementById('tituloPanel').innerHTML =
       `🚗 Viajes de <b>${nombre}</b> entre ${desde} y ${hasta}`;
@@ -506,75 +394,7 @@ document.querySelectorAll('#tabla_conductores .conductor-link').forEach(td => {
   });
 });
 
-/* -------- Guardar/Cargar tarifas por empresa -------- */
-function cargarTarifasEmpresa(empresa){
-  if (!empresa){
-    alert('Selecciona una empresa para cargar sus tarifas.');
-    return;
-  }
-  fetch(`<?= basename(__FILE__) ?>?accion=cargar_tarifas&empresa=${encodeURIComponent(empresa)}`)
-    .then(r=>r.json())
-    .then(j=>{
-      if (!j.ok){ alert(j.msg || 'No se pudieron cargar las tarifas'); return; }
-      applyTarifasToTable(j.tarifas || {});
-    })
-    .catch(()=> alert('Error al cargar tarifas'));
-}
-
-function guardarTarifasEmpresa(empresa){
-  if (!empresa){
-    alert('Selecciona una empresa para guardar sus tarifas.');
-    return;
-  }
-  const payload = {
-    accion: 'guardar_tarifas',
-    empresa: empresa,
-    tarifas: getTarifas()
-  };
-  fetch(`<?= basename(__FILE__) ?>`, {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(payload)
-  })
-  .then(r=>r.json())
-  .then(j=>{
-    if (j.ok){
-      alert('✅ Tarifas guardadas para ' + empresa);
-    }else{
-      alert('No se pudieron guardar: ' + (j.msg || 'Error'));
-    }
-  })
-  .catch(()=> alert('Error al guardar tarifas'));
-}
-
-/* Botones */
-document.getElementById('btnCargarTarifas').addEventListener('click', ()=>{
-  const emp = getEmpresaActual();
-  cargarTarifasEmpresa(emp);
-});
-document.getElementById('btnGuardarTarifas').addEventListener('click', ()=>{
-  const emp = getEmpresaActual();
-  guardarTarifasEmpresa(emp);
-});
-
-/* Carga automática al cambiar empresa en el filtro (sin recargar la página) */
-document.getElementById('empresaSelect').addEventListener('change', (e)=>{
-  const emp = e.target.value.trim();
-  document.getElementById('empresaActual').innerText = emp || '—';
-  if (emp){
-    cargarTarifasEmpresa(emp);
-  }else{
-    // Si no hay empresa, limpiar tarifas a 0
-    applyTarifasToTable({});
-  }
-});
-
-/* Si ya hay una empresa seleccionada al abrir, intenta cargarla */
-window.addEventListener('DOMContentLoaded', ()=>{
-  const emp = getEmpresaActual();
-  if (emp) cargarTarifasEmpresa(emp);
-  recalcular();
-});
+recalcular();
 </script>
 </body>
 </html>
