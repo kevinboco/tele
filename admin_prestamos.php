@@ -6,6 +6,7 @@
  * - Deudor: valor prestado + fecha + interés + total
  * - Selector de deudores (fuera del SVG) + "Préstamo pagado"
  * - En el 3er nodo: Ganancia + Total prestado (pendiente)
+ * - >>> NUEVO: Colorear nodo 2 según meses (1, 2, 3+)
  *********************************************************/
 include("nav.php");
 // ======= CONFIG =======
@@ -165,6 +166,11 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  .selitem{display:flex;gap:8px;align-items:flex-start;background:#fafbff;border:1px solid #eef2ff;border-radius:12px;padding:8px}
  .selitem .meta{font-size:12px;color:#555}
  @media (max-width:760px){ .pairs{grid-template-columns:1fr} }
+
+ /* >>> NUEVO: Colores por meses en el NODO 2 (deudores) */
+ .nodeRect.m1{ fill:#FFF8DB; }  /* 1 mes - amarillo suave */
+ .nodeRect.m2{ fill:#FFE9D6; }  /* 2 meses - naranja suave */
+ .nodeRect.m3{ fill:#FFE1E1; }  /* 3+ meses - rojo suave */
 </style>
 </head><body>
 
@@ -315,10 +321,15 @@ else:
     if ($fpNorm!==''){ $where.=" AND LOWER(TRIM(prestamista)) = ?"; $types.="s"; $params[]=$fpNorm; }
 
     // Totales por prestamista+deudor (sin IDs)
+    // >>> NUEVO: devolvemos 'meses' para pintar el nodo 2
     $sql = "
       SELECT LOWER(TRIM(prestamista)) AS prest_key, MIN(prestamista) AS prest_display,
              LOWER(TRIM(deudor)) AS deud_key, MIN(deudor) AS deud_display,
              MIN(fecha) AS fecha_min,
+             CASE WHEN CURDATE() < MIN(fecha)
+                  THEN 0
+                  ELSE TIMESTAMPDIFF(MONTH, MIN(fecha), CURDATE()) + 1
+             END AS meses,
              SUM(monto) AS capital,
              SUM(monto*0.10*CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes,
              SUM(monto + monto*0.10*CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS total
@@ -350,7 +361,7 @@ else:
       if(!isset($groups[$pkey])) $groups[$pkey]=['label'=>$pdisp,'rows'=>[]];
       $groups[$pkey]['rows'][]=$r;
       $ganPrest[$pkey]  = ($ganPrest[$pkey]  ?? 0) + (float)$r['interes'];
-      $capPendPrest[$pkey] = ($capPendPrest[$pkey] ?? 0) + (float)$r['capital']; // << solo capital NO pagado
+      $capPendPrest[$pkey] = ($capPendPrest[$pkey] ?? 0) + (float)$r['capital']; // solo capital NO pagado
     }
 ?>
     <div class="card" style="margin-bottom:16px">
@@ -363,7 +374,11 @@ else:
         <button class="btn" type="submit">Filtrar</button>
         <?php if ($q!=='' || $fpNorm!==''): ?><a class="btn gray" href="?view=graph">Quitar filtro</a><?php endif; ?>
       </form>
-      <div class="subtitle">Diagrama: <strong>Prestamista ➜ Deudores (valor, fecha, interés, total) ➜ Ganancia</strong>. Debajo hay un selector para marcar <strong>Préstamo pagado</strong>. El recuadro adicional muestra <strong>Total prestado (pendiente)</strong>.</div>
+      <div class="subtitle">
+        Diagrama: <strong>Prestamista ➜ Deudores (valor, fecha, interés, total) ➜ Ganancia</strong>.
+        Debajo hay un selector para marcar <strong>Préstamo pagado</strong>.
+        El recuadro adicional muestra <strong>Total prestado (pendiente)</strong>.
+      </div>
     </div>
 
     <?php if (empty($groups)): ?>
@@ -384,6 +399,13 @@ else:
         <div class="title" style="margin:6px 10px 10px">Prestamista: <?= h($prestLabel) ?></div>
 
         <div class="svgwrap">
+          <!-- >>> NUEVO: Leyenda rápida -->
+          <div class="subtitle" style="margin:6px 0 8px; padding:0 10px">
+            <span class="chip" style="background:#FFF8DB">1 mes</span>
+            <span class="chip" style="background:#FFE9D6">2 meses</span>
+            <span class="chip" style="background:#FFE1E1">3+ meses</span>
+          </div>
+
           <svg width="1320" height="<?= $height ?>" viewBox="0 0 1320 <?= $height ?>" xmlns="http://www.w3.org/2000/svg">
             <!-- Prestamista -->
             <rect class="nodeRect" x="<?= $xL-90 ?>" y="<?= $prestY ?>" rx="12" ry="12" width="180" height="<?= $headH ?>"/>
@@ -395,7 +417,7 @@ else:
             <text class="txt" x="<?= $xR-105 ?>" y="<?= $gainY+20 ?>">Ganancia (interés)</text>
             <text class="txt" x="<?= $xR-105 ?>" y="<?= $gainY+40 ?>">$ <?= money($ganPrest[$pkey] ?? 0) ?></text>
 
-            <!-- NUEVO: Total prestado (pendiente) -->
+            <!-- Total prestado (pendiente) -->
             <rect class="nodeRect" x="<?= $xR-120 ?>" y="<?= $gainY + $headH + 12 ?>" rx="12" ry="12" width="240" height="<?= $headH ?>"/>
             <text class="txt" x="<?= $xR-105 ?>" y="<?= $gainY + $headH + 12 + 20 ?>">Total prestado (pend.)</text>
             <text class="txt" x="<?= $xR-105 ?>" y="<?= $gainY + $headH + 12 + 40 ?>">$ <?= money($capPend) ?></text>
@@ -403,11 +425,16 @@ else:
             <?php $i=0; foreach($rows as $r):
               $y=$firstY+($i*$rowGap); $boxY=$y-($nodeH/2);
               $cap='$ '.money($r['capital']); $int='$ '.money($r['interes']); $tot='$ '.money($r['total']); $date=h($r['fecha_min']); $deudLbl=mbtitle($r['deud_display']);
+
+              // >>> NUEVO: clase por meses (1, 2, 3+)
+              $meses = (int)($r['meses'] ?? 0);
+              $mcls  = ($meses >= 3) ? 'm3' : (($meses === 2) ? 'm2' : (($meses === 1) ? 'm1' : ''));
             ?>
               <line x1="<?= $xL+90 ?>" y1="<?= $prestY+$headH/2 ?>" x2="<?= $xC-10 ?>" y2="<?= $y ?>" stroke="#9ca3af" stroke-width="1.5" />
               <line x1="<?= $xC+$nodeW ?>" y1="<?= $y ?>" x2="<?= $xR-120 ?>" y2="<?= $gainY+$headH/2 ?>" stroke="#9ca3af" stroke-width="1.2" />
 
-              <rect class="nodeRect" x="<?= $xC-10 ?>" y="<?= $boxY ?>" rx="12" ry="12" width="<?= $nodeW ?>" height="<?= $nodeH ?>"/>
+              <!-- APLICA clase de color al rect del NODO 2 -->
+              <rect class="nodeRect <?= $mcls ?>" x="<?= $xC-10 ?>" y="<?= $boxY ?>" rx="12" ry="12" width="<?= $nodeW ?>" height="<?= $nodeH ?>"/>
               <text class="txt" x="<?= $xC ?>" y="<?= $boxY+22 ?>"><tspan font-weight="800"><?= h($deudLbl) ?></tspan></text>
               <text class="txt mut" x="<?= $xC ?>" y="<?= $boxY+40 ?>">valor prestado: <tspan class="amt" fill="#111"><?= $cap ?></tspan></text>
               <text class="txt mut" x="<?= $xC ?>" y="<?= $boxY+58 ?>">fecha: <tspan class="amt" fill="#111"><?= $date ?></tspan></text>
