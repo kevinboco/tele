@@ -181,12 +181,18 @@ if ($resTarifas) {
   .header-center h2{ margin:4px 0 2px 0; }
   .header-sub{ font-size:14px; color:#555; }
   .layout{ display:grid; grid-template-columns: 1fr 2fr 1.2fr; gap:var(--gap); align-items:start; }
+  @media (max-width:1200px){ .layout{grid-template-columns:1fr;} }
   .box{ border-radius:var(--box-radius); box-shadow:0 2px 10px rgba(0,0,0,.06); padding:14px; }
   table{ background:#fff; border-radius:10px; overflow:hidden }
   th{ background:#0d6efd; color:#fff; text-align:center; padding:10px }
   td{ text-align:center; padding:8px; border-bottom:1px solid #eee }
   input[type=number], input[readonly]{ width:100%; max-width:160px; padding:6px; border:1px solid #ced4da; border-radius:8px; text-align:right }
   .conductor-link{cursor:pointer;color:#0d6efd;text-decoration:underline;}
+  .total-chip{
+    display:inline-block; padding:6px 12px; border-radius:999px;
+    background:#e9f2ff; color:#0d6efd; font-weight:700; border:1px solid #d6e6ff;
+    margin-bottom:8px; float:right;
+  }
 </style>
 </head>
 <body>
@@ -260,7 +266,10 @@ if ($resTarifas) {
   </section>
 
   <section class="box">
-    <h3 class="text-center">🧑‍✈️ Resumen por Conductor</h3>
+    <h3 class="text-center">🧑‍✈️ Resumen por Conductor
+      <span id="total_chip_container" class="total-chip">🔢 Total General: <span id="total_general">0</span></span>
+    </h3>
+
     <table id="tabla_conductores" class="table">
       <thead>
         <tr>
@@ -303,10 +312,11 @@ function getTarifas(){
   return tarifas;
 }
 function formatNumber(num){ return (num||0).toLocaleString('es-CO'); }
+
 function recalcular(){
   const tarifas = getTarifas();
   const filas = document.querySelectorAll('#tabla_conductores tbody tr');
-  let total = 0;
+  let totalGeneral = 0;
   filas.forEach(f=>{
     const veh = f.dataset.vehiculo;
     const c = parseInt(f.cells[2].innerText)||0;
@@ -315,9 +325,14 @@ function recalcular(){
     const ca = parseInt(f.cells[5].innerText)||0;
     const t = tarifas[veh] || {completo:0,medio:0,extra:0,carrotanque:0};
     const totalFila = c*t.completo + m*t.medio + e*t.extra + ca*t.carrotanque;
-    f.querySelector('input.totales').value = formatNumber(totalFila);
-    total += totalFila;
+    // actualizar total por conductor (en la fila)
+    const inputTotal = f.querySelector('input.totales');
+    if (inputTotal) inputTotal.value = formatNumber(totalFila);
+    totalGeneral += totalFila;
   });
+  // actualizar total general (chip)
+  const totalChip = document.getElementById('total_general');
+  if (totalChip) totalChip.innerText = formatNumber(totalGeneral);
 }
 
 document.querySelectorAll('#tabla_tarifas input').forEach(input=>{
@@ -327,7 +342,8 @@ document.querySelectorAll('#tabla_tarifas input').forEach(input=>{
     const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
     const campoIndex = Array.from(fila.cells).findIndex(c=>c.contains(input));
     const campos = ['completo','medio','extra','carrotanque'];
-    const campo = campos[campoIndex-1] || campos[campoIndex];
+    // campoIndex 1 -> completo, 2 -> medio, 3 -> extra, 4 -> carrotanque
+    const campo = campos[campoIndex-1] || campos[campoIndex] || 'completo';
     const valor = parseInt(input.value)||0;
 
     fetch(`<?= basename(__FILE__) ?>`,{
