@@ -286,10 +286,7 @@ p.lead{ color: var(--text-dim); }
 </nav>
 
 <!-- Contenido de ejemplo (borra si no lo necesitas) -->
-<main class="content" id="mainContent">
-  <h1>Panel</h1>
-  <p class="lead">Usa el botón flotante para abrir el menú. Prueba <strong>Ctrl/Cmd + K</strong> para buscar.</p>
-</main>
+
 
 <script>
 (function(){
