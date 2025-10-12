@@ -1,10 +1,10 @@
 <?php
 /*********************************************************
- * prestamos_visual_interactivo.php — Visual D3 con tarjetas y nodo 3
- * - Lógica original: totales/interés por meses, sólo no pagados, mark_paid
- * - Visual: panel prestamistas + árbol D3
- * - Deudores como tarjeta (nombre, valor, fecha, interés, total)
- * - Nodo 3: Ganancia (interés) + Total prestado (pend.) a la derecha
+ * prestamos_visual_interactivo.php — Visual D3 con tarjetas
+ * - Mantiene la lógica original (cálculos, no pagados, mark_paid)
+ * - UI: panel de prestamistas + árbol D3
+ * - Deudores como TARJETA con: nombre, valor, fecha, interés y total
+ * - Colores por meses (1, 2, 3+)
  *********************************************************/
 include("nav.php");
 
@@ -27,7 +27,7 @@ function mbtitle($s){ return function_exists('mb_convert_case') ? mb_convert_cas
 
 /* ===== Acción: marcar pagados ===== */
 if (($_GET['action'] ?? '') === 'mark_paid' && $_SERVER['REQUEST_METHOD']==='POST'){
-  $nodes = $_POST['nodes'] ?? [];
+  $nodes = $_POST['nodes'] ?? []; // array de CSVs de ids
   if (!is_array($nodes)) $nodes = [];
   $all = [];
   foreach($nodes as $csv){
@@ -109,7 +109,7 @@ while($row=$rsIds->fetch_assoc()){
 $st2->close();
 
 /* Estructuras para la vista */
-$data = [];         // D3: $data[prest_display] = [ ... ]
+$data = [];         // D3: $data[prest_display] = [ {nombre, valor, fecha, interes, total, meses, ids_csv}, ... ]
 $ganPrest=[]; $capPendPrest=[];
 while($r=$rs->fetch_assoc()){
   $pkey=$r['prest_key']; $pdisp=$r['prest_display'];
@@ -175,7 +175,7 @@ $msg = $_GET['msg'] ?? '';
 <title>Préstamos Interactivos</title>
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <style>
-  :root{ --panel:#fff; --muted:#6b7280; }
+  :root{ --panel:#fff; --line:#d1d5db; --muted:#6b7280; --primary:#1976d2; }
   *{box-sizing:border-box}
   body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:0;background:#f4f6fa;color:#111;overflow-x:hidden}
   .panel{width:260px;position:fixed;left:0;top:0;bottom:0;background:#fff;border-right:1px solid #e5e7eb;padding:14px 14px 10px;box-shadow:2px 0 10px rgba(0,0,0,.05);overflow:auto}
@@ -191,19 +191,16 @@ $msg = $_GET['msg'] ?? '';
   svg{margin-left:280px}
   .link{fill:none;stroke:#cbd5e1;stroke-width:1.5px}
 
-  /* ===== TARJETAS ===== */
+  /* ===== TARJETAS DE DEUDORES ===== */
   .nodeCard { stroke:#cbd5e1; stroke-width:1.2px; filter: drop-shadow(0 1px 0 rgba(0,0,0,.02)); }
-  .nodeCard.m1 { fill:#FFF8DB; }
-  .nodeCard.m2 { fill:#FFE9D6; }
-  .nodeCard.m3 { fill:#FFE1E1; }
-  .nodeCard.m0 { fill:#F3F4F6; }
+  .nodeCard.m1 { fill:#FFF8DB; } /* 1 mes - amarillo suave */
+  .nodeCard.m2 { fill:#FFE9D6; } /* 2 meses - naranja suave */
+  .nodeCard.m3 { fill:#FFE1E1; } /* 3+ meses - rojo suave */
+  .nodeCard.m0 { fill:#F3F4F6; } /* 0 meses (futuro) */
+
   .nodeTitle { font-weight:800; fill:#111; font-size:14px }
   .nodeLine  { fill:#6b7280; font-size:13px }
   .nodeAmt   { fill:#111; font-weight:800 }
-
-  .summaryRect{ fill:#fff; stroke:#e5e7eb; stroke-width:1.2px; }
-  .summaryTitle{ font-size:13px; fill:#6b7280 }
-  .summaryVal{ font-size:14px; font-weight:800; fill:#111 }
 
   /* Selector / acciones */
   .selector-wrap{margin-left:280px;padding:0 16px 20px}
@@ -235,8 +232,7 @@ $msg = $_GET['msg'] ?? '';
   <div class="chips" id="chips"></div>
 </div>
 
-<!-- más ancho para “usar todo el espacio” -->
-<svg id="chart" width="1600" height="900"></svg>
+<svg id="chart" width="1300" height="800"></svg>
 <div class="selector-wrap"><div id="selector-host"></div></div>
 
 <script>
@@ -250,7 +246,7 @@ const SELECTORS_HTML = <?php echo json_encode($selectors, JSON_UNESCAPED_UNICODE
 const svg = d3.select("#chart");
 const width = +svg.attr("width");
 const height = +svg.attr("height");
-const g = svg.append("g").attr("transform", "translate(100,60)");
+const g = svg.append("g").attr("transform", "translate(100,50)");
 
 const chipsHost = document.getElementById("chips");
 const selectorHost = document.getElementById("selector-host");
@@ -293,29 +289,34 @@ function renderSelector(prest){
   if (form) form.style.display = "block";
 }
 
-/* ===== Dibujo del árbol (con tarjetas + nodo 3) ===== */
+/* ===== Dibujo del árbol (con tarjetas) ===== */
 function drawTree(prestamista) {
   g.selectAll("*").remove();
 
   const rows = DATA[prestamista] || [];
   const root = d3.hierarchy({ name: prestamista, children: rows });
-
-  // Evitar tarjetas montadas: nodeSize([alto, ancho])
-  const cardW = 360, cardH = 96, vGap = 18, hGap = 320;   // <-- ajustes clave
-  const treeLayout = d3.tree().nodeSize([cardH + vGap, hGap]);
+  const treeLayout = d3.tree().size([height - 120, width - 420]);
   treeLayout(root);
 
-  // Enlaces root -> deudores
+  // Enlaces
   g.selectAll(".link")
     .data(root.links())
     .join("path")
       .attr("class", "link")
-      .attr("d", d3.linkHorizontal().x(d => root.y).y(d => root.x))
+      .attr("d", d3.linkHorizontal()
+        .x(d => root.y)
+        .y(d => root.x))
       .attr("stroke-opacity", 0)
     .transition()
       .duration(700)
       .attr("stroke-opacity", 1)
-      .attr("d", d3.linkHorizontal().x(d => d.y).y(d => d.x));
+      .attr("d", d3.linkHorizontal()
+        .x(d => d.y)
+        .y(d => d.x));
+
+  // Parámetros de tarjeta
+  const cardW = 360, cardH = 96, padX = 12;
+  const line1 = 22, line2 = 40, line3 = 58, line4 = 76;
 
   // Nodos
   const node = g.selectAll(".node")
@@ -328,18 +329,25 @@ function drawTree(prestamista) {
       .attr("transform", d => `translate(${d.y},${d.x})`)
     .selection();
 
-  // Prestamista raíz (círculo + texto)
-  node.filter(d => d.depth === 0).each(function(d){
+  node.each(function(d){
     const sel = d3.select(this);
-    sel.append("circle").attr("r",8).attr("fill","#1976d2").attr("stroke","#fff").attr("stroke-width",2);
-    sel.append("text").attr("dy","0.31em").attr("x",-14).attr("text-anchor","end").text(d.data.name);
-  });
 
-  // Deudores (tarjetas)
-  const padX = 12;
-  const line1 = 22, line2 = 40, line3 = 58, line4 = 76;
-  node.filter(d => d.depth === 1).each(function(d){
-    const sel = d3.select(this);
+    if (d.depth === 0) {
+      // Prestamista raíz (círculo + texto)
+      sel.append("circle")
+        .attr("r", 8)
+        .attr("fill", "#1976d2")
+        .attr("stroke", "#fff")
+        .attr("stroke-width", 2);
+      sel.append("text")
+        .attr("dy", "0.31em")
+        .attr("x", -14)
+        .attr("text-anchor", "end")
+        .text(d.data.name);
+      return;
+    }
+
+    // Deudor: tarjeta
     const m = +d.data.meses || 0;
     const mcls = (m >= 3) ? "m3" : (m === 2 ? "m2" : (m === 1 ? "m1" : "m0"));
 
@@ -351,65 +359,42 @@ function drawTree(prestamista) {
       .attr("height", cardH)
       .attr("rx", 12).attr("ry", 12);
 
-    sel.append("text").attr("class","nodeTitle").attr("x",padX).attr("y",-cardH/2 + line1).text(d.data.nombre);
-    sel.append("text").attr("class","nodeLine").attr("x",padX).attr("y",-cardH/2 + line2)
-        .text("valor prestado: ").append("tspan").attr("class","nodeAmt")
+    sel.append("text")
+      .attr("class", "nodeTitle")
+      .attr("x", padX)
+      .attr("y", -cardH/2 + line1)
+      .text(d.data.nombre);
+
+    sel.append("text")
+      .attr("class", "nodeLine")
+      .attr("x", padX)
+      .attr("y", -cardH/2 + line2)
+      .text("valor prestado: ")
+      .append("tspan")
+        .attr("class","nodeAmt")
         .text(() => `\$ ${Number(d.data.valor||0).toLocaleString()}`);
-    sel.append("text").attr("class","nodeLine").attr("x",padX).attr("y",-cardH/2 + line3)
-        .text("fecha: ").append("tspan").attr("class","nodeAmt").text(d.data.fecha || "");
-    const lineInt = sel.append("text").attr("class","nodeLine").attr("x",padX).attr("y",-cardH/2 + line4).text("interés: ");
-    lineInt.append("tspan").attr("class","nodeAmt").text(() => `\$ ${Number(d.data.interes||0).toLocaleString()}`);
+
+    sel.append("text")
+      .attr("class", "nodeLine")
+      .attr("x", padX)
+      .attr("y", -cardH/2 + line3)
+      .text("fecha: ")
+      .append("tspan")
+        .attr("class","nodeAmt")
+        .text(d.data.fecha || "");
+
+    const lineInt = sel.append("text")
+      .attr("class", "nodeLine")
+      .attr("x", padX)
+      .attr("y", -cardH/2 + line4)
+      .text("interés: ");
+    lineInt.append("tspan").attr("class","nodeAmt")
+      .text(() => `\$ ${Number(d.data.interes||0).toLocaleString()}`);
     lineInt.append("tspan").text(" • total ");
-    lineInt.append("tspan").attr("class","nodeAmt").text(() => `\$ ${Number(d.data.total||0).toLocaleString()}`);
+    lineInt.append("tspan").attr("class","nodeAmt")
+      .text(() => `\$ ${Number(d.data.total||0).toLocaleString()}`);
   });
 
-  /* === NODO 3 (Resumen a la derecha) === */
-  const deudores = root.descendants().filter(d => d.depth === 1);
-  const extentY = d3.extent(deudores, d => d.x);
-  const centerY = (extentY[0] + extentY[1]) / 2;
-
-  // Colócalo bien a la derecha para “usar todo el espacio”
-  const xRight = width - 180;               // borde derecho
-  const sumW = 240, sumH = 48, pad = 12;    // tarjetas resumen
-
-  // Líneas de cada deudor -> nodo de ganancia
-  g.selectAll(".toSummary")
-    .data(deudores)
-    .join("line")
-      .attr("x1", d => d.y + cardW)
-      .attr("y1", d => d.x)
-      .attr("x2", xRight - sumW)
-      .attr("y2", centerY)
-      .attr("stroke", "#cbd5e1")
-      .attr("stroke-width", 1.2);
-
-  // Caja Ganancia (interés)
-  g.append("rect")
-    .attr("class","summaryRect")
-    .attr("x", xRight - sumW)
-    .attr("y", centerY - sumH - 6)
-    .attr("width", sumW)
-    .attr("height", sumH)
-    .attr("rx",12).attr("ry",12);
-
-  g.append("text").attr("class","summaryTitle").attr("x", xRight - sumW + pad).attr("y", centerY - sumH + 16).text("Ganancia (interés)");
-  g.append("text").attr("class","summaryVal").attr("x", xRight - sumW + pad).attr("y", centerY - sumH + 34)
-    .text(`$ ${Number(GANANCIA[prestamista]||0).toLocaleString()}`);
-
-  // Caja Total prestado (pend.)
-  g.append("rect")
-    .attr("class","summaryRect")
-    .attr("x", xRight - sumW)
-    .attr("y", centerY + 6)
-    .attr("width", sumW)
-    .attr("height", sumH)
-    .attr("rx",12).attr("ry",12);
-
-  g.append("text").attr("class","summaryTitle").attr("x", xRight - sumW + pad).attr("y", centerY + 6 + 16).text("Total prestado (pend.)");
-  g.append("text").attr("class","summaryVal").attr("x", xRight - sumW + pad).attr("y", centerY + 6 + 34)
-    .text(`$ ${Number(CAPITAL[prestamista]||0).toLocaleString()}`);
-
-  // Actualiza chips y selector
   renderChips(prestamista);
   renderSelector(prestamista);
 }
