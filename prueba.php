@@ -1,21 +1,26 @@
 <?php
 /*********************************************************
- * prestamos_visual_interactivo.php — Responsive + Zoom-to-fit
- * - Lógica original intacta (10% desde día 1 + 10% por mes)
- * - Muestra sólo no pagados en el visual (como antes)
- * - Tarjetas de deudor + Nodo 3 (ganancia / total prestado pend.)
- * - Selector inferior para “Préstamo pagado”
+ * prestamos_visual_interactivo.php — Visual D3 con tarjetas y nodo 3
+ * - Lógica original: totales/interés por meses, sólo no pagados, mark_paid
+ * - Visual: panel prestamistas + árbol D3
+ * - Deudores como tarjeta (nombre, valor, fecha, interés, total)
+ * - Nodo 3: Ganancia (interés) + Total prestado (pend.) a la derecha
  *********************************************************/
 include("nav.php");
 
-/* ===== Config DB ===== */
+/* ===== Config ===== */
 define('DB_HOST', 'mysql.hostinger.com');
 define('DB_USER', 'u648222299_keboco5');
 define('DB_PASS', 'Bucaramanga3011');
 define('DB_NAME', 'u648222299_viajes');
 
-function db(): mysqli { $m = @new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME); if ($m->connect_errno) exit("Error DB: ".$m->connect_error); $m->set_charset('utf8mb4'); return $m; }
-function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES,'UTF-8'); }
+function db(): mysqli {
+  $m = @new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
+  if ($m->connect_errno) exit("Error DB: ".$m->connect_error);
+  $m->set_charset('utf8mb4');
+  return $m;
+}
+function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 function money($n){ return number_format((float)$n,0,',','.'); }
 function mbnorm($s){ return mb_strtolower(trim((string)$s),'UTF-8'); }
 function mbtitle($s){ return function_exists('mb_convert_case') ? mb_convert_case((string)$s, MB_CASE_TITLE, 'UTF-8') : ucwords(strtolower((string)$s)); }
@@ -47,13 +52,13 @@ if (($_GET['action'] ?? '') === 'mark_paid' && $_SERVER['REQUEST_METHOD']==='POS
   }
 }
 
-/* ===== Filtro (opcional) ===== */
+/* ===== Filtros ===== */
 $q  = trim($_GET['q'] ?? '');
 $qNorm = mbnorm($q);
 
 $conn = db();
 
-/* ===== Prestamistas únicos con deuda pendiente ===== */
+/* ===== Prestamistas (no pagados) ===== */
 $prestMap = [];
 $resPL = $conn->query("SELECT prestamista FROM prestamos WHERE (pagado IS NULL OR pagado=0)");
 while($rowPL=$resPL->fetch_row()){
@@ -63,7 +68,7 @@ while($rowPL=$resPL->fetch_row()){
 }
 ksort($prestMap, SORT_NATURAL);
 
-/* ===== Dataset para D3 ===== */
+/* ===== Datos por Prestamista ➜ Deudor ===== */
 $where = "(pagado IS NULL OR pagado=0)";
 $types=""; $params=[];
 if ($q !== ''){
@@ -71,7 +76,6 @@ if ($q !== ''){
   $types .= "ss"; $params[]=$qNorm; $params[]=$qNorm;
 }
 
-/* Totales por prestamista+deudor y meses (para colorear) */
 $sql = "
   SELECT LOWER(TRIM(prestamista)) AS prest_key, MIN(prestamista) AS prest_display,
          LOWER(TRIM(deudor)) AS deud_key, MIN(deudor) AS deud_display,
@@ -89,7 +93,7 @@ $sql = "
   ORDER BY prest_key ASC, deud_display ASC";
 $st=$conn->prepare($sql); if($types) $st->bind_param($types, ...$params); $st->execute(); $rs=$st->get_result();
 
-/* IDs por par P-D para marcar pagado */
+/* ids por par P-D */
 $sqlIds = "
   SELECT LOWER(TRIM(prestamista)) AS prest_key, LOWER(TRIM(deudor)) AS deud_key,
          GROUP_CONCAT(id) AS ids
@@ -104,8 +108,9 @@ while($row=$rsIds->fetch_assoc()){
 }
 $st2->close();
 
-/* Ensambla estructuras finales */
-$data = [];  $ganPrest=[]; $capPendPrest=[];
+/* Estructuras para la vista */
+$data = [];         // D3: $data[prest_display] = [ ... ]
+$ganPrest=[]; $capPendPrest=[];
 while($r=$rs->fetch_assoc()){
   $pkey=$r['prest_key']; $pdisp=$r['prest_display'];
   $dkey=$r['deud_key'];  $ddis=$r['deud_display'];
@@ -127,7 +132,7 @@ while($r=$rs->fetch_assoc()){
 $st->close();
 $conn->close();
 
-/* Selector por prestamista */
+/* Selectores (checkboxes) por prestamista */
 $selectors = [];
 foreach($data as $prest => $rows){
   ob_start(); ?>
@@ -170,44 +175,39 @@ $msg = $_GET['msg'] ?? '';
 <title>Préstamos Interactivos</title>
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <style>
-  :root{ --muted:#6b7280; }
+  :root{ --panel:#fff; --muted:#6b7280; }
   *{box-sizing:border-box}
-  body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:0;background:#f4f6fa;color:#111;overflow:hidden}
-
-  /* Panel lateral */
-  .panel{width:260px;position:fixed;left:0;top:0;bottom:0;background:#fff;border-right:1px solid #e5e7eb;padding:14px;box-shadow:2px 0 10px rgba(0,0,0,.05);overflow:auto}
+  body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:0;background:#f4f6fa;color:#111;overflow-x:hidden}
+  .panel{width:260px;position:fixed;left:0;top:0;bottom:0;background:#fff;border-right:1px solid #e5e7eb;padding:14px 14px 10px;box-shadow:2px 0 10px rgba(0,0,0,.05);overflow:auto}
   .panel h3{margin:6px 0 10px}
   .prestamista-item{padding:10px;margin-bottom:8px;border-radius:10px;background:#e3f2fd;cursor:pointer;user-select:none;font-weight:600}
   .prestamista-item:hover{background:#bbdefb}
   .prestamista-item.active{background:#90caf9}
-
-  /* Barra superior (chips) */
-  .topbar{position:fixed;left:260px;right:0;top:0;height:56px;display:flex;align-items:center;gap:10px;padding:10px 16px;background:transparent;z-index:5}
+  .topbar{margin-left:260px;padding:10px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .msg{background:#e8f7ee;color:#196a3b;padding:8px 12px;border-radius:10px;display:inline-flex;align-items:center;gap:8px}
   .chips{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   .chip{background:#eef2ff;border:1px solid #e5e7eb;border-radius:999px;padding:4px 10px;font-size:12px}
 
-  /* Lienzo ocupa todo el espacio restante */
-  #canvasWrap{position:fixed;left:260px;right:0;top:56px;bottom:0;overflow:hidden;background:transparent}
-  svg{width:100%;height:100%}
-
-  /* Enlaces */
+  svg{margin-left:280px}
   .link{fill:none;stroke:#cbd5e1;stroke-width:1.5px}
 
-  /* Tarjetas de deudor */
-  .nodeCard{ stroke:#cbd5e1; stroke-width:1.2px; filter: drop-shadow(0 1px 0 rgba(0,0,0,.02)); }
-  .nodeCard.m1{ fill:#FFF8DB }  .nodeCard.m2{ fill:#FFE9D6 }  .nodeCard.m3{ fill:#FFE1E1 }  .nodeCard.m0{ fill:#F3F4F6 }
-  .nodeTitle{ font-weight:800; fill:#111; font-size:14px }
-  .nodeLine{ fill:#6b7280; font-size:13px }
-  .nodeAmt{ fill:#111; font-weight:800 }
+  /* ===== TARJETAS ===== */
+  .nodeCard { stroke:#cbd5e1; stroke-width:1.2px; filter: drop-shadow(0 1px 0 rgba(0,0,0,.02)); }
+  .nodeCard.m1 { fill:#FFF8DB; }
+  .nodeCard.m2 { fill:#FFE9D6; }
+  .nodeCard.m3 { fill:#FFE1E1; }
+  .nodeCard.m0 { fill:#F3F4F6; }
+  .nodeTitle { font-weight:800; fill:#111; font-size:14px }
+  .nodeLine  { fill:#6b7280; font-size:13px }
+  .nodeAmt   { fill:#111; font-weight:800 }
 
-  /* Nodo 3 */
   .summaryRect{ fill:#fff; stroke:#e5e7eb; stroke-width:1.2px; }
   .summaryTitle{ font-size:13px; fill:#6b7280 }
   .summaryVal{ font-size:14px; font-weight:800; fill:#111 }
 
-  /* Selector inferior */
-  .selector-wrap{position:fixed;left:260px;right:0;bottom:0;background:rgba(244,246,250,.92);backdrop-filter:saturate(1.1) blur(2px);padding:8px 16px;max-height:34vh;overflow:auto;border-top:1px solid #e5e7eb}
-  .selector{margin-top:4px}
+  /* Selector / acciones */
+  .selector-wrap{margin-left:280px;padding:0 16px 20px}
+  .selector{margin-top:10px;border-top:1px dashed #e5e7eb;padding-top:10px}
   .selhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
   .selgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px}
   .selitem{display:flex;gap:8px;align-items:flex-start;background:#fafbff;border:1px solid #eef2ff;border-radius:12px;padding:8px}
@@ -225,15 +225,18 @@ $msg = $_GET['msg'] ?? '';
 
 <div class="topbar">
   <?php if ($msg): ?>
-    <span class="chip"><?= $msg==='pagados' ? 'Marcados como pagados.' : ($msg==='nada' ? 'No seleccionaste deudores.' : 'Operación realizada.') ?></span>
+    <div class="msg">
+      <?php
+        echo ($msg==='pagados') ? 'Marcados como pagados.' :
+             (($msg==='nada') ? 'No seleccionaste deudores.' : 'Operación realizada.');
+      ?>
+    </div>
   <?php endif; ?>
   <div class="chips" id="chips"></div>
 </div>
 
-<div id="canvasWrap">
-  <svg id="chart" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet"></svg>
-</div>
-
+<!-- más ancho para “usar todo el espacio” -->
+<svg id="chart" width="1600" height="900"></svg>
 <div class="selector-wrap"><div id="selector-host"></div></div>
 
 <script>
@@ -243,55 +246,16 @@ const GANANCIA = <?php echo json_encode($ganPrest, JSON_NUMERIC_CHECK); ?>;
 const CAPITAL  = <?php echo json_encode($capPendPrest, JSON_NUMERIC_CHECK); ?>;
 const SELECTORS_HTML = <?php echo json_encode($selectors, JSON_UNESCAPED_UNICODE); ?>;
 
-/* ===== D3 Setup (zoom/pan + auto-fit estable) ===== */
+/* ===== D3 Setup ===== */
 const svg = d3.select("#chart");
-const g   = svg.append("g");      // capa pan/zoom
-const linksLayer = g.append("g");
-const nodesLayer = g.append("g");
-const summaryLayer = g.append("g");
+const width = +svg.attr("width");
+const height = +svg.attr("height");
+const g = svg.append("g").attr("transform", "translate(100,60)");
 
-const zoom = d3.zoom()
-  .scaleExtent([0.75, 2.5])
-  .on("zoom", (ev) => g.attr("transform", ev.transform));
-svg.call(zoom).on("dblclick.zoom", null);
-
-function getCanvasSize(){
-  const wrap = document.getElementById("canvasWrap");
-  return { w: wrap.clientWidth, h: wrap.clientHeight };
-}
-function fitToContent(pad=40){
-  const box = g.node().getBBox();
-  const {w, h} = getCanvasSize();
-  if (!box || box.width === 0 || box.height === 0) return;
-  const scale = Math.min((w - pad*2)/box.width, (h - pad*2)/box.height);
-  const tx = (w - box.width*scale)/2 - box.x*scale;
-  const ty = (h - box.height*scale)/2 - box.y*scale;
-  svg.transition().duration(800)
-     .call(zoom.transform, d3.zoomIdentity.translate(tx,ty).scale(scale));
-}
-
-/* ===== Chips y selector ===== */
 const chipsHost = document.getElementById("chips");
 const selectorHost = document.getElementById("selector-host");
-function renderChips(prest){
-  chipsHost.innerHTML = "";
-  const mk = (t,bg)=>{ const s=document.createElement("span"); s.className="chip"; s.textContent=t; if(bg) s.style.background=bg; return s; };
-  chipsHost.append(
-    mk(`Ganancia (interés): $ ${Number(GANANCIA[prest]||0).toLocaleString()}`),
-    mk(`Total prestado (pend.): $ ${Number(CAPITAL[prest]||0).toLocaleString()}`),
-    mk("1 mes","#FFF8DB"), mk("2 meses","#FFE9D6"), mk("3+ meses","#FFE1E1")
-  );
-}
-function renderSelector(prest){
-  selectorHost.innerHTML = "";
-  const wrap = document.createElement("div"); wrap.className="selector";
-  wrap.innerHTML = SELECTORS_HTML[prest] || '<div class="chip">Sin deudores pendientes</div>';
-  selectorHost.appendChild(wrap);
-  const form = selectorHost.querySelector(".selector-form");
-  if (form) form.style.display = "block";
-}
 
-/* ===== Panel de prestamistas ===== */
+/* ===== Panel prestamistas ===== */
 const prestamistasList = d3.select("#prestamistas-list");
 const prestNombres = Object.keys(DATA);
 prestNombres.forEach((p,i) => {
@@ -305,105 +269,153 @@ prestNombres.forEach((p,i) => {
     });
 });
 
-/* ===== Dibujo del árbol ===== */
-function drawTree(prestamista){
-  linksLayer.selectAll("*").remove();
-  nodesLayer.selectAll("*").remove();
-  summaryLayer.selectAll("*").remove();
+/* ===== Chips ===== */
+function renderChips(prest){
+  chipsHost.innerHTML = "";
+  const chip1 = document.createElement("span");
+  chip1.className = "chip"; chip1.textContent = `Ganancia (interés): $ ${Number(GANANCIA[prest]||0).toLocaleString()}`;
+  const chip2 = document.createElement("span");
+  chip2.className = "chip"; chip2.textContent = `Total prestado (pend.): $ ${Number(CAPITAL[prest]||0).toLocaleString()}`;
+  const chipL1 = document.createElement("span"); chipL1.className="chip"; chipL1.textContent="1 mes"; chipL1.style.background="#FFF8DB";
+  const chipL2 = document.createElement("span"); chipL2.className="chip"; chipL2.textContent="2 meses"; chipL2.style.background="#FFE9D6";
+  const chipL3 = document.createElement("span"); chipL3.className="chip"; chipL3.textContent="3+ meses"; chipL3.style.background="#FFE1E1";
+  chipsHost.append(chip1, chip2, chipL1, chipL2, chipL3);
+}
+
+/* ===== Selector ===== */
+function renderSelector(prest){
+  selectorHost.innerHTML = "";
+  const wrap = document.createElement("div");
+  wrap.className = "selector";
+  wrap.innerHTML = SELECTORS_HTML[prest] || '<div class="chip">Sin deudores pendientes</div>';
+  selectorHost.appendChild(wrap);
+  const form = selectorHost.querySelector(".selector-form");
+  if (form) form.style.display = "block";
+}
+
+/* ===== Dibujo del árbol (con tarjetas + nodo 3) ===== */
+function drawTree(prestamista) {
+  g.selectAll("*").remove();
 
   const rows = DATA[prestamista] || [];
   const root = d3.hierarchy({ name: prestamista, children: rows });
 
-  // Geometría de tarjetas y separación
-  const cardW = 380, cardH = 96, vGap = 26, hGap = 380;
+  // Evitar tarjetas montadas: nodeSize([alto, ancho])
+  const cardW = 360, cardH = 96, vGap = 18, hGap = 320;   // <-- ajustes clave
   const treeLayout = d3.tree().nodeSize([cardH + vGap, hGap]);
-  treeLayout(root); // d.x (vertical) y d.y (horizontal)
+  treeLayout(root);
 
-  // Enlaces Root -> Deudores
-  linksLayer.selectAll("path")
+  // Enlaces root -> deudores
+  g.selectAll(".link")
     .data(root.links())
     .join("path")
-      .attr("class","link")
+      .attr("class", "link")
+      .attr("d", d3.linkHorizontal().x(d => root.y).y(d => root.x))
+      .attr("stroke-opacity", 0)
+    .transition()
+      .duration(700)
+      .attr("stroke-opacity", 1)
       .attr("d", d3.linkHorizontal().x(d => d.y).y(d => d.x));
 
-  // Prestamista raíz
-  const rootNode = nodesLayer.append("g").attr("transform",`translate(${root.y},${root.x})`);
-  rootNode.append("circle").attr("r",8).attr("fill","#1976d2").attr("stroke","#fff").attr("stroke-width",2);
-  rootNode.append("text").attr("dy","0.31em").attr("x",-14).attr("text-anchor","end").text(root.data.name);
+  // Nodos
+  const node = g.selectAll(".node")
+    .data(root.descendants())
+    .join("g")
+      .attr("class", "node")
+      .attr("transform", d => `translate(${root.y},${d.x})`)
+    .transition()
+      .duration(800)
+      .attr("transform", d => `translate(${d.y},${d.x})`)
+    .selection();
+
+  // Prestamista raíz (círculo + texto)
+  node.filter(d => d.depth === 0).each(function(d){
+    const sel = d3.select(this);
+    sel.append("circle").attr("r",8).attr("fill","#1976d2").attr("stroke","#fff").attr("stroke-width",2);
+    sel.append("text").attr("dy","0.31em").attr("x",-14).attr("text-anchor","end").text(d.data.name);
+  });
 
   // Deudores (tarjetas)
-  const padX = 12, line1 = 22, line2 = 40, line3 = 58, line4 = 76;
-  const deudores = nodesLayer.selectAll(".n")
-    .data(root.descendants().filter(d => d.depth===1))
-    .join("g")
-      .attr("class","n")
-      .attr("transform", d => `translate(${d.y},${d.x})`);
-
-  deudores.each(function(d){
+  const padX = 12;
+  const line1 = 22, line2 = 40, line3 = 58, line4 = 76;
+  node.filter(d => d.depth === 1).each(function(d){
     const sel = d3.select(this);
     const m = +d.data.meses || 0;
     const mcls = (m >= 3) ? "m3" : (m === 2 ? "m2" : (m === 1 ? "m1" : "m0"));
 
-    sel.append("rect").attr("class",`nodeCard ${mcls}`)
-      .attr("x",0).attr("y",-cardH/2).attr("width",cardW).attr("height",cardH).attr("rx",12).attr("ry",12);
+    sel.append("rect")
+      .attr("class", `nodeCard ${mcls}`)
+      .attr("x", 0)
+      .attr("y", -cardH/2)
+      .attr("width", cardW)
+      .attr("height", cardH)
+      .attr("rx", 12).attr("ry", 12);
 
-    sel.append("text").attr("class","nodeTitle").attr("x",padX).attr("y",-cardH/2+line1).text(d.data.nombre);
-
-    sel.append("text").attr("class","nodeLine").attr("x",padX).attr("y",-cardH/2+line2)
-      .text("valor prestado: ").append("tspan").attr("class","nodeAmt")
-      .text(`$ ${Number(d.data.valor||0).toLocaleString()}`);
-
-    sel.append("text").attr("class","nodeLine").attr("x",padX).attr("y",-cardH/2+line3)
-      .text("fecha: ").append("tspan").attr("class","nodeAmt").text(d.data.fecha||"");
-
-    const ln = sel.append("text").attr("class","nodeLine").attr("x",padX).attr("y",-cardH/2+line4).text("interés: ");
-    ln.append("tspan").attr("class","nodeAmt").text(`$ ${Number(d.data.interes||0).toLocaleString()}`);
-    ln.append("tspan").text(" • total ");
-    ln.append("tspan").attr("class","nodeAmt").text(`$ ${Number(d.data.total||0).toLocaleString()}`);
+    sel.append("text").attr("class","nodeTitle").attr("x",padX).attr("y",-cardH/2 + line1).text(d.data.nombre);
+    sel.append("text").attr("class","nodeLine").attr("x",padX).attr("y",-cardH/2 + line2)
+        .text("valor prestado: ").append("tspan").attr("class","nodeAmt")
+        .text(() => `\$ ${Number(d.data.valor||0).toLocaleString()}`);
+    sel.append("text").attr("class","nodeLine").attr("x",padX).attr("y",-cardH/2 + line3)
+        .text("fecha: ").append("tspan").attr("class","nodeAmt").text(d.data.fecha || "");
+    const lineInt = sel.append("text").attr("class","nodeLine").attr("x",padX).attr("y",-cardH/2 + line4).text("interés: ");
+    lineInt.append("tspan").attr("class","nodeAmt").text(() => `\$ ${Number(d.data.interes||0).toLocaleString()}`);
+    lineInt.append("tspan").text(" • total ");
+    lineInt.append("tspan").attr("class","nodeAmt").text(() => `\$ ${Number(d.data.total||0).toLocaleString()}`);
   });
 
-  // Nodo 3 (resumen a la derecha)
-  const lastY = d3.max(root.descendants(), d => d.y) + cardW + 140;
-  const minX  = d3.min(root.descendants(), d => d.x);
-  const maxX  = d3.max(root.descendants(), d => d.x);
-  const centerY = (minX + maxX) / 2;
+  /* === NODO 3 (Resumen a la derecha) === */
+  const deudores = root.descendants().filter(d => d.depth === 1);
+  const extentY = d3.extent(deudores, d => d.x);
+  const centerY = (extentY[0] + extentY[1]) / 2;
 
-  const sumW=240, sumH=48, pad=12;
-  // líneas tarjetas -> resumen
-  linksLayer.selectAll(".toSum")
-    .data(root.descendants().filter(d => d.depth===1))
+  // Colócalo bien a la derecha para “usar todo el espacio”
+  const xRight = width - 180;               // borde derecho
+  const sumW = 240, sumH = 48, pad = 12;    // tarjetas resumen
+
+  // Líneas de cada deudor -> nodo de ganancia
+  g.selectAll(".toSummary")
+    .data(deudores)
     .join("line")
-      .attr("class","toSum")
       .attr("x1", d => d.y + cardW)
       .attr("y1", d => d.x)
-      .attr("x2", lastY)
+      .attr("x2", xRight - sumW)
       .attr("y2", centerY)
       .attr("stroke", "#cbd5e1")
       .attr("stroke-width", 1.2);
 
-  // Ganancia
-  summaryLayer.append("rect").attr("class","summaryRect")
-    .attr("x", lastY).attr("y", centerY - sumH - 6).attr("width",sumW).attr("height",sumH).attr("rx",12).attr("ry",12);
-  summaryLayer.append("text").attr("class","summaryTitle").attr("x",lastY+pad).attr("y",centerY - sumH + 16).text("Ganancia (interés)");
-  summaryLayer.append("text").attr("class","summaryVal").attr("x",lastY+pad).attr("y",centerY - sumH + 34).text(`$ ${Number(GANANCIA[prestamista]||0).toLocaleString()}`);
-  // Total prestado
-  summaryLayer.append("rect").attr("class","summaryRect")
-    .attr("x", lastY).attr("y", centerY + 6).attr("width",sumW).attr("height",sumH).attr("rx",12).attr("ry",12);
-  summaryLayer.append("text").attr("class","summaryTitle").attr("x",lastY+pad).attr("y",centerY + 6 + 16).text("Total prestado (pend.)");
-  summaryLayer.append("text").attr("class","summaryVal").attr("x",lastY+pad).attr("y",centerY + 6 + 34).text(`$ ${Number(CAPITAL[prestamista]||0).toLocaleString()}`);
+  // Caja Ganancia (interés)
+  g.append("rect")
+    .attr("class","summaryRect")
+    .attr("x", xRight - sumW)
+    .attr("y", centerY - sumH - 6)
+    .attr("width", sumW)
+    .attr("height", sumH)
+    .attr("rx",12).attr("ry",12);
 
-  // Chips + selector
+  g.append("text").attr("class","summaryTitle").attr("x", xRight - sumW + pad).attr("y", centerY - sumH + 16).text("Ganancia (interés)");
+  g.append("text").attr("class","summaryVal").attr("x", xRight - sumW + pad).attr("y", centerY - sumH + 34)
+    .text(`$ ${Number(GANANCIA[prestamista]||0).toLocaleString()}`);
+
+  // Caja Total prestado (pend.)
+  g.append("rect")
+    .attr("class","summaryRect")
+    .attr("x", xRight - sumW)
+    .attr("y", centerY + 6)
+    .attr("width", sumW)
+    .attr("height", sumH)
+    .attr("rx",12).attr("ry",12);
+
+  g.append("text").attr("class","summaryTitle").attr("x", xRight - sumW + pad).attr("y", centerY + 6 + 16).text("Total prestado (pend.)");
+  g.append("text").attr("class","summaryVal").attr("x", xRight - sumW + pad).attr("y", centerY + 6 + 34)
+    .text(`$ ${Number(CAPITAL[prestamista]||0).toLocaleString()}`);
+
+  // Actualiza chips y selector
   renderChips(prestamista);
   renderSelector(prestamista);
-
-  // Auto-fit estable (espera a que el DOM pinte todo)
-  setTimeout(() => fitToContent(40), 300);
 }
 
-/* Inicio + resize */
+/* Inicio: selecciona el primero */
 if (prestNombres.length){ drawTree(prestNombres[0]); }
-let resizeTO=null;
-window.addEventListener("resize", () => { clearTimeout(resizeTO); resizeTO=setTimeout(()=>fitToContent(40), 150); });
 </script>
 </body>
 </html>
