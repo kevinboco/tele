@@ -1,9 +1,7 @@
 <?php
 /*********************************************************
- * prestamos_visual_interactivo.php — Visual D3 con tarjetas (v3.1 animado + separación)
- * - Tarjetas de altura dinámica + wrap de texto
- * - Animaciones: slide-in + stagger + enlaces “dibujados”
- * - Mayor separación del nodo raíz para apreciar la animación
+ * prestamos_visual_interactivo.php — Visual D3 con tarjetas
+ * v3.2: deudores centrados + enlaces curvos visibles
  *********************************************************/
 include("nav.php");
 
@@ -309,7 +307,7 @@ function wrapText(textSel, width){
   });
 }
 
-/* ===== Dibujo del árbol (dinámico + animaciones) ===== */
+/* ===== Dibujo del árbol (deudores centrados) ===== */
 function drawTree(prestamista) {
   g.selectAll("*").remove();
 
@@ -326,14 +324,24 @@ function drawTree(prestamista) {
   const svgH = Math.max(500, 160 + rows.length * (approxCardH + 26));
   svg.attr("height", svgH);
 
-  // Layout — MÁS SEPARACIÓN HORIZONTAL DEL NODO RAÍZ
+  // Layout base (luego recentramos manualmente)
   const treeLayout = d3.tree()
-    .nodeSize([ approxCardH + 30, cardW + 240 ]) // ← antes: cardW + 160
+    .nodeSize([ approxCardH + 30, cardW + 240 ])
     .separation((a,b)=> (a.parent===b.parent? 1.3 : 1.6));
 
   const root = d3.hierarchy({ name: prestamista, children: rows });
-  treeLayout.size([svgH - 140, 1]); // altura controlada por nodeSize
+  treeLayout.size([svgH - 140, 1]);
   treeLayout(root);
+
+  // === Recentrar hijos en el medio del viewport ===
+  const svgW = +svg.attr("width");
+  const leftMargin = 120; // por el translate del <g>
+  const usableW = svgW - leftMargin - 40; // margen derecho suave
+  const centerX = Math.max(cardW/2 + 40, (usableW - cardW) / 2); // posición y de los hijos
+  root.each(d => {
+    if (d.depth === 0) d.y = 0;            // raíz
+    if (d.depth === 1) d.y = centerX;      // todos los deudores al centro
+  });
 
   // ===== Enlaces con animación de trazo =====
   const linkPath = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
@@ -351,12 +359,12 @@ function drawTree(prestamista) {
       .ease(d3.easeCubicOut)
       .attr("stroke-dashoffset", 0);
 
-  // ===== Nodos (tarjetas) con slide-in y stagger =====
+  // ===== Nodos (slide-in) =====
   const nodes = g.selectAll(".node")
     .data(root.descendants())
     .join("g")
       .attr("class", "node")
-      .attr("transform", d => `translate(${d.y - 160},${d.x})`) // ← entra desde más a la izquierda (antes -60)
+      .attr("transform", d => `translate(${d.y - 180},${d.x})`) // entra desde más a la izquierda
       .style("opacity", 0);
 
   nodes.transition()
@@ -382,13 +390,13 @@ function drawTree(prestamista) {
     const titleRows = temp.selectAll("tspan").nodes().length || 1;
     temp.remove();
 
-    const rowsCount = titleRows + 3; // título + 3 líneas meta
+    const rowsCount = titleRows + 3;
     const cardH = padY*2 + lineGap*rowsCount;
 
     const m = +d.data.meses || 0;
     const mcls = (m >= 3) ? "m3" : (m === 2 ? "m2" : (m === 1 ? "m1" : "m0"));
 
-    // Fondo tarjeta (aparece escalando suavemente)
+    // Fondo tarjeta
     sel.append("rect")
       .attr("class", `nodeCard ${mcls}`)
       .attr("x", 0)
