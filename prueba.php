@@ -1,180 +1,178 @@
 <?php
-include("nav.php");
-$conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
-if ($conn->connect_error) {
-    die("Error conexión BD: " . $conn->connect_error);
-}
-
-// Obtener todos los prestamistas con cantidad de préstamos
-$prestamistas = $conn->query("
-    SELECT prestamista, COUNT(*) as cantidad 
-    FROM prestamos 
-    GROUP BY prestamista 
-    ORDER BY prestamista ASC
-");
+// Datos de ejemplo (puedes cambiarlos por una consulta SQL luego)
+$data = [
+    "Alexander Peralta" => [
+        ["nombre" => "Juan Pérez", "valor" => 300000, "fecha" => "2025-09-01", "interes" => 50000],
+        ["nombre" => "María López", "valor" => 450000, "fecha" => "2025-09-05", "interes" => 60000],
+        ["nombre" => "Carlos Gómez", "valor" => 700000, "fecha" => "2025-08-20", "interes" => 90000]
+    ],
+    "Camila Díaz" => [
+        ["nombre" => "Ana Rojas", "valor" => 200000, "fecha" => "2025-09-15", "interes" => 30000],
+        ["nombre" => "Luis Herrera", "valor" => 150000, "fecha" => "2025-08-25", "interes" => 20000]
+    ],
+    "Laura Torres" => [
+        ["nombre" => "José Pérez", "valor" => 1000000, "fecha" => "2025-10-01", "interes" => 150000]
+    ]
+];
 ?>
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>Visual - Prestamistas</title>
+<title>Préstamos Interactivos</title>
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <style>
 body {
-    font-family: 'Poppins', sans-serif;
-    margin: 0;
-    background: #f5f6fa;
-    display: flex;
-    height: 100vh;
+  font-family: "Segoe UI", sans-serif;
+  background: #f4f6fa;
+  margin: 0;
+  overflow-x: hidden;
 }
-
-/* Panel izquierdo */
-#sidebar {
-    width: 250px;
-    background: white;
-    border-right: 1px solid #ddd;
-    padding: 15px;
-    overflow-y: auto;
+.panel {
+  width: 260px;
+  background: white;
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-right: 1px solid #ddd;
+  padding: 15px;
+  overflow-y: auto;
+  box-shadow: 2px 0 10px rgba(0,0,0,0.05);
 }
-#sidebar h3 {
-    text-align: center;
-    color: #333;
-    margin-bottom: 10px;
+.prestamista-item {
+  padding: 10px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: #e3f2fd;
+  cursor: pointer;
+  transition: all 0.2s;
 }
-.prestamista-btn {
-    background: #f8f9fa;
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    padding: 10px;
-    margin-bottom: 8px;
-    width: 100%;
-    text-align: left;
-    cursor: pointer;
-    transition: 0.2s;
-}
-.prestamista-btn:hover {
-    background: #007bff;
-    color: white;
-}
-
-/* Área de visualización */
-#graph-container {
-    flex: 1;
-    position: relative;
-    overflow: hidden;
+.prestamista-item:hover {
+  background: #bbdefb;
 }
 svg {
-    width: 100%;
-    height: 100%;
-}
-.node text {
-    font-size: 12px;
-    pointer-events: none;
+  margin-left: 280px;
 }
 .link {
-    stroke: #ccc;
-    stroke-width: 1.5px;
+  fill: none;
+  stroke: #ccc;
+  stroke-width: 2px;
+}
+.node circle {
+  fill: #1976d2;
+  stroke: #fff;
+  stroke-width: 2px;
+}
+.node text {
+  font-size: 14px;
+  fill: #333;
 }
 .tooltip {
-    position: absolute;
-    background: #fff;
-    padding: 8px;
-    border-radius: 6px;
-    box-shadow: 0px 0px 6px rgba(0,0,0,0.15);
-    pointer-events: none;
-    font-size: 13px;
+  position: absolute;
+  background: rgba(0,0,0,0.75);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  pointer-events: none;
 }
 </style>
 </head>
 <body>
 
-<div id="sidebar">
-    <h3>Prestamistas</h3>
-    <p style="font-size: 13px; color: #777;">Haz clic para ver su árbol de deudores:</p>
-    <?php while($row = $prestamistas->fetch_assoc()): ?>
-        <button class="prestamista-btn" onclick="mostrarPrestamista('<?php echo addslashes($row['prestamista']); ?>')">
-            <?php echo htmlspecialchars($row['prestamista']); ?> (<?php echo $row['cantidad']; ?>)
-        </button>
-    <?php endwhile; ?>
+<div class="panel">
+  <h3>Prestamistas</h3>
+  <div id="prestamistas-list"></div>
 </div>
 
-<div id="graph-container">
-    <svg></svg>
-    <div class="tooltip" style="opacity:0;"></div>
-</div>
+<svg id="chart" width="1300" height="800"></svg>
+
+<div id="tooltip" class="tooltip" style="display:none;"></div>
 
 <script>
-async function mostrarPrestamista(nombre) {
-    const svg = d3.select("svg");
-    svg.selectAll("*").remove(); // limpiar el gráfico anterior
+const data = <?php echo json_encode($data, JSON_PRETTY_PRINT); ?>;
+const svg = d3.select("#chart");
+const width = +svg.attr("width");
+const height = +svg.attr("height");
+const g = svg.append("g").attr("transform", "translate(100,50)");
 
-    const tooltip = d3.select(".tooltip");
-    const width = window.innerWidth - 250;
-    const height = window.innerHeight;
+const tooltip = d3.select("#tooltip");
 
-    // Obtener datos desde PHP vía AJAX
-    const response = await fetch(`get_prestamista_data.php?prestamista=${encodeURIComponent(nombre)}`);
-    const data = await response.json();
+// Llenar lista lateral
+const prestamistasList = d3.select("#prestamistas-list");
+Object.keys(data).forEach(prestamista => {
+  prestamistasList.append("div")
+    .attr("class", "prestamista-item")
+    .text(prestamista)
+    .on("click", () => drawTree(prestamista));
+});
 
-    // Escala de colores según meses
-    const colorScale = d3.scaleSequential()
-        .domain([0, 12]) // 0 a 12 meses
-        .interpolator(d3.interpolateYlOrRd);
+function drawTree(prestamista) {
+  g.selectAll("*").remove(); // limpiar
 
-    const simulation = d3.forceSimulation(data.nodes)
-        .force("link", d3.forceLink(data.links).id(d => d.id).distance(120))
-        .force("charge", d3.forceManyBody().strength(-300))
-        .force("center", d3.forceCenter(width / 2, height / 2));
+  const root = d3.hierarchy({
+    name: prestamista,
+    children: data[prestamista]
+  });
 
-    const link = svg.append("g")
-        .attr("class", "links")
-        .selectAll("line")
-        .data(data.links)
-        .join("line")
-        .attr("stroke", "#ccc");
+  const treeLayout = d3.tree().size([height - 100, width - 400]);
+  treeLayout(root);
 
-    const node = svg.append("g")
-        .attr("class", "nodes")
-        .selectAll("circle")
-        .data(data.nodes)
-        .join("circle")
-        .attr("r", d => d.tipo === "prestamista" ? 22 : 14)
-        .attr("fill", d => d.tipo === "prestamista" ? "#007bff" : colorScale(d.meses || 0))
-        .attr("stroke", "#fff")
-        .attr("stroke-width", 1.5)
-        .on("mouseover", (event, d) => {
-            tooltip.transition().duration(200).style("opacity", .9);
-            tooltip.html(`<strong>${d.id}</strong><br>${d.tipo === 'prestamista' ? '' : 'Meses: ' + d.meses}`)
-                   .style("left", (event.pageX + 10) + "px")
-                   .style("top", (event.pageY - 28) + "px");
-        })
-        .on("mouseout", () => tooltip.transition().duration(500).style("opacity", 0));
+  // Enlaces con animación
+  g.selectAll(".link")
+    .data(root.links())
+    .join("path")
+    .attr("class", "link")
+    .attr("d", d3.linkHorizontal()
+      .x(d => root.y)
+      .y(d => root.x))
+    .attr("stroke-opacity", 0)
+    .transition()
+    .duration(700)
+    .attr("stroke-opacity", 1)
+    .attr("d", d3.linkHorizontal()
+      .x(d => d.y)
+      .y(d => d.x));
 
-    const label = svg.append("g")
-        .selectAll("text")
-        .data(data.nodes)
-        .join("text")
-        .text(d => d.id)
-        .attr("font-size", 11)
-        .attr("dy", 4);
+  // Nodos
+  const node = g.selectAll(".node")
+    .data(root.descendants())
+    .join("g")
+    .attr("class", "node")
+    .attr("transform", d => `translate(${root.y},${root.x})`)
+    .transition()
+    .duration(800)
+    .attr("transform", d => `translate(${d.y},${d.x})`)
+    .selection();
 
-    simulation.on("tick", () => {
-        link
-            .attr("x1", d => d.source.x)
-            .attr("y1", d => d.source.y)
-            .attr("x2", d => d.target.x)
-            .attr("y2", d => d.target.y);
+  node.append("circle")
+    .attr("r", 8)
+    .attr("fill", d => d.depth === 0 ? "#1976d2" : "#f9c74f")
+    .on("mouseover", (event, d) => {
+      if (d.depth === 0) return;
+      tooltip.style("display", "block")
+        .html(`
+          <b>${d.data.nombre}</b><br>
+          Valor: $${d.data.valor.toLocaleString()}<br>
+          Interés: $${d.data.interes.toLocaleString()}<br>
+          Fecha: ${d.data.fecha}<br>
+          Total: $${(d.data.valor + d.data.interes).toLocaleString()}
+        `);
+    })
+    .on("mousemove", (event) => {
+      tooltip.style("left", (event.pageX + 15) + "px")
+             .style("top", (event.pageY - 20) + "px");
+    })
+    .on("mouseout", () => tooltip.style("display", "none"));
 
-        node
-            .attr("cx", d => d.x)
-            .attr("cy", d => d.y);
-
-        label
-            .attr("x", d => d.x + 20)
-            .attr("y", d => d.y + 5);
-    });
+  node.append("text")
+    .attr("dy", "0.31em")
+    .attr("x", d => d.depth === 0 ? -15 : 15)
+    .attr("text-anchor", d => d.depth === 0 ? "end" : "start")
+    .text(d => d.depth === 0 ? d.data.name : d.data.nombre);
 }
 </script>
-
 </body>
 </html>
