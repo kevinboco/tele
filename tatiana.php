@@ -1,4 +1,5 @@
 <?php
+include("nav.php");
 // === DATOS DE MELAN ===
 $melan = [
     1  => 160000,
