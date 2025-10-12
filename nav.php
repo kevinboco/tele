@@ -123,7 +123,10 @@ body {
   <a href="index2.php">Inicio</a>
   <a href="informe.php">informe de viajes</a>
   <a href="liquidacion.php">liquidación de viajes</a>
-  <a href="admin_prestamos.php">administrar prestamos</a>
+  <a href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/prueba.php?view=graph">
+  Administrar préstamos
+  </a>
+
   
 </div>
 
