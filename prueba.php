@@ -1,21 +1,38 @@
 <?php
-// Datos de ejemplo (puedes cambiarlos por una consulta SQL luego)
-$data = [
-    "Alexander Peralta" => [
-        ["nombre" => "Juan Pérez", "valor" => 300000, "fecha" => "2025-09-01", "interes" => 50000],
-        ["nombre" => "María López", "valor" => 450000, "fecha" => "2025-09-05", "interes" => 60000],
-        ["nombre" => "Carlos Gómez", "valor" => 700000, "fecha" => "2025-08-20", "interes" => 90000]
-    ],
-    "Camila Díaz" => [
-        ["nombre" => "Ana Rojas", "valor" => 200000, "fecha" => "2025-09-15", "interes" => 30000],
-        ["nombre" => "Luis Herrera", "valor" => 150000, "fecha" => "2025-08-25", "interes" => 20000]
-    ],
-    "Laura Torres" => [
-        ["nombre" => "José Pérez", "valor" => 1000000, "fecha" => "2025-10-01", "interes" => 150000]
-    ]
-];
-?>
+include("nav.php");
+$conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
+if ($conn->connect_error) {
+    die("Error conexión BD: " . $conn->connect_error);
+}
 
+// Obtener todos los préstamos
+$sql = "SELECT prestamista, deudor, monto, fecha, interes FROM prestamos";
+$result = $conn->query($sql);
+
+$prestamistas = [];
+$deudas = [];
+
+while ($row = $result->fetch_assoc()) {
+    $prestamista = $row['prestamista'];
+    $deudor = $row['deudor'];
+    $monto = $row['monto'];
+    $fecha = $row['fecha'];
+    $interes = $row['interes'];
+
+    if (!isset($prestamistas[$prestamista])) {
+        $prestamistas[$prestamista] = [];
+    }
+
+    $prestamistas[$prestamista][] = [
+        'deudor' => $deudor,
+        'monto' => $monto,
+        'fecha' => $fecha,
+        'interes' => $interes
+    ];
+}
+
+$conn->close();
+?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -24,155 +41,176 @@ $data = [
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <style>
 body {
-  font-family: "Segoe UI", sans-serif;
-  background: #f4f6fa;
+  font-family: 'Poppins', sans-serif;
+  background: #f5f6fa;
   margin: 0;
-  overflow-x: hidden;
+  overflow: hidden;
 }
-.panel {
-  width: 260px;
-  background: white;
-  position: fixed;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  border-right: 1px solid #ddd;
-  padding: 15px;
-  overflow-y: auto;
-  box-shadow: 2px 0 10px rgba(0,0,0,0.05);
-}
-.prestamista-item {
-  padding: 10px;
-  margin-bottom: 8px;
-  border-radius: 6px;
-  background: #e3f2fd;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.prestamista-item:hover {
-  background: #bbdefb;
-}
-svg {
-  margin-left: 280px;
-}
-.link {
-  fill: none;
-  stroke: #ccc;
-  stroke-width: 2px;
+#chart {
+  width: 100vw;
+  height: 90vh;
 }
 .node circle {
-  fill: #1976d2;
-  stroke: #fff;
-  stroke-width: 2px;
+  cursor: pointer;
+  stroke: #333;
+  stroke-width: 1.5px;
 }
 .node text {
   font-size: 14px;
-  fill: #333;
+  pointer-events: none;
 }
 .tooltip {
   position: absolute;
-  background: rgba(0,0,0,0.75);
+  background: rgba(0,0,0,0.8);
   color: #fff;
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 13px;
   pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
 }
 </style>
 </head>
 <body>
 
-<div class="panel">
-  <h3>Prestamistas</h3>
-  <div id="prestamistas-list"></div>
-</div>
-
-<svg id="chart" width="1300" height="800"></svg>
-
-<div id="tooltip" class="tooltip" style="display:none;"></div>
+<h2 style="text-align:center;margin-top:15px;">💰 Préstamos Interactivos</h2>
+<div id="chart"></div>
+<div class="tooltip" id="tooltip"></div>
 
 <script>
-const data = <?php echo json_encode($data, JSON_PRETTY_PRINT); ?>;
-const svg = d3.select("#chart");
-const width = +svg.attr("width");
-const height = +svg.attr("height");
-const g = svg.append("g").attr("transform", "translate(100,50)");
+// === Datos desde PHP ===
+const data = <?php echo json_encode($prestamistas, JSON_UNESCAPED_UNICODE); ?>;
+
+// === Inicializar SVG ===
+const width = window.innerWidth, height = window.innerHeight * 0.85;
+const svg = d3.select("#chart").append("svg")
+    .attr("width", width)
+    .attr("height", height);
 
 const tooltip = d3.select("#tooltip");
 
-// Llenar lista lateral
-const prestamistasList = d3.select("#prestamistas-list");
-Object.keys(data).forEach(prestamista => {
-  prestamistasList.append("div")
-    .attr("class", "prestamista-item")
-    .text(prestamista)
-    .on("click", () => drawTree(prestamista));
+let nodes = [];
+let links = [];
+
+// Crear nodos base (prestamistas)
+Object.keys(data).forEach((prestamista, i) => {
+  nodes.push({
+    id: prestamista,
+    type: "prestamista",
+    expanded: false,
+    x: -200, // fuera de pantalla para animación
+    y: height / 2 + (i * 60 - Object.keys(data).length * 30)
+  });
 });
 
-function drawTree(prestamista) {
-  g.selectAll("*").remove(); // limpiar
+// === Simulación D3 ===
+const simulation = d3.forceSimulation(nodes)
+  .force("link", d3.forceLink().id(d => d.id).distance(120))
+  .force("charge", d3.forceManyBody().strength(-400))
+  .force("center", d3.forceCenter(width / 2, height / 2))
+  .on("tick", ticked);
 
-  const root = d3.hierarchy({
-    name: prestamista,
-    children: data[prestamista]
-  });
+// === Dibujar elementos ===
+const link = svg.append("g").attr("stroke", "#999").selectAll("line");
+const node = svg.append("g").selectAll(".node");
 
-  const treeLayout = d3.tree().size([height - 100, width - 400]);
-  treeLayout(root);
+// === Render ===
+function update() {
+  const uLinks = link.data(links);
+  uLinks.join(
+    enter => enter.append("line").attr("stroke-width", 1.5),
+    update => update,
+    exit => exit.remove()
+  );
 
-  // Enlaces con animación
-  g.selectAll(".link")
-    .data(root.links())
-    .join("path")
-    .attr("class", "link")
-    .attr("d", d3.linkHorizontal()
-      .x(d => root.y)
-      .y(d => root.x))
-    .attr("stroke-opacity", 0)
-    .transition()
-    .duration(700)
-    .attr("stroke-opacity", 1)
-    .attr("d", d3.linkHorizontal()
-      .x(d => d.y)
-      .y(d => d.x));
+  const uNodes = node.data(nodes, d => d.id);
+  const nodeEnter = uNodes.enter().append("g").attr("class", "node")
+    .on("click", clicked)
+    .on("mouseover", showTooltip)
+    .on("mouseout", hideTooltip);
 
-  // Nodos
-  const node = g.selectAll(".node")
-    .data(root.descendants())
-    .join("g")
-    .attr("class", "node")
-    .attr("transform", d => `translate(${root.y},${root.x})`)
+  nodeEnter.append("circle")
+    .attr("r", d => d.type === "prestamista" ? 25 : 15)
+    .attr("fill", d => d.type === "prestamista" ? "#007bff" : "#00b894")
+    .attr("opacity", 0)
     .transition()
     .duration(800)
-    .attr("transform", d => `translate(${d.y},${d.x})`)
-    .selection();
+    .attr("opacity", 1)
+    .attr("cx", 0).attr("cy", 0);
 
-  node.append("circle")
-    .attr("r", 8)
-    .attr("fill", d => d.depth === 0 ? "#1976d2" : "#f9c74f")
-    .on("mouseover", (event, d) => {
-      if (d.depth === 0) return;
-      tooltip.style("display", "block")
-        .html(`
-          <b>${d.data.nombre}</b><br>
-          Valor: $${d.data.valor.toLocaleString()}<br>
-          Interés: $${d.data.interes.toLocaleString()}<br>
-          Fecha: ${d.data.fecha}<br>
-          Total: $${(d.data.valor + d.data.interes).toLocaleString()}
-        `);
-    })
-    .on("mousemove", (event) => {
-      tooltip.style("left", (event.pageX + 15) + "px")
-             .style("top", (event.pageY - 20) + "px");
-    })
-    .on("mouseout", () => tooltip.style("display", "none"));
+  nodeEnter.append("text")
+    .attr("dy", 4)
+    .attr("x", d => d.type === "prestamista" ? 35 : 20)
+    .text(d => d.id);
 
-  node.append("text")
-    .attr("dy", "0.31em")
-    .attr("x", d => d.depth === 0 ? -15 : 15)
-    .attr("text-anchor", d => d.depth === 0 ? "end" : "start")
-    .text(d => d.depth === 0 ? d.data.name : d.data.nombre);
+  uNodes.exit().remove();
+  node.merge(nodeEnter);
+  simulation.nodes(nodes);
+  simulation.force("link").links(links);
+  simulation.alpha(1).restart();
 }
+
+function ticked() {
+  svg.selectAll("line")
+    .attr("x1", d => d.source.x)
+    .attr("y1", d => d.source.y)
+    .attr("x2", d => d.target.x)
+    .attr("y2", d => d.target.y);
+
+  svg.selectAll(".node")
+    .attr("transform", d => `translate(${d.x},${d.y})`);
+}
+
+// === Acciones ===
+function clicked(event, d) {
+  if (d.type !== "prestamista") return;
+
+  if (d.expanded) {
+    // Colapsar
+    nodes = nodes.filter(n => n.type === "prestamista" || n.parent !== d.id);
+    links = links.filter(l => l.source.id !== d.id);
+    d.expanded = false;
+  } else {
+    // Expandir
+    const deudores = data[d.id];
+    deudores.forEach(dd => {
+      const nodoHijo = { id: dd.deudor, type: "deudor", parent: d.id, monto: dd.monto, fecha: dd.fecha, interes: dd.interes };
+      nodes.push(nodoHijo);
+      links.push({ source: d.id, target: dd.deudor });
+    });
+    d.expanded = true;
+  }
+  update();
+}
+
+function showTooltip(event, d) {
+  if (d.type === "deudor") {
+    tooltip.style("opacity", 1)
+      .html(`
+        <strong>${d.id}</strong><br>
+        💵 Monto: ${d.monto}<br>
+        📅 Fecha: ${d.fecha}<br>
+        💰 Interés: ${d.interes}%
+      `)
+      .style("left", (event.pageX + 10) + "px")
+      .style("top", (event.pageY - 40) + "px");
+  }
+}
+function hideTooltip() {
+  tooltip.style("opacity", 0);
+}
+
+// Animación de entrada desde la izquierda
+svg.selectAll("circle")
+  .transition()
+  .delay((d, i) => i * 200)
+  .duration(1000)
+  .attr("cx", (d, i) => width / 2)
+  .ease(d3.easeBounceOut);
+
+update();
 </script>
+
 </body>
 </html>
