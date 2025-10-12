@@ -1,6 +1,6 @@
 <?php
 /*********************************************************
- * prestamos_visual_interactivo.php — Visual D3 con tarjetas compactas
+ * prestamos_visual_interactivo.php — Visual D3 con tarjetas
  * - Mantiene la lógica original (cálculos, no pagados, mark_paid)
  * - UI: panel de prestamistas + árbol D3
  * - Deudores como TARJETA con: nombre, valor, fecha, interés y total
@@ -27,7 +27,7 @@ function mbtitle($s){ return function_exists('mb_convert_case') ? mb_convert_cas
 
 /* ===== Acción: marcar pagados ===== */
 if (($_GET['action'] ?? '') === 'mark_paid' && $_SERVER['REQUEST_METHOD']==='POST'){
-  $nodes = $_POST['nodes'] ?? [];
+  $nodes = $_POST['nodes'] ?? []; // array de CSVs de ids
   if (!is_array($nodes)) $nodes = [];
   $all = [];
   foreach($nodes as $csv){
@@ -109,7 +109,7 @@ while($row=$rsIds->fetch_assoc()){
 $st2->close();
 
 /* Estructuras para la vista */
-$data = [];
+$data = [];         // D3: $data[prest_display] = [ {nombre, valor, fecha, interes, total, meses, ids_csv}, ... ]
 $ganPrest=[]; $capPendPrest=[];
 while($r=$rs->fetch_assoc()){
   $pkey=$r['prest_key']; $pdisp=$r['prest_display'];
@@ -191,15 +191,15 @@ $msg = $_GET['msg'] ?? '';
   svg{margin-left:280px}
   .link{fill:none;stroke:#cbd5e1;stroke-width:1.5px}
 
-  /* ===== TARJETAS DE DEUDORES (compactas) ===== */
-  .nodeCard { stroke:#e5e7eb; stroke-width:1.1px; filter: drop-shadow(0 1px 0 rgba(0,0,0,.02)); }
-  .nodeCard.m1 { fill:#FFF8DB; }
-  .nodeCard.m2 { fill:#FFE9D6; }
-  .nodeCard.m3 { fill:#FFE1E1; }
-  .nodeCard.m0 { fill:#F3F4F6; }
+  /* ===== TARJETAS DE DEUDORES ===== */
+  .nodeCard { stroke:#cbd5e1; stroke-width:1.2px; filter: drop-shadow(0 1px 0 rgba(0,0,0,.02)); }
+  .nodeCard.m1 { fill:#FFF8DB; } /* 1 mes - amarillo suave */
+  .nodeCard.m2 { fill:#FFE9D6; } /* 2 meses - naranja suave */
+  .nodeCard.m3 { fill:#FFE1E1; } /* 3+ meses - rojo suave */
+  .nodeCard.m0 { fill:#F3F4F6; } /* 0 meses (futuro) */
 
-  .nodeTitle { font-weight:800; fill:#111; font-size:13px }
-  .nodeLine  { fill:#6b7280; font-size:12px }
+  .nodeTitle { font-weight:800; fill:#111; font-size:14px }
+  .nodeLine  { fill:#6b7280; font-size:13px }
   .nodeAmt   { fill:#111; font-weight:800 }
 
   /* Selector / acciones */
@@ -232,8 +232,7 @@ $msg = $_GET['msg'] ?? '';
   <div class="chips" id="chips"></div>
 </div>
 
-<!-- Altura razonable; el gráfico se auto-escala si hay muchas tarjetas -->
-<svg id="chart" width="1400" height="760"></svg>
+<svg id="chart" width="1300" height="800"></svg>
 <div class="selector-wrap"><div id="selector-host"></div></div>
 
 <script>
@@ -245,9 +244,9 @@ const SELECTORS_HTML = <?php echo json_encode($selectors, JSON_UNESCAPED_UNICODE
 
 /* ===== D3 Setup ===== */
 const svg = d3.select("#chart");
-let width = +svg.attr("width");
-let height = +svg.attr("height");
-const g = svg.append("g"); // transform se fija dentro de drawTree()
+const width = +svg.attr("width");
+const height = +svg.attr("height");
+const g = svg.append("g").attr("transform", "translate(100,50)");
 
 const chipsHost = document.getElementById("chips");
 const selectorHost = document.getElementById("selector-host");
@@ -290,51 +289,34 @@ function renderSelector(prest){
   if (form) form.style.display = "block";
 }
 
-/* Utilidad: truncar nombre si es larguísimo */
-function trunc(str, max=34){
-  str = String(str ?? "");
-  return (str.length > max) ? (str.slice(0,max-1) + "…") : str;
-}
-
-/* ===== Dibujo del árbol (tarjetas compactas + auto-escala) ===== */
+/* ===== Dibujo del árbol (con tarjetas) ===== */
 function drawTree(prestamista) {
   g.selectAll("*").remove();
 
   const rows = DATA[prestamista] || [];
   const root = d3.hierarchy({ name: prestamista, children: rows });
-
-  // === Tamaño tarjeta y gaps (compactos) ===
-  const cardW = 320;
-  const cardH = 80;
-  const padX  = 12;
-  const GAP_X = 120;
-  const GAP_Y = 12;
-
-  // Líneas
-  const line1 = 20, line2 = 36, line3 = 52, line4 = 68;
-
-  // Layout por tamaño de nodo (controla espacios)
-  const treeLayout = d3.tree()
-    .nodeSize([cardH + GAP_Y, cardW + GAP_X])
-    .separation((a,b) => (a.parent === b.parent ? 1.1 : 1.4));
+  const treeLayout = d3.tree().size([height - 120, width - 420]);
   treeLayout(root);
-
-  // ===== Auto-escala vertical: quepa todo en el alto del SVG =====
-  const neededH = (rows.length + 1) * (cardH + GAP_Y) + 120;
-  const SCALE = Math.max(0.6, Math.min(1, height / neededH)); // nunca menos de 60%
-  g.attr("transform", `translate(100,70) scale(${SCALE})`);
 
   // Enlaces
   g.selectAll(".link")
     .data(root.links())
     .join("path")
       .attr("class", "link")
-      .attr("d", d3.linkHorizontal().x(d => root.y).y(d => root.x))
+      .attr("d", d3.linkHorizontal()
+        .x(d => root.y)
+        .y(d => root.x))
       .attr("stroke-opacity", 0)
     .transition()
-      .duration(650)
+      .duration(700)
       .attr("stroke-opacity", 1)
-      .attr("d", d3.linkHorizontal().x(d => d.y).y(d => d.x));
+      .attr("d", d3.linkHorizontal()
+        .x(d => d.y)
+        .y(d => d.x));
+
+  // Parámetros de tarjeta
+  const cardW = 360, cardH = 96, padX = 12;
+  const line1 = 22, line2 = 40, line3 = 58, line4 = 76;
 
   // Nodos
   const node = g.selectAll(".node")
@@ -343,7 +325,7 @@ function drawTree(prestamista) {
       .attr("class", "node")
       .attr("transform", d => `translate(${root.y},${d.x})`)
     .transition()
-      .duration(700)
+      .duration(800)
       .attr("transform", d => `translate(${d.y},${d.x})`)
     .selection();
 
@@ -351,11 +333,21 @@ function drawTree(prestamista) {
     const sel = d3.select(this);
 
     if (d.depth === 0) {
-      sel.append("circle").attr("r", 7).attr("fill", "#1976d2").attr("stroke", "#fff").attr("stroke-width", 2);
-      sel.append("text").attr("dy","0.31em").attr("x",-12).attr("text-anchor","end").text(d.data.name);
+      // Prestamista raíz (círculo + texto)
+      sel.append("circle")
+        .attr("r", 8)
+        .attr("fill", "#1976d2")
+        .attr("stroke", "#fff")
+        .attr("stroke-width", 2);
+      sel.append("text")
+        .attr("dy", "0.31em")
+        .attr("x", -14)
+        .attr("text-anchor", "end")
+        .text(d.data.name);
       return;
     }
 
+    // Deudor: tarjeta
     const m = +d.data.meses || 0;
     const mcls = (m >= 3) ? "m3" : (m === 2 ? "m2" : (m === 1 ? "m1" : "m0"));
 
@@ -371,23 +363,25 @@ function drawTree(prestamista) {
       .attr("class", "nodeTitle")
       .attr("x", padX)
       .attr("y", -cardH/2 + line1)
-      .text(trunc(d.data.nombre));
+      .text(d.data.nombre);
 
     sel.append("text")
       .attr("class", "nodeLine")
       .attr("x", padX)
       .attr("y", -cardH/2 + line2)
       .text("valor prestado: ")
-      .append("tspan").attr("class","nodeAmt")
-      .text(() => `\$ ${Number(d.data.valor||0).toLocaleString()}`);
+      .append("tspan")
+        .attr("class","nodeAmt")
+        .text(() => `\$ ${Number(d.data.valor||0).toLocaleString()}`);
 
     sel.append("text")
       .attr("class", "nodeLine")
       .attr("x", padX)
       .attr("y", -cardH/2 + line3)
       .text("fecha: ")
-      .append("tspan").attr("class","nodeAmt")
-      .text(d.data.fecha || "");
+      .append("tspan")
+        .attr("class","nodeAmt")
+        .text(d.data.fecha || "");
 
     const lineInt = sel.append("text")
       .attr("class", "nodeLine")
@@ -407,15 +401,6 @@ function drawTree(prestamista) {
 
 /* Inicio: selecciona el primero */
 if (prestNombres.length){ drawTree(prestNombres[0]); }
-
-/* (Opcional) Redibuja si cambia el tamaño del SVG en el futuro */
-window.addEventListener('resize', () => {
-  width = +svg.attr("width");
-  height = +svg.attr("height");
-  const act = document.querySelector(".prestamista-item.active");
-  const nombre = act ? act.textContent : prestNombres[0];
-  drawTree(nombre);
-});
 </script>
 </body>
 </html>
