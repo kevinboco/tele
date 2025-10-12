@@ -1,7 +1,8 @@
 <?php
 /*********************************************************
- * prestamos_visual_interactivo.php — Visual D3 con tarjetas
- * v3.3: deudores centrados + Nodo 3 (Resumen) + líneas curvas animadas
+ * prestamos_visual_interactivo.php
+ * v3.5: sin barra izquierda + prestamistas arriba del nodo raíz
+ *       deudores centrados + Nodo 3 (Resumen) + animaciones
  *********************************************************/
 include("nav.php");
 
@@ -175,21 +176,34 @@ $msg = $_GET['msg'] ?? '';
   :root{ --panel:#fff; --line:#d1d5db; --muted:#6b7280; --primary:#1976d2; }
   *{box-sizing:border-box}
   body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:0;background:#f4f6fa;color:#111;overflow-x:hidden}
-  .panel{width:260px;position:fixed;left:0;top:0;bottom:0;background:#fff;border-right:1px solid #e5e7eb;padding:14px 14px 10px;box-shadow:2px 0 10px rgba(0,0,0,.05);overflow:auto}
-  .panel h3{margin:6px 0 10px}
-  .prestamista-item{padding:10px;margin-bottom:8px;border-radius:10px;background:#e3f2fd;cursor:pointer;user-select:none;font-weight:600}
-  .prestamista-item:hover{background:#bbdefb}
-  .prestamista-item.active{background:#90caf9}
-  .topbar{margin-left:260px;padding:10px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+
+  /* Barra superior con chips de KPIs */
+  .topbar{padding:10px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   .msg{background:#e8f7ee;color:#196a3b;padding:8px 12px;border-radius:10px;display:inline-flex;align-items:center;gap:8px}
   .chips{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   .chip{background:#eef2ff;border:1px solid #e5e7eb;border-radius:999px;padding:4px 10px;font-size:12px}
 
-  svg{margin-left:280px; display:block}
-  .link{fill:none;stroke:#cbd5e1;stroke-width:1.5px}
-  .link2{fill:none;stroke:#9ca3af;stroke-width:1.4px;opacity:.9} /* deudor -> resumen */
+  /* Toolbar de prestamistas sobre el nodo raíz (posición absoluta sobre el SVG) */
+  .toolbar {
+    position:absolute; left:80px; top:60px; z-index:5;
+    display:flex; gap:8px; flex-wrap:wrap; align-items:center;
+    background:rgba(255,255,255,.8); backdrop-filter:saturate(1.2) blur(2px);
+    padding:6px 8px; border-radius:10px; border:1px solid #e5e7eb;
+  }
+  .prest-chip{
+    padding:6px 10px; border-radius:999px; cursor:pointer; user-select:none;
+    background:#e3f2fd; font-weight:600; border:1px solid #dbeafe;
+  }
+  .prest-chip:hover{ background:#dbeafe }
+  .prest-chip.active{ background:#90caf9; border-color:#90caf9 }
 
-  /* ===== TARJETAS ===== */
+  /* SVG y estilos del gráfico */
+  #stage { position:relative }
+  svg{ display:block; width:100%; }
+  .link{fill:none;stroke:#cbd5e1;stroke-width:1.5px}
+  .link2{fill:none;stroke:#9ca3af;stroke-width:1.4px;opacity:.9}
+
+  /* Tarjetas */
   .nodeCard { stroke:#cbd5e1; stroke-width:1.2px; filter: drop-shadow(0 1px 0 rgba(0,0,0,.02)); }
   .nodeCard.m1 { fill:#FFF8DB; }
   .nodeCard.m2 { fill:#FFE9D6; }
@@ -206,7 +220,8 @@ $msg = $_GET['msg'] ?? '';
   .summaryLine  { fill:#374151; font-size:13px }
   .summaryAmt   { fill:#0b5ed7; font-weight:800 }
 
-  .selector-wrap{margin-left:280px;padding:0 16px 20px}
+  /* Selector de pagos */
+  .selector-wrap{padding:0 16px 20px}
   .selector{margin-top:10px;border-top:1px dashed #e5e7eb;padding-top:10px}
   .selhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
   .selgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px}
@@ -217,11 +232,6 @@ $msg = $_GET['msg'] ?? '';
 </style>
 </head>
 <body>
-
-<div class="panel">
-  <h3>Prestamistas</h3>
-  <div id="prestamistas-list"></div>
-</div>
 
 <div class="topbar">
   <?php if ($msg): ?>
@@ -235,8 +245,12 @@ $msg = $_GET['msg'] ?? '';
   <div class="chips" id="chips"></div>
 </div>
 
-<!-- Aumentamos ancho para el nodo 3 -->
-<svg id="chart" width="1500" height="800"></svg>
+<!-- Escenario: toolbar flotante + SVG -->
+<div id="stage">
+  <div id="toolbar" class="toolbar"></div>
+  <svg id="chart" height="800"></svg>
+</div>
+
 <div class="selector-wrap"><div id="selector-host"></div></div>
 
 <script>
@@ -248,23 +262,35 @@ const SELECTORS_HTML = <?php echo json_encode($selectors, JSON_UNESCAPED_UNICODE
 
 /* ===== D3 Setup ===== */
 const svg = d3.select("#chart");
-const g = svg.append("g").attr("transform", "translate(120,50)");
+// margen/offset del nodo raíz
+const ROOT_TX = 80, ROOT_TY = 120;
+const rootG = svg.append("g").attr("transform", `translate(${ROOT_TX},${ROOT_TY})`);
+const g = rootG.append("g"); // grupo principal animado
 const chipsHost = document.getElementById("chips");
 const selectorHost = document.getElementById("selector-host");
 
-/* ===== Panel prestamistas ===== */
-const prestamistasList = d3.select("#prestamistas-list");
+/* ===== Toolbar prestamistas (arriba del nodo raíz) ===== */
+const toolbar = document.getElementById("toolbar");
 const prestNombres = Object.keys(DATA);
-prestNombres.forEach((p,i) => {
-  prestamistasList.append("div")
-    .attr("class", "prestamista-item" + (i===0 ? " active":""))
-    .text(p)
-    .on("click", function(){
-      d3.selectAll(".prestamista-item").classed("active", false);
-      d3.select(this).classed("active", true);
+let currentPrest = prestNombres[0] || null;
+
+function renderToolbar(active){
+  toolbar.innerHTML = "";
+  prestNombres.forEach((p,i)=>{
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "prest-chip" + (p===active ? " active" : "");
+    b.textContent = p;
+    b.onclick = ()=>{
+      currentPrest = p;
+      document.querySelectorAll(".prest-chip").forEach(x=>x.classList.remove("active"));
+      b.classList.add("active");
       drawTree(p);
-    });
-});
+    };
+    toolbar.appendChild(b);
+  });
+}
+renderToolbar(currentPrest);
 
 /* ===== Chips ===== */
 function renderChips(prest){
@@ -327,28 +353,27 @@ function drawTree(prestamista) {
   const padY  = 10;
   const lineGap = 18;
 
-  // Alto del SVG según cantidad de tarjetas
-  const approxCardH = padY*2 + lineGap*4 + 6;
-  const svgH = Math.max(540, 180 + rows.length * (approxCardH + 28));
-  svg.attr("height", svgH);
+  // Altura del SVG (fija; puedes cambiarla si quieres)
+  const svgWidth = document.getElementById("stage").clientWidth;
+  svg.attr("width", svgWidth);
+  const svgH = +svg.attr("height");
 
-  // Layout base (luego recentramos manualmente los hijos)
+  // Layout base
+  const approxCardH = padY*2 + lineGap*4 + 6;
   const treeLayout = d3.tree()
     .nodeSize([ approxCardH + 30, cardW + 240 ])
     .separation((a,b)=> (a.parent===b.parent? 1.3 : 1.6));
 
   const root = d3.hierarchy({ name: prestamista, children: rows });
-  treeLayout.size([svgH - 140, 1]);
+  treeLayout.size([svgH - 200, 1]); // altura disponible
   treeLayout(root);
 
-  // === Recentrar deudores al centro visible ===
-  const svgW = +svg.attr("width");
-  const leftMargin = 120;              // translate del <g>
-  const usableW = svgW - leftMargin - 40;
+  // === Deudores al centro visible ===
+  const usableW = svgWidth - ROOT_TX - 40;
   const centerX = Math.max(cardW/2 + 40, (usableW - cardW) / 2);
   root.each(d => { if (d.depth === 0) d.y = 0; if (d.depth === 1) d.y = centerX; });
 
-  // ===== Enlaces raíz -> deudores con animación de trazo =====
+  // ===== Enlaces raíz -> deudores (animados) =====
   const linkPath = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
   const links = g.selectAll(".link")
     .data(root.links())
@@ -388,7 +413,7 @@ function drawTree(prestamista) {
       return;
     }
 
-    // Medición previa del título envuelto para altura dinámica
+    // Medición previa del título para altura dinámica
     const temp = sel.append("text").attr("class","nodeTitle").attr("x", padX).attr("y", 0).style("opacity",0).text(d.data.nombre);
     wrapText(temp, cardW - padX*2);
     const titleRows = temp.selectAll("tspan").nodes().length || 1;
@@ -444,16 +469,14 @@ function drawTree(prestamista) {
   const totalInteres = Number(<?php echo json_encode($ganPrest); ?>[prestamista] || 0);
   const totalCapital = Number(<?php echo json_encode($capPendPrest); ?>[prestamista] || 0);
 
-  // Calcular posición del nodo 3
   const deudores = root.descendants().filter(d=>d.depth===1);
-  const midY = d3.mean(deudores, d=>d.x) || 0; // centro vertical de las tarjetas
-  const summaryX = centerX + cardW + 280;      // a la derecha de las tarjetas
+  const midY = d3.mean(deudores, d=>d.x) || 0;
+  const summaryX = centerX + cardW + 300;
 
-  // Tarjeta Resumen
   const sumW = 340, sumH = 130, sumPadX = 14, sumLine = 24;
   const summaryG = g.append("g")
     .attr("class","summary")
-    .attr("transform", `translate(${summaryX - 220},${midY})`) // entra desde la izquierda
+    .attr("transform", `translate(${summaryX - 220},${midY})`)
     .style("opacity", 0);
 
   summaryG.transition()
@@ -483,20 +506,17 @@ function drawTree(prestamista) {
 
   // Líneas Deudores -> Resumen
   const link2 = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
-  const linkData = deudores.map(d => ({
-    source: { x: d.x, y: d.y + cardW },   // borde derecho de la tarjeta
-    target: { x: midY, y: summaryX }      // centro del resumen
-  }));
-
-  const links2 = g.selectAll(".link2")
-    .data(linkData)
+  g.selectAll(".link2")
+    .data(deudores.map(d => ({
+      source: { x: d.x, y: d.y + cardW },
+      target: { x: midY, y: summaryX }
+    })))
     .join("path")
       .attr("class","link2")
       .attr("d", link2)
       .attr("stroke-dasharray", function(){ return this.getTotalLength(); })
-      .attr("stroke-dashoffset", function(){ return this.getTotalLength(); });
-
-  links2.transition()
+      .attr("stroke-dashoffset", function(){ return this.getTotalLength(); })
+    .transition()
       .delay((d,i)=> 200 + i*25)
       .duration(650)
       .ease(d3.easeCubicOut)
@@ -506,8 +526,11 @@ function drawTree(prestamista) {
   renderSelector(prestamista);
 }
 
-/* Inicio: selecciona el primero */
-if (prestNombres.length){ drawTree(prestNombres[0]); }
+/* Resize: recalculamos ancho y redibujamos */
+window.addEventListener('resize', ()=> { if (currentPrest) drawTree(currentPrest); });
+
+/* Inicio */
+if (currentPrest){ drawTree(currentPrest); }
 </script>
 </body>
 </html>
