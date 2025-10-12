@@ -1,8 +1,8 @@
 <?php
 /*********************************************************
  * prestamos_visual_interactivo.php
- * v3.6: toolbar superior + deudores centrados + Nodo 3
- *       Info de tarjeta en UNA sola línea (junto a "valor prestado")
+ * v3.7: buscador en vivo (filtro de deudores) + toolbar superior
+ *       deudores centrados + Nodo 3 + animaciones
  *********************************************************/
 include("nav.php");
 
@@ -50,7 +50,7 @@ if (($_GET['action'] ?? '') === 'mark_paid' && $_SERVER['REQUEST_METHOD']==='POS
   }
 }
 
-/* ===== Filtros ===== */
+/* ===== Filtros (server) ===== */
 $q  = trim($_GET['q'] ?? '');
 $qNorm = mbnorm($q);
 
@@ -182,6 +182,17 @@ $msg = $_GET['msg'] ?? '';
   .chips{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   .chip{background:#eef2ff;border:1px solid #e5e7eb;border-radius:999px;padding:4px 10px;font-size:12px}
 
+  /* Buscador */
+  .search{ margin-left:auto; display:flex; align-items:center; gap:6px; }
+  .search input{
+    height:34px; padding:6px 10px 6px 30px; border-radius:999px; border:1px solid #e5e7eb;
+    background:#fff url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="%239aa1b2" viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001l3.85 3.85a1 1 0 0 0 1.415-1.415l-3.85-3.85zm-5.242.656a5 5 0 1 1 0-10 5 5 0 0 1 0 10z"/></svg>') no-repeat 10px center;
+    outline:0; width:260px;
+  }
+  .search button{
+    height:34px; padding:6px 10px; border-radius:999px; border:1px solid #e5e7eb; background:#fff; cursor:pointer;
+  }
+
   .toolbar {
     position:absolute; left:80px; top:60px; z-index:5;
     display:flex; gap:8px; flex-wrap:wrap; align-items:center;
@@ -235,6 +246,10 @@ $msg = $_GET['msg'] ?? '';
     </div>
   <?php endif; ?>
   <div class="chips" id="chips"></div>
+  <div class="search">
+    <input id="searchInput" type="text" placeholder="Buscar deudor..." autocomplete="off">
+    <button id="clearSearch" title="Limpiar">✕</button>
+  </div>
 </div>
 
 <div id="stage">
@@ -263,6 +278,7 @@ const selectorHost = document.getElementById("selector-host");
 const toolbar = document.getElementById("toolbar");
 const prestNombres = Object.keys(DATA);
 let currentPrest = prestNombres[0] || null;
+
 function renderToolbar(active){
   toolbar.innerHTML = "";
   prestNombres.forEach((p)=>{
@@ -277,12 +293,19 @@ function renderToolbar(active){
 renderToolbar(currentPrest);
 
 /* ===== Chips ===== */
-function renderChips(prest){
+function renderChips(prest, visibleRows=null){
   chipsHost.innerHTML = "";
+  // si hay filtro activo, recalculo con los visibles; si no, uso totales
+  let interes = Number(GANANCIA[prest]||0);
+  let capital = Number(CAPITAL[prest]||0);
+  if (Array.isArray(visibleRows)) {
+    interes = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
+    capital = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
+  }
   const chip1 = document.createElement("span");
-  chip1.className = "chip"; chip1.textContent = `Ganancia (interés): $ ${Number(GANANCIA[prest]||0).toLocaleString()}`;
+  chip1.className = "chip"; chip1.textContent = `Ganancia (interés): $ ${interes.toLocaleString()}`;
   const chip2 = document.createElement("span");
-  chip2.className = "chip"; chip2.textContent = `Total prestado (pend.): $ ${Number(CAPITAL[prest]||0).toLocaleString()}`;
+  chip2.className = "chip"; chip2.textContent = `Total prestado (pend.): $ ${capital.toLocaleString()}`;
   const chipL1 = document.createElement("span"); chipL1.className="chip"; chipL1.textContent="1 mes"; chipL1.style.background="#FFF8DB";
   const chipL2 = document.createElement("span"); chipL2.className="chip"; chipL2.textContent="2 meses"; chipL2.style.background="#FFE9D6";
   const chipL3 = document.createElement("span"); chipL3.className="chip"; chipL3.textContent="3+ meses"; chipL3.style.background="#FFE1E1";
@@ -299,6 +322,31 @@ function renderSelector(prest){
   const form = selectorHost.querySelector(".selector-form");
   if (form) form.style.display = "block";
 }
+
+/* ===== Buscador (cliente) ===== */
+const searchInput = document.getElementById('searchInput');
+const clearBtn = document.getElementById('clearSearch');
+let searchTerm = '';
+
+function norm(s){ return (s||'').toString().toLocaleLowerCase(); }
+function matches(row){
+  if (!searchTerm) return true;
+  const q = norm(searchTerm);
+  return norm(row.nombre).includes(q) || norm(row.fecha).includes(q) ||
+         norm(String(row.valor)).includes(q) || norm(String(row.total)).includes(q);
+}
+function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
+
+searchInput.addEventListener('input', debounce(e=>{
+  searchTerm = e.target.value || '';
+  if (currentPrest) drawTree(currentPrest);
+}, 160));
+
+clearBtn.addEventListener('click', ()=>{
+  searchTerm = '';
+  searchInput.value = '';
+  if (currentPrest) drawTree(currentPrest);
+});
 
 /* ===== Helper: wrap de texto en SVG ===== */
 function wrapText(textSel, width){
@@ -329,8 +377,10 @@ function wrapText(textSel, width){
 function drawTree(prestamista) {
   g.selectAll("*").remove();
 
-  const rows = DATA[prestamista] || [];
-  const cardW = 480;          // un poco más ancho para que quepa la línea única
+  const allRows = DATA[prestamista] || [];
+  const rows = allRows.filter(matches);   // << filtro del buscador
+
+  const cardW = 460;   // ancho ajustado para que quepa la fecha
   const padX  = 12;
   const padY  = 10;
   const lineGap = 18;
@@ -340,7 +390,7 @@ function drawTree(prestamista) {
   const svgH = +svg.attr("height");
 
   // Layout base
-  const approxCardH = padY*2 + lineGap*3; // título + 1 línea meta
+  const approxCardH = padY*2 + lineGap*3;
   const treeLayout = d3.tree()
     .nodeSize([ approxCardH + 24, cardW + 240 ])
     .separation((a,b)=> (a.parent===b.parent? 1.2 : 1.5));
@@ -383,13 +433,13 @@ function drawTree(prestamista) {
       return;
     }
 
-    // Altura dinámica con una sola línea de meta
+    // Altura dinámica (título + 1 línea meta)
     const temp = sel.append("text").attr("class","nodeTitle").attr("x", padX).attr("y", 0).style("opacity",0).text(d.data.nombre);
     wrapText(temp, cardW - padX*2);
     const titleRows = temp.selectAll("tspan").nodes().length || 1;
     temp.remove();
 
-    const rowsCount = titleRows + 1; // título + 1 línea
+    const rowsCount = titleRows + 1;
     const cardH = padY*2 + lineGap*rowsCount;
 
     const m = +d.data.meses || 0;
@@ -410,7 +460,7 @@ function drawTree(prestamista) {
     const titleBox = t.node().getBBox();
     y = titleBox.y + titleBox.height + 2;
 
-    // ===== ÚNICA LÍNEA: valor prestado + interés + total + fecha =====
+    // ÚNICA LÍNEA
     const line = sel.append("text").attr("class","nodeLine").attr("x", padX).attr("y", y + lineGap)
       .style("opacity", 0).text("valor prestado: ");
     line.append("tspan").attr("class","nodeAmt").text(`$ ${Number(d.data.valor||0).toLocaleString()}`);
@@ -420,21 +470,20 @@ function drawTree(prestamista) {
     line.append("tspan").attr("class","nodeAmt").text(`$ ${Number(d.data.total||0).toLocaleString()}`);
     line.append("tspan").text(" • fecha: ");
     line.append("tspan").attr("class","nodeAmt").text(d.data.fecha || "");
-    // si se pasa del ancho, hacemos wrap de la línea completa:
     wrapText(line, cardW - padX*2);
-
     line.transition().delay(260).duration(400).style("opacity", 1);
   });
 
-  // ===== Nodo 3 (Resumen) =====
-  const totalInteres = Number(<?php echo json_encode($ganPrest); ?>[prestamista] || 0);
-  const totalCapital = Number(<?php echo json_encode($capPendPrest); ?>[prestamista] || 0);
+  // Nodo 3 (Resumen) — recalculado con el filtro activo
+  const visibleRows = rows; // ya filtradas
+  const totalInteres = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
+  const totalCapital = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
 
   const deudores = root.descendants().filter(d=>d.depth===1);
   const midY = d3.mean(deudores, d=>d.x) || 0;
-  const summaryX = centerX + cardW + 300;
+  const summaryX = centerX + cardW + 280;
 
-  const sumW = 340, sumH = 130, sumPadX = 14, sumLine = 24;
+  const sumW = 360, sumH = 130, sumPadX = 14, sumLine = 24;
   const summaryG = g.append("g").attr("class","summary")
     .attr("transform", `translate(${summaryX - 220},${midY})`).style("opacity", 0);
   summaryG.transition().delay(220).duration(600).ease(d3.easeCubicOut)
@@ -467,7 +516,8 @@ function drawTree(prestamista) {
     .transition().delay((d,i)=> 200 + i*25).duration(650).ease(d3.easeCubicOut)
       .attr("stroke-dashoffset", 0);
 
-  renderChips(prestamista);
+  // chips con totales visibles
+  renderChips(prestamista, visibleRows);
   renderSelector(prestamista);
 }
 
