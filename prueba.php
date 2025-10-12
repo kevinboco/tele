@@ -1,10 +1,9 @@
 <?php
 /*********************************************************
- * prestamos_visual_interactivo.php — Visual D3 con tarjetas
- * - Mantiene la lógica original (cálculos, no pagados, mark_paid)
- * - UI: panel de prestamistas + árbol D3
- * - Deudores como TARJETA con: nombre, valor, fecha, interés y total
- * - Colores por meses (1, 2, 3+)
+ * prestamos_visual_interactivo.php — Visual D3 con tarjetas (v2)
+ * - Tarjetas con altura dinámica + wrap de texto
+ * - Más separación vertical entre nodos (sin solaparse)
+ * - SVG ajusta su alto al número de tarjetas
  *********************************************************/
 include("nav.php");
 
@@ -27,7 +26,7 @@ function mbtitle($s){ return function_exists('mb_convert_case') ? mb_convert_cas
 
 /* ===== Acción: marcar pagados ===== */
 if (($_GET['action'] ?? '') === 'mark_paid' && $_SERVER['REQUEST_METHOD']==='POST'){
-  $nodes = $_POST['nodes'] ?? []; // array de CSVs de ids
+  $nodes = $_POST['nodes'] ?? [];
   if (!is_array($nodes)) $nodes = [];
   $all = [];
   foreach($nodes as $csv){
@@ -109,7 +108,7 @@ while($row=$rsIds->fetch_assoc()){
 $st2->close();
 
 /* Estructuras para la vista */
-$data = [];         // D3: $data[prest_display] = [ {nombre, valor, fecha, interes, total, meses, ids_csv}, ... ]
+$data = [];
 $ganPrest=[]; $capPendPrest=[];
 while($r=$rs->fetch_assoc()){
   $pkey=$r['prest_key']; $pdisp=$r['prest_display'];
@@ -188,21 +187,20 @@ $msg = $_GET['msg'] ?? '';
   .chips{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   .chip{background:#eef2ff;border:1px solid #e5e7eb;border-radius:999px;padding:4px 10px;font-size:12px}
 
-  svg{margin-left:280px}
+  svg{margin-left:280px; display:block}
   .link{fill:none;stroke:#cbd5e1;stroke-width:1.5px}
 
-  /* ===== TARJETAS DE DEUDORES ===== */
+  /* ===== TARJETAS ===== */
   .nodeCard { stroke:#cbd5e1; stroke-width:1.2px; filter: drop-shadow(0 1px 0 rgba(0,0,0,.02)); }
-  .nodeCard.m1 { fill:#FFF8DB; } /* 1 mes - amarillo suave */
-  .nodeCard.m2 { fill:#FFE9D6; } /* 2 meses - naranja suave */
-  .nodeCard.m3 { fill:#FFE1E1; } /* 3+ meses - rojo suave */
-  .nodeCard.m0 { fill:#F3F4F6; } /* 0 meses (futuro) */
+  .nodeCard.m1 { fill:#FFF8DB; }
+  .nodeCard.m2 { fill:#FFE9D6; }
+  .nodeCard.m3 { fill:#FFE1E1; }
+  .nodeCard.m0 { fill:#F3F4F6; }
 
-  .nodeTitle { font-weight:800; fill:#111; font-size:14px }
-  .nodeLine  { fill:#6b7280; font-size:13px }
+  .nodeTitle { font-weight:800; fill:#111; font-size:13px }
+  .nodeLine  { fill:#6b7280; font-size:12px }
   .nodeAmt   { fill:#111; font-weight:800 }
 
-  /* Selector / acciones */
   .selector-wrap{margin-left:280px;padding:0 16px 20px}
   .selector{margin-top:10px;border-top:1px dashed #e5e7eb;padding-top:10px}
   .selhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
@@ -244,9 +242,7 @@ const SELECTORS_HTML = <?php echo json_encode($selectors, JSON_UNESCAPED_UNICODE
 
 /* ===== D3 Setup ===== */
 const svg = d3.select("#chart");
-const width = +svg.attr("width");
-const height = +svg.attr("height");
-const g = svg.append("g").attr("transform", "translate(100,50)");
+const g = svg.append("g").attr("transform", "translate(120,50)");
 
 const chipsHost = document.getElementById("chips");
 const selectorHost = document.getElementById("selector-host");
@@ -289,13 +285,55 @@ function renderSelector(prest){
   if (form) form.style.display = "block";
 }
 
-/* ===== Dibujo del árbol (con tarjetas) ===== */
+/* ===== Helpers: wrap de texto en SVG ===== */
+function wrapText(textSel, width){
+  textSel.each(function(){
+    const text = d3.select(this);
+    const words = text.text().split(/\s+/).filter(Boolean);
+    let line = [];
+    let tspan = text.text(null).append("tspan").attr("x", text.attr("x")).attr("dy", 0);
+    let lineNumber = 0;
+    const lineHeight = 14; // px
+    words.forEach((w,i)=>{
+      line.push(w);
+      tspan.text(line.join(" "));
+      if (tspan.node().getComputedTextLength() > width){
+        line.pop();
+        tspan.text(line.join(" "));
+        line = [w];
+        tspan = text.append("tspan")
+          .attr("x", text.attr("x"))
+          .attr("dy", ++lineNumber * lineHeight)
+          .text(w);
+      }
+    });
+  });
+}
+
+/* ===== Dibujo del árbol (con tarjetas dinámicas) ===== */
 function drawTree(prestamista) {
   g.selectAll("*").remove();
 
   const rows = DATA[prestamista] || [];
+
+  // Parámetros de tarjeta
+  const cardW = 400;           // más ancho
+  const padX  = 12;
+  const padY  = 10;
+  const lineGap = 18;          // altura de línea
+
+  // Alto del SVG según número de nodos (evita corte)
+  const baseH = 180;
+  const svgH = Math.max(500, baseH + rows.length * (/*alto estimado*/ (padY*2 + lineGap*4) + 24));
+  svg.attr("height", svgH);
+
+  // Layout del árbol: separación amplia entre filas y columnas
+  const treeLayout = d3.tree()
+    .nodeSize([ (padY*2 + lineGap*4) + 28 /*alto aprox*/, cardW + 160 ])
+    .separation((a,b)=> (a.parent===b.parent? 1.2 : 1.6));
+
   const root = d3.hierarchy({ name: prestamista, children: rows });
-  const treeLayout = d3.tree().size([height - 120, width - 420]);
+  treeLayout.size([svgH - 140, 1]); // alto gobernado por nodeSize; ancho lo definimos con d.y
   treeLayout(root);
 
   // Enlaces
@@ -303,54 +341,46 @@ function drawTree(prestamista) {
     .data(root.links())
     .join("path")
       .attr("class", "link")
-      .attr("d", d3.linkHorizontal()
-        .x(d => root.y)
-        .y(d => root.x))
-      .attr("stroke-opacity", 0)
-    .transition()
-      .duration(700)
-      .attr("stroke-opacity", 1)
-      .attr("d", d3.linkHorizontal()
-        .x(d => d.y)
-        .y(d => d.x));
-
-  // Parámetros de tarjeta
-  const cardW = 360, cardH = 96, padX = 12;
-  const line1 = 22, line2 = 40, line3 = 58, line4 = 76;
+      .attr("d", d3.linkHorizontal().x(d=>d.y).y(d=>d.x));
 
   // Nodos
   const node = g.selectAll(".node")
     .data(root.descendants())
     .join("g")
       .attr("class", "node")
-      .attr("transform", d => `translate(${root.y},${d.x})`)
-    .transition()
-      .duration(800)
-      .attr("transform", d => `translate(${d.y},${d.x})`)
-    .selection();
+      .attr("transform", d => `translate(${d.y},${d.x})`);
 
   node.each(function(d){
     const sel = d3.select(this);
 
     if (d.depth === 0) {
-      // Prestamista raíz (círculo + texto)
-      sel.append("circle")
-        .attr("r", 8)
-        .attr("fill", "#1976d2")
-        .attr("stroke", "#fff")
-        .attr("stroke-width", 2);
-      sel.append("text")
-        .attr("dy", "0.31em")
-        .attr("x", -14)
-        .attr("text-anchor", "end")
-        .text(d.data.name);
+      sel.append("circle").attr("r", 8).attr("fill", "#1976d2").attr("stroke","#fff").attr("stroke-width",2);
+      sel.append("text").attr("dy","0.31em").attr("x",-14).attr("text-anchor","end").text(d.data.name);
       return;
     }
 
-    // Deudor: tarjeta
+    // Construir líneas de texto (4 líneas máx)
+    const lines = [
+      {cls:"nodeTitle", label:null, value:d.data.nombre},
+      {cls:"nodeLine",  label:"valor prestado: ", value:`$ ${Number(d.data.valor||0).toLocaleString()}`, strong:true},
+      {cls:"nodeLine",  label:"fecha: ", value: d.data.fecha || "", strong:true},
+      {cls:"nodeLine",  label:"interés: ", value:`$ ${Number(d.data.interes||0).toLocaleString()} • total $ ${Number(d.data.total||0).toLocaleString()}`, strong:true},
+    ];
+
+    // Primero medimos cuántas filas reales usará el título con wrap para calcular altura
+    // Estimación: medimos tras dibujar invisible
+    const temp = sel.append("text").attr("class","nodeTitle").attr("x", padX).attr("y", 0).style("opacity",0).text(lines[0].value);
+    wrapText(temp, cardW - padX*2);
+    const titleRows = temp.selectAll("tspan").nodes().length || 1;
+    temp.remove();
+
+    const rowsCount = titleRows + 3; // resto de líneas = 3
+    const cardH = padY*2 + lineGap*rowsCount;
+
     const m = +d.data.meses || 0;
     const mcls = (m >= 3) ? "m3" : (m === 2 ? "m2" : (m === 1 ? "m1" : "m0"));
 
+    // Fondo tarjeta
     sel.append("rect")
       .attr("class", `nodeCard ${mcls}`)
       .attr("x", 0)
@@ -359,40 +389,26 @@ function drawTree(prestamista) {
       .attr("height", cardH)
       .attr("rx", 12).attr("ry", 12);
 
-    sel.append("text")
-      .attr("class", "nodeTitle")
-      .attr("x", padX)
-      .attr("y", -cardH/2 + line1)
-      .text(d.data.nombre);
+    // Dibujar texto
+    let y = -cardH/2 + padY + 12;
+    // Título con wrap
+    const t = sel.append("text").attr("class","nodeTitle").attr("x", padX).attr("y", y).text(lines[0].value);
+    wrapText(t, cardW - padX*2);
+    // Calcular y después del título
+    const titleBox = t.node().getBBox();
+    y = titleBox.y + titleBox.height + 4;
 
-    sel.append("text")
-      .attr("class", "nodeLine")
-      .attr("x", padX)
-      .attr("y", -cardH/2 + line2)
-      .text("valor prestado: ")
-      .append("tspan")
-        .attr("class","nodeAmt")
-        .text(() => `\$ ${Number(d.data.valor||0).toLocaleString()}`);
-
-    sel.append("text")
-      .attr("class", "nodeLine")
-      .attr("x", padX)
-      .attr("y", -cardH/2 + line3)
-      .text("fecha: ")
-      .append("tspan")
-        .attr("class","nodeAmt")
-        .text(d.data.fecha || "");
-
-    const lineInt = sel.append("text")
-      .attr("class", "nodeLine")
-      .attr("x", padX)
-      .attr("y", -cardH/2 + line4)
-      .text("interés: ");
-    lineInt.append("tspan").attr("class","nodeAmt")
-      .text(() => `\$ ${Number(d.data.interes||0).toLocaleString()}`);
-    lineInt.append("tspan").text(" • total ");
-    lineInt.append("tspan").attr("class","nodeAmt")
-      .text(() => `\$ ${Number(d.data.total||0).toLocaleString()}`);
+    // Resto de líneas
+    const meta = [
+      {label:"valor prestado: ", value:`$ ${Number(d.data.valor||0).toLocaleString()}`},
+      {label:"fecha: ", value: d.data.fecha || ""},
+      {label:"interés: ", value:`$ ${Number(d.data.interes||0).toLocaleString()} • total $ ${Number(d.data.total||0).toLocaleString()}`}
+    ];
+    meta.forEach((ln,i)=>{
+      const line = sel.append("text").attr("class","nodeLine").attr("x", padX).attr("y", y + i*lineGap);
+      line.text(ln.label);
+      line.append("tspan").attr("class","nodeAmt").text(ln.value);
+    });
   });
 
   renderChips(prestamista);
