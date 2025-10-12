@@ -122,9 +122,12 @@ body {
 <div class="menu" id="menu">
   <a href="index2.php">Inicio</a>
   <a href="informe.php">informe de viajes</a>
-  <a href="liquidacion.php">liquidación de viajes</a>
+  <a href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=2025-09-29&hasta=2025-10-12&empresa=Hospital">liquidación de viajes</a>
   <a href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/prueba.php?view=graph">
-  Administrar préstamos
+  ver mapa prestamos
+  </a>
+  <a href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/admin_prestamos.php?view=cards">
+  editar info prestamos
   </a>
 
   
