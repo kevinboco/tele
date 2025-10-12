@@ -1,7 +1,8 @@
 <?php
 /*********************************************************
- * prestamos_visual_interactivo.php — Visual D3 con tarjetas
- * v3.3: deudores centrados + Nodo 3 (Resumen) + líneas curvas animadas
+ * prestamos_visual_interactivo.php
+ * v3.4: deudores centrados + Nodo 3 (Resumen) + animaciones
+ *       + Auto-fit vertical (sin scroll)
  *********************************************************/
 include("nav.php");
 
@@ -185,9 +186,10 @@ $msg = $_GET['msg'] ?? '';
   .chips{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   .chip{background:#eef2ff;border:1px solid #e5e7eb;border-radius:999px;padding:4px 10px;font-size:12px}
 
+  /* Más ancho para tener nodo 3 y espacio de curvas */
   svg{margin-left:280px; display:block}
   .link{fill:none;stroke:#cbd5e1;stroke-width:1.5px}
-  .link2{fill:none;stroke:#9ca3af;stroke-width:1.4px;opacity:.9} /* deudor -> resumen */
+  .link2{fill:none;stroke:#9ca3af;stroke-width:1.4px;opacity:.9}
 
   /* ===== TARJETAS ===== */
   .nodeCard { stroke:#cbd5e1; stroke-width:1.2px; filter: drop-shadow(0 1px 0 rgba(0,0,0,.02)); }
@@ -235,8 +237,8 @@ $msg = $_GET['msg'] ?? '';
   <div class="chips" id="chips"></div>
 </div>
 
-<!-- Aumentamos ancho para el nodo 3 -->
-<svg id="chart" width="1500" height="800"></svg>
+<!-- Más ancho base para nodo 3 y curvas -->
+<svg id="chart" width="1600" height="800"></svg>
 <div class="selector-wrap"><div id="selector-host"></div></div>
 
 <script>
@@ -248,13 +250,16 @@ const SELECTORS_HTML = <?php echo json_encode($selectors, JSON_UNESCAPED_UNICODE
 
 /* ===== D3 Setup ===== */
 const svg = d3.select("#chart");
-const g = svg.append("g").attr("transform", "translate(120,50)");
+const rootG = svg.append("g").attr("transform", "translate(120,50)");
+const scene = rootG.append("g").attr("class","scene"); // << grupo que escalamos
 const chipsHost = document.getElementById("chips");
 const selectorHost = document.getElementById("selector-host");
 
 /* ===== Panel prestamistas ===== */
 const prestamistasList = d3.select("#prestamistas-list");
 const prestNombres = Object.keys(DATA);
+let currentPrest = prestNombres[0] || null;
+
 prestNombres.forEach((p,i) => {
   prestamistasList.append("div")
     .attr("class", "prestamista-item" + (i===0 ? " active":""))
@@ -262,6 +267,7 @@ prestNombres.forEach((p,i) => {
     .on("click", function(){
       d3.selectAll(".prestamista-item").classed("active", false);
       d3.select(this).classed("active", true);
+      currentPrest = p;
       drawTree(p);
     });
 });
@@ -315,9 +321,32 @@ function wrapText(textSel, width){
   });
 }
 
+/* ===== Fit-to-viewport (escala vertical automática) ===== */
+function fitToViewport(animated=true){
+  // reset antes de medir
+  scene.attr("transform", "translate(0,0) scale(1)");
+  const svgH = +svg.attr("height");
+  const bbox = scene.node().getBBox();
+  // margen vertical interno
+  const padTop = 10, padBot = 20;
+  const available = svgH - (padTop + padBot);
+  const k = Math.min(1, available / bbox.height); // <=1 para reducir si no cabe
+  const offsetY = Math.max(padTop, (svgH - bbox.height * k) / 2);
+
+  const t = `translate(0,${offsetY}) scale(${k})`;
+  if (animated){
+    scene.transition()
+      .duration(500)
+      .ease(d3.easeCubicOut)
+      .attr("transform", t);
+  } else {
+    scene.attr("transform", t);
+  }
+}
+
 /* ===== Dibujo del árbol con Nodo 3 ===== */
 function drawTree(prestamista) {
-  g.selectAll("*").remove();
+  scene.selectAll("*").remove();
 
   const rows = DATA[prestamista] || [];
 
@@ -327,11 +356,9 @@ function drawTree(prestamista) {
   const padY  = 10;
   const lineGap = 18;
 
-  // Alto del SVG según cantidad de tarjetas
+  // Alto base del SVG (puedes variarlo sin romper el fit)
   const approxCardH = padY*2 + lineGap*4 + 6;
-  const svgH = Math.max(540, 180 + rows.length * (approxCardH + 28));
-  svg.attr("height", svgH);
-
+  const svgH = +svg.attr("height");
   // Layout base (luego recentramos manualmente los hijos)
   const treeLayout = d3.tree()
     .nodeSize([ approxCardH + 30, cardW + 240 ])
@@ -343,20 +370,21 @@ function drawTree(prestamista) {
 
   // === Recentrar deudores al centro visible ===
   const svgW = +svg.attr("width");
-  const leftMargin = 120;              // translate del <g>
+  const leftMargin = 120;              // translate de rootG
   const usableW = svgW - leftMargin - 40;
   const centerX = Math.max(cardW/2 + 40, (usableW - cardW) / 2);
   root.each(d => { if (d.depth === 0) d.y = 0; if (d.depth === 1) d.y = centerX; });
 
   // ===== Enlaces raíz -> deudores con animación de trazo =====
   const linkPath = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
-  const links = g.selectAll(".link")
+  const links = scene.selectAll(".link")
     .data(root.links())
     .join("path")
       .attr("class", "link")
       .attr("d", linkPath)
       .attr("stroke-dasharray", function(){ return this.getTotalLength(); })
       .attr("stroke-dashoffset", function(){ return this.getTotalLength(); });
+
   links.transition()
       .delay((d,i)=> 120 + i*30)
       .duration(700)
@@ -364,7 +392,7 @@ function drawTree(prestamista) {
       .attr("stroke-dashoffset", 0);
 
   // ===== Nodos (slide-in) =====
-  const nodes = g.selectAll(".node")
+  const nodes = scene.selectAll(".node")
     .data(root.descendants())
     .join("g")
       .attr("class", "node")
@@ -444,16 +472,14 @@ function drawTree(prestamista) {
   const totalInteres = Number(<?php echo json_encode($ganPrest); ?>[prestamista] || 0);
   const totalCapital = Number(<?php echo json_encode($capPendPrest); ?>[prestamista] || 0);
 
-  // Calcular posición del nodo 3
   const deudores = root.descendants().filter(d=>d.depth===1);
-  const midY = d3.mean(deudores, d=>d.x) || 0; // centro vertical de las tarjetas
-  const summaryX = centerX + cardW + 280;      // a la derecha de las tarjetas
+  const midY = d3.mean(deudores, d=>d.x) || 0;
+  const summaryX = centerX + cardW + 320;      // a la derecha de las tarjetas
 
-  // Tarjeta Resumen
   const sumW = 340, sumH = 130, sumPadX = 14, sumLine = 24;
-  const summaryG = g.append("g")
+  const summaryG = scene.append("g")
     .attr("class","summary")
-    .attr("transform", `translate(${summaryX - 220},${midY})`) // entra desde la izquierda
+    .attr("transform", `translate(${summaryX - 220},${midY})`)
     .style("opacity", 0);
 
   summaryG.transition()
@@ -483,13 +509,11 @@ function drawTree(prestamista) {
 
   // Líneas Deudores -> Resumen
   const link2 = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
-  const linkData = deudores.map(d => ({
-    source: { x: d.x, y: d.y + cardW },   // borde derecho de la tarjeta
-    target: { x: midY, y: summaryX }      // centro del resumen
-  }));
-
-  const links2 = g.selectAll(".link2")
-    .data(linkData)
+  const links2 = scene.selectAll(".link2")
+    .data(deudores.map(d => ({
+      source: { x: d.x, y: d.y + cardW },
+      target: { x: midY, y: summaryX }
+    })))
     .join("path")
       .attr("class","link2")
       .attr("d", link2)
@@ -504,10 +528,19 @@ function drawTree(prestamista) {
 
   renderChips(prestamista);
   renderSelector(prestamista);
+
+  // === Ajuste a viewport (sin scroll) ===
+  fitToViewport(true);
 }
 
+/* Redibujar en resize para mantener el fit */
+window.addEventListener('resize', () => {
+  // opcional: mantener mismo alto; si quieres, podrías adaptar svg.height aquí
+  if (currentPrest) drawTree(currentPrest);
+});
+
 /* Inicio: selecciona el primero */
-if (prestNombres.length){ drawTree(prestNombres[0]); }
+if (currentPrest){ drawTree(currentPrest); }
 </script>
 </body>
 </html>
