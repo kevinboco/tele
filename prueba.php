@@ -1,7 +1,7 @@
 <?php
 /*********************************************************
  * prestamos_visual_interactivo.php — Visual D3 con tarjetas
- * v3.2: deudores centrados + enlaces curvos visibles
+ * v3.3: deudores centrados + Nodo 3 (Resumen) + líneas curvas animadas
  *********************************************************/
 include("nav.php");
 
@@ -187,6 +187,7 @@ $msg = $_GET['msg'] ?? '';
 
   svg{margin-left:280px; display:block}
   .link{fill:none;stroke:#cbd5e1;stroke-width:1.5px}
+  .link2{fill:none;stroke:#9ca3af;stroke-width:1.4px;opacity:.9} /* deudor -> resumen */
 
   /* ===== TARJETAS ===== */
   .nodeCard { stroke:#cbd5e1; stroke-width:1.2px; filter: drop-shadow(0 1px 0 rgba(0,0,0,.02)); }
@@ -198,6 +199,12 @@ $msg = $_GET['msg'] ?? '';
   .nodeTitle { font-weight:800; fill:#111; font-size:13px }
   .nodeLine  { fill:#6b7280; font-size:12px }
   .nodeAmt   { fill:#111; font-weight:800 }
+
+  /* Resumen (Nodo 3) */
+  .summaryCard { fill:#EAF5FF; stroke:#cfe8ff; stroke-width:1.2px; }
+  .summaryTitle { font-weight:800; fill:#0b5ed7; font-size:14px }
+  .summaryLine  { fill:#374151; font-size:13px }
+  .summaryAmt   { fill:#0b5ed7; font-weight:800 }
 
   .selector-wrap{margin-left:280px;padding:0 16px 20px}
   .selector{margin-top:10px;border-top:1px dashed #e5e7eb;padding-top:10px}
@@ -228,7 +235,8 @@ $msg = $_GET['msg'] ?? '';
   <div class="chips" id="chips"></div>
 </div>
 
-<svg id="chart" width="1300" height="800"></svg>
+<!-- Aumentamos ancho para el nodo 3 -->
+<svg id="chart" width="1500" height="800"></svg>
 <div class="selector-wrap"><div id="selector-host"></div></div>
 
 <script>
@@ -307,7 +315,7 @@ function wrapText(textSel, width){
   });
 }
 
-/* ===== Dibujo del árbol (deudores centrados) ===== */
+/* ===== Dibujo del árbol con Nodo 3 ===== */
 function drawTree(prestamista) {
   g.selectAll("*").remove();
 
@@ -321,10 +329,10 @@ function drawTree(prestamista) {
 
   // Alto del SVG según cantidad de tarjetas
   const approxCardH = padY*2 + lineGap*4 + 6;
-  const svgH = Math.max(500, 160 + rows.length * (approxCardH + 26));
+  const svgH = Math.max(540, 180 + rows.length * (approxCardH + 28));
   svg.attr("height", svgH);
 
-  // Layout base (luego recentramos manualmente)
+  // Layout base (luego recentramos manualmente los hijos)
   const treeLayout = d3.tree()
     .nodeSize([ approxCardH + 30, cardW + 240 ])
     .separation((a,b)=> (a.parent===b.parent? 1.3 : 1.6));
@@ -333,17 +341,14 @@ function drawTree(prestamista) {
   treeLayout.size([svgH - 140, 1]);
   treeLayout(root);
 
-  // === Recentrar hijos en el medio del viewport ===
+  // === Recentrar deudores al centro visible ===
   const svgW = +svg.attr("width");
-  const leftMargin = 120; // por el translate del <g>
-  const usableW = svgW - leftMargin - 40; // margen derecho suave
-  const centerX = Math.max(cardW/2 + 40, (usableW - cardW) / 2); // posición y de los hijos
-  root.each(d => {
-    if (d.depth === 0) d.y = 0;            // raíz
-    if (d.depth === 1) d.y = centerX;      // todos los deudores al centro
-  });
+  const leftMargin = 120;              // translate del <g>
+  const usableW = svgW - leftMargin - 40;
+  const centerX = Math.max(cardW/2 + 40, (usableW - cardW) / 2);
+  root.each(d => { if (d.depth === 0) d.y = 0; if (d.depth === 1) d.y = centerX; });
 
-  // ===== Enlaces con animación de trazo =====
+  // ===== Enlaces raíz -> deudores con animación de trazo =====
   const linkPath = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
   const links = g.selectAll(".link")
     .data(root.links())
@@ -352,7 +357,6 @@ function drawTree(prestamista) {
       .attr("d", linkPath)
       .attr("stroke-dasharray", function(){ return this.getTotalLength(); })
       .attr("stroke-dashoffset", function(){ return this.getTotalLength(); });
-
   links.transition()
       .delay((d,i)=> 120 + i*30)
       .duration(700)
@@ -364,7 +368,7 @@ function drawTree(prestamista) {
     .data(root.descendants())
     .join("g")
       .attr("class", "node")
-      .attr("transform", d => `translate(${d.y - 180},${d.x})`) // entra desde más a la izquierda
+      .attr("transform", d => `translate(${d.y - 180},${d.x})`)
       .style("opacity", 0);
 
   nodes.transition()
@@ -374,7 +378,7 @@ function drawTree(prestamista) {
       .attr("transform", d => `translate(${d.y},${d.x})`)
       .style("opacity", 1);
 
-  // Contenido de cada nodo
+  // ----- Contenido de los nodos -----
   nodes.each(function(d){
     const sel = d3.select(this);
 
@@ -411,7 +415,7 @@ function drawTree(prestamista) {
         .ease(d3.easeCubicOut)
         .attr("transform", "scale(1)");
 
-    // Título envuelto
+    // Título
     let y = -cardH/2 + padY + 12;
     const t = sel.append("text").attr("class","nodeTitle").attr("x", padX).attr("y", y).text(d.data.nombre);
     wrapText(t, cardW - padX*2);
@@ -435,6 +439,68 @@ function drawTree(prestamista) {
         .style("opacity", 1);
     });
   });
+
+  // ====== NODO 3 (RESUMEN) ======
+  const totalInteres = Number(<?php echo json_encode($ganPrest); ?>[prestamista] || 0);
+  const totalCapital = Number(<?php echo json_encode($capPendPrest); ?>[prestamista] || 0);
+
+  // Calcular posición del nodo 3
+  const deudores = root.descendants().filter(d=>d.depth===1);
+  const midY = d3.mean(deudores, d=>d.x) || 0; // centro vertical de las tarjetas
+  const summaryX = centerX + cardW + 280;      // a la derecha de las tarjetas
+
+  // Tarjeta Resumen
+  const sumW = 340, sumH = 130, sumPadX = 14, sumLine = 24;
+  const summaryG = g.append("g")
+    .attr("class","summary")
+    .attr("transform", `translate(${summaryX - 220},${midY})`) // entra desde la izquierda
+    .style("opacity", 0);
+
+  summaryG.transition()
+    .delay(220)
+    .duration(600)
+    .ease(d3.easeCubicOut)
+    .attr("transform", `translate(${summaryX},${midY})`)
+    .style("opacity", 1);
+
+  summaryG.append("rect")
+    .attr("class","summaryCard")
+    .attr("x", 0).attr("y", -sumH/2)
+    .attr("width", sumW).attr("height", sumH)
+    .attr("rx", 14).attr("ry", 14);
+
+  summaryG.append("text")
+    .attr("class","summaryTitle")
+    .attr("x", sumPadX).attr("y", -sumH/2 + sumLine)
+    .text("Resumen del prestamista");
+
+  let sy = -sumH/2 + sumLine + 20;
+  const s1 = summaryG.append("text").attr("class","summaryLine").attr("x", sumPadX).attr("y", sy).text("Ganancia (interés): ");
+  s1.append("tspan").attr("class","summaryAmt").text(`$ ${totalInteres.toLocaleString()}`);
+  sy += 22;
+  const s2 = summaryG.append("text").attr("class","summaryLine").attr("x", sumPadX).attr("y", sy).text("Total prestado (pend.): ");
+  s2.append("tspan").attr("class","summaryAmt").text(`$ ${totalCapital.toLocaleString()}`);
+
+  // Líneas Deudores -> Resumen
+  const link2 = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
+  const linkData = deudores.map(d => ({
+    source: { x: d.x, y: d.y + cardW },   // borde derecho de la tarjeta
+    target: { x: midY, y: summaryX }      // centro del resumen
+  }));
+
+  const links2 = g.selectAll(".link2")
+    .data(linkData)
+    .join("path")
+      .attr("class","link2")
+      .attr("d", link2)
+      .attr("stroke-dasharray", function(){ return this.getTotalLength(); })
+      .attr("stroke-dashoffset", function(){ return this.getTotalLength(); });
+
+  links2.transition()
+      .delay((d,i)=> 200 + i*25)
+      .duration(650)
+      .ease(d3.easeCubicOut)
+      .attr("stroke-dashoffset", 0);
 
   renderChips(prestamista);
   renderSelector(prestamista);
