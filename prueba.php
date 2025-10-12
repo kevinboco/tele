@@ -1,10 +1,9 @@
 <?php
 /*********************************************************
- * prestamos_visual_interactivo.php — Visual D3 con tarjetas (v3 animado)
+ * prestamos_visual_interactivo.php — Visual D3 con tarjetas (v3.1 animado + separación)
  * - Tarjetas de altura dinámica + wrap de texto
- * - Animaciones de entrada (slide-in), stagger y enlaces dibujados
- * - Más separación vertical entre nodos
- * - SVG ajusta su alto al número de tarjetas
+ * - Animaciones: slide-in + stagger + enlaces “dibujados”
+ * - Mayor separación del nodo raíz para apreciar la animación
  *********************************************************/
 include("nav.php");
 
@@ -327,10 +326,10 @@ function drawTree(prestamista) {
   const svgH = Math.max(500, 160 + rows.length * (approxCardH + 26));
   svg.attr("height", svgH);
 
-  // Layout
+  // Layout — MÁS SEPARACIÓN HORIZONTAL DEL NODO RAÍZ
   const treeLayout = d3.tree()
-    .nodeSize([ approxCardH + 30, cardW + 160 ])
-    .separation((a,b)=> (a.parent===b.parent? 1.15 : 1.4));
+    .nodeSize([ approxCardH + 30, cardW + 240 ]) // ← antes: cardW + 160
+    .separation((a,b)=> (a.parent===b.parent? 1.3 : 1.6));
 
   const root = d3.hierarchy({ name: prestamista, children: rows });
   treeLayout.size([svgH - 140, 1]); // altura controlada por nodeSize
@@ -357,8 +356,8 @@ function drawTree(prestamista) {
     .data(root.descendants())
     .join("g")
       .attr("class", "node")
-      .attr("transform", d => `translate(${d.y - 60},${d.x})`)  // start 60px a la izquierda
-      .style("opacity", d => d.depth===0 ? 0 : 0);              // fade-in luego
+      .attr("transform", d => `translate(${d.y - 160},${d.x})`) // ← entra desde más a la izquierda (antes -60)
+      .style("opacity", 0);
 
   nodes.transition()
       .delay((d,i)=> d.depth===0 ? 0 : 150 + i*40)
