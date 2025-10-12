@@ -232,7 +232,8 @@ $msg = $_GET['msg'] ?? '';
   <div class="chips" id="chips"></div>
 </div>
 
-<svg id="chart" width="1300" height="800"></svg>
+<!-- Más ancho para que nada se desborde a la derecha -->
+<svg id="chart" width="1600" height="900"></svg>
 <div class="selector-wrap"><div id="selector-host"></div></div>
 
 <script>
@@ -246,7 +247,7 @@ const SELECTORS_HTML = <?php echo json_encode($selectors, JSON_UNESCAPED_UNICODE
 const svg = d3.select("#chart");
 const width = +svg.attr("width");
 const height = +svg.attr("height");
-const g = svg.append("g").attr("transform", "translate(100,50)");
+const g = svg.append("g").attr("transform", "translate(100,70)");
 
 const chipsHost = document.getElementById("chips");
 const selectorHost = document.getElementById("selector-host");
@@ -289,13 +290,33 @@ function renderSelector(prest){
   if (form) form.style.display = "block";
 }
 
+/* ==== Utilidad: truncar nombre para evitar desborde ==== */
+function trunc(str, max=36){
+  str = String(str ?? "");
+  return (str.length > max) ? (str.slice(0,max-1) + "…") : str;
+}
+
 /* ===== Dibujo del árbol (con tarjetas) ===== */
 function drawTree(prestamista) {
   g.selectAll("*").remove();
 
   const rows = DATA[prestamista] || [];
   const root = d3.hierarchy({ name: prestamista, children: rows });
-  const treeLayout = d3.tree().size([height - 120, width - 420]);
+
+  // === PARÁMETROS DE TARJETA Y ESPACIADOS ===
+  const cardW = 440;     // más ancho para ver toda la info
+  const cardH = 104;     // un poco más alto
+  const padX  = 14;
+  const GAP_X = 160;     // espacio extra horizontal entre tarjetas
+  const GAP_Y = 28;      // espacio extra vertical entre tarjetas
+
+  // Líneas internas
+  const line1 = 24, line2 = 44, line3 = 64, line4 = 84;
+
+  // Usar nodeSize para controlar spacing y separation para afinar
+  const treeLayout = d3.tree()
+    .nodeSize([cardH + GAP_Y, cardW + GAP_X])
+    .separation((a,b) => (a.parent === b.parent ? 1.2 : 1.6));
   treeLayout(root);
 
   // Enlaces
@@ -303,20 +324,12 @@ function drawTree(prestamista) {
     .data(root.links())
     .join("path")
       .attr("class", "link")
-      .attr("d", d3.linkHorizontal()
-        .x(d => root.y)
-        .y(d => root.x))
+      .attr("d", d3.linkHorizontal().x(d => root.y).y(d => root.x))
       .attr("stroke-opacity", 0)
     .transition()
       .duration(700)
       .attr("stroke-opacity", 1)
-      .attr("d", d3.linkHorizontal()
-        .x(d => d.y)
-        .y(d => d.x));
-
-  // Parámetros de tarjeta
-  const cardW = 360, cardH = 96, padX = 12;
-  const line1 = 22, line2 = 40, line3 = 58, line4 = 76;
+      .attr("d", d3.linkHorizontal().x(d => d.y).y(d => d.x));
 
   // Nodos
   const node = g.selectAll(".node")
@@ -363,7 +376,7 @@ function drawTree(prestamista) {
       .attr("class", "nodeTitle")
       .attr("x", padX)
       .attr("y", -cardH/2 + line1)
-      .text(d.data.nombre);
+      .text(trunc(d.data.nombre));
 
     sel.append("text")
       .attr("class", "nodeLine")
