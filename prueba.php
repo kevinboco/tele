@@ -1,8 +1,9 @@
 <?php
 /*********************************************************
- * prestamos_visual_interactivo.php — Visual D3 con tarjetas (v2)
- * - Tarjetas con altura dinámica + wrap de texto
- * - Más separación vertical entre nodos (sin solaparse)
+ * prestamos_visual_interactivo.php — Visual D3 con tarjetas (v3 animado)
+ * - Tarjetas de altura dinámica + wrap de texto
+ * - Animaciones de entrada (slide-in), stagger y enlaces dibujados
+ * - Más separación vertical entre nodos
  * - SVG ajusta su alto al número de tarjetas
  *********************************************************/
 include("nav.php");
@@ -243,7 +244,6 @@ const SELECTORS_HTML = <?php echo json_encode($selectors, JSON_UNESCAPED_UNICODE
 /* ===== D3 Setup ===== */
 const svg = d3.select("#chart");
 const g = svg.append("g").attr("transform", "translate(120,50)");
-
 const chipsHost = document.getElementById("chips");
 const selectorHost = document.getElementById("selector-host");
 
@@ -285,7 +285,7 @@ function renderSelector(prest){
   if (form) form.style.display = "block";
 }
 
-/* ===== Helpers: wrap de texto en SVG ===== */
+/* ===== Helper: wrap de texto en SVG ===== */
 function wrapText(textSel, width){
   textSel.each(function(){
     const text = d3.select(this);
@@ -293,8 +293,8 @@ function wrapText(textSel, width){
     let line = [];
     let tspan = text.text(null).append("tspan").attr("x", text.attr("x")).attr("dy", 0);
     let lineNumber = 0;
-    const lineHeight = 14; // px
-    words.forEach((w,i)=>{
+    const lineHeight = 14;
+    words.forEach((w)=>{
       line.push(w);
       tspan.text(line.join(" "));
       if (tspan.node().getComputedTextLength() > width){
@@ -310,47 +310,65 @@ function wrapText(textSel, width){
   });
 }
 
-/* ===== Dibujo del árbol (con tarjetas dinámicas) ===== */
+/* ===== Dibujo del árbol (dinámico + animaciones) ===== */
 function drawTree(prestamista) {
   g.selectAll("*").remove();
 
   const rows = DATA[prestamista] || [];
 
   // Parámetros de tarjeta
-  const cardW = 400;           // más ancho
+  const cardW = 400;
   const padX  = 12;
   const padY  = 10;
-  const lineGap = 18;          // altura de línea
+  const lineGap = 18;
 
-  // Alto del SVG según número de nodos (evita corte)
-  const baseH = 180;
-  const svgH = Math.max(500, baseH + rows.length * (/*alto estimado*/ (padY*2 + lineGap*4) + 24));
+  // Alto del SVG según cantidad de tarjetas
+  const approxCardH = padY*2 + lineGap*4 + 6;
+  const svgH = Math.max(500, 160 + rows.length * (approxCardH + 26));
   svg.attr("height", svgH);
 
-  // Layout del árbol: separación amplia entre filas y columnas
+  // Layout
   const treeLayout = d3.tree()
-    .nodeSize([ (padY*2 + lineGap*4) + 28 /*alto aprox*/, cardW + 160 ])
-    .separation((a,b)=> (a.parent===b.parent? 1.2 : 1.6));
+    .nodeSize([ approxCardH + 30, cardW + 160 ])
+    .separation((a,b)=> (a.parent===b.parent? 1.15 : 1.4));
 
   const root = d3.hierarchy({ name: prestamista, children: rows });
-  treeLayout.size([svgH - 140, 1]); // alto gobernado por nodeSize; ancho lo definimos con d.y
+  treeLayout.size([svgH - 140, 1]); // altura controlada por nodeSize
   treeLayout(root);
 
-  // Enlaces
-  g.selectAll(".link")
+  // ===== Enlaces con animación de trazo =====
+  const linkPath = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
+  const links = g.selectAll(".link")
     .data(root.links())
     .join("path")
       .attr("class", "link")
-      .attr("d", d3.linkHorizontal().x(d=>d.y).y(d=>d.x));
+      .attr("d", linkPath)
+      .attr("stroke-dasharray", function(){ return this.getTotalLength(); })
+      .attr("stroke-dashoffset", function(){ return this.getTotalLength(); });
 
-  // Nodos
-  const node = g.selectAll(".node")
+  links.transition()
+      .delay((d,i)=> 120 + i*30)
+      .duration(700)
+      .ease(d3.easeCubicOut)
+      .attr("stroke-dashoffset", 0);
+
+  // ===== Nodos (tarjetas) con slide-in y stagger =====
+  const nodes = g.selectAll(".node")
     .data(root.descendants())
     .join("g")
       .attr("class", "node")
-      .attr("transform", d => `translate(${d.y},${d.x})`);
+      .attr("transform", d => `translate(${d.y - 60},${d.x})`)  // start 60px a la izquierda
+      .style("opacity", d => d.depth===0 ? 0 : 0);              // fade-in luego
 
-  node.each(function(d){
+  nodes.transition()
+      .delay((d,i)=> d.depth===0 ? 0 : 150 + i*40)
+      .duration(600)
+      .ease(d3.easeCubicOut)
+      .attr("transform", d => `translate(${d.y},${d.x})`)
+      .style("opacity", 1);
+
+  // Contenido de cada nodo
+  nodes.each(function(d){
     const sel = d3.select(this);
 
     if (d.depth === 0) {
@@ -359,42 +377,37 @@ function drawTree(prestamista) {
       return;
     }
 
-    // Construir líneas de texto (4 líneas máx)
-    const lines = [
-      {cls:"nodeTitle", label:null, value:d.data.nombre},
-      {cls:"nodeLine",  label:"valor prestado: ", value:`$ ${Number(d.data.valor||0).toLocaleString()}`, strong:true},
-      {cls:"nodeLine",  label:"fecha: ", value: d.data.fecha || "", strong:true},
-      {cls:"nodeLine",  label:"interés: ", value:`$ ${Number(d.data.interes||0).toLocaleString()} • total $ ${Number(d.data.total||0).toLocaleString()}`, strong:true},
-    ];
-
-    // Primero medimos cuántas filas reales usará el título con wrap para calcular altura
-    // Estimación: medimos tras dibujar invisible
-    const temp = sel.append("text").attr("class","nodeTitle").attr("x", padX).attr("y", 0).style("opacity",0).text(lines[0].value);
+    // Medición previa del título envuelto para altura dinámica
+    const temp = sel.append("text").attr("class","nodeTitle").attr("x", padX).attr("y", 0).style("opacity",0).text(d.data.nombre);
     wrapText(temp, cardW - padX*2);
     const titleRows = temp.selectAll("tspan").nodes().length || 1;
     temp.remove();
 
-    const rowsCount = titleRows + 3; // resto de líneas = 3
+    const rowsCount = titleRows + 3; // título + 3 líneas meta
     const cardH = padY*2 + lineGap*rowsCount;
 
     const m = +d.data.meses || 0;
     const mcls = (m >= 3) ? "m3" : (m === 2 ? "m2" : (m === 1 ? "m1" : "m0"));
 
-    // Fondo tarjeta
+    // Fondo tarjeta (aparece escalando suavemente)
     sel.append("rect")
       .attr("class", `nodeCard ${mcls}`)
       .attr("x", 0)
       .attr("y", -cardH/2)
       .attr("width", cardW)
       .attr("height", cardH)
-      .attr("rx", 12).attr("ry", 12);
+      .attr("rx", 12).attr("ry", 12)
+      .attr("transform", "scale(0.98)")
+      .transition()
+        .delay(250)
+        .duration(400)
+        .ease(d3.easeCubicOut)
+        .attr("transform", "scale(1)");
 
-    // Dibujar texto
+    // Título envuelto
     let y = -cardH/2 + padY + 12;
-    // Título con wrap
-    const t = sel.append("text").attr("class","nodeTitle").attr("x", padX).attr("y", y).text(lines[0].value);
+    const t = sel.append("text").attr("class","nodeTitle").attr("x", padX).attr("y", y).text(d.data.nombre);
     wrapText(t, cardW - padX*2);
-    // Calcular y después del título
     const titleBox = t.node().getBBox();
     y = titleBox.y + titleBox.height + 4;
 
@@ -405,9 +418,14 @@ function drawTree(prestamista) {
       {label:"interés: ", value:`$ ${Number(d.data.interes||0).toLocaleString()} • total $ ${Number(d.data.total||0).toLocaleString()}`}
     ];
     meta.forEach((ln,i)=>{
-      const line = sel.append("text").attr("class","nodeLine").attr("x", padX).attr("y", y + i*lineGap);
-      line.text(ln.label);
+      const line = sel.append("text").attr("class","nodeLine").attr("x", padX).attr("y", y + i*lineGap)
+        .style("opacity", 0)
+        .text(ln.label);
       line.append("tspan").attr("class","nodeAmt").text(ln.value);
+      line.transition()
+        .delay(220 + i*90)
+        .duration(400)
+        .style("opacity", 1);
     });
   });
 
