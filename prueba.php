@@ -330,7 +330,7 @@ function drawTree(prestamista) {
   g.selectAll("*").remove();
 
   const rows = DATA[prestamista] || [];
-  const cardW = 460;          // un poco más ancho para que quepa la línea única
+  const cardW = 480;          // un poco más ancho para que quepa la línea única
   const padX  = 12;
   const padY  = 10;
   const lineGap = 18;
