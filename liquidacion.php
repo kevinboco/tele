@@ -14,16 +14,9 @@ if (isset($_POST['guardar_tarifa'])) {
     $campo = $conn->real_escape_string($_POST['campo']);
     $valor = (int)$_POST['valor'];
 
-    // Crear registro si no existe
     $conn->query("INSERT IGNORE INTO tarifas (empresa, tipo_vehiculo) VALUES ('$empresa', '$vehiculo')");
-
-    // Actualizar el valor específico
     $sql = "UPDATE tarifas SET $campo = $valor WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'";
-    if ($conn->query($sql)) {
-        echo "ok";
-    } else {
-        echo "error: " . $conn->error;
-    }
+    echo $conn->query($sql) ? "ok" : "error: " . $conn->error;
     exit;
 }
 
@@ -48,7 +41,7 @@ if (isset($_GET['viajes_conductor'])) {
 
     $res = $conn->query($sql);
     if ($res && $res->num_rows > 0) {
-        echo "<table class='table table-bordered table-striped mb-0'>
+        echo "<table class='table table-bordered table-striped mb-0 animate__animated animate__fadeIn'>
                 <thead>
                   <tr class='table-primary text-center'>
                     <th>Fecha</th>
@@ -152,12 +145,10 @@ if ($res) {
     }
 }
 
-/* Empresas para el SELECT del header */
 $empresas = [];
 $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
 if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
 
-/* Tarifa guardada en la BD */
 $tarifas_guardadas = [];
 $resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa='$empresaFiltro'");
 if ($resTarifas) {
@@ -178,27 +169,24 @@ if ($resTarifas) {
   .page-title{background:#fff;border-radius:var(--box-radius);padding:12px 16px;margin-bottom:var(--gap);box-shadow:0 2px 8px rgba(0,0,0,.05)}
   .header-grid{display:grid;grid-template-columns: auto 1fr auto;align-items:center;gap:12px;}
   .header-center{ text-align:center; }
-  .header-center h2{ margin:4px 0 2px 0; }
-  .header-sub{ font-size:14px; color:#555; }
   .layout{ display:grid; grid-template-columns: 1fr 2fr 1.2fr; gap:var(--gap); align-items:start; }
   @media (max-width:1200px){ .layout{grid-template-columns:1fr;} }
-  .box{ border-radius:var(--box-radius); box-shadow:0 2px 10px rgba(0,0,0,.06); padding:14px; }
+  .box{ border-radius:var(--box-radius); box-shadow:0 2px 10px rgba(0,0,0,.06); padding:14px; background:#fff; }
   table{ background:#fff; border-radius:10px; overflow:hidden }
   th{ background:#0d6efd; color:#fff; text-align:center; padding:10px }
   td{ text-align:center; padding:8px; border-bottom:1px solid #eee }
   input[type=number], input[readonly]{ width:100%; max-width:160px; padding:6px; border:1px solid #ced4da; border-radius:8px; text-align:right }
   .conductor-link{cursor:pointer;color:#0d6efd;text-decoration:underline;}
+  #contenidoPanel { 
+    opacity:1; 
+    transform:translateY(0); 
+    transition:opacity 0.4s ease, transform 0.4s ease; 
+  }
   .total-chip{
     display:inline-block; padding:6px 12px; border-radius:999px;
     background:#e9f2ff; color:#0d6efd; font-weight:700; border:1px solid #d6e6ff;
     margin-bottom:8px; float:right;
   }
-  #contenidoPanel {
-  opacity: 1;
-  transform: translateY(0);
-  transition: opacity 0.4s ease, transform 0.4s ease;
-  }
-
 </style>
 </head>
 <body>
@@ -331,14 +319,24 @@ function recalcular(){
     const ca = parseInt(f.cells[5].innerText)||0;
     const t = tarifas[veh] || {completo:0,medio:0,extra:0,carrotanque:0};
     const totalFila = c*t.completo + m*t.medio + e*t.extra + ca*t.carrotanque;
-    // actualizar total por conductor (en la fila)
     const inputTotal = f.querySelector('input.totales');
     if (inputTotal) inputTotal.value = formatNumber(totalFila);
     totalGeneral += totalFila;
   });
-  // actualizar total general (chip)
   const totalChip = document.getElementById('total_general');
   if (totalChip) totalChip.innerText = formatNumber(totalGeneral);
+}
+
+// 🔹 Nueva función para animar el panel derecho
+function animarPanel() {
+  const panel = document.getElementById("contenidoPanel");
+  panel.style.opacity = "0";
+  panel.style.transform = "translateY(10px)";
+  panel.style.transition = "opacity 0.4s ease, transform 0.4s ease";
+  setTimeout(() => {
+    panel.style.opacity = "1";
+    panel.style.transform = "translateY(0)";
+  }, 50);
 }
 
 document.querySelectorAll('#tabla_tarifas input').forEach(input=>{
@@ -348,7 +346,6 @@ document.querySelectorAll('#tabla_tarifas input').forEach(input=>{
     const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
     const campoIndex = Array.from(fila.cells).findIndex(c=>c.contains(input));
     const campos = ['completo','medio','extra','carrotanque'];
-    // campoIndex 1 -> completo, 2 -> medio, 3 -> extra, 4 -> carrotanque
     const campo = campos[campoIndex-1] || campos[campoIndex] || 'completo';
     const valor = parseInt(input.value)||0;
 
@@ -369,47 +366,11 @@ document.querySelectorAll('#tabla_tarifas input').forEach(input=>{
   });
 });
 
+// 🔹 Agregar animación cuando se cambia de conductor
 document.querySelectorAll('.conductor-link').forEach(td=>{
   td.addEventListener('click',()=>{
     const nombre=td.innerText.trim();
     const desde="<?= htmlspecialchars($desde) ?>";
     const hasta="<?= htmlspecialchars($hasta) ?>";
     const empresa="<?= htmlspecialchars($empresaFiltro) ?>";
-    document.getElementById('contenidoPanel').innerHTML="<p class='text-center'>Cargando...</p>";
-    fetch(`<?= basename(__FILE__) ?>?viajes_conductor=${encodeURIComponent(nombre)}&desde=${desde}&hasta=${hasta}&empresa=${encodeURIComponent(empresa)}`)
-    .then(r=>r.text()).then(html=>{document.getElementById('contenidoPanel').innerHTML=html;});
-  });
-});
-
-recalcular();
-function animarPanel() {
-  const panel = document.getElementById("contenidoPanel");
-  panel.style.opacity = "0";
-  panel.style.transform = "translateY(10px)";
-  panel.style.transition = "opacity 0.4s ease, transform 0.4s ease";
-  setTimeout(() => {
-    panel.style.opacity = "1";
-    panel.style.transform = "translateY(0)";
-  }, 50);
-}
-
-document.querySelectorAll('.conductor-link').forEach(td=>{
-  td.addEventListener('click',()=>{
-    const nombre = td.innerText.trim();
-    const desde = "<?= htmlspecialchars($desde) ?>";
-    const hasta = "<?= htmlspecialchars($hasta) ?>";
-    const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
-    const panel = document.getElementById('contenidoPanel');
-    panel.innerHTML = "<p class='text-center'>Cargando...</p>";
-    fetch(`<?= basename(__FILE__) ?>?viajes_conductor=${encodeURIComponent(nombre)}&desde=${desde}&hasta=${hasta}&empresa=${encodeURIComponent(empresa)}`)
-    .then(r=>r.text())
-    .then(html=>{
-      panel.innerHTML = html;
-      animarPanel(); // 🔹 Llamar animación de entrada
-    });
-  });
-});
-
-</script>
-</body>
-</html>
+    const panel=document.getElementById('contenidoPanel');
