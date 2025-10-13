@@ -20,7 +20,13 @@
 }
 
 * { box-sizing: border-box; }
-
+html,body{ height:100%; }
+body{
+  margin:0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  background: linear-gradient(135deg,#0a0f14 0%, #0d1220 60%, #0b0f14 100%);
+  color: var(--text);
+}
 
 /* ===== Botón flotante ===== */
 .menu-toggle{
