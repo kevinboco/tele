@@ -193,6 +193,12 @@ if ($resTarifas) {
     background:#e9f2ff; color:#0d6efd; font-weight:700; border:1px solid #d6e6ff;
     margin-bottom:8px; float:right;
   }
+  #contenidoPanel {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.4s ease, transform 0.4s ease;
+  }
+
 </style>
 </head>
 <body>
@@ -376,6 +382,34 @@ document.querySelectorAll('.conductor-link').forEach(td=>{
 });
 
 recalcular();
+function animarPanel() {
+  const panel = document.getElementById("contenidoPanel");
+  panel.style.opacity = "0";
+  panel.style.transform = "translateY(10px)";
+  panel.style.transition = "opacity 0.4s ease, transform 0.4s ease";
+  setTimeout(() => {
+    panel.style.opacity = "1";
+    panel.style.transform = "translateY(0)";
+  }, 50);
+}
+
+document.querySelectorAll('.conductor-link').forEach(td=>{
+  td.addEventListener('click',()=>{
+    const nombre = td.innerText.trim();
+    const desde = "<?= htmlspecialchars($desde) ?>";
+    const hasta = "<?= htmlspecialchars($hasta) ?>";
+    const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
+    const panel = document.getElementById('contenidoPanel');
+    panel.innerHTML = "<p class='text-center'>Cargando...</p>";
+    fetch(`<?= basename(__FILE__) ?>?viajes_conductor=${encodeURIComponent(nombre)}&desde=${desde}&hasta=${hasta}&empresa=${encodeURIComponent(empresa)}`)
+    .then(r=>r.text())
+    .then(html=>{
+      panel.innerHTML = html;
+      animarPanel(); // 🔹 Llamar animación de entrada
+    });
+  });
+});
+
 </script>
 </body>
 </html>
