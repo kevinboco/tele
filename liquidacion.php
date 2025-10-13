@@ -14,9 +14,16 @@ if (isset($_POST['guardar_tarifa'])) {
     $campo = $conn->real_escape_string($_POST['campo']);
     $valor = (int)$_POST['valor'];
 
+    // Crear registro si no existe
     $conn->query("INSERT IGNORE INTO tarifas (empresa, tipo_vehiculo) VALUES ('$empresa', '$vehiculo')");
+
+    // Actualizar el valor específico
     $sql = "UPDATE tarifas SET $campo = $valor WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'";
-    if ($conn->query($sql)) { echo "ok"; } else { echo "error: " . $conn->error; }
+    if ($conn->query($sql)) {
+        echo "ok";
+    } else {
+        echo "error: " . $conn->error;
+    }
     exit;
 }
 
@@ -186,40 +193,6 @@ if ($resTarifas) {
     background:#e9f2ff; color:#0d6efd; font-weight:700; border:1px solid #d6e6ff;
     margin-bottom:8px; float:right;
   }
-
-  /* ===================== ANIMACIÓN ===================== */
-  /* Entrada suave del contenedor de la tabla (slide + fade) */
-  .table-enter {
-    animation: slideFadeIn .45s ease-out both;
-  }
-  @keyframes slideFadeIn {
-    from { opacity:0; transform: translateY(8px); }
-    to   { opacity:1; transform: translateY(0); }
-  }
-
-  /* Entrada escalonada de filas */
-  tbody tr.row-enter {
-    opacity: 0;
-    transform: translateX(6px);
-    animation: rowIn .35s ease-out forwards;
-  }
-  @keyframes rowIn {
-    to { opacity:1; transform:none; }
-  }
-
-  /* Skeleton mientras carga */
-  .skeleton {
-    border-radius: 10px;
-    background: linear-gradient(90deg,#f2f4f8 25%,#e6eaf0 37%,#f2f4f8 63%);
-    background-size: 400% 100%;
-    animation: shimmer 1.2s infinite;
-    height: 110px;
-  }
-  @keyframes shimmer {
-    0% {background-position: 100% 0;}
-    100% {background-position: -100% 0;}
-  }
-  /* ===================================================== */
 </style>
 </head>
 <body>
@@ -352,41 +325,15 @@ function recalcular(){
     const ca = parseInt(f.cells[5].innerText)||0;
     const t = tarifas[veh] || {completo:0,medio:0,extra:0,carrotanque:0};
     const totalFila = c*t.completo + m*t.medio + e*t.extra + ca*t.carrotanque;
+    // actualizar total por conductor (en la fila)
     const inputTotal = f.querySelector('input.totales');
     if (inputTotal) inputTotal.value = formatNumber(totalFila);
     totalGeneral += totalFila;
   });
+  // actualizar total general (chip)
   const totalChip = document.getElementById('total_general');
   if (totalChip) totalChip.innerText = formatNumber(totalGeneral);
 }
-
-/* ========= Click en conductor -> cargar viajes con ANIMACIÓN ========= */
-document.querySelectorAll('.conductor-link').forEach(td=>{
-  td.addEventListener('click',()=>{
-    const nombre=td.innerText.trim();
-    const desde="<?= htmlspecialchars($desde) ?>";
-    const hasta="<?= htmlspecialchars($hasta) ?>";
-    const empresa="<?= htmlspecialchars($empresaFiltro) ?>";
-    const cont = document.getElementById('contenidoPanel');
-
-    // Skeleton mientras carga
-    cont.innerHTML = "<div class='skeleton'></div>";
-
-    fetch(`<?= basename(__FILE__) ?>?viajes_conductor=${encodeURIComponent(nombre)}&desde=${desde}&hasta=${hasta}&empresa=${encodeURIComponent(empresa)}`)
-    .then(r=>r.text())
-    .then(html=>{
-      // envoltorio con clase de entrada
-      cont.innerHTML = `<div class="table-enter" id="tablaWrap">${html}</div>`;
-
-      // animación escalonada por filas
-      const rows = cont.querySelectorAll('tbody tr');
-      rows.forEach((tr,i)=>{
-        tr.style.animationDelay = (i*70)+'ms';
-        tr.classList.add('row-enter');
-      });
-    });
-  });
-});
 
 document.querySelectorAll('#tabla_tarifas input').forEach(input=>{
   input.addEventListener('change',()=>{
@@ -395,6 +342,7 @@ document.querySelectorAll('#tabla_tarifas input').forEach(input=>{
     const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
     const campoIndex = Array.from(fila.cells).findIndex(c=>c.contains(input));
     const campos = ['completo','medio','extra','carrotanque'];
+    // campoIndex 1 -> completo, 2 -> medio, 3 -> extra, 4 -> carrotanque
     const campo = campos[campoIndex-1] || campos[campoIndex] || 'completo';
     const valor = parseInt(input.value)||0;
 
@@ -415,7 +363,19 @@ document.querySelectorAll('#tabla_tarifas input').forEach(input=>{
   });
 });
 
+document.querySelectorAll('.conductor-link').forEach(td=>{
+  td.addEventListener('click',()=>{
+    const nombre=td.innerText.trim();
+    const desde="<?= htmlspecialchars($desde) ?>";
+    const hasta="<?= htmlspecialchars($hasta) ?>";
+    const empresa="<?= htmlspecialchars($empresaFiltro) ?>";
+    document.getElementById('contenidoPanel').innerHTML="<p class='text-center'>Cargando...</p>";
+    fetch(`<?= basename(__FILE__) ?>?viajes_conductor=${encodeURIComponent(nombre)}&desde=${desde}&hasta=${hasta}&empresa=${encodeURIComponent(empresa)}`)
+    .then(r=>r.text()).then(html=>{document.getElementById('contenidoPanel').innerHTML=html;});
+  });
+});
+
 recalcular();
 </script>
 </body>
-</html>
+</html>  quiero que la tabla 3 tenga transiciones de entrada cada vez que de click en el conductor
