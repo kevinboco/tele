@@ -1,209 +1,318 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Asociación de Transportistas</title>
+<?php
+// nav.php - Barra lateral (dock vertical) con botón circular (hamburger)
+?>
+
 <style>
-:root{
-  --bg:#0b0f14;
-  --panel:rgba(20,24,30,.75);
-  --text:#e6eef8;
-  --text-dim:#a8b3c7;
-  --brand:#2dd4bf;
-  --brand-2:#60a5fa;
-  --ring: rgba(99, 179, 237, .55);
-  --blur: 14px;
-  --radius: 18px;
-  --shadow: 0 10px 30px rgba(0,0,0,.35);
-}
+/* ===== Reset mínimo para evitar herencias raras ===== */
+:root { --nav-bg:#060606; --nav-br:#222; --btn-bg:#111; --z-nav: 1000; --z-overlay: 999; }
+* { box-sizing: border-box; }
 
-body{
-  margin:0;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-  background: linear-gradient(135deg,#0a0f14 0%, #0d1220 60%, #0b0f14 100%);
-  color: var(--text);
-}
-
-/* ===== Botón flotante ===== */
-.menu-toggle{
+/* ===== Botón circular (hamburger) ===== */
+.menu-toggle {
   position: fixed;
-  right: 22px; bottom: 24px;
-  width: 60px; height: 60px;
+  left: 18px;
+  top: 18px;
+  width: 54px;
+  height: 54px;
   border-radius: 50%;
-  background: radial-gradient(120% 120% at 30% 30%, #1f2937 0%, #0f172a 100%);
-  box-shadow: var(--shadow);
-  display: flex; align-items: center; justify-content: center;
+  background: var(--btn-bg);
+  color: #fff;
+  display: grid;
+  place-items: center;
   cursor: pointer;
-  border: 1px solid rgba(255,255,255,.06);
-  z-index: 1003;
-  transition: 0.3s;
+  z-index: calc(var(--z-nav) + 2);
+  border: 1px solid var(--nav-br);
+  box-shadow: 0 6px 16px rgba(0,0,0,.25);
+  transition: transform .2s ease, background .25s ease;
 }
-.menu-toggle:hover{ transform: translateY(-2px); }
+.menu-toggle:hover { transform: translateY(-1px); }
+.menu-toggle:active { transform: translateY(0); }
 
-.menu-toggle .bars{
-  width: 24px; height: 2px;
-  background: #fff; border-radius: 2px;
-  position: relative; transition:.35s ease;
+/* Icono 3 líneas */
+.menu-toggle .bars {
+  position: relative;
+  width: 26px;
+  height: 2px;
+  background: #fff;
+  transition: background .2s ease;
 }
 .menu-toggle .bars::before,
 .menu-toggle .bars::after{
-  content:""; position:absolute; left:0; width:24px; height:2px;
-  background:#fff; border-radius:2px; transition:.35s ease;
+  content:"";
+  position: absolute;
+  left: 0;
+  width: 26px;
+  height: 2px;
+  background: #fff;
+  transition: transform .25s ease, top .25s ease, opacity .2s ease;
 }
-.menu-toggle .bars::before{ top:-7px; }
-.menu-toggle .bars::after{ top:7px; }
-.menu-toggle.active .bars{ background:transparent; }
-.menu-toggle.active .bars::before{ transform: rotate(45deg); top:0; }
-.menu-toggle.active .bars::after{ transform: rotate(-45deg); top:0; }
+.menu-toggle .bars::before{ top: -8px; }
+.menu-toggle .bars::after{ top: 8px; }
 
-/* ===== Panel lateral ===== */
-.menu{
-  position: fixed; top: 0; right: -320px;
-  width: 300px; max-width: 85vw; height: 100%;
-  background: var(--panel);
-  backdrop-filter: blur(var(--blur));
-  -webkit-backdrop-filter: blur(var(--blur));
-  border-left: 1px solid rgba(255,255,255,.08);
-  box-shadow: -10px 0 35px rgba(0,0,0,.35);
-  transition: right .35s cubic-bezier(.22,.61,.36,1);
-  z-index: 1002;
-  display: flex; flex-direction: column;
+/* Estado abierto (morph a X) */
+.menu-toggle.is-open .bars { background: transparent; }
+.menu-toggle.is-open .bars::before{
+  top: 0;
+  transform: rotate(45deg);
 }
-.menu.active{ right: 0; }
+.menu-toggle.is-open .bars::after{
+  top: 0;
+  transform: rotate(-45deg);
+}
 
-/* Cabecera */
-.menu header{
-  padding: 22px 18px 12px;
-  border-bottom: 1px solid rgba(255,255,255,.06);
-  background:
-    radial-gradient(120% 120% at 0% 0%, rgba(45,212,191,.25), transparent 60%),
-    radial-gradient(120% 120% at 100% 0%, rgba(96,165,250,.22), transparent 60%);
+/* ===== Overlay para clic fuera ===== */
+.nav-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.25);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s ease;
+  z-index: var(--z-overlay);
 }
-.brand{
-  display:flex; align-items:center; gap:12px;
+.nav-overlay.is-visible{
+  opacity: 1;
+  pointer-events: auto;
 }
-.brand .logo{
-  width:36px; height:36px; border-radius: 10px;
-  display:grid; place-items:center;
-  background: linear-gradient(135deg, var(--brand), var(--brand-2));
-  color:#001019; font-weight: 800;
-}
-.brand .meta .title{ font-weight:700; }
-.brand .meta .subtitle{ font-size:12px; color:var(--text-dim); }
 
-/* Links */
-.nav{
-  overflow-y: auto; padding: 10px 8px 18px; gap: 8px;
-  display:flex; flex-direction: column; flex:1;
+/* ===== Contenedor de barra (dock vertical) ===== */
+.dock-outer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  width: 92px;                /* ancho de la barra */
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 90px;          /* despega de la parte superior (debajo del botón) */
+  z-index: var(--z-nav);
+  transform: translateX(-120px);   /* oculta hacia la izquierda */
+  transition: transform .28s ease;
 }
-a.nav-item{
-  display:flex; align-items:center; gap: 12px;
-  padding: 12px 12px;
-  margin: 0 8px; border-radius: 12px;
-  text-decoration: none;
-  color: var(--text);
-  border: 1px solid rgba(255,255,255,.06);
-  background: rgba(255,255,255,.04);
-  transition: 0.2s;
+.dock-outer.is-open {
+  transform: translateX(0);        /* entra */
 }
-a.nav-item:hover{
-  background: rgba(255,255,255,.08);
-  border-color: rgba(255,255,255,.12);
-  transform: translateX(-2px);
-}
-a.nav-item.active{
-  border-color: var(--brand-2);
-  box-shadow: 0 0 0 3px rgba(96,165,250,.25) inset;
-}
-.icon{
-  width:22px; height:22px; flex-shrink:0;
-}
-.item-title{ font-weight:600; }
-.item-sub{ font-size:12px; color:var(--text-dim); }
 
-.menu footer{
-  padding: 12px 14px 18px;
-  border-top: 1px solid rgba(255,255,255,.06);
-  text-align:center;
+/* Panel interno del dock (vertical) */
+.dock-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .75rem;
+  border-radius: 1rem;
+  background-color: var(--nav-bg);
+  border: 1px solid var(--nav-br);
+  padding: .5rem .5rem 1rem;
+  width: 76px;                     /* para que el efecto de escala no rompa */
+  max-height: calc(100vh - 120px);
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #333 transparent;
 }
-.badge{
-  font-size: 11px;
-  color:#0b1220;
-  background: linear-gradient(135deg,var(--brand),var(--brand-2));
-  padding: 6px 10px; border-radius: 999px;
-  font-weight:700;
+.dock-panel::-webkit-scrollbar { width: 6px; }
+.dock-panel::-webkit-scrollbar-thumb { background:#333; border-radius:4px; }
+
+/* Ítems */
+.dock-item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background-color: var(--nav-bg);
+  border: 1px solid var(--nav-br);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1),
+              0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  outline: none;
+  width: 50px;
+  height: 50px;
+  transition: width .2s ease, height .2s ease, transform .2s ease;
 }
+.dock-item:focus-visible{
+  box-shadow: 0 0 0 2px #fff3, 0 0 0 4px #0ea5e9;
+}
+
+.dock-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%; height: 100%;
+}
+
+.dock-label {
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  border-radius: .375rem;
+  border: 1px solid var(--nav-br);
+  background-color: var(--nav-bg);
+  padding: .2rem .5rem;
+  font-size: .75rem;
+  color: #fff;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s ease, transform .18s ease;
+}
+.dock-item:hover .dock-label,
+.dock-item:focus .dock-label{
+  opacity: 1;
+  transform: translateY(-50%) translateX(2px);
+}
+
+/* Responsivo: si la pantalla es muy angosta, acercamos la barra para que no tape contenido importante */
+@media (max-width: 480px){
+  .dock-outer { width: 86px; }
+  .dock-panel { width: 70px; }
+}
+
+/* Utilidad para bloquear scroll del body cuando la barra está abierta en móvil */
+.body-lock { overflow: hidden; }
 </style>
-</head>
-
-<body>
 
 <!-- Botón circular -->
-<button class="menu-toggle" id="menuToggle" aria-label="Abrir menú">
-  <span class="bars"></span>
+<button class="menu-toggle" id="menuToggle" aria-label="Abrir menú" aria-expanded="false" aria-controls="dockNav">
+  <span class="bars" aria-hidden="true"></span>
 </button>
 
-<!-- Menú lateral -->
-<nav class="menu" id="sideMenu">
-  <header>
-    <div class="brand">
-      <div class="logo">AT</div>
-      <div class="meta">
-        <div class="title">Asociación de Transportistas</div>
-        <div class="subtitle">Zona Norte Wuinpumuin</div>
+<!-- Overlay -->
+<div class="nav-overlay" id="navOverlay" hidden></div>
+
+<!-- Barra lateral -->
+<nav class="dock-outer" id="dockNav" role="navigation" aria-label="Barra de navegación">
+  <div class="dock-panel" role="toolbar" aria-label="Dock vertical">
+    <button class="dock-item" tabindex="0" aria-label="ver pedidos" onclick="window.location.href='listar_pedidos.php'">
+      <div class="dock-icon">
+        <img src="privado/entrega-de-pedidos.png" alt="ver pedidos" width="32" height="32" />
       </div>
-    </div>
-  </header>
+      <div class="dock-label">ver pedidos</div>
+    </button>
 
-  <div class="nav">
-    <a class="nav-item" href="index2.php">
-      <svg class="icon" viewBox="0 0 24 24" fill="none"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-      <div><div class="item-title">Inicio</div><div class="item-sub">Panel principal</div></div>
-    </a>
+    <button class="dock-item" tabindex="0" aria-label="crear ramo" onclick="window.location.href='crear_ramo.php'">
+      <div class="dock-icon">
+        <img src="privado/flores.png" alt="crear ramo" width="32" height="32" />
+      </div>
+      <div class="dock-label">crear ramo</div>
+    </button>
 
-    <a class="nav-item" href="informe.php">
-      <svg class="icon" viewBox="0 0 24 24" fill="none"><path d="M4 5h12l4 4v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.6"/><path d="M15 4v5h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M7 13h10M7 17h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      <div><div class="item-title">Informe de viajes</div><div class="item-sub">Filtros y reportes</div></div>
-    </a>
+    <button class="dock-item" tabindex="0" aria-label="crear pedido" onclick="window.location.href='crear_pedido.php'">
+      <div class="dock-icon">
+        <img src="privado/libro.png" alt="crear pedido" width="32" height="32" />
+      </div>
+      <div class="dock-label">crear pedido</div>
+    </button>
 
-    <a class="nav-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=2025-09-29&hasta=2025-10-12&empresa=Hospital">
-      <svg class="icon" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      <div><div class="item-title">Liquidación</div><div class="item-sub">Rango de fechas</div></div>
-    </a>
+    <button class="dock-item" tabindex="0" aria-label="catálogo" onclick="window.location.href='listar_catalogo.php'">
+      <div class="dock-icon">
+        <img src="privado/catalogar.png" alt="catálogo" width="32" height="32" />
+      </div>
+      <div class="dock-label">catálogo</div>
+    </button>
 
-    <a class="nav-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/prueba.php?view=graph">
-      <svg class="icon" viewBox="0 0 24 24" fill="none"><path d="M4 18l6-3 4 2 6-3V6l-6 3-4-2-6 3v8Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-      <div><div class="item-title">Mapa préstamos</div><div class="item-sub">D3 interactivo</div></div>
-    </a>
+    <button class="dock-item" tabindex="0" aria-label="ajustar precio ramo" onclick="window.location.href='ajustar_precios.php'">
+      <div class="dock-icon">
+        <img src="privado/precio.png" alt="ajustar precio ramo" width="32" height="32" />
+      </div>
+      <div class="dock-label">ajustar precio</div>
+    </button>
 
-    <a class="nav-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/admin_prestamos.php?view=cards">
-      <svg class="icon" viewBox="0 0 24 24" fill="none"><path d="M4 6a2 2 0 0 1 2-2h6l6 6v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Z" stroke="currentColor" stroke-width="1.6"/><path d="M14 4v6h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      <div><div class="item-title">Editar préstamos</div><div class="item-sub">CRUD y tarjetas</div></div>
-    </a>
+    <button class="dock-item" tabindex="0" aria-label="ver ganancias" onclick="window.location.href='gananciasG.php'">
+      <div class="dock-icon">
+        <img src="privado/ganancia.png" alt="ver ganancias" width="32" height="32" />
+      </div>
+      <div class="dock-label">ganancias</div>
+    </button>
+
+    <button class="dock-item" tabindex="0" aria-label="ver calendario" onclick="window.location.href='calendario_pedidos.php'">
+      <div class="dock-icon">
+        <img src="privado/calendario.png" alt="ver calendario" width="32" height="32" />
+      </div>
+      <div class="dock-label">calendario</div>
+    </button>
   </div>
-
-  <footer>
-    <span class="badge">AT ZN Wuinpumuin © 2025</span>
-  </footer>
 </nav>
 
 <script>
-// ============ Funcionalidad ===============
-const toggle = document.getElementById('menuToggle');
-const menu = document.getElementById('sideMenu');
+/* ========= Toggling, accesibilidad y overlay ========= */
+(function(){
+  const toggleBtn = document.getElementById('menuToggle');
+  const dock = document.getElementById('dockNav');
+  const overlay = document.getElementById('navOverlay');
+  const body = document.body;
+  const firstFocusable = () => dock.querySelector('.dock-item');
 
-toggle.addEventListener('click', ()=>{
-  menu.classList.toggle('active');
-  toggle.classList.toggle('active');
-});
-document.addEventListener('click', (e)=>{
-  if(menu.classList.contains('active') && !menu.contains(e.target) && !toggle.contains(e.target)){
-    menu.classList.remove('active');
-    toggle.classList.remove('active');
+  function openNav(){
+    dock.classList.add('is-open');
+    toggleBtn.classList.add('is-open');
+    overlay.hidden = false;
+    overlay.classList.add('is-visible');
+    toggleBtn.setAttribute('aria-expanded','true');
+    body.classList.add('body-lock');
+    // Enfocar el primer botón del dock
+    setTimeout(() => { firstFocusable()?.focus(); }, 50);
   }
-});
-</script>
 
-</body>
-</html>
+  function closeNav(){
+    dock.classList.remove('is-open');
+    toggleBtn.classList.remove('is-open');
+    overlay.classList.remove('is-visible');
+    toggleBtn.setAttribute('aria-expanded','false');
+    body.classList.remove('body-lock');
+    // Retrasa el hidden para permitir la animación de desvanecido
+    setTimeout(() => { overlay.hidden = true; }, 200);
+    toggleBtn.focus();
+  }
+
+  toggleBtn.addEventListener('click', () => {
+    const isOpen = dock.classList.contains('is-open');
+    if(isOpen) closeNav(); else openNav();
+  });
+
+  overlay.addEventListener('click', closeNav);
+
+  // Cerrar con Esc
+  window.addEventListener('keydown', (e) => {
+    if(e.key === 'Escape'){
+      if(dock.classList.contains('is-open')) closeNav();
+    }
+  });
+
+  // Cerrar si se navega (cambia la URL)
+  window.addEventListener('pageshow', () => closeNav());
+
+  /* ========= Magnificación vertical (eje Y) ========= */
+  const items = dock.querySelectorAll('.dock-item');
+  dock.addEventListener('mousemove', (e) => {
+    const panelRect = dock.getBoundingClientRect();
+    const mouseY = e.clientY;
+    items.forEach(item => {
+      const rect = item.getBoundingClientRect();
+      const centerY = rect.top + rect.height / 2;
+      const distance = Math.abs(mouseY - centerY);
+      const maxDistance = 140;             // rango de influencia
+      if (distance < maxDistance) {
+        const scale = 1 + (1 - distance / maxDistance) * 0.35; // ~1 → 1.35
+        const size = 50 * scale;
+        item.style.width = size + 'px';
+        item.style.height = size + 'px';
+        item.style.zIndex = 1000 - distance;
+      } else {
+        item.style.width = '50px';
+        item.style.height = '50px';
+        item.style.zIndex = 'auto';
+      }
+    });
+  });
+
+  dock.addEventListener('mouseleave', () => {
+    items.forEach(item => {
+      item.style.width = '50px';
+      item.style.height = '50px';
+      item.style.zIndex = 'auto';
+    });
+  });
+})();
+</script>
