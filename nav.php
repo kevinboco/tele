@@ -25,7 +25,6 @@ body{
   margin:0;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   
-  color: var(--text);
 }
 
 /* ===== Botón flotante ===== */
