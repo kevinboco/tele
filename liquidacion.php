@@ -16,7 +16,7 @@ if (isset($_POST['guardar_tarifa'])) {
 
     $conn->query("INSERT IGNORE INTO tarifas (empresa, tipo_vehiculo) VALUES ('$empresa', '$vehiculo')");
     $sql = "UPDATE tarifas SET $campo = $valor WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'";
-    echo $conn->query($sql) ? "ok" : "error: " . $conn->error;
+    if ($conn->query($sql)) { echo "ok"; } else { echo "error: " . $conn->error; }
     exit;
 }
 
@@ -41,7 +41,7 @@ if (isset($_GET['viajes_conductor'])) {
 
     $res = $conn->query($sql);
     if ($res && $res->num_rows > 0) {
-        echo "<table class='table table-bordered table-striped mb-0 animate__animated animate__fadeIn'>
+        echo "<table class='table table-bordered table-striped mb-0'>
                 <thead>
                   <tr class='table-primary text-center'>
                     <th>Fecha</th>
@@ -145,10 +145,12 @@ if ($res) {
     }
 }
 
+/* Empresas para el SELECT del header */
 $empresas = [];
 $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
 if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
 
+/* Tarifa guardada en la BD */
 $tarifas_guardadas = [];
 $resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa='$empresaFiltro'");
 if ($resTarifas) {
@@ -169,24 +171,55 @@ if ($resTarifas) {
   .page-title{background:#fff;border-radius:var(--box-radius);padding:12px 16px;margin-bottom:var(--gap);box-shadow:0 2px 8px rgba(0,0,0,.05)}
   .header-grid{display:grid;grid-template-columns: auto 1fr auto;align-items:center;gap:12px;}
   .header-center{ text-align:center; }
+  .header-center h2{ margin:4px 0 2px 0; }
+  .header-sub{ font-size:14px; color:#555; }
   .layout{ display:grid; grid-template-columns: 1fr 2fr 1.2fr; gap:var(--gap); align-items:start; }
   @media (max-width:1200px){ .layout{grid-template-columns:1fr;} }
-  .box{ border-radius:var(--box-radius); box-shadow:0 2px 10px rgba(0,0,0,.06); padding:14px; background:#fff; }
+  .box{ border-radius:var(--box-radius); box-shadow:0 2px 10px rgba(0,0,0,.06); padding:14px; }
   table{ background:#fff; border-radius:10px; overflow:hidden }
   th{ background:#0d6efd; color:#fff; text-align:center; padding:10px }
   td{ text-align:center; padding:8px; border-bottom:1px solid #eee }
   input[type=number], input[readonly]{ width:100%; max-width:160px; padding:6px; border:1px solid #ced4da; border-radius:8px; text-align:right }
   .conductor-link{cursor:pointer;color:#0d6efd;text-decoration:underline;}
-  #contenidoPanel { 
-    opacity:1; 
-    transform:translateY(0); 
-    transition:opacity 0.4s ease, transform 0.4s ease; 
-  }
   .total-chip{
     display:inline-block; padding:6px 12px; border-radius:999px;
     background:#e9f2ff; color:#0d6efd; font-weight:700; border:1px solid #d6e6ff;
     margin-bottom:8px; float:right;
   }
+
+  /* ===================== ANIMACIÓN ===================== */
+  /* Entrada suave del contenedor de la tabla (slide + fade) */
+  .table-enter {
+    animation: slideFadeIn .45s ease-out both;
+  }
+  @keyframes slideFadeIn {
+    from { opacity:0; transform: translateY(8px); }
+    to   { opacity:1; transform: translateY(0); }
+  }
+
+  /* Entrada escalonada de filas */
+  tbody tr.row-enter {
+    opacity: 0;
+    transform: translateX(6px);
+    animation: rowIn .35s ease-out forwards;
+  }
+  @keyframes rowIn {
+    to { opacity:1; transform:none; }
+  }
+
+  /* Skeleton mientras carga */
+  .skeleton {
+    border-radius: 10px;
+    background: linear-gradient(90deg,#f2f4f8 25%,#e6eaf0 37%,#f2f4f8 63%);
+    background-size: 400% 100%;
+    animation: shimmer 1.2s infinite;
+    height: 110px;
+  }
+  @keyframes shimmer {
+    0% {background-position: 100% 0;}
+    100% {background-position: -100% 0;}
+  }
+  /* ===================================================== */
 </style>
 </head>
 <body>
@@ -327,17 +360,33 @@ function recalcular(){
   if (totalChip) totalChip.innerText = formatNumber(totalGeneral);
 }
 
-// 🔹 Nueva función para animar el panel derecho
-function animarPanel() {
-  const panel = document.getElementById("contenidoPanel");
-  panel.style.opacity = "0";
-  panel.style.transform = "translateY(10px)";
-  panel.style.transition = "opacity 0.4s ease, transform 0.4s ease";
-  setTimeout(() => {
-    panel.style.opacity = "1";
-    panel.style.transform = "translateY(0)";
-  }, 50);
-}
+/* ========= Click en conductor -> cargar viajes con ANIMACIÓN ========= */
+document.querySelectorAll('.conductor-link').forEach(td=>{
+  td.addEventListener('click',()=>{
+    const nombre=td.innerText.trim();
+    const desde="<?= htmlspecialchars($desde) ?>";
+    const hasta="<?= htmlspecialchars($hasta) ?>";
+    const empresa="<?= htmlspecialchars($empresaFiltro) ?>";
+    const cont = document.getElementById('contenidoPanel');
+
+    // Skeleton mientras carga
+    cont.innerHTML = "<div class='skeleton'></div>";
+
+    fetch(`<?= basename(__FILE__) ?>?viajes_conductor=${encodeURIComponent(nombre)}&desde=${desde}&hasta=${hasta}&empresa=${encodeURIComponent(empresa)}`)
+    .then(r=>r.text())
+    .then(html=>{
+      // envoltorio con clase de entrada
+      cont.innerHTML = `<div class="table-enter" id="tablaWrap">${html}</div>`;
+
+      // animación escalonada por filas
+      const rows = cont.querySelectorAll('tbody tr');
+      rows.forEach((tr,i)=>{
+        tr.style.animationDelay = (i*70)+'ms';
+        tr.classList.add('row-enter');
+      });
+    });
+  });
+});
 
 document.querySelectorAll('#tabla_tarifas input').forEach(input=>{
   input.addEventListener('change',()=>{
@@ -366,11 +415,7 @@ document.querySelectorAll('#tabla_tarifas input').forEach(input=>{
   });
 });
 
-// 🔹 Agregar animación cuando se cambia de conductor
-document.querySelectorAll('.conductor-link').forEach(td=>{
-  td.addEventListener('click',()=>{
-    const nombre=td.innerText.trim();
-    const desde="<?= htmlspecialchars($desde) ?>";
-    const hasta="<?= htmlspecialchars($hasta) ?>";
-    const empresa="<?= htmlspecialchars($empresaFiltro) ?>";
-    const panel=document.getElementById('contenidoPanel');
+recalcular();
+</script>
+</body>
+</html>
