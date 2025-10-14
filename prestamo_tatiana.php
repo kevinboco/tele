@@ -1,7 +1,7 @@
 <?php
 /******************************************************
  * prestamo_tatiana.php
- * CRUD básico de préstamos (PHP + MySQLi + Bootstrap 5)
+ * CRUD + Buscador + Filtro por fecha (PHP + MySQLi + Bootstrap 5)
  * Campos: deudor, celular, prestamista, monto, fecha
  ******************************************************/
 
@@ -12,17 +12,16 @@ $conexion = new mysqli(
   "Bucaramanga3011",
   "u648222299_tatiana"
 );
-
 if ($conexion->connect_errno) {
   die("❌ Error de conexión: " . $conexion->connect_error);
 }
 $conexion->set_charset("utf8");
 
-// ====== AGREGAR NUEVO ======
+// ====== AGREGAR ======
 if (isset($_POST['agregar'])) {
-  $deudor = $_POST['deudor'];
-  $celular = $_POST['celular'];
-  $prestamista = $_POST['prestamista'];
+  $deudor = trim($_POST['deudor']);
+  $celular = trim($_POST['celular']);
+  $prestamista = trim($_POST['prestamista']);
   $monto = $_POST['monto'];
   $fecha = $_POST['fecha'];
 
@@ -38,17 +37,19 @@ if (isset($_POST['agregar'])) {
 // ====== ELIMINAR ======
 if (isset($_GET['eliminar'])) {
   $id = intval($_GET['eliminar']);
-  $conexion->query("DELETE FROM prestamos WHERE id = $id");
+  if ($id > 0) {
+    $conexion->query("DELETE FROM prestamos WHERE id = $id");
+  }
   header("Location: prestamo_tatiana.php");
   exit;
 }
 
 // ====== EDITAR ======
 if (isset($_POST['editar'])) {
-  $id = $_POST['id'];
-  $deudor = $_POST['deudor'];
-  $celular = $_POST['celular'];
-  $prestamista = $_POST['prestamista'];
+  $id = intval($_POST['id']);
+  $deudor = trim($_POST['deudor']);
+  $celular = trim($_POST['celular']);
+  $prestamista = trim($_POST['prestamista']);
   $monto = $_POST['monto'];
   $fecha = $_POST['fecha'];
 
@@ -61,10 +62,68 @@ if (isset($_POST['editar'])) {
   exit;
 }
 
-// ====== CONSULTA ======
-$prestamos = $conexion->query("SELECT * FROM prestamos ORDER BY fecha DESC");
-?>
+/* ==============================================
+   FILTROS (buscador + fecha) usando prepared stmt
+   - q: busca en deudor, celular, prestamista
+   - desde / hasta: filtro por rango de fechas
+============================================== */
+$q = isset($_GET['q']) ? trim($_GET['q']) : '';
+$desde = isset($_GET['desde']) ? trim($_GET['desde']) : '';
+$hasta = isset($_GET['hasta']) ? trim($_GET['hasta']) : '';
 
+$where = [];
+$params = [];
+$types = "";
+
+// Buscar texto
+if ($q !== '') {
+  $where[] = "(deudor LIKE ? OR celular LIKE ? OR prestamista LIKE ?)";
+  $like = "%{$q}%";
+  $params[] = $like; $types .= "s";
+  $params[] = $like; $types .= "s";
+  $params[] = $like; $types .= "s";
+}
+
+// Fecha desde
+if ($desde !== '') {
+  $where[] = "fecha >= ?";
+  $params[] = $desde; $types .= "s";
+}
+
+// Fecha hasta
+if ($hasta !== '') {
+  $where[] = "fecha <= ?";
+  $params[] = $hasta; $types .= "s";
+}
+
+$sqlBase = "SELECT id, deudor, celular, prestamista, monto, fecha FROM prestamos";
+if (!empty($where)) {
+  $sqlBase .= " WHERE " . implode(" AND ", $where);
+}
+$sqlListado = $sqlBase . " ORDER BY fecha DESC, id DESC";
+
+// ====== CONSULTA LISTADO ======
+$stmt = $conexion->prepare($sqlListado);
+if (!empty($params)) {
+  $stmt->bind_param($types, ...$params);
+}
+$stmt->execute();
+$prestamos = $stmt->get_result();
+
+// ====== SUMATORIA (opcional útil en UI) ======
+$sqlSum = "SELECT SUM(monto) AS total FROM prestamos";
+if (!empty($where)) {
+  $sqlSum .= " WHERE " . implode(" AND ", $where);
+}
+$stmtSum = $conexion->prepare($sqlSum);
+if (!empty($params)) {
+  $stmtSum->bind_param($types, ...$params);
+}
+$stmtSum->execute();
+$sumRes = $stmtSum->get_result()->fetch_assoc();
+$totalFiltrado = $sumRes['total'] ?? 0.0;
+
+?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -72,6 +131,9 @@ $prestamos = $conexion->query("SELECT * FROM prestamos ORDER BY fecha DESC");
   <title>Gestión de Préstamos - Tatiana</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    .table thead th { white-space: nowrap; }
+  </style>
 </head>
 <body class="bg-light">
 <div class="container py-4">
@@ -102,6 +164,33 @@ $prestamos = $conexion->query("SELECT * FROM prestamos ORDER BY fecha DESC");
     </div>
   </form>
 
+  <!-- FILTROS: Buscador + Rango de fecha -->
+  <form method="GET" class="card p-3 shadow-sm mb-3">
+    <h6 class="mb-3">Filtrar</h6>
+    <div class="row g-2">
+      <div class="col-md-4">
+        <input type="text" name="q" value="<?= htmlspecialchars($q) ?>" class="form-control" placeholder="Buscar (deudor, celular, prestamista)">
+      </div>
+      <div class="col-md-3">
+        <input type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" class="form-control" placeholder="Desde (fecha)">
+      </div>
+      <div class="col-md-3">
+        <input type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" class="form-control" placeholder="Hasta (fecha)">
+      </div>
+      <div class="col-md-2 d-grid">
+        <button class="btn btn-dark" type="submit">Aplicar</button>
+      </div>
+    </div>
+    <div class="text-end mt-2">
+      <a class="btn btn-outline-secondary btn-sm" href="prestamo_tatiana.php">Limpiar filtros</a>
+    </div>
+  </form>
+
+  <!-- Resumen rápido -->
+  <div class="alert alert-info py-2">
+    <strong>Total filtrado:</strong> $<?= number_format((float)$totalFiltrado, 0, ',', '.') ?>
+  </div>
+
   <!-- TABLA DE PRÉSTAMOS -->
   <div class="table-responsive">
     <table class="table table-striped table-hover shadow-sm align-middle">
@@ -117,6 +206,12 @@ $prestamos = $conexion->query("SELECT * FROM prestamos ORDER BY fecha DESC");
         </tr>
       </thead>
       <tbody>
+      <?php if ($prestamos->num_rows === 0): ?>
+        <tr>
+          <td colspan="7" class="text-center text-muted">No hay registros con los filtros actuales.</td>
+        </tr>
+      <?php endif; ?>
+
       <?php while($fila = $prestamos->fetch_assoc()): ?>
         <tr>
           <td><?= $fila['id'] ?></td>
