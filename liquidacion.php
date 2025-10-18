@@ -186,19 +186,17 @@ if ($empresaFiltro !== "") {
 <title>Liquidación de Conductores</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
-  /* scroll sutil */
   ::-webkit-scrollbar{height:10px;width:10px}
   ::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:999px}
   ::-webkit-scrollbar-thumb:hover{background:#9ca3af}
-  /* inputs num sin flechas (webkit) */
   input[type=number]::-webkit-inner-spin-button,
   input[type=number]::-webkit-outer-spin-button{ -webkit-appearance: none; margin: 0; }
 </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
 
-  <!-- Encabezado -->
-  <header class="max-w-7xl mx-auto px-4 pt-6">
+  <!-- Encabezado (más ancho y menos padding lateral) -->
+  <header class="max-w-[1600px] mx-auto px-3 md:px-4 pt-6">
     <div class="bg-white border border-slate-200 rounded-2xl shadow-sm px-5 py-4">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <h2 class="text-xl md:text-2xl font-bold">🪙 Liquidación de Conductores</h2>
@@ -215,9 +213,9 @@ if ($empresaFiltro !== "") {
   </header>
 
   <!-- Contenido -->
-  <main class="max-w-7xl mx-auto px-4 py-6">
-    <!-- 💡 Proporción 1.1fr / 2.2fr / 1fr para dar MÁS ANCHO al centro -->
-    <div class="grid grid-cols-1 xl:grid-cols-[1.1fr_2.2fr_1fr] gap-5 items-start">
+  <main class="max-w-[1600px] mx-auto px-3 md:px-4 py-6">
+    <!-- Proporción 1fr / 2.6fr / 0.9fr para que el centro sea MUY ancho -->
+    <div class="grid grid-cols-1 xl:grid-cols-[1fr_2.6fr_0.9fr] gap-5 items-start">
 
       <!-- Columna 1: Tarifas + Filtro -->
       <section class="space-y-5">
@@ -310,7 +308,7 @@ if ($empresaFiltro !== "") {
         </div>
       </section>
 
-      <!-- Columna 2: Resumen por conductor (ANCHA) -->
+      <!-- Columna 2: Resumen por conductor (MUY ancha, sin cortes) -->
       <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
         <div class="flex items-center justify-between gap-3">
           <h3 class="text-lg font-semibold">🧑‍✈️ Resumen por Conductor</h3>
@@ -320,9 +318,19 @@ if ($empresaFiltro !== "") {
           </span>
         </div>
 
-        <!-- Tabla sin scroll horizontal, ocupa todo el ancho -->
+        <!-- Tabla fija con colgroup: Total más ancho y sin corte -->
         <div class="mt-4 w-full rounded-xl border border-slate-200">
-          <table id="tabla_conductores" class="w-full text-sm table-auto">
+          <table id="tabla_conductores" class="w-full text-sm table-fixed">
+            <colgroup>
+              <col style="width:28%">
+              <col style="width:16%">
+              <col style="width:8%">
+              <col style="width:8%">
+              <col style="width:8%">
+              <col style="width:10%">
+              <col style="width:22%">
+            </colgroup>
+
             <thead class="bg-blue-600 text-white">
               <tr>
                 <th class="px-3 py-2 text-left">Conductor</th>
@@ -334,6 +342,7 @@ if ($empresaFiltro !== "") {
                 <th class="px-3 py-2 text-center">Total</th>
               </tr>
             </thead>
+
             <tbody class="divide-y divide-slate-100 bg-white">
             <?php foreach ($datos as $conductor => $viajes): ?>
               <tr data-vehiculo="<?= htmlspecialchars($viajes['vehiculo']) ?>" class="hover:bg-blue-50/40 transition-colors">
@@ -349,9 +358,14 @@ if ($empresaFiltro !== "") {
                 <td class="px-3 py-2 text-center"><?= (int)$viajes["medios"] ?></td>
                 <td class="px-3 py-2 text-center"><?= (int)$viajes["extras"] ?></td>
                 <td class="px-3 py-2 text-center"><?= (int)$viajes["carrotanques"] ?></td>
+
                 <td class="px-3 py-2">
-                  <input type="text" class="totales w-full max-w-[180px] mx-auto rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none"
-                         readonly>
+                  <input
+                    type="text"
+                    class="totales w-full min-w-[160px] rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none whitespace-nowrap tabular-nums"
+                    readonly
+                    dir="ltr"
+                  >
                 </td>
               </tr>
             <?php endforeach; ?>
