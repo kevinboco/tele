@@ -14,16 +14,9 @@ if (isset($_POST['guardar_tarifa'])) {
     $campo = $conn->real_escape_string($_POST['campo']);
     $valor = (int)$_POST['valor'];
 
-    // Crear registro si no existe
     $conn->query("INSERT IGNORE INTO tarifas (empresa, tipo_vehiculo) VALUES ('$empresa', '$vehiculo')");
-
-    // Actualizar el valor específico
     $sql = "UPDATE tarifas SET $campo = $valor WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'";
-    if ($conn->query($sql)) {
-        echo "ok";
-    } else {
-        echo "error: " . $conn->error;
-    }
+    if ($conn->query($sql)) echo "ok"; else echo "error: " . $conn->error;
     exit;
 }
 
@@ -48,7 +41,7 @@ if (isset($_GET['viajes_conductor'])) {
 
     $res = $conn->query($sql);
     if ($res && $res->num_rows > 0) {
-        echo "<table class='table table-bordered table-striped mb-0'>
+        echo "<table class='table table-bordered table-striped mb-0 fade-content'>
                 <thead>
                   <tr class='table-primary text-center'>
                     <th>Fecha</th>
@@ -152,12 +145,12 @@ if ($res) {
     }
 }
 
-/* Empresas para el SELECT del header */
+/* Empresas para el SELECT */
 $empresas = [];
 $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
 if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
 
-/* Tarifa guardada en la BD */
+/* Tarifa guardada */
 $tarifas_guardadas = [];
 $resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa='$empresaFiltro'");
 if ($resTarifas) {
@@ -182,7 +175,7 @@ if ($resTarifas) {
   .header-sub{ font-size:14px; color:#555; }
   .layout{ display:grid; grid-template-columns: 1fr 2fr 1.2fr; gap:var(--gap); align-items:start; }
   @media (max-width:1200px){ .layout{grid-template-columns:1fr;} }
-  .box{ border-radius:var(--box-radius); box-shadow:0 2px 10px rgba(0,0,0,.06); padding:14px; }
+  .box{ border-radius:var(--box-radius); box-shadow:0 2px 10px rgba(0,0,0,.06); padding:14px; background:#fff;}
   table{ background:#fff; border-radius:10px; overflow:hidden }
   th{ background:#0d6efd; color:#fff; text-align:center; padding:10px }
   td{ text-align:center; padding:8px; border-bottom:1px solid #eee }
@@ -192,6 +185,17 @@ if ($resTarifas) {
     display:inline-block; padding:6px 12px; border-radius:999px;
     background:#e9f2ff; color:#0d6efd; font-weight:700; border:1px solid #d6e6ff;
     margin-bottom:8px; float:right;
+  }
+
+  /* 🔹 Animaciones de entrada para el panel de viajes */
+  #contenidoPanel {
+    opacity: 0;
+    transform: translateX(25px);
+    transition: opacity 0.4s ease, transform 0.4s ease;
+  }
+  #contenidoPanel.fade-in {
+    opacity: 1;
+    transform: translateX(0);
   }
 </style>
 </head>
@@ -325,12 +329,10 @@ function recalcular(){
     const ca = parseInt(f.cells[5].innerText)||0;
     const t = tarifas[veh] || {completo:0,medio:0,extra:0,carrotanque:0};
     const totalFila = c*t.completo + m*t.medio + e*t.extra + ca*t.carrotanque;
-    // actualizar total por conductor (en la fila)
     const inputTotal = f.querySelector('input.totales');
     if (inputTotal) inputTotal.value = formatNumber(totalFila);
     totalGeneral += totalFila;
   });
-  // actualizar total general (chip)
   const totalChip = document.getElementById('total_general');
   if (totalChip) totalChip.innerText = formatNumber(totalGeneral);
 }
@@ -342,7 +344,6 @@ document.querySelectorAll('#tabla_tarifas input').forEach(input=>{
     const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
     const campoIndex = Array.from(fila.cells).findIndex(c=>c.contains(input));
     const campos = ['completo','medio','extra','carrotanque'];
-    // campoIndex 1 -> completo, 2 -> medio, 3 -> extra, 4 -> carrotanque
     const campo = campos[campoIndex-1] || campos[campoIndex] || 'completo';
     const valor = parseInt(input.value)||0;
 
@@ -369,13 +370,21 @@ document.querySelectorAll('.conductor-link').forEach(td=>{
     const desde="<?= htmlspecialchars($desde) ?>";
     const hasta="<?= htmlspecialchars($hasta) ?>";
     const empresa="<?= htmlspecialchars($empresaFiltro) ?>";
-    document.getElementById('contenidoPanel').innerHTML="<p class='text-center'>Cargando...</p>";
+    const panel=document.getElementById('contenidoPanel');
+    panel.innerHTML="<p class='text-center'>Cargando...</p>";
+    panel.classList.remove('fade-in');
+
     fetch(`<?= basename(__FILE__) ?>?viajes_conductor=${encodeURIComponent(nombre)}&desde=${desde}&hasta=${hasta}&empresa=${encodeURIComponent(empresa)}`)
-    .then(r=>r.text()).then(html=>{document.getElementById('contenidoPanel').innerHTML=html;});
+      .then(r=>r.text())
+      .then(html=>{
+        panel.innerHTML=html;
+        void panel.offsetWidth; // Reinicia animación
+        panel.classList.add('fade-in');
+      });
   });
 });
 
 recalcular();
 </script>
 </body>
-</html>  quiero que la tabla 3 tenga transiciones de entrada cada vez que de click en el conductor
+</html>
