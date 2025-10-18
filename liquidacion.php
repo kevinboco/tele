@@ -1,9 +1,7 @@
 <?php
 include("nav.php");
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
-if ($conn->connect_error) {
-    die("Error conexión BD: " . $conn->connect_error);
-}
+if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); }
 
 /* =======================================================
    🔹 Guardar tarifas por vehículo y empresa (AJAX)
@@ -42,7 +40,6 @@ if (isset($_GET['viajes_conductor'])) {
     $res = $conn->query($sql);
 
     if ($res && $res->num_rows > 0) {
-        // Tabla Tailwind
         echo "<div class='overflow-x-auto'>
                 <table class='min-w-full text-sm text-left'>
                   <thead class='bg-blue-600 text-white'>
@@ -219,7 +216,8 @@ if ($empresaFiltro !== "") {
 
   <!-- Contenido -->
   <main class="max-w-7xl mx-auto px-4 py-6">
-    <div class="grid grid-cols-1 xl:grid-cols-3 gap-5 items-start">
+    <!-- 💡 Proporción 1.1fr / 2.2fr / 1fr para dar MÁS ANCHO al centro -->
+    <div class="grid grid-cols-1 xl:grid-cols-[1.1fr_2.2fr_1fr] gap-5 items-start">
 
       <!-- Columna 1: Tarifas + Filtro -->
       <section class="space-y-5">
@@ -277,7 +275,7 @@ if ($empresaFiltro !== "") {
           </div>
         </div>
 
-        <!-- Filtro (re-filtrar) -->
+        <!-- Filtro -->
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
           <h5 class="text-base font-semibold text-center mb-4">📅 Filtro de Liquidación</h5>
           <form class="grid grid-cols-1 md:grid-cols-4 gap-3" method="get">
@@ -312,7 +310,7 @@ if ($empresaFiltro !== "") {
         </div>
       </section>
 
-      <!-- Columna 2: Resumen por conductor -->
+      <!-- Columna 2: Resumen por conductor (ANCHA) -->
       <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
         <div class="flex items-center justify-between gap-3">
           <h3 class="text-lg font-semibold">🧑‍✈️ Resumen por Conductor</h3>
@@ -322,8 +320,9 @@ if ($empresaFiltro !== "") {
           </span>
         </div>
 
-        <div class="mt-4 overflow-x-auto rounded-xl border border-slate-200">
-          <table id="tabla_conductores" class="min-w-full text-sm">
+        <!-- Tabla sin scroll horizontal, ocupa todo el ancho -->
+        <div class="mt-4 w-full rounded-xl border border-slate-200">
+          <table id="tabla_conductores" class="w-full text-sm table-auto">
             <thead class="bg-blue-600 text-white">
               <tr>
                 <th class="px-3 py-2 text-left">Conductor</th>
@@ -414,10 +413,8 @@ if ($empresaFiltro !== "") {
         const fila = input.closest('tr');
         const tipoVehiculo = fila.cells[0].innerText.trim();
         const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
-        // mapear campo según columna
         const idx = Array.from(fila.cells).findIndex(c=>c.contains(input));
         const campos = ['completo','medio','extra','carrotanque'];
-        // Si la fila es Carrotanque, el input está en la columna 4 (idx=4) -> 'carrotanque'
         const campo = (tipoVehiculo === 'Carrotanque') ? 'carrotanque' : campos[idx-1];
         const valor = parseInt(input.value)||0;
 
