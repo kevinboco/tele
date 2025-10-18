@@ -1,5 +1,13 @@
 <?php
 // nav_color.php — Menú lateral con íconos a color, texto fijo y magnificación
+
+// === Fechas dinámicas ===
+$desde = "2025-09-29"; // <-- puedes cambiarla manualmente cuando necesites
+$hasta = date("Y-m-d"); // fecha actual automática
+$empresa = "Hospital";
+
+// URL dinámica con las fechas
+$url_liquidacion = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=$desde&hasta=$hasta&empresa=$empresa";
 ?>
 <style>
 :root {
@@ -156,7 +164,8 @@
     <span>Informe</span>
   </a>
 
-  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=2025-09-29&hasta=2025-10-12&empresa=Hospital" title="Liquidación">
+  <!-- Enlace con fecha actual automática -->
+  <a class="rail-item" href="<?= $url_liquidacion ?>" title="Liquidación">
     <img src="https://img.icons8.com/color/48/bill.png" alt="Liquidación">
     <span>Liquidación</span>
   </a>
