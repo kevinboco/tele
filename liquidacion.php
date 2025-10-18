@@ -195,7 +195,7 @@ if ($empresaFiltro !== "") {
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
 
-  <!-- Encabezado (más ancho y menos padding lateral) -->
+  <!-- Encabezado -->
   <header class="max-w-[1600px] mx-auto px-3 md:px-4 pt-6">
     <div class="bg-white border border-slate-200 rounded-2xl shadow-sm px-5 py-4">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -214,62 +214,65 @@ if ($empresaFiltro !== "") {
 
   <!-- Contenido -->
   <main class="max-w-[1600px] mx-auto px-3 md:px-4 py-6">
-    <!-- Proporción 1fr / 2.6fr / 0.9fr para que el centro sea MUY ancho -->
+    <!-- Centro muy ancho -->
     <div class="grid grid-cols-1 xl:grid-cols-[1fr_2.6fr_0.9fr] gap-5 items-start">
 
       <!-- Columna 1: Tarifas + Filtro -->
       <section class="space-y-5">
-        <!-- Tarifas -->
+
+        <!-- 🔥 NUEVO: Tarjetas individuales de tarifas -->
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-          <h3 class="text-lg font-semibold text-center mb-3">🚐 Tarifas por Tipo de Vehículo</h3>
-          <div class="overflow-x-auto rounded-xl border border-slate-200">
-            <table id="tabla_tarifas" class="min-w-full text-sm">
-              <thead class="bg-blue-600 text-white">
-                <tr>
-                  <th class="px-3 py-2 text-left">Tipo de Vehículo</th>
-                  <th class="px-3 py-2 text-center">Viaje Completo</th>
-                  <th class="px-3 py-2 text-center">Viaje Medio</th>
-                  <th class="px-3 py-2 text-center">Viaje Extra</th>
-                  <th class="px-3 py-2 text-center">Carrotanque</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-slate-100 bg-white">
-              <?php foreach ($vehiculos as $veh):
-                $t = $tarifas_guardadas[$veh] ?? ["completo"=>0,"medio"=>0,"extra"=>0,"carrotanque"=>0];
-              ?>
-                <tr class="hover:bg-blue-50/40 transition-colors">
-                  <td class="px-3 py-2 font-medium"><?= htmlspecialchars($veh) ?></td>
-                  <?php if ($veh === "Carrotanque"): ?>
-                    <td class="px-3 py-2 text-center text-slate-400">—</td>
-                    <td class="px-3 py-2 text-center text-slate-400">—</td>
-                    <td class="px-3 py-2 text-center text-slate-400">—</td>
-                    <td class="px-3 py-2">
-                      <input type="number" step="1000" value="<?= (int)$t['carrotanque'] ?>"
-                             class="w-full max-w-[160px] ml-auto rounded-xl border border-slate-300 px-3 py-2 text-right outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
-                             oninput="recalcular()">
-                    </td>
-                  <?php else: ?>
-                    <td class="px-3 py-2">
-                      <input type="number" step="1000" value="<?= (int)$t['completo'] ?>"
-                             class="w-full max-w-[160px] ml-auto rounded-xl border border-slate-300 px-3 py-2 text-right outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
-                             oninput="recalcular()">
-                    </td>
-                    <td class="px-3 py-2">
-                      <input type="number" step="1000" value="<?= (int)$t['medio'] ?>"
-                             class="w-full max-w-[160px] ml-auto rounded-xl border border-slate-300 px-3 py-2 text-right outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
-                             oninput="recalcular()">
-                    </td>
-                    <td class="px-3 py-2">
-                      <input type="number" step="1000" value="<?= (int)$t['extra'] ?>"
-                             class="w-full max-w-[160px] ml-auto rounded-xl border border-slate-300 px-3 py-2 text-right outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
-                             oninput="recalcular()">
-                    </td>
-                    <td class="px-3 py-2 text-center text-slate-400">—</td>
-                  <?php endif; ?>
-                </tr>
-              <?php endforeach; ?>
-              </tbody>
-            </table>
+          <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+            <span>🚐 Tarifas por Tipo de Vehículo</span>
+          </h3>
+
+          <div id="tarifas_grid" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <?php foreach ($vehiculos as $veh):
+              $t = $tarifas_guardadas[$veh] ?? ["completo"=>0,"medio"=>0,"extra"=>0,"carrotanque"=>0];
+            ?>
+            <div class="tarjeta-tarifa rounded-2xl border border-slate-200 p-4 shadow-sm bg-slate-50"
+                 data-vehiculo="<?= htmlspecialchars($veh) ?>">
+
+              <div class="flex items-center justify-between mb-3">
+                <div class="text-base font-semibold"><?= htmlspecialchars($veh) ?></div>
+                <span class="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 border border-blue-200">Config</span>
+              </div>
+
+              <?php if ($veh === "Carrotanque"): ?>
+                <label class="block">
+                  <span class="block text-sm font-medium mb-1">Carrotanque</span>
+                  <input type="number" step="1000" value="<?= (int)$t['carrotanque'] ?>"
+                         data-campo="carrotanque"
+                         class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
+                         oninput="recalcular()">
+                </label>
+              <?php else: ?>
+                <label class="block mb-3">
+                  <span class="block text-sm font-medium mb-1">Viaje Completo</span>
+                  <input type="number" step="1000" value="<?= (int)$t['completo'] ?>"
+                         data-campo="completo"
+                         class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
+                         oninput="recalcular()">
+                </label>
+
+                <label class="block mb-3">
+                  <span class="block text-sm font-medium mb-1">Viaje Medio</span>
+                  <input type="number" step="1000" value="<?= (int)$t['medio'] ?>"
+                         data-campo="medio"
+                         class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
+                         oninput="recalcular()">
+                </label>
+
+                <label class="block">
+                  <span class="block text-sm font-medium mb-1">Viaje Extra</span>
+                  <input type="number" step="1000" value="<?= (int)$t['extra'] ?>"
+                         data-campo="extra"
+                         class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
+                         oninput="recalcular()">
+                </label>
+              <?php endif; ?>
+            </div>
+            <?php endforeach; ?>
           </div>
         </div>
 
@@ -318,7 +321,6 @@ if ($empresaFiltro !== "") {
           </span>
         </div>
 
-        <!-- Tabla fija con colgroup: Total más ancho y sin corte -->
         <div class="mt-4 w-full rounded-xl border border-slate-200">
           <table id="tabla_conductores" class="w-full text-sm table-fixed">
             <colgroup>
@@ -330,7 +332,6 @@ if ($empresaFiltro !== "") {
               <col style="width:10%">
               <col style="width:22%">
             </colgroup>
-
             <thead class="bg-blue-600 text-white">
               <tr>
                 <th class="px-3 py-2 text-left">Conductor</th>
@@ -342,7 +343,6 @@ if ($empresaFiltro !== "") {
                 <th class="px-3 py-2 text-center">Total</th>
               </tr>
             </thead>
-
             <tbody class="divide-y divide-slate-100 bg-white">
             <?php foreach ($datos as $conductor => $viajes): ?>
               <tr data-vehiculo="<?= htmlspecialchars($viajes['vehiculo']) ?>" class="hover:bg-blue-50/40 transition-colors">
@@ -358,14 +358,10 @@ if ($empresaFiltro !== "") {
                 <td class="px-3 py-2 text-center"><?= (int)$viajes["medios"] ?></td>
                 <td class="px-3 py-2 text-center"><?= (int)$viajes["extras"] ?></td>
                 <td class="px-3 py-2 text-center"><?= (int)$viajes["carrotanques"] ?></td>
-
                 <td class="px-3 py-2">
-                  <input
-                    type="text"
-                    class="totales w-full min-w-[160px] rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none whitespace-nowrap tabular-nums"
-                    readonly
-                    dir="ltr"
-                  >
+                  <input type="text"
+                         class="totales w-full min-w-[160px] rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none whitespace-nowrap tabular-nums"
+                         readonly dir="ltr">
                 </td>
               </tr>
             <?php endforeach; ?>
@@ -389,13 +385,18 @@ if ($empresaFiltro !== "") {
   <script>
     function getTarifas(){
       const tarifas = {};
-      document.querySelectorAll('#tabla_tarifas tbody tr').forEach(row=>{
-        const veh = row.cells[0].innerText.trim();
-        const completo = row.cells[1]?.querySelector('input') ? parseFloat(row.cells[1].querySelector('input').value)||0 : 0;
-        const medio    = row.cells[2]?.querySelector('input') ? parseFloat(row.cells[2].querySelector('input').value)||0 : 0;
-        const extra    = row.cells[3]?.querySelector('input') ? parseFloat(row.cells[3].querySelector('input').value)||0 : 0;
-        const carro    = row.cells[4]?.querySelector('input') ? parseFloat(row.cells[4].querySelector('input').value)||0 : 0;
-        tarifas[veh] = {completo, medio, extra, carrotanque: carro};
+      document.querySelectorAll('.tarjeta-tarifa').forEach(card=>{
+        const veh = card.dataset.vehiculo;
+        const getVal = (campo)=> {
+          const inp = card.querySelector(`input[data-campo="${campo}"]`);
+          return inp ? (parseFloat(inp.value)||0) : 0;
+        };
+        tarifas[veh] = {
+          completo:    getVal('completo'),
+          medio:       getVal('medio'),
+          extra:       getVal('extra'),
+          carrotanque: getVal('carrotanque'),
+        };
       });
       return tarifas;
     }
@@ -421,15 +422,13 @@ if ($empresaFiltro !== "") {
       document.getElementById('total_general').innerText = formatNumber(totalGeneral);
     }
 
-    // Guardar tarifas al cambiar inputs (AJAX)
-    document.querySelectorAll('#tabla_tarifas input').forEach(input=>{
+    // Guardar tarifas (AJAX) con nuevas tarjetas
+    document.querySelectorAll('.tarjeta-tarifa input').forEach(input=>{
       input.addEventListener('change', ()=>{
-        const fila = input.closest('tr');
-        const tipoVehiculo = fila.cells[0].innerText.trim();
+        const card = input.closest('.tarjeta-tarifa');
+        const tipoVehiculo = card.dataset.vehiculo;
         const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
-        const idx = Array.from(fila.cells).findIndex(c=>c.contains(input));
-        const campos = ['completo','medio','extra','carrotanque'];
-        const campo = (tipoVehiculo === 'Carrotanque') ? 'carrotanque' : campos[idx-1];
+        const campo = input.dataset.campo; // completo|medio|extra|carrotanque
         const valor = parseInt(input.value)||0;
 
         fetch(`<?= basename(__FILE__) ?>`, {
