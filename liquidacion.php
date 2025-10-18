@@ -5,24 +5,21 @@ if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); 
 
 /* =======================================================
    🔹 Guardar tarifas por vehículo y empresa (AJAX)
+   (MISMO ENDPOINT, MISMA LÓGICA)
 ======================================================= */
 if (isset($_POST['guardar_tarifa'])) {
   $empresa  = $conn->real_escape_string($_POST['empresa']);
   $vehiculo = $conn->real_escape_string($_POST['tipo_vehiculo']);
   $campo    = $conn->real_escape_string($_POST['campo']);
   $valor    = (int)$_POST['valor'];
-
-  // Crear registro si no existe
   $conn->query("INSERT IGNORE INTO tarifas (empresa, tipo_vehiculo) VALUES ('$empresa', '$vehiculo')");
-
-  // Actualizar el valor específico
   $sql = "UPDATE tarifas SET $campo = $valor WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'";
-  if ($conn->query($sql)) { echo "ok"; } else { echo "error: " . $conn->error; }
+  echo $conn->query($sql) ? "ok" : ("error: ".$conn->error);
   exit;
 }
 
 /* =======================================================
-   🔹 Endpoint AJAX: viajes por conductor
+   🔹 Endpoint AJAX: viajes por conductor (MISMA LÓGICA)
 ======================================================= */
 if (isset($_GET['viajes_conductor'])) {
   $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
@@ -45,7 +42,7 @@ if (isset($_GET['viajes_conductor'])) {
     echo "<div class='table-responsive'><table class='table table-sm table-hover align-middle mb-0'>
             <thead class='table-light sticky-top'>
               <tr class='text-center small text-uppercase'>
-                <th style='min-width:110px'>Fecha</th>
+                <th style='min-width:108px'>Fecha</th>
                 <th>Ruta</th>
                 <th>Empresa</th>
                 <th>Vehículo</th>
@@ -62,13 +59,13 @@ if (isset($_GET['viajes_conductor'])) {
     }
     echo "</tbody></table></div>";
   } else {
-    echo "<div class='text-center text-muted py-3 mb-0'>No se encontraron viajes para este conductor en ese rango.</div>";
+    echo "<div class='text-center text-muted py-3 mb-0'>Sin viajes en el rango.</div>";
   }
   exit;
 }
 
 /* =======================================================
-   🔹 Formulario inicial (si faltan fechas)
+   🔹 Formulario inicial (MISMA LÓGICA)
 ======================================================= */
 if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
   $empresas = [];
@@ -80,33 +77,31 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Liquidación de Conductores</title>
+    <title>Liquidación — Nuevo UI</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-      :root{ --radius:14px; }
-      body{font-family:'Segoe UI',sans-serif;background:#f6f7fb}
-      .glass{background:rgba(255,255,255,.9);backdrop-filter:blur(6px);border:1px solid #eef1f6;border-radius:var(--radius);box-shadow:0 10px 30px rgba(16,24,40,.06)}
+      :root{ --radius:14px; --ink:#0b1220; --bg:#0b0f1a; --surface:#0e1424; --muted:#8a95ad; --ring:#1b2540; --brand:#6ea8fe; }
+      body{font-family:'Inter',system-ui,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:#e8eefc}
+      .glass{background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)); border:1px solid var(--ring); border-radius:var(--radius); box-shadow:0 10px 30px rgba(8,12,20,.55)}
+      .label{color:var(--muted);font-size:.8rem}
     </style>
   </head>
   <body class="container py-5">
-    <div class="glass p-4 mx-auto" style="max-width:680px">
-      <div class="d-flex align-items-center justify-content-between">
-        <h2 class="h4 mb-0">📅 Filtrar viajes por rango</h2>
-        <span class="badge text-bg-primary">ATZN Wuinpumuin</span>
-      </div>
-      <hr class="my-3">
+    <div class="glass p-4 mx-auto" style="max-width:700px">
+      <h2 class="h4">🎛️ Liquidación — Selecciona rango</h2>
+      <p class="label mb-4">Define periodo y (opcional) empresa</p>
       <form method="get" class="row g-3">
         <div class="col-12 col-sm-6">
-          <label class="form-label small">Desde</label>
-          <input type="date" name="desde" class="form-control" required>
+          <label class="label">Desde</label>
+          <input type="date" name="desde" class="form-control form-control-lg bg-dark text-light" required>
         </div>
         <div class="col-12 col-sm-6">
-          <label class="form-label small">Hasta</label>
-          <input type="date" name="hasta" class="form-control" required>
+          <label class="label">Hasta</label>
+          <input type="date" name="hasta" class="form-control form-control-lg bg-dark text-light" required>
         </div>
         <div class="col-12">
-          <label class="form-label small">Empresa</label>
-          <select name="empresa" class="form-select">
+          <label class="label">Empresa</label>
+          <select name="empresa" class="form-select form-select-lg bg-dark text-light">
             <option value="">— Todas —</option>
             <?php foreach($empresas as $e): ?>
               <option value="<?= htmlspecialchars($e) ?>"><?= htmlspecialchars($e) ?></option>
@@ -114,19 +109,17 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
           </select>
         </div>
         <div class="col-12 d-grid d-sm-flex gap-2">
-          <button class="btn btn-primary px-4" type="submit">Aplicar filtros</button>
-          <button class="btn btn-outline-secondary" type="reset">Limpiar</button>
+          <button class="btn btn-primary px-4" type="submit">Continuar</button>
+          <button class="btn btn-outline-light" type="reset">Limpiar</button>
         </div>
       </form>
     </div>
   </body>
   </html>
-  <?php
-  exit;
-}
+  <?php exit; }
 
 /* =======================================================
-   🔹 Cálculo y armado de tablas (misma lógica)
+   🔹 Cálculo y armado de datos (MISMA LÓGICA)
 ======================================================= */
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
@@ -166,272 +159,263 @@ if ($res) {
   }
 }
 
-/* Empresas para el SELECT del header */
 $empresas = [];
 $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
 if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
 
-/* Tarifa guardada en la BD */
 $tarifas_guardadas = [];
 $resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa='$empresaFiltro'");
-if ($resTarifas) {
-  while ($r = $resTarifas->fetch_assoc()) { $tarifas_guardadas[$r['tipo_vehiculo']] = $r; }
-}
+if ($resTarifas) { while ($r = $resTarifas->fetch_assoc()) { $tarifas_guardadas[$r['tipo_vehiculo']] = $r; } }
 ?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Liquidación de Conductores</title>
+  <title>Liquidación — NeoUI</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
     :root{
-      --gap:18px; --box-radius:14px; --card: #ffffff; --bg:#f5f7fb; --ink:#1f2937;
-      --muted:#6b7280; --ring:#e5e7eb; --brand:#0d6efd; --chip:#e9f2ff;
+      --bg:#0b0f1a; --surface:#0e1424; --surface-2:#111937; --ring:#1b2540; --brand:#6ea8fe; --brand-2:#a6c8ff;
+      --text:#e8eefc; --muted:#9fb1d4; --ok:#22c55e; --warn:#fbbf24; --danger:#ef4444; --chip:#0d1229; --radius:16px;
     }
     *{box-sizing:border-box}
-    body{font-family:'Segoe UI',system-ui,-apple-system,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink)}
-    .page{padding:18px}
-    .toolbar{position:sticky;top:0;z-index:1020;background:rgba(245,247,251,.85);backdrop-filter:blur(6px);border-bottom:1px solid var(--ring)}
-    .toolbar .inner{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center}
-    .toolbar-title small{color:var(--muted)}
-    .layout{display:grid;grid-template-columns: 1.2fr 2fr 1.2fr;gap:var(--gap);align-items:start;margin-top:16px}
-    @media (max-width:1200px){ .layout{grid-template-columns:1fr} }
+    html,body{height:100%}
+    body{margin:0;font-family:'Inter',system-ui,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
 
-    .box{background:var(--card);border:1px solid var(--ring);border-radius:var(--box-radius);box-shadow:0 8px 24px rgba(16,24,40,.06)}
-    .box-header{padding:14px 16px;border-bottom:1px solid var(--ring);display:flex;align-items:center;justify-content:space-between}
-    .box-body{padding:12px 16px}
+    /* Header ultra-compacto */
+    .neo-header{position:sticky;top:0;z-index:1100;background:rgba(14,20,36,.8);backdrop-filter:blur(10px);border-bottom:1px solid var(--ring)}
+    .neo-header .inner{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;min-height:56px}
+    .title{display:flex;align-items:center;gap:10px}
+    .title .brand-dot{width:10px;height:10px;border-radius:50%;background:linear-gradient(180deg,var(--brand),var(--brand-2));box-shadow:0 0 0 4px rgba(110,168,254,.15)}
+    .sub{color:var(--muted);font-size:.8rem}
 
-    /* Tabla de tarifas */
-    #tabla_tarifas thead th{position:sticky;top:0;background:#0d6efd;color:#fff;text-transform:uppercase;font-size:.78rem;letter-spacing:.02em}
-    #tabla_tarifas tbody td{vertical-align:middle}
-    .tarifa-input{max-width:150px;text-align:right}
-    .help small{color:var(--muted)}
+    /* Command bar (filtros) */
+    .cmdbar{display:flex;flex-wrap:wrap;gap:8px}
+    .cmdbar .form-control, .cmdbar .form-select{background:var(--surface-2);border-color:var(--ring);color:var(--text)}
+    .cmdbar .btn{border-radius:10px}
 
-    /* Resumen conductores */
-    #tabla_conductores thead th{position:sticky;top:0;background:#0d6efd;color:#fff;text-transform:uppercase;font-size:.78rem}
-    #tabla_conductores td, #tabla_conductores th{white-space:nowrap}
-    .conductor-link{cursor:pointer;color:var(--brand);text-decoration:none}
-    .conductor-link:hover{text-decoration:underline}
-    .chip-total{display:inline-flex;gap:8px;align-items:center;padding:6px 12px;border-radius:999px;background:var(--chip);border:1px solid #d6e6ff;font-weight:700}
+    /* KPI cards */
+    .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:12px 0}
+    @media(max-width:1200px){.kpis{grid-template-columns:repeat(2,1fr)}}
+    .k{background:var(--surface);border:1px solid var(--ring);border-radius:var(--radius);padding:12px}
+    .k .label{color:var(--muted);font-size:.78rem}
+    .k .val{font-weight:800;font-size:1.2rem}
 
-    /* Panel de viajes */
-    #panelViajes{position:sticky;top:78px;max-height:calc(100vh - 100px);overflow:auto}
-    .skeleton{background:linear-gradient(90deg,#f2f4f7 25%,#eaecf0 37%,#f2f4f7 63%);animation:sheen 1.2s infinite;min-height:120px;border-radius:12px}
-    @keyframes sheen {0%{background-position:-200px 0} 100%{background-position:calc(200px + 100%) 0}}
+    /* Layout principal */
+    .layout{display:grid;grid-template-columns: 1.1fr 2fr 1.1fr;gap:14px;align-items:start;padding:14px}
+    @media(max-width:1200px){.layout{grid-template-columns:1fr}}
+    .card-neo{background:var(--surface);border:1px solid var(--ring);border-radius:var(--radius);box-shadow:0 12px 30px rgba(0,0,0,.35)}
+    .card-neo .hdr{padding:12px 14px;border-bottom:1px solid var(--ring);display:flex;align-items:center;justify-content:space-between}
+    .card-neo .body{padding:12px 14px}
 
-    /* Utilidades */
-    .shadow-soft{box-shadow:0 10px 24px rgba(0,0,0,.06)}
     .table-wrap{overflow:auto;border-radius:12px}
-    .table thead th{border:none}
-    .table td{border-top:1px solid #f1f3f6}
+    table thead th{position:sticky;top:0;background:linear-gradient(180deg,#1a2550,#162144);color:#d9e7ff;border:none;text-transform:uppercase;font-size:.75rem}
+    table tbody td{border-top:1px solid #1b2548}
+    .badge{border-radius:999px}
+
+    /* Panel de viajes fijo */
+    #panelViajes{position:sticky;top:70px;max-height:calc(100vh - 90px);overflow:auto}
+
+    /* Editor de tarifas como tarjetas */
+    .tarifa-row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px}
+    .tarifa-row .input-group{background:var(--surface-2);border:1px solid var(--ring);border-radius:12px;overflow:hidden}
+    .veh-pill{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;background:var(--chip);border:1px solid var(--ring)}
+
+    /* FAB */
+    .fab{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:10px;z-index:1200}
+    .fab .btn{border-radius:999px;box-shadow:0 10px 24px rgba(0,0,0,.45)}
   </style>
 </head>
 <body>
-  <div class="page">
-    <!-- Toolbar superior -->
-    <div class="toolbar py-2 px-3">
-      <div class="inner container-fluid">
-        <div class="toolbar-title">
-          <div class="d-flex align-items-center gap-2">
-            <h1 class="h5 mb-0">🪙 Liquidación de Conductores</h1>
-            <span class="badge text-bg-secondary">ATZN Wuinpumuin</span>
-          </div>
-          <small>Periodo: <strong><?= htmlspecialchars($desde) ?></strong> a <strong><?= htmlspecialchars($hasta) ?></strong> <?= $empresaFiltro!==""?" • Empresa: <strong>".htmlspecialchars($empresaFiltro)."</strong>":"" ?></small>
+  <!-- HEADER -->
+  <header class="neo-header">
+    <div class="container-fluid inner">
+      <div class="title">
+        <span class="brand-dot"></span>
+        <div>
+          <div class="fw-bold">Liquidación de Conductores</div>
+          <div class="sub">Periodo <strong><?= htmlspecialchars($desde) ?></strong> → <strong><?= htmlspecialchars($hasta) ?></strong><?= $empresaFiltro!==''?" • Empresa: <strong>".htmlspecialchars($empresaFiltro)."</strong>":'' ?></div>
         </div>
-        <form class="d-flex flex-wrap gap-2 align-items-center" method="get">
-          <input type="date" class="form-control form-control-sm" name="desde" value="<?= htmlspecialchars($desde) ?>" required>
-          <input type="date" class="form-control form-control-sm" name="hasta" value="<?= htmlspecialchars($hasta) ?>" required>
-          <select name="empresa" class="form-select form-select-sm" style="min-width:180px">
-            <option value="">— Todas —</option>
-            <?php foreach($empresas as $e): ?>
-              <option value="<?= htmlspecialchars($e) ?>" <?= $empresaFiltro==$e?'selected':'' ?>><?= htmlspecialchars($e) ?></option>
-            <?php endforeach; ?>
-          </select>
-          <button class="btn btn-primary btn-sm" type="submit">Filtrar</button>
-          <a class="btn btn-outline-secondary btn-sm" href="<?= basename(__FILE__) ?>">Reiniciar</a>
-        </form>
       </div>
+      <div></div>
+      <form class="cmdbar" method="get">
+        <input type="date" class="form-control form-control-sm" name="desde" value="<?= htmlspecialchars($desde) ?>" required>
+        <input type="date" class="form-control form-control-sm" name="hasta" value="<?= htmlspecialchars($hasta) ?>" required>
+        <select name="empresa" class="form-select form-select-sm" style="min-width:160px">
+          <option value="">— Todas —</option>
+          <?php foreach($empresas as $e): ?>
+            <option value="<?= htmlspecialchars($e) ?>" <?= $empresaFiltro==$e?'selected':'' ?>><?= htmlspecialchars($e) ?></option>
+          <?php endforeach; ?>
+        </select>
+        <button class="btn btn-primary btn-sm" type="submit">Aplicar</button>
+        <a class="btn btn-outline-light btn-sm" href="<?= basename(__FILE__) ?>">Reiniciar</a>
+      </form>
     </div>
+  </header>
 
-    <!-- Layout 3 columnas -->
-    <div class="layout container-fluid mt-3">
-      <!-- Col 1: Tarifas -->
-      <section class="box shadow-soft">
-        <div class="box-header">
-          <h2 class="h6 mb-0">🚐 Tarifas por tipo de vehículo</h2>
-          <div class="help"><small>Los cambios se guardan y recalculan al instante</small></div>
-        </div>
-        <div class="box-body table-wrap">
-          <table id="tabla_tarifas" class="table table-sm align-middle mb-0">
-            <thead>
-              <tr class="text-center">
-                <th>Tipo de Vehículo</th>
-                <th>Completo</th>
-                <th>Medio</th>
-                <th>Extra</th>
-                <th>Carrotanque</th>
+  <!-- KPIs -->
+  <div class="container-fluid kpis">
+    <div class="k"><div class="label">Conductores</div><div id="k_conductores" class="val">0</div></div>
+    <div class="k"><div class="label">Viajes (total)</div><div id="k_viajes" class="val">0</div></div>
+    <div class="k"><div class="label">Total General</div><div id="k_total" class="val">$ 0</div></div>
+    <div class="k"><div class="label">Promedio / Conductor</div><div id="k_prom" class="val">$ 0</div></div>
+  </div>
+
+  <!-- LAYOUT 3 COLUMNAS -->
+  <main class="layout container-fluid">
+    <!-- 1) Tarifas -->
+    <section class="card-neo">
+      <div class="hdr"><span class="fw-semibold">⚙️ Tarifas por vehículo</span><span class="sub">Autoguarda y recalcula</span></div>
+      <div class="body">
+        <?php foreach ($vehiculos as $veh): $t = $tarifas_guardadas[$veh] ?? ["completo"=>0,"medio"=>0,"extra"=>0,"carrotanque"=>0]; ?>
+          <div class="mb-3">
+            <div class="veh-pill mb-2"><strong><?= htmlspecialchars($veh) ?></strong></div>
+            <div class="tarifa-row">
+              <?php if ($veh === 'Carrotanque'): ?>
+                <div class="input-group input-group-sm">
+                  <span class="input-group-text">Carrotanque $</span>
+                  <input type="number" step="1000" min="0" value="<?= (int)$t['carrotanque'] ?>" class="form-control tarifa-input" oninput="recalcular()">
+                </div>
+                <div class="form-text text-secondary">Completo/Medio/Extra no aplican</div>
+              <?php else: ?>
+                <div class="input-group input-group-sm">
+                  <span class="input-group-text">Completo $</span>
+                  <input type="number" step="1000" min="0" value="<?= (int)$t['completo'] ?>" class="form-control tarifa-input" oninput="recalcular()">
+                </div>
+                <div class="input-group input-group-sm">
+                  <span class="input-group-text">Medio $</span>
+                  <input type="number" step="1000" min="0" value="<?= (int)$t['medio'] ?>" class="form-control tarifa-input" oninput="recalcular()">
+                </div>
+                <div class="input-group input-group-sm">
+                  <span class="input-group-text">Extra $</span>
+                  <input type="number" step="1000" min="0" value="<?= (int)$t['extra'] ?>" class="form-control tarifa-input" oninput="recalcular()">
+                </div>
+                <div class="input-group input-group-sm disabled">
+                  <span class="input-group-text">Carrotanque</span>
+                  <input class="form-control" value="—" disabled>
+                </div>
+              <?php endif; ?>
+            </div>
+          </div>
+          <hr class="border-secondary-subtle">
+        <?php endforeach; ?>
+      </div>
+    </section>
+
+    <!-- 2) Resumen conductores -->
+    <section class="card-neo">
+      <div class="hdr"><span class="fw-semibold">🧑‍✈️ Resumen por Conductor</span><span class="sub">Haz clic para ver detalle</span></div>
+      <div class="body table-wrap">
+        <table id="tabla_conductores" class="table table-sm align-middle mb-0">
+          <thead>
+            <tr class="text-center">
+              <th>Conductor</th>
+              <th>Vehículo</th>
+              <th>Comp.</th>
+              <th>Med.</th>
+              <th>Ext.</th>
+              <th>Carro.</th>
+              <th style="min-width:150px">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php foreach ($datos as $conductor => $viajes): ?>
+              <tr data-vehiculo="<?= htmlspecialchars($viajes['vehiculo']) ?>">
+                <td><a class="conductor-link" data-nombre="<?= htmlspecialchars($conductor) ?>"><?= htmlspecialchars($conductor) ?></a></td>
+                <td><span class="badge text-bg-secondary"><?= htmlspecialchars($viajes['vehiculo']) ?></span></td>
+                <td class="text-center fw-semibold"><?= (int)$viajes['completos'] ?></td>
+                <td class="text-center fw-semibold"><?= (int)$viajes['medios'] ?></td>
+                <td class="text-center fw-semibold"><?= (int)$viajes['extras'] ?></td>
+                <td class="text-center fw-semibold"><?= (int)$viajes['carrotanques'] ?></td>
+                <td><input type="text" class="form-control form-control-sm text-end totales" readonly></td>
               </tr>
-            </thead>
-            <tbody>
-              <?php foreach ($vehiculos as $veh): $t = $tarifas_guardadas[$veh] ?? ["completo"=>0,"medio"=>0,"extra"=>0,"carrotanque"=>0]; ?>
-                <tr>
-                  <td class="fw-semibold"><?= htmlspecialchars($veh) ?></td>
-                  <?php if ($veh === "Carrotanque"): ?>
-                    <td class="text-center text-muted">—</td>
-                    <td class="text-center text-muted">—</td>
-                    <td class="text-center text-muted">—</td>
-                    <td>
-                      <div class="input-group input-group-sm">
-                        <span class="input-group-text">$</span>
-                        <input type="number" step="1000" min="0" value="<?= (int)$t['carrotanque'] ?>" class="form-control tarifa-input" inputmode="numeric" oninput="recalcular()">
-                      </div>
-                    </td>
-                  <?php else: ?>
-                    <?php $valC = (int)$t['completo']; $valM=(int)$t['medio']; $valE=(int)$t['extra']; ?>
-                    <td>
-                      <div class="input-group input-group-sm">
-                        <span class="input-group-text">$</span>
-                        <input type="number" step="1000" min="0" value="<?= $valC ?>" class="form-control tarifa-input" oninput="recalcular()">
-                      </div>
-                    </td>
-                    <td>
-                      <div class="input-group input-group-sm">
-                        <span class="input-group-text">$</span>
-                        <input type="number" step="1000" min="0" value="<?= $valM ?>" class="form-control tarifa-input" oninput="recalcular()">
-                      </div>
-                    </td>
-                    <td>
-                      <div class="input-group input-group-sm">
-                        <span class="input-group-text">$</span>
-                        <input type="number" step="1000" min="0" value="<?= $valE ?>" class="form-control tarifa-input" oninput="recalcular()">
-                      </div>
-                    </td>
-                    <td class="text-center text-muted">—</td>
-                  <?php endif; ?>
-                </tr>
-              <?php endforeach; ?>
-            </tbody>
-          </table>
-        </div>
-      </section>
+            <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
-      <!-- Col 2: Resumen Conductores -->
-      <section class="box shadow-soft">
-        <div class="box-header">
-          <h2 class="h6 mb-0">🧑‍✈️ Resumen por Conductor</h2>
-          <div class="chip-total small">🔢 Total General: <span id="total_general" class="ms-1">0</span></div>
-        </div>
-        <div class="box-body table-wrap">
-          <table id="tabla_conductores" class="table table-sm align-middle mb-0">
-            <thead>
-              <tr class="text-center">
-                <th>Conductor</th>
-                <th>Vehículo</th>
-                <th title="Viajes completos">Comp.</th>
-                <th title="Viajes medios">Med.</th>
-                <th title="Viajes extra">Ext.</th>
-                <th>Carro.</th>
-                <th style="min-width:140px">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              <?php foreach ($datos as $conductor => $viajes): ?>
-                <tr data-vehiculo="<?= htmlspecialchars($viajes['vehiculo']) ?>">
-                  <td>
-                    <a class="conductor-link" data-nombre="<?= htmlspecialchars($conductor) ?>"><?= htmlspecialchars($conductor) ?></a>
-                  </td>
-                  <td><span class="badge text-bg-secondary"><?= htmlspecialchars($viajes['vehiculo']) ?></span></td>
-                  <td class="text-center fw-semibold"><?= (int)$viajes['completos'] ?></td>
-                  <td class="text-center fw-semibold"><?= (int)$viajes['medios'] ?></td>
-                  <td class="text-center fw-semibold"><?= (int)$viajes['extras'] ?></td>
-                  <td class="text-center fw-semibold"><?= (int)$viajes['carrotanques'] ?></td>
-                  <td>
-                    <input type="text" class="form-control form-control-sm text-end totales" readonly>
-                  </td>
-                </tr>
-              <?php endforeach; ?>
-            </tbody>
-          </table>
-        </div>
-      </section>
+    <!-- 3) Panel de viajes -->
+    <aside class="card-neo" id="panelViajes">
+      <div class="hdr"><span class="fw-semibold">🧳 Viajes del conductor</span><span class="sub">Carga bajo demanda</span></div>
+      <div class="body" id="contenidoPanel"><div class="text-secondary">Selecciona un conductor…</div></div>
+    </aside>
+  </main>
 
-      <!-- Col 3: Panel de viajes -->
-      <aside class="box shadow-soft" id="panelViajes">
-        <div class="box-header">
-          <h2 class="h6 mb-0">🧳 Viajes del conductor</h2>
-          <span class="text-muted small">Haz clic en un nombre</span>
-        </div>
-        <div class="box-body" id="contenidoPanel">
-          <div class="skeleton w-100"></div>
-        </div>
-      </aside>
-    </div>
+  <!-- FAB acciones -->
+  <div class="fab">
+    <button class="btn btn-primary btn-lg" onclick="window.scrollTo({top:0,behavior:'smooth'})">⬆️</button>
+    <button class="btn btn-outline-light btn-lg" onclick="exportarCSV()">⬇️ CSV</button>
   </div>
 
   <!-- Toasts -->
-  <div class="position-fixed bottom-0 end-0 p-3" style="z-index:1080">
+  <div class="position-fixed bottom-0 end-0 p-3" style="z-index:1300">
     <div id="toastOk" class="toast align-items-center text-bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
-      <div class="d-flex">
-        <div class="toast-body">Tarifa guardada y totales actualizados.</div>
-        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-      </div>
+      <div class="d-flex"><div class="toast-body">Tarifa guardada.</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>
     </div>
     <div id="toastErr" class="toast align-items-center text-bg-danger border-0" role="alert" aria-live="assertive" aria-atomic="true">
-      <div class="d-flex">
-        <div class="toast-body">No se pudo guardar la tarifa. Revisa la conexión.</div>
-        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-      </div>
+      <div class="d-flex"><div class="toast-body">Error al guardar tarifa.</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>
     </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
-    // ===== Helpers =====
-    function formatNumber(num){ return (num||0).toLocaleString('es-CO'); }
-
+    // ===== Helpers
+    const money = n => (n||0).toLocaleString('es-CO');
     function getTarifas(){
       const tarifas = {};
-      document.querySelectorAll('#tabla_tarifas tbody tr').forEach(row=>{
-        const veh = row.cells[0].innerText.trim();
-        const completo = row.cells[1]?.querySelector('input') ? parseFloat(row.cells[1].querySelector('input').value)||0 : 0;
-        const medio    = row.cells[2]?.querySelector('input') ? parseFloat(row.cells[2].querySelector('input').value)||0 : 0;
-        const extra    = row.cells[3]?.querySelector('input') ? parseFloat(row.cells[3].querySelector('input').value)||0 : 0;
-        const carro    = row.cells[4]?.querySelector('input') ? parseFloat(row.cells[4].querySelector('input').value)||0 : 0;
-        tarifas[veh] = {completo, medio, extra, carrotanque: carro};
+      // Recorre tarjetas en orden; cada bloque tiene 4 input-group (según veh)
+      document.querySelectorAll('.card-neo .body .veh-pill').forEach(pill=>{
+        const cont = pill.parentElement; // bloque del vehículo
+        const veh = pill.textContent.trim();
+        const inputs = cont.querySelectorAll('.tarifa-row input');
+        const vals = Array.from(inputs).map(i=>parseFloat(i.value)||0);
+        // Mapeo dependiendo de si es Carrotanque
+        if (/Carrotanque/i.test(veh)) {
+          tarifas[veh] = {completo:0, medio:0, extra:0, carrotanque:(vals[0]||0)};
+        } else {
+          tarifas[veh] = {completo:(vals[0]||0), medio:(vals[1]||0), extra:(vals[2]||0), carrotanque:0};
+        }
       });
       return tarifas;
     }
 
     function recalcular(){
       const tarifas = getTarifas();
-      const filas = document.querySelectorAll('#tabla_conductores tbody tr');
-      let totalGeneral = 0;
-      filas.forEach(f=>{
-        const veh = f.dataset.vehiculo;
-        const c = parseInt(f.cells[2].innerText)||0;
-        const m = parseInt(f.cells[3].innerText)||0;
-        const e = parseInt(f.cells[4].innerText)||0;
-        const ca = parseInt(f.cells[5].innerText)||0;
+      let totalGeneral = 0, totalViajes = 0, conductores = 0;
+      document.querySelectorAll('#tabla_conductores tbody tr').forEach(row=>{
+        conductores++;
+        const veh = row.dataset.vehiculo;
+        const c = parseInt(row.cells[2].innerText)||0;
+        const m = parseInt(row.cells[3].innerText)||0;
+        const e = parseInt(row.cells[4].innerText)||0;
+        const ca = parseInt(row.cells[5].innerText)||0;
+        totalViajes += (c+m+e+ca);
         const t = tarifas[veh] || {completo:0,medio:0,extra:0,carrotanque:0};
         const totalFila = c*t.completo + m*t.medio + e*t.extra + ca*t.carrotanque;
-        const inputTotal = f.querySelector('input.totales');
-        if (inputTotal) inputTotal.value = formatNumber(totalFila);
+        row.querySelector('input.totales').value = money(totalFila);
         totalGeneral += totalFila;
       });
-      document.getElementById('total_general').innerText = formatNumber(totalGeneral);
+      // KPIs
+      document.getElementById('k_conductores').innerText = conductores;
+      document.getElementById('k_viajes').innerText = totalViajes;
+      document.getElementById('k_total').innerText = '$ ' + money(totalGeneral);
+      document.getElementById('k_prom').innerText = '$ ' + money(conductores? totalGeneral/conductores:0);
     }
 
-    // ===== Guardar tarifa on-change con feedback =====
-    document.querySelectorAll('#tabla_tarifas input').forEach(input=>{
+    // Guardado inline con feedback
+    document.querySelectorAll('.tarifa-input').forEach(input=>{
       input.addEventListener('change',()=>{
-        const fila = input.closest('tr');
-        const tipoVehiculo = fila.cells[0].innerText.trim();
+        const block = input.closest('.mb-3');
+        const tipoVehiculo = block.querySelector('.veh-pill').textContent.trim();
         const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
-        const idx = Array.from(fila.cells).findIndex(c=>c.contains(input));
-        const campos = ['completo','medio','extra','carrotanque'];
-        const campo = (idx===1? 'completo' : idx===2? 'medio' : idx===3? 'extra' : 'carrotanque');
+        // Deducir campo por etiqueta
+        const label = input.previousElementSibling?.innerText.toLowerCase() || '';
+        let campo = 'completo';
+        if (label.includes('medio')) campo = 'medio';
+        else if (label.includes('extra')) campo = 'extra';
+        else if (label.includes('carrotanque')) campo = 'carrotanque';
         const valor = parseInt(input.value)||0;
 
         fetch('<?= basename(__FILE__) ?>',{
@@ -440,33 +424,42 @@ if ($resTarifas) {
           body:new URLSearchParams({guardar_tarifa:1, empresa, tipo_vehiculo:tipoVehiculo, campo, valor})
         })
         .then(r=>r.text())
-        .then(t=>{
-          if (t.trim()==='ok') { new bootstrap.Toast(document.getElementById('toastOk')).show(); recalcular(); }
-          else { console.error('Error guardando tarifa:', t); new bootstrap.Toast(document.getElementById('toastErr')).show(); }
-        })
+        .then(t=>{ if(t.trim()==='ok'){ new bootstrap.Toast(document.getElementById('toastOk')).show(); recalcular(); } else { console.error(t); new bootstrap.Toast(document.getElementById('toastErr')).show(); } })
         .catch(()=> new bootstrap.Toast(document.getElementById('toastErr')).show());
       });
     });
 
-    // ===== Cargar viajes en el panel lateral =====
+    // Cargar detalle de viajes
     function cargarViajes(nombre){
       const panel = document.getElementById('contenidoPanel');
-      panel.innerHTML = '<div class="skeleton w-100"></div>';
-      const desde = '<?= htmlspecialchars($desde) ?>';
-      const hasta = '<?= htmlspecialchars($hasta) ?>';
-      const empresa = '<?= htmlspecialchars($empresaFiltro) ?>';
+      panel.innerHTML = '<div class="text-secondary">Cargando…</div>';
+      const desde='<?= htmlspecialchars($desde) ?>', hasta='<?= htmlspecialchars($hasta) ?>', empresa='<?= htmlspecialchars($empresaFiltro) ?>';
       fetch('<?= basename(__FILE__) ?>?viajes_conductor='+encodeURIComponent(nombre)+'&desde='+desde+'&hasta='+hasta+'&empresa='+encodeURIComponent(empresa))
-        .then(r=>r.text())
-        .then(html=>{ panel.innerHTML = html; })
-        .catch(()=>{ panel.innerHTML = '<div class="text-danger">No se pudieron cargar los viajes.</div>'; });
+        .then(r=>r.text()).then(html=> panel.innerHTML = html)
+        .catch(()=> panel.innerHTML = '<div class="text-danger">No se pudo cargar.</div>');
     }
+    document.querySelectorAll('.conductor-link').forEach(a=> a.addEventListener('click',()=> cargarViajes(a.dataset.nombre)));
 
-    document.querySelectorAll('.conductor-link').forEach(a=>{
-      a.addEventListener('click',()=> cargarViajes(a.dataset.nombre));
-    });
+    // Export CSV rápido del resumen
+    function exportarCSV(){
+      const rows = [['Conductor','Vehículo','Completos','Medios','Extras','Carrotanques','Total']];
+      document.querySelectorAll('#tabla_conductores tbody tr').forEach(r=>{
+        rows.push([
+          r.querySelector('.conductor-link').textContent.trim(),
+          r.cells[1].innerText.trim(), r.cells[2].innerText.trim(), r.cells[3].innerText.trim(),
+          r.cells[4].innerText.trim(), r.cells[5].innerText.trim(), r.querySelector('input.totales').value
+        ]);
+      });
+      const csv = rows.map(a=>a.map(s=>`"${s.replaceAll('"','""')}"`).join(',')).join('
+');
+      const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = Object.assign(document.createElement('a'), {href:url, download:'liquidacion_resumen.csv'});
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    }
+    window.exportarCSV = exportarCSV;
 
-    // Primera carga: pinta esqueleto y calcula totales
-    document.getElementById('contenidoPanel').innerHTML = '<div class="text-muted">Selecciona un conductor para ver sus viajes aquí.</div>';
+    // Primera pintura
     recalcular();
   </script>
 </body>
