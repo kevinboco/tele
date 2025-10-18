@@ -165,43 +165,75 @@ if ($resTarifas) {
 <title>Liquidación de Conductores</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <style>
-  :root{ --gap:18px; --box-radius:14px; }
-  body{font-family:'Segoe UI',sans-serif;background:#eef2f6;color:#333;padding:20px}
-  .page-title{background:#fff;border-radius:var(--box-radius);padding:12px 16px;margin-bottom:var(--gap);box-shadow:0 2px 8px rgba(0,0,0,.05);text-align:center;}
+  :root{ --gap:18px; --box-radius:16px; }
+  body{font-family:'Inter', 'Segoe UI',sans-serif;background:#F3F6FB;color:#0f172a;padding:22px}
+  .page-title{background:#fff;border-radius:var(--box-radius);padding:12px 16px;margin-bottom:var(--gap);box-shadow:0 6px 24px rgba(16,24,40,.06);text-align:center;}
   .layout{display:grid;grid-template-columns:1fr 2fr 1.2fr;gap:var(--gap);align-items:start;}
   @media (max-width:1200px){.layout{grid-template-columns:1fr;}}
-  .box{border-radius:var(--box-radius);box-shadow:0 2px 10px rgba(0,0,0,.06);padding:14px;background:#fff;}
-  table{background:#fff;border-radius:10px;overflow:hidden}
+  .box{border-radius:var(--box-radius);box-shadow:0 8px 32px rgba(16,24,40,.06);padding:16px;background:#fff;border:1px solid #E7EEF7}
+  table{background:#fff;border-radius:12px;overflow:hidden}
   th{background:#0d6efd;color:#fff;text-align:center;padding:10px}
-  td{text-align:center;padding:8px;border-bottom:1px solid #eee}
-  input[type=number],input[readonly]{width:100%;max-width:160px;padding:6px;border:1px solid #ced4da;border-radius:8px;text-align:right}
+  td{text-align:center;padding:8px;border-bottom:1px solid #eef2f6}
+  input[type=number],input[readonly]{width:100%;max-width:160px;padding:6px;border:1px solid #d8e2f0;border-radius:10px;text-align:right;background:#fff}
   .conductor-link{cursor:pointer;color:#0d6efd;text-decoration:underline;}
-  .total-chip{display:inline-block;padding:6px 12px;border-radius:999px;background:#e9f2ff;color:#0d6efd;font-weight:700;border:1px solid #d6e6ff;margin-bottom:8px;float:right;}
-  form .form-label{font-weight:600;color:#333;}
-  form input,form select{border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,0.05);}
-  form button{border-radius:10px;}
+  .total-chip{display:inline-block;padding:6px 12px;border-radius:999px;background:#EEF4FF;color:#1d4ed8;font-weight:700;border:1px solid #DBE7FF;margin-bottom:8px;float:right;}
+  form .form-label{font-weight:700;color:#111827;}
+  form input,form select{border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,0.04);border:1px solid #d8e2f0}
+  form button{border-radius:12px}
 
-  /* ======== NUEVO: tarjetas de tarifas (estilo imagen) ======== */
-  .tarifas-header{display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem}
-  .tarifas-header h3{margin:0;font-weight:700}
+  /* ======== NUEVO: tarjetas de tarifas (look más pulido) ======== */
+  .tarifas-header{display:flex;align-items:center;gap:.6rem;margin-bottom:1rem}
+  .tarifas-header h3{margin:0;font-weight:800;font-size:1.6rem}
   .tarifas-grid{display:flex;flex-direction:column;gap:18px}
-  .vehiculo-card{border:1px solid #e9edf3;background:#fff;border-radius:16px;padding:18px 20px;box-shadow:0 4px 16px rgba(15,23,42,.06)}
-  .vehiculo-title{display:inline-block;font-weight:800;background:#eef2f7;border:1px solid #dde6f1;color:#0f172a;border-radius:12px;padding:6px 14px;margin-bottom:10px;font-size:1.15rem}
-  .vehiculo-sub{color:#6b7280;margin-bottom:10px}
-  .tarifa-rows{display:grid;grid-template-columns:repeat(3,1fr);gap:28px}
-  .tarifa-item{display:flex;flex-direction:column;gap:4px}
-  .tarifa-label{font-weight:600;color:#6b7280}
-  .tarifa-input{border:none;border-bottom:2px solid #eef2f6;border-radius:0;background:transparent;padding:4px 0;font-size:1.8rem;font-weight:800;color:#0f172a;outline:none;text-align:left}
-  .tarifa-input:focus{border-bottom-color:#7c3aed}
-  /* Carrotanque: una sola fila */
-  .carro-line{display:flex;justify-content:space-between;align-items:center}
-  .carro-name{font-size:1.05rem;color:#374151}
-  .carro-input{min-width:180px;text-align:right}
-  @media (max-width:700px){
-    .tarifa-rows{grid-template-columns:1fr}
-    .carro-line{flex-direction:column;align-items:flex-start;gap:8px}
-    .carro-input{min-width:0;width:100%}
+
+  .vehiculo-card{
+    border:1px solid #E7EEF7;background:#fff;border-radius:22px;padding:22px 22px;
+    box-shadow:0 14px 36px rgba(15,23,42,.08); position:relative;
   }
+  .vehiculo-title{
+    display:inline-block;font-weight:900;background:#EFF4FB;border:1px solid #DFE8F4;
+    color:#0f172a;border-radius:16px;padding:10px 18px;margin-bottom:14px;font-size:1.15rem;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.6);
+  }
+  .vehiculo-sub{color:#6b7280;margin-bottom:12px}
+
+  /* Inputs NUM grandes con caja */
+  .numbox{
+    appearance: textfield;
+    width: 100%;
+    background:#fff;
+    border:1.5px solid #E3EAF4;
+    box-shadow: 0 4px 10px rgba(15,23,42,.04), inset 0 1px 0 #fff;
+    border-radius:14px;
+    padding:14px 16px;
+    font-size:2rem; line-height:1; font-weight:900; letter-spacing:.5px;
+    color:#0f172a; text-align:right;
+    transition: border-color .18s ease, box-shadow .18s ease, transform .06s ease;
+  }
+  .numbox:focus{
+    outline:none; border-color:#7C3AED;
+    box-shadow:0 0 0 4px rgba(124,58,237,.12), 0 8px 20px rgba(16,24,40,.08);
+    transform: translateY(-1px);
+  }
+  .numbox::-webkit-outer-spin-button,.numbox::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0;}
+
+  /* Grid de 3 campos */
+  .tarifa-rows{display:grid;grid-template-columns:repeat(3,1fr);gap:26px}
+  .tarifa-item{display:flex;flex-direction:column;gap:8px}
+  .tarifa-label{font-weight:800;color:#6b7280;font-size:1.05rem}
+
+  /* Carrotanque: layout 2 columnas (nombre izquierda, valor derecha) */
+  .carro-wrap{display:grid;grid-template-columns:1fr 320px;gap:26px;align-items:center}
+  .carro-name{font-size:1.06rem;color:#374151}
+
+  @media (max-width:880px){
+    .tarifa-rows{grid-template-columns:1fr}
+    .carro-wrap{grid-template-columns:1fr}
+  }
+
+  /* Sección filtro: título con ícono y tipografía */
+  .filter-title{display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem}
+  .filter-title h5{margin:0;font-size:1.35rem;font-weight:800}
 </style>
 </head>
 <body>
@@ -218,22 +250,22 @@ if ($resTarifas) {
 
 <div class="layout">
   <section class="box">
-    <!-- ======= TÍTULO similar a la imagen ======= -->
+    <!-- ======= TÍTULO ======= -->
     <div class="tarifas-header">
-      <span style="font-size:1.4rem">🚐</span>
-      <h3 class="m-0">Tarifas por vehículo</h3>
+      <span style="font-size:1.5rem">🚐</span>
+      <h3>Tarifas por vehículo</h3>
     </div>
 
-    <!-- ======= TARJETAS DE TARIFAS (reemplaza la tabla) ======= -->
+    <!-- ======= TARJETAS DE TARIFAS MEJORADAS ======= -->
     <div id="tarifas_cards" class="tarifas-grid">
       <?php foreach ($vehiculos as $veh):
         $t = $tarifas_guardadas[$veh] ?? ["completo"=>0,"medio"=>0,"extra"=>0,"carrotanque"=>0];
         if ($veh === "Carrotanque"): ?>
           <div class="vehiculo-card" data-vehiculo="<?= htmlspecialchars($veh) ?>">
             <span class="vehiculo-title">Carrotanque</span>
-            <div class="carro-line">
+            <div class="carro-wrap">
               <div class="carro-name">Carrotanque</div>
-              <input type="number" step="1000" class="tarifa-input carro-input"
+              <input type="number" step="1000" class="numbox"
                      data-campo="carrotanque" value="<?= (int)$t['carrotanque'] ?>">
             </div>
           </div>
@@ -243,17 +275,17 @@ if ($resTarifas) {
             <div class="tarifa-rows">
               <div class="tarifa-item">
                 <span class="tarifa-label">Completo</span>
-                <input type="number" step="1000" class="tarifa-input"
+                <input type="number" step="1000" class="numbox"
                        data-campo="completo" value="<?= (int)$t['completo'] ?>">
               </div>
               <div class="tarifa-item">
                 <span class="tarifa-label">Medio</span>
-                <input type="number" step="1000" class="tarifa-input"
+                <input type="number" step="1000" class="numbox"
                        data-campo="medio" value="<?= (int)$t['medio'] ?>">
               </div>
               <div class="tarifa-item">
                 <span class="tarifa-label">Extra</span>
-                <input type="number" step="1000" class="tarifa-input"
+                <input type="number" step="1000" class="numbox"
                        data-campo="extra" value="<?= (int)$t['extra'] ?>">
               </div>
             </div>
@@ -262,9 +294,12 @@ if ($resTarifas) {
       <?php endforeach; ?>
     </div>
 
-    <!-- ======= Filtro (se mantiene igual) ======= -->
+    <!-- ======= Filtro ======= -->
     <section class="box mt-3">
-      <h5 class="text-center mb-3">📅 Filtro de Liquidación</h5>
+      <div class="filter-title">
+        <span style="font-size:1.2rem">🗓️</span>
+        <h5>Filtro de Liquidación</h5>
+      </div>
       <form class="row g-3 justify-content-center" method="get">
         <div class="col-md-3">
           <label class="form-label mb-1">Desde:</label>
@@ -331,8 +366,7 @@ function getTarifas(){
   const tarifas = {};
   document.querySelectorAll('#tarifas_cards .vehiculo-card').forEach(card=>{
     const veh = card.getAttribute('data-vehiculo').trim();
-    const inputs = card.querySelectorAll('input.tarifa-input');
-    // inicializa
+    const inputs = card.querySelectorAll('input.numbox');
     tarifas[veh] = {completo:0, medio:0, extra:0, carrotanque:0};
     inputs.forEach(inp=>{
       const campo = inp.dataset.campo;
@@ -362,8 +396,8 @@ function recalcular(){
   document.getElementById('total_general').innerText=formatNumber(totalGeneral);
 }
 
-/* Guardado AJAX por cambio, manteniendo tu endpoint */
-document.querySelectorAll('#tarifas_cards input.tarifa-input').forEach(input=>{
+/* Guardado AJAX */
+document.querySelectorAll('#tarifas_cards input.numbox').forEach(input=>{
   input.addEventListener('change',()=>{
     const card = input.closest('.vehiculo-card');
     const tipoVehiculo = card.getAttribute('data-vehiculo').trim();
