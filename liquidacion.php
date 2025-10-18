@@ -9,10 +9,10 @@ if ($conn->connect_error) {
    🔹 Guardar tarifas por vehículo y empresa (AJAX)
 ======================================================= */
 if (isset($_POST['guardar_tarifa'])) {
-    $empresa = $conn->real_escape_string($_POST['empresa']);
+    $empresa  = $conn->real_escape_string($_POST['empresa']);
     $vehiculo = $conn->real_escape_string($_POST['tipo_vehiculo']);
-    $campo = $conn->real_escape_string($_POST['campo']);
-    $valor = (int)$_POST['valor'];
+    $campo    = $conn->real_escape_string($_POST['campo']); // completo|medio|extra|carrotanque
+    $valor    = (int)$_POST['valor'];
 
     $conn->query("INSERT IGNORE INTO tarifas (empresa, tipo_vehiculo) VALUES ('$empresa', '$vehiculo')");
     $sql = "UPDATE tarifas SET $campo = $valor WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'";
@@ -40,66 +40,87 @@ if (isset($_GET['viajes_conductor'])) {
     $sql .= " ORDER BY fecha ASC";
 
     $res = $conn->query($sql);
+
     if ($res && $res->num_rows > 0) {
-        echo "<table class='table table-bordered table-striped mb-0'>
-                <thead>
-                  <tr class='table-primary text-center'>
-                    <th>Fecha</th>
-                    <th>Ruta</th>
-                    <th>Empresa</th>
-                    <th>Vehículo</th>
-                  </tr>
-                </thead>
-                <tbody>";
+        // Tabla Tailwind
+        echo "<div class='overflow-x-auto'>
+                <table class='min-w-full text-sm text-left'>
+                  <thead class='bg-blue-600 text-white'>
+                    <tr>
+                      <th class='px-3 py-2 text-center'>Fecha</th>
+                      <th class='px-3 py-2 text-center'>Ruta</th>
+                      <th class='px-3 py-2 text-center'>Empresa</th>
+                      <th class='px-3 py-2 text-center'>Vehículo</th>
+                    </tr>
+                  </thead>
+                  <tbody class='divide-y divide-gray-100 bg-white'>";
         while ($r = $res->fetch_assoc()) {
-            echo "<tr>
-                    <td>".htmlspecialchars($r['fecha'])."</td>
-                    <td>".htmlspecialchars($r['ruta'])."</td>
-                    <td>".htmlspecialchars($r['empresa'])."</td>
-                    <td>".htmlspecialchars($r['tipo_vehiculo'])."</td>
+            echo "<tr class='hover:bg-blue-50 transition-colors'>
+                    <td class='px-3 py-2 text-center'>".htmlspecialchars($r['fecha'])."</td>
+                    <td class='px-3 py-2 text-center'>".htmlspecialchars($r['ruta'])."</td>
+                    <td class='px-3 py-2 text-center'>".htmlspecialchars($r['empresa'])."</td>
+                    <td class='px-3 py-2 text-center'>".htmlspecialchars($r['tipo_vehiculo'])."</td>
                   </tr>";
         }
-        echo "</tbody></table>";
+        echo "  </tbody>
+               </table>
+              </div>";
     } else {
-        echo "<p class='text-center text-muted mb-0'>No se encontraron viajes para este conductor en ese rango.</p>";
+        echo "<p class='text-center text-gray-500'>No se encontraron viajes para este conductor en ese rango.</p>";
     }
     exit;
 }
 
 /* =======================================================
-   🔹 Formulario inicial
+   🔹 Formulario inicial (si no hay rango)
 ======================================================= */
 if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
     $empresas = [];
     $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
     if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
     ?>
-    <style>
-      body{font-family:'Segoe UI',sans-serif;background:#f8f9fa;color:#333;padding:40px}
-      .card{max-width:460px;margin:0 auto}
-    </style>
-    <div class="card shadow-sm">
-      <div class="card-body">
-        <h2 class="text-center mb-3">📅 Filtrar viajes por rango de fechas</h2>
-        <form method="get" class="vstack gap-3">
-          <label class="form-label">Desde:
-            <input type="date" name="desde" class="form-control" required>
-          </label>
-          <label class="form-label">Hasta:
-            <input type="date" name="hasta" class="form-control" required>
-          </label>
-          <label class="form-label">Empresa:
-            <select name="empresa" class="form-select">
-              <option value="">-- Todas --</option>
-              <?php foreach($empresas as $e): ?>
-                <option value="<?= htmlspecialchars($e) ?>"><?= htmlspecialchars($e) ?></option>
-              <?php endforeach; ?>
-            </select>
-          </label>
-          <button class="btn btn-primary w-100" type="submit">Filtrar</button>
-        </form>
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+      <title>Filtrar viajes</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="min-h-screen bg-slate-100 text-slate-800">
+      <div class="max-w-lg mx-auto p-6">
+        <div class="bg-white shadow-sm rounded-2xl p-6 border border-slate-200">
+          <h2 class="text-2xl font-bold text-center mb-2">📅 Filtrar viajes por rango</h2>
+          <p class="text-center text-slate-500 mb-6">Selecciona el periodo y (opcional) una empresa.</p>
+          <form method="get" class="space-y-4">
+            <label class="block">
+              <span class="block text-sm font-medium mb-1">Desde</span>
+              <input type="date" name="desde" required
+                     class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"/>
+            </label>
+            <label class="block">
+              <span class="block text-sm font-medium mb-1">Hasta</span>
+              <input type="date" name="hasta" required
+                     class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"/>
+            </label>
+            <label class="block">
+              <span class="block text-sm font-medium mb-1">Empresa</span>
+              <select name="empresa"
+                      class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
+                <option value="">-- Todas --</option>
+                <?php foreach($empresas as $e): ?>
+                  <option value="<?= htmlspecialchars($e) ?>"><?= htmlspecialchars($e) ?></option>
+                <?php endforeach; ?>
+              </select>
+            </label>
+            <button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow hover:bg-blue-700 active:bg-blue-800 focus:ring-4 focus:ring-blue-200 transition">
+              Filtrar
+            </button>
+          </form>
+        </div>
       </div>
-    </div>
+    </body>
+    </html>
     <?php
     exit;
 }
@@ -151,10 +172,12 @@ $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT
 if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
 
 $tarifas_guardadas = [];
-$resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa='$empresaFiltro'");
-if ($resTarifas) {
-  while ($r = $resTarifas->fetch_assoc()) {
-    $tarifas_guardadas[$r['tipo_vehiculo']] = $r;
+if ($empresaFiltro !== "") {
+  $resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa='$empresaFiltro'");
+  if ($resTarifas) {
+    while ($r = $resTarifas->fetch_assoc()) {
+      $tarifas_guardadas[$r['tipo_vehiculo']] = $r;
+    }
   }
 }
 ?>
@@ -162,193 +185,274 @@ if ($resTarifas) {
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Liquidación de Conductores</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
 <style>
-  :root{ --gap:18px; --box-radius:14px; }
-  body{font-family:'Segoe UI',sans-serif;background:#eef2f6;color:#333;padding:20px}
-  .page-title{background:#fff;border-radius:var(--box-radius);padding:12px 16px;margin-bottom:var(--gap);box-shadow:0 2px 8px rgba(0,0,0,.05);text-align:center;}
-  .layout{display:grid;grid-template-columns:1fr 2fr 1.2fr;gap:var(--gap);align-items:start;}
-  @media (max-width:1200px){.layout{grid-template-columns:1fr;}}
-  .box{border-radius:var(--box-radius);box-shadow:0 2px 10px rgba(0,0,0,.06);padding:14px;background:#fff;}
-  table{background:#fff;border-radius:10px;overflow:hidden}
-  th{background:#0d6efd;color:#fff;text-align:center;padding:10px}
-  td{text-align:center;padding:8px;border-bottom:1px solid #eee}
-  input[type=number],input[readonly]{width:100%;max-width:160px;padding:6px;border:1px solid #ced4da;border-radius:8px;text-align:right}
-  .conductor-link{cursor:pointer;color:#0d6efd;text-decoration:underline;}
-  .total-chip{display:inline-block;padding:6px 12px;border-radius:999px;background:#e9f2ff;color:#0d6efd;font-weight:700;border:1px solid #d6e6ff;margin-bottom:8px;float:right;}
-  form .form-label{font-weight:600;color:#333;}
-  form input,form select{border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,0.05);}
-  form button{border-radius:10px;}
+  /* scroll sutil */
+  ::-webkit-scrollbar{height:10px;width:10px}
+  ::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:999px}
+  ::-webkit-scrollbar-thumb:hover{background:#9ca3af}
+  /* inputs num sin flechas (webkit) */
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button{ -webkit-appearance: none; margin: 0; }
 </style>
 </head>
-<body>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
 
-<div class="page-title">
-  <h2>🪙 Liquidación de Conductores</h2>
-  <div class="header-sub">
-    Periodo: <strong><?= htmlspecialchars($desde) ?></strong> hasta <strong><?= htmlspecialchars($hasta) ?></strong>
-    <?php if ($empresaFiltro !== ""): ?>
-      &nbsp;•&nbsp; Empresa: <strong><?= htmlspecialchars($empresaFiltro) ?></strong>
-    <?php endif; ?>
-  </div>
-</div>
-
-<div class="layout">
-  <section class="box">
-    <h3 class="text-center">🚐 Tarifas por Tipo de Vehículo</h3>
-    <table id="tabla_tarifas" class="table mb-0">
-      <thead>
-        <tr>
-          <th>Tipo de Vehículo</th>
-          <th>Viaje Completo</th>
-          <th>Viaje Medio</th>
-          <th>Viaje Extra</th>
-          <th>Carrotanque</th>
-        </tr>
-      </thead>
-      <tbody>
-      <?php foreach ($vehiculos as $veh):
-        $t = $tarifas_guardadas[$veh] ?? ["completo"=>0,"medio"=>0,"extra"=>0,"carrotanque"=>0];
-      ?>
-        <tr>
-          <td><?= htmlspecialchars($veh) ?></td>
-          <?php if ($veh === "Carrotanque"): ?>
-            <td>-</td><td>-</td><td>-</td>
-            <td><input type="number" step="1000" value="<?= $t['carrotanque'] ?>" oninput="recalcular()"></td>
-          <?php else: ?>
-            <td><input type="number" step="1000" value="<?= $t['completo'] ?>" oninput="recalcular()"></td>
-            <td><input type="number" step="1000" value="<?= $t['medio'] ?>" oninput="recalcular()"></td>
-            <td><input type="number" step="1000" value="<?= $t['extra'] ?>" oninput="recalcular()"></td>
-            <td>-</td>
+  <!-- Encabezado -->
+  <header class="max-w-7xl mx-auto px-4 pt-6">
+    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm px-5 py-4">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <h2 class="text-xl md:text-2xl font-bold">🪙 Liquidación de Conductores</h2>
+        <div class="text-sm text-slate-600">
+          Periodo:
+          <strong><?= htmlspecialchars($desde) ?></strong> &rarr;
+          <strong><?= htmlspecialchars($hasta) ?></strong>
+          <?php if ($empresaFiltro !== ""): ?>
+            <span class="mx-2">•</span> Empresa: <strong><?= htmlspecialchars($empresaFiltro) ?></strong>
           <?php endif; ?>
-        </tr>
-      <?php endforeach; ?>
-      </tbody>
-    </table>
+        </div>
+      </div>
+    </div>
+  </header>
 
-    <section class="box mt-3">
-      <h5 class="text-center mb-3">📅 Filtro de Liquidación</h5>
-      <form class="row g-3 justify-content-center" method="get">
-        <div class="col-md-3">
-          <label class="form-label mb-1">Desde:</label>
-          <input type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" class="form-control" required>
+  <!-- Contenido -->
+  <main class="max-w-7xl mx-auto px-4 py-6">
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-5 items-start">
+
+      <!-- Columna 1: Tarifas + Filtro -->
+      <section class="space-y-5">
+        <!-- Tarifas -->
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+          <h3 class="text-lg font-semibold text-center mb-3">🚐 Tarifas por Tipo de Vehículo</h3>
+          <div class="overflow-x-auto rounded-xl border border-slate-200">
+            <table id="tabla_tarifas" class="min-w-full text-sm">
+              <thead class="bg-blue-600 text-white">
+                <tr>
+                  <th class="px-3 py-2 text-left">Tipo de Vehículo</th>
+                  <th class="px-3 py-2 text-center">Viaje Completo</th>
+                  <th class="px-3 py-2 text-center">Viaje Medio</th>
+                  <th class="px-3 py-2 text-center">Viaje Extra</th>
+                  <th class="px-3 py-2 text-center">Carrotanque</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100 bg-white">
+              <?php foreach ($vehiculos as $veh):
+                $t = $tarifas_guardadas[$veh] ?? ["completo"=>0,"medio"=>0,"extra"=>0,"carrotanque"=>0];
+              ?>
+                <tr class="hover:bg-blue-50/40 transition-colors">
+                  <td class="px-3 py-2 font-medium"><?= htmlspecialchars($veh) ?></td>
+                  <?php if ($veh === "Carrotanque"): ?>
+                    <td class="px-3 py-2 text-center text-slate-400">—</td>
+                    <td class="px-3 py-2 text-center text-slate-400">—</td>
+                    <td class="px-3 py-2 text-center text-slate-400">—</td>
+                    <td class="px-3 py-2">
+                      <input type="number" step="1000" value="<?= (int)$t['carrotanque'] ?>"
+                             class="w-full max-w-[160px] ml-auto rounded-xl border border-slate-300 px-3 py-2 text-right outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
+                             oninput="recalcular()">
+                    </td>
+                  <?php else: ?>
+                    <td class="px-3 py-2">
+                      <input type="number" step="1000" value="<?= (int)$t['completo'] ?>"
+                             class="w-full max-w-[160px] ml-auto rounded-xl border border-slate-300 px-3 py-2 text-right outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
+                             oninput="recalcular()">
+                    </td>
+                    <td class="px-3 py-2">
+                      <input type="number" step="1000" value="<?= (int)$t['medio'] ?>"
+                             class="w-full max-w-[160px] ml-auto rounded-xl border border-slate-300 px-3 py-2 text-right outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
+                             oninput="recalcular()">
+                    </td>
+                    <td class="px-3 py-2">
+                      <input type="number" step="1000" value="<?= (int)$t['extra'] ?>"
+                             class="w-full max-w-[160px] ml-auto rounded-xl border border-slate-300 px-3 py-2 text-right outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
+                             oninput="recalcular()">
+                    </td>
+                    <td class="px-3 py-2 text-center text-slate-400">—</td>
+                  <?php endif; ?>
+                </tr>
+              <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
         </div>
-        <div class="col-md-3">
-          <label class="form-label mb-1">Hasta:</label>
-          <input type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" class="form-control" required>
+
+        <!-- Filtro (re-filtrar) -->
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+          <h5 class="text-base font-semibold text-center mb-4">📅 Filtro de Liquidación</h5>
+          <form class="grid grid-cols-1 md:grid-cols-4 gap-3" method="get">
+            <label class="block md:col-span-1">
+              <span class="block text-sm font-medium mb-1">Desde</span>
+              <input type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" required
+                     class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
+            </label>
+            <label class="block md:col-span-1">
+              <span class="block text-sm font-medium mb-1">Hasta</span>
+              <input type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" required
+                     class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
+            </label>
+            <label class="block md:col-span-1">
+              <span class="block text-sm font-medium mb-1">Empresa</span>
+              <select name="empresa"
+                      class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
+                <option value="">-- Todas --</option>
+                <?php foreach($empresas as $e): ?>
+                  <option value="<?= htmlspecialchars($e) ?>" <?= $empresaFiltro==$e?'selected':'' ?>>
+                    <?= htmlspecialchars($e) ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+            </label>
+            <div class="md:col-span-1 flex items-end">
+              <button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow hover:bg-blue-700 active:bg-blue-800 focus:ring-4 focus:ring-blue-200 transition">
+                Filtrar
+              </button>
+            </div>
+          </form>
         </div>
-        <div class="col-md-3">
-          <label class="form-label mb-1">Empresa:</label>
-          <select name="empresa" class="form-select">
-            <option value="">-- Todas --</option>
-            <?php foreach($empresas as $e): ?>
-              <option value="<?= htmlspecialchars($e) ?>" <?= $empresaFiltro==$e?'selected':'' ?>>
-                <?= htmlspecialchars($e) ?>
-              </option>
+      </section>
+
+      <!-- Columna 2: Resumen por conductor -->
+      <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+        <div class="flex items-center justify-between gap-3">
+          <h3 class="text-lg font-semibold">🧑‍✈️ Resumen por Conductor</h3>
+          <span id="total_chip_container"
+                class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-700 font-semibold text-sm">
+            🔢 Total General: <span id="total_general">0</span>
+          </span>
+        </div>
+
+        <div class="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+          <table id="tabla_conductores" class="min-w-full text-sm">
+            <thead class="bg-blue-600 text-white">
+              <tr>
+                <th class="px-3 py-2 text-left">Conductor</th>
+                <th class="px-3 py-2 text-center">Tipo Vehículo</th>
+                <th class="px-3 py-2 text-center">Completos</th>
+                <th class="px-3 py-2 text-center">Medios</th>
+                <th class="px-3 py-2 text-center">Extras</th>
+                <th class="px-3 py-2 text-center">Carrotanques</th>
+                <th class="px-3 py-2 text-center">Total</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 bg-white">
+            <?php foreach ($datos as $conductor => $viajes): ?>
+              <tr data-vehiculo="<?= htmlspecialchars($viajes['vehiculo']) ?>" class="hover:bg-blue-50/40 transition-colors">
+                <td class="px-3 py-2">
+                  <button type="button"
+                          class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition"
+                          title="Ver viajes">
+                    <?= htmlspecialchars($conductor) ?>
+                  </button>
+                </td>
+                <td class="px-3 py-2 text-center"><?= htmlspecialchars($viajes['vehiculo']) ?></td>
+                <td class="px-3 py-2 text-center"><?= (int)$viajes["completos"] ?></td>
+                <td class="px-3 py-2 text-center"><?= (int)$viajes["medios"] ?></td>
+                <td class="px-3 py-2 text-center"><?= (int)$viajes["extras"] ?></td>
+                <td class="px-3 py-2 text-center"><?= (int)$viajes["carrotanques"] ?></td>
+                <td class="px-3 py-2">
+                  <input type="text" class="totales w-full max-w-[180px] mx-auto rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none"
+                         readonly>
+                </td>
+              </tr>
             <?php endforeach; ?>
-          </select>
+            </tbody>
+          </table>
         </div>
-        <div class="col-md-2 align-self-end">
-          <button class="btn btn-primary w-100" type="submit">Filtrar</button>
+      </section>
+
+      <!-- Columna 3: Panel viajes -->
+      <aside class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+        <h4 class="text-base font-semibold mb-3">🧳 Viajes</h4>
+        <div id="contenidoPanel"
+             class="min-h-[220px] rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600 flex items-center justify-center">
+          <p class="m-0 text-center">Selecciona un conductor para ver sus viajes aquí.</p>
         </div>
-      </form>
-    </section>
-  </section>
+      </aside>
 
-  <section class="box">
-    <h3 class="text-center">🧑‍✈️ Resumen por Conductor
-      <span id="total_chip_container" class="total-chip">🔢 Total General: <span id="total_general">0</span></span>
-    </h3>
+    </div>
+  </main>
 
-    <table id="tabla_conductores" class="table">
-      <thead>
-        <tr>
-          <th>Conductor</th><th>Tipo Vehículo</th><th>Completos</th><th>Medios</th><th>Extras</th><th>Carrotanques</th><th>Total</th>
-        </tr>
-      </thead>
-      <tbody>
-      <?php foreach ($datos as $conductor => $viajes): ?>
-        <tr data-vehiculo="<?= htmlspecialchars($viajes['vehiculo']) ?>">
-          <td class="conductor-link"><?= htmlspecialchars($conductor) ?></td>
-          <td><?= htmlspecialchars($viajes['vehiculo']) ?></td>
-          <td><?= (int)$viajes["completos"] ?></td>
-          <td><?= (int)$viajes["medios"] ?></td>
-          <td><?= (int)$viajes["extras"] ?></td>
-          <td><?= (int)$viajes["carrotanques"] ?></td>
-          <td><input type="text" class="totales form-control" readonly></td>
-        </tr>
-      <?php endforeach; ?>
-      </tbody>
-    </table>
-  </section>
+  <script>
+    function getTarifas(){
+      const tarifas = {};
+      document.querySelectorAll('#tabla_tarifas tbody tr').forEach(row=>{
+        const veh = row.cells[0].innerText.trim();
+        const completo = row.cells[1]?.querySelector('input') ? parseFloat(row.cells[1].querySelector('input').value)||0 : 0;
+        const medio    = row.cells[2]?.querySelector('input') ? parseFloat(row.cells[2].querySelector('input').value)||0 : 0;
+        const extra    = row.cells[3]?.querySelector('input') ? parseFloat(row.cells[3].querySelector('input').value)||0 : 0;
+        const carro    = row.cells[4]?.querySelector('input') ? parseFloat(row.cells[4].querySelector('input').value)||0 : 0;
+        tarifas[veh] = {completo, medio, extra, carrotanque: carro};
+      });
+      return tarifas;
+    }
 
-  <aside class="box" id="panelViajes">
-    <h4>🧳 Viajes</h4>
-    <div id="contenidoPanel"><p class="text-muted mb-0">Selecciona un conductor para ver sus viajes aquí.</p></div>
-  </aside>
-</div>
+    function formatNumber(num){ return (num||0).toLocaleString('es-CO'); }
 
-<script>
-function getTarifas(){
-  const tarifas = {};
-  document.querySelectorAll('#tabla_tarifas tbody tr').forEach(row=>{
-    const veh = row.cells[0].innerText.trim();
-    const completo = row.cells[1].querySelector('input')?parseFloat(row.cells[1].querySelector('input').value)||0:0;
-    const medio = row.cells[2].querySelector('input')?parseFloat(row.cells[2].querySelector('input').value)||0:0;
-    const extra = row.cells[3].querySelector('input')?parseFloat(row.cells[3].querySelector('input').value)||0:0;
-    const carro = row.cells[4].querySelector('input')?parseFloat(row.cells[4].querySelector('input').value)||0:0;
-    tarifas[veh] = {completo, medio, extra, carrotanque:carro};
-  });
-  return tarifas;
-}
-function formatNumber(num){return(num||0).toLocaleString('es-CO');}
-function recalcular(){
-  const tarifas=getTarifas();
-  const filas=document.querySelectorAll('#tabla_conductores tbody tr');
-  let totalGeneral=0;
-  filas.forEach(f=>{
-    const veh=f.dataset.vehiculo;
-    const c=parseInt(f.cells[2].innerText)||0;
-    const m=parseInt(f.cells[3].innerText)||0;
-    const e=parseInt(f.cells[4].innerText)||0;
-    const ca=parseInt(f.cells[5].innerText)||0;
-    const t=tarifas[veh]||{completo:0,medio:0,extra:0,carrotanque:0};
-    const totalFila=c*t.completo+m*t.medio+e*t.extra+ca*t.carrotanque;
-    const inputTotal=f.querySelector('input.totales');
-    if(inputTotal)inputTotal.value=formatNumber(totalFila);
-    totalGeneral+=totalFila;
-  });
-  document.getElementById('total_general').innerText=formatNumber(totalGeneral);
-}
-document.querySelectorAll('#tabla_tarifas input').forEach(input=>{
-  input.addEventListener('change',()=>{
-    const fila=input.closest('tr');
-    const tipoVehiculo=fila.cells[0].innerText.trim();
-    const empresa="<?= htmlspecialchars($empresaFiltro) ?>";
-    const campoIndex=Array.from(fila.cells).findIndex(c=>c.contains(input));
-    const campos=['completo','medio','extra','carrotanque'];
-    const campo=campos[campoIndex-1]||campos[campoIndex]||'completo';
-    const valor=parseInt(input.value)||0;
-    fetch(`<?= basename(__FILE__) ?>`,{
-      method:'POST',
-      headers:{'Content-Type':'application/x-www-form-urlencoded'},
-      body:new URLSearchParams({guardar_tarifa:1,empresa,tipo_vehiculo:tipoVehiculo,campo,valor})
-    }).then(r=>r.text()).then(t=>{if(t.trim()!=='ok')console.error('Error guardando tarifa:',t);recalcular();});
-  });
-});
-document.querySelectorAll('.conductor-link').forEach(td=>{
-  td.addEventListener('click',()=>{
-    const nombre=td.innerText.trim();
-    const desde="<?= htmlspecialchars($desde) ?>";
-    const hasta="<?= htmlspecialchars($hasta) ?>";
-    const empresa="<?= htmlspecialchars($empresaFiltro) ?>";
-    document.getElementById('contenidoPanel').innerHTML="<p class='text-center'>Cargando...</p>";
-    fetch(`<?= basename(__FILE__) ?>?viajes_conductor=${encodeURIComponent(nombre)}&desde=${desde}&hasta=${hasta}&empresa=${encodeURIComponent(empresa)}`)
-    .then(r=>r.text()).then(html=>{document.getElementById('contenidoPanel').innerHTML=html;});
-  });
-});
-recalcular();
-</script>
+    function recalcular(){
+      const tarifas = getTarifas();
+      const filas = document.querySelectorAll('#tabla_conductores tbody tr');
+      let totalGeneral = 0;
+      filas.forEach(f=>{
+        const veh = f.dataset.vehiculo;
+        const c = parseInt(f.cells[2].innerText)||0;
+        const m = parseInt(f.cells[3].innerText)||0;
+        const e = parseInt(f.cells[4].innerText)||0;
+        const ca = parseInt(f.cells[5].innerText)||0;
+        const t = tarifas[veh] || {completo:0,medio:0,extra:0,carrotanque:0};
+        const totalFila = c*t.completo + m*t.medio + e*t.extra + ca*t.carrotanque;
+        const inputTotal = f.querySelector('input.totales');
+        if (inputTotal) inputTotal.value = formatNumber(totalFila);
+        totalGeneral += totalFila;
+      });
+      document.getElementById('total_general').innerText = formatNumber(totalGeneral);
+    }
+
+    // Guardar tarifas al cambiar inputs (AJAX)
+    document.querySelectorAll('#tabla_tarifas input').forEach(input=>{
+      input.addEventListener('change', ()=>{
+        const fila = input.closest('tr');
+        const tipoVehiculo = fila.cells[0].innerText.trim();
+        const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
+        // mapear campo según columna
+        const idx = Array.from(fila.cells).findIndex(c=>c.contains(input));
+        const campos = ['completo','medio','extra','carrotanque'];
+        // Si la fila es Carrotanque, el input está en la columna 4 (idx=4) -> 'carrotanque'
+        const campo = (tipoVehiculo === 'Carrotanque') ? 'carrotanque' : campos[idx-1];
+        const valor = parseInt(input.value)||0;
+
+        fetch(`<?= basename(__FILE__) ?>`, {
+          method:'POST',
+          headers:{'Content-Type':'application/x-www-form-urlencoded'},
+          body:new URLSearchParams({guardar_tarifa:1, empresa, tipo_vehiculo:tipoVehiculo, campo, valor})
+        })
+        .then(r=>r.text())
+        .then(t=>{
+          if (t.trim() !== 'ok') console.error('Error guardando tarifa:', t);
+          recalcular();
+        });
+      });
+    });
+
+    // Click en conductor → carga viajes en panel (AJAX)
+    document.querySelectorAll('.conductor-link').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const nombre = btn.textContent.trim();
+        const desde  = "<?= htmlspecialchars($desde) ?>";
+        const hasta  = "<?= htmlspecialchars($hasta) ?>";
+        const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
+        const panel = document.getElementById('contenidoPanel');
+        panel.innerHTML = "<p class='text-center animate-pulse'>Cargando…</p>";
+
+        fetch(`<?= basename(__FILE__) ?>?viajes_conductor=${encodeURIComponent(nombre)}&desde=${desde}&hasta=${hasta}&empresa=${encodeURIComponent(empresa)}`)
+          .then(r=>r.text())
+          .then(html=>{ panel.innerHTML = html; });
+      });
+    });
+
+    // Primer cálculo
+    recalcular();
+  </script>
+
 </body>
-</html> 
+</html>
