@@ -175,11 +175,11 @@ $url_pago = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago
     <span>Mapa</span>
   </a>
 
-  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/prueba.php?view=graph" title="Mapa préstamos">
-    <img src="https://img.icons8.com/color/48/share-3.png" alt="Mapa">
-    <span>Mapa</span>
+  <!-- Nuevo: Pago -->
+  <a class="rail-item" href="<?= $url_pago ?>" title="Pago">
+    <img src="https://img.icons8.com/color/48/paid.png" alt="Pago">
+    <span>Pago</span>
   </a>
-
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/admin_prestamos.php?view=cards" title="Editar préstamos">
     <img src="https://img.icons8.com/color/48/edit-file.png" alt="Editar">
     <span>Editar</span>
