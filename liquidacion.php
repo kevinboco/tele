@@ -5,12 +5,17 @@ if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); 
 
 /* =======================================================
    🔹 Guardar tarifas por vehículo y empresa (AJAX)
+   (ahora soporta el campo 'siapana')
 ======================================================= */
 if (isset($_POST['guardar_tarifa'])) {
     $empresa  = $conn->real_escape_string($_POST['empresa']);
     $vehiculo = $conn->real_escape_string($_POST['tipo_vehiculo']);
-    $campo    = $conn->real_escape_string($_POST['campo']); // completo|medio|extra|carrotanque
+    $campo    = $conn->real_escape_string($_POST['campo']); // completo|medio|extra|carrotanque|siapana
     $valor    = (int)$_POST['valor'];
+
+    // ⚠️ Recomendado: validar $campo contra allowlist
+    $allow = ['completo','medio','extra','carrotanque','siapana'];
+    if (!in_array($campo, $allow, true)) { echo "error: campo inválido"; exit; }
 
     $conn->query("INSERT IGNORE INTO tarifas (empresa, tipo_vehiculo) VALUES ('$empresa', '$vehiculo')");
     $sql = "UPDATE tarifas SET $campo = $valor WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'";
@@ -147,13 +152,21 @@ if ($res) {
         $guiones  = substr_count($ruta, '-');
 
         if (!isset($datos[$nombre])) {
-            $datos[$nombre] = ["vehiculo"=>$vehiculo,"completos"=>0,"medios"=>0,"extras"=>0,"carrotanques"=>0];
+            // ahora con 'siapana'
+            $datos[$nombre] = ["vehiculo"=>$vehiculo,"completos"=>0,"medios"=>0,"extras"=>0,"carrotanques"=>0,"siapana"=>0];
         }
         if (!in_array($vehiculo, $vehiculos, true)) $vehiculos[] = $vehiculo;
 
+        // 1) Carrotanque "puro"
         if ($vehiculo === "Carrotanque" && $guiones == 0) {
             $datos[$nombre]["carrotanques"]++;
-        } elseif (stripos($ruta, "Maicao") === false) {
+        }
+        // 2) Si la ruta menciona Siapana → cuenta como 'siapana' (tarifa especial)
+        elseif (stripos($ruta, "Siapana") !== false) {
+            $datos[$nombre]["siapana"]++;
+        }
+        // 3) Resto de reglas previas
+        elseif (stripos($ruta, "Maicao") === false) {
             $datos[$nombre]["extras"]++;
         } elseif ($guiones == 2) {
             $datos[$nombre]["completos"]++;
@@ -193,7 +206,7 @@ if ($empresaFiltro !== "") {
   input[type=number]::-webkit-outer-spin-button{ -webkit-appearance: none; margin: 0; }
 </style>
 </head>
-<body class="bg-slate-100 text-slate-800 min-h-screen">
+<body class="bg-slate-100 min-h-screen text-slate-800">
 
   <!-- Encabezado -->
   <header class="max-w-[1600px] mx-auto px-3 md:px-4 pt-6">
@@ -214,13 +227,12 @@ if ($empresaFiltro !== "") {
 
   <!-- Contenido -->
   <main class="max-w-[1600px] mx-auto px-3 md:px-4 py-6">
-    <!-- Centro muy ancho -->
     <div class="grid grid-cols-1 xl:grid-cols-[1fr_2.6fr_0.9fr] gap-5 items-start">
 
       <!-- Columna 1: Tarifas + Filtro -->
       <section class="space-y-5">
 
-        <!-- 🔥 NUEVO: Tarjetas individuales de tarifas -->
+        <!-- Tarjetas de tarifas (con SIAPANA) -->
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
           <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
             <span>🚐 Tarifas por Tipo de Vehículo</span>
@@ -228,7 +240,8 @@ if ($empresaFiltro !== "") {
 
           <div id="tarifas_grid" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <?php foreach ($vehiculos as $veh):
-              $t = $tarifas_guardadas[$veh] ?? ["completo"=>0,"medio"=>0,"extra"=>0,"carrotanque"=>0];
+              // si no hay registro guardado, ponemos 0; añadimos 'siapana'
+              $t = $tarifas_guardadas[$veh] ?? ["completo"=>0,"medio"=>0,"extra"=>0,"carrotanque"=>0,"siapana"=>0];
             ?>
             <div class="tarjeta-tarifa rounded-2xl border border-slate-200 p-4 shadow-sm bg-slate-50"
                  data-vehiculo="<?= htmlspecialchars($veh) ?>">
@@ -239,17 +252,24 @@ if ($empresaFiltro !== "") {
               </div>
 
               <?php if ($veh === "Carrotanque"): ?>
-                <label class="block">
+                <label class="block mb-3">
                   <span class="block text-sm font-medium mb-1">Carrotanque</span>
-                  <input type="number" step="1000" value="<?= (int)$t['carrotanque'] ?>"
+                  <input type="number" step="1000" value="<?= (int)($t['carrotanque'] ?? 0) ?>"
                          data-campo="carrotanque"
+                         class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
+                         oninput="recalcular()">
+                </label>
+                <label class="block">
+                  <span class="block text-sm font-medium mb-1">Siapana</span>
+                  <input type="number" step="1000" value="<?= (int)($t['siapana'] ?? 0) ?>"
+                         data-campo="siapana"
                          class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
                          oninput="recalcular()">
                 </label>
               <?php else: ?>
                 <label class="block mb-3">
                   <span class="block text-sm font-medium mb-1">Viaje Completo</span>
-                  <input type="number" step="1000" value="<?= (int)$t['completo'] ?>"
+                  <input type="number" step="1000" value="<?= (int)($t['completo'] ?? 0) ?>"
                          data-campo="completo"
                          class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
                          oninput="recalcular()">
@@ -257,16 +277,24 @@ if ($empresaFiltro !== "") {
 
                 <label class="block mb-3">
                   <span class="block text-sm font-medium mb-1">Viaje Medio</span>
-                  <input type="number" step="1000" value="<?= (int)$t['medio'] ?>"
+                  <input type="number" step="1000" value="<?= (int)($t['medio'] ?? 0) ?>"
                          data-campo="medio"
                          class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
                          oninput="recalcular()">
                 </label>
 
-                <label class="block">
+                <label class="block mb-3">
                   <span class="block text-sm font-medium mb-1">Viaje Extra</span>
-                  <input type="number" step="1000" value="<?= (int)$t['extra'] ?>"
+                  <input type="number" step="1000" value="<?= (int)($t['extra'] ?? 0) ?>"
                          data-campo="extra"
+                         class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
+                         oninput="recalcular()">
+                </label>
+
+                <label class="block">
+                  <span class="block text-sm font-medium mb-1">Siapana</span>
+                  <input type="number" step="1000" value="<?= (int)($t['siapana'] ?? 0) ?>"
+                         data-campo="siapana"
                          class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
                          oninput="recalcular()">
                 </label>
@@ -311,7 +339,7 @@ if ($empresaFiltro !== "") {
         </div>
       </section>
 
-      <!-- Columna 2: Resumen por conductor (MUY ancha, sin cortes) -->
+      <!-- Columna 2: Resumen por conductor (ahora con Siapana) -->
       <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
         <div class="flex items-center justify-between gap-3">
           <h3 class="text-lg font-semibold">🧑‍✈️ Resumen por Conductor</h3>
@@ -324,13 +352,14 @@ if ($empresaFiltro !== "") {
         <div class="mt-4 w-full rounded-xl border border-slate-200">
           <table id="tabla_conductores" class="w-full text-sm table-fixed">
             <colgroup>
-              <col style="width:28%">
-              <col style="width:16%">
+              <col style="width:26%">
+              <col style="width:14%">
               <col style="width:8%">
               <col style="width:8%">
               <col style="width:8%">
-              <col style="width:10%">
-              <col style="width:22%">
+              <col style="width:8%">  <!-- Siapana -->
+              <col style="width:8%">
+              <col style="width:20%">
             </colgroup>
             <thead class="bg-blue-600 text-white">
               <tr>
@@ -339,6 +368,7 @@ if ($empresaFiltro !== "") {
                 <th class="px-3 py-2 text-center">Completos</th>
                 <th class="px-3 py-2 text-center">Medios</th>
                 <th class="px-3 py-2 text-center">Extras</th>
+                <th class="px-3 py-2 text-center">Siapana</th>
                 <th class="px-3 py-2 text-center">Carrotanques</th>
                 <th class="px-3 py-2 text-center">Total</th>
               </tr>
@@ -357,6 +387,7 @@ if ($empresaFiltro !== "") {
                 <td class="px-3 py-2 text-center"><?= (int)$viajes["completos"] ?></td>
                 <td class="px-3 py-2 text-center"><?= (int)$viajes["medios"] ?></td>
                 <td class="px-3 py-2 text-center"><?= (int)$viajes["extras"] ?></td>
+                <td class="px-3 py-2 text-center"><?= (int)$viajes["siapana"] ?></td>
                 <td class="px-3 py-2 text-center"><?= (int)$viajes["carrotanques"] ?></td>
                 <td class="px-3 py-2">
                   <input type="text"
@@ -387,15 +418,16 @@ if ($empresaFiltro !== "") {
       const tarifas = {};
       document.querySelectorAll('.tarjeta-tarifa').forEach(card=>{
         const veh = card.dataset.vehiculo;
-        const getVal = (campo)=> {
-          const inp = card.querySelector(`input[data-campo="${campo}"]`);
-          return inp ? (parseFloat(inp.value)||0) : 0;
+        const val = (campo)=>{
+          const el = card.querySelector(`input[data-campo="${campo}"]`);
+          return el ? (parseFloat(el.value)||0) : 0;
         };
         tarifas[veh] = {
-          completo:    getVal('completo'),
-          medio:       getVal('medio'),
-          extra:       getVal('extra'),
-          carrotanque: getVal('carrotanque'),
+          completo:    val('completo'),
+          medio:       val('medio'),
+          extra:       val('extra'),
+          carrotanque: val('carrotanque'),
+          siapana:     val('siapana')
         };
       });
       return tarifas;
@@ -409,26 +441,27 @@ if ($empresaFiltro !== "") {
       let totalGeneral = 0;
       filas.forEach(f=>{
         const veh = f.dataset.vehiculo;
-        const c = parseInt(f.cells[2].innerText)||0;
-        const m = parseInt(f.cells[3].innerText)||0;
-        const e = parseInt(f.cells[4].innerText)||0;
-        const ca = parseInt(f.cells[5].innerText)||0;
-        const t = tarifas[veh] || {completo:0,medio:0,extra:0,carrotanque:0};
-        const totalFila = c*t.completo + m*t.medio + e*t.extra + ca*t.carrotanque;
-        const inputTotal = f.querySelector('input.totales');
-        if (inputTotal) inputTotal.value = formatNumber(totalFila);
+        const c  = parseInt(f.cells[2].innerText)||0;
+        const m  = parseInt(f.cells[3].innerText)||0;
+        const e  = parseInt(f.cells[4].innerText)||0;
+        const s  = parseInt(f.cells[5].innerText)||0; // siapana
+        const ca = parseInt(f.cells[6].innerText)||0;
+        const t  = tarifas[veh] || {completo:0,medio:0,extra:0,carrotanque:0,siapana:0};
+        const totalFila = c*t.completo + m*t.medio + e*t.extra + s*t.siapana + ca*t.carrotanque;
+        const inp = f.querySelector('input.totales');
+        if (inp) inp.value = formatNumber(totalFila);
         totalGeneral += totalFila;
       });
       document.getElementById('total_general').innerText = formatNumber(totalGeneral);
     }
 
-    // Guardar tarifas (AJAX) con nuevas tarjetas
+    // Guardar tarifas AJAX (incluye 'siapana')
     document.querySelectorAll('.tarjeta-tarifa input').forEach(input=>{
       input.addEventListener('change', ()=>{
         const card = input.closest('.tarjeta-tarifa');
         const tipoVehiculo = card.dataset.vehiculo;
         const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
-        const campo = input.dataset.campo; // completo|medio|extra|carrotanque
+        const campo = input.dataset.campo; // completo|medio|extra|carrotanque|siapana
         const valor = parseInt(input.value)||0;
 
         fetch(`<?= basename(__FILE__) ?>`, {
@@ -444,7 +477,7 @@ if ($empresaFiltro !== "") {
       });
     });
 
-    // Click en conductor → carga viajes en panel (AJAX)
+    // Click en conductor → carga viajes (AJAX)
     document.querySelectorAll('.conductor-link').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const nombre = btn.textContent.trim();
