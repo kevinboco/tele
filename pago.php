@@ -3,6 +3,9 @@ include("nav.php");
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
 if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); }
 
+/* Helpers */
+function mbnorm($s){ return mb_strtolower(trim((string)$s), 'UTF-8'); }
+
 /* ================== Form si faltan fechas ================== */
 if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
   $empresas = [];
@@ -41,7 +44,7 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
 /* ========== Cargar datos del rango y empresa ========== */
 $desde = $_GET['desde']; $hasta = $_GET['hasta']; $empresaFiltro = $_GET['empresa'] ?? "";
 
-/* Viajes del rango */
+/* Viajes del rango (mismo cómputo que Liquidación: completos/medios/extras/siapana/carrotanque) */
 $sqlV = "SELECT nombre, ruta, empresa, tipo_vehiculo
          FROM viajes
          WHERE fecha BETWEEN '$desde' AND '$hasta'";
@@ -51,8 +54,8 @@ if ($empresaFiltro !== "") {
 }
 $res = $conn->query($sqlV);
 
-$datos = [];      // por conductor: contadores y vehiculo
-$vehiculos = [];  // set de vehiculos para traer tarifas
+$datos = [];      // por conductor
+$vehiculos = [];
 if ($res) {
   while ($row = $res->fetch_assoc()) {
     $nombre   = $row['nombre'];
@@ -79,29 +82,40 @@ if ($res) {
   }
 }
 
-/* Empresas para el filtro del header */
-$empresas = [];
-$resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
-if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
-
-/* Tarifas de la empresa (si hay) */
+/* Tarifas guardadas por vehículo para la empresa */
 $tarifas_guardadas = [];
 if ($empresaFiltro !== "") {
   $resT = $conn->query("SELECT * FROM tarifas WHERE empresa='$empresaFiltro'");
   if ($resT) while ($r = $resT->fetch_assoc()) $tarifas_guardadas[$r['tipo_vehiculo']] = $r;
 }
 
-/* Construir arreglo de conductores con total_bruto */
+/* === NUEVO: préstamos pendientes por deudor (capital + interés 10% mensual acumulado) === */
+$prestamosPend = [];  // key = deudor normalizado, value = total pendiente (capital+interés)
+$qPrest = "
+  SELECT LOWER(TRIM(deudor)) AS k,
+         SUM(monto + monto*0.10*CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS total
+  FROM prestamos
+  WHERE (pagado IS NULL OR pagado=0)
+  GROUP BY k";
+if ($rP = $conn->query($qPrest)) {
+  while($r = $rP->fetch_assoc()){
+    $prestamosPend[$r['k']] = (float)$r['total'];
+  }
+}
+
+/* Construir arreglo de conductores */
 $conductores = []; $total_facturado = 0;
 foreach ($datos as $nombre => $v) {
   $veh = $v['vehiculo'];
   $t = $tarifas_guardadas[$veh] ?? ["completo"=>0,"medio"=>0,"extra"=>0,"carrotanque"=>0,"siapana"=>0];
   $total = $v['completos']*$t['completo'] + $v['medios']*$t['medio'] + $v['extras']*$t['extra'] + $v['carrotanques']*$t['carrotanque'] + $v['siapana']*$t['siapana'];
+
+  $prestPend = $prestamosPend[mbnorm($nombre)] ?? 0.0;
+
   $conductores[] = [
-    "nombre"=>$nombre, "vehiculo"=>$veh,
-    "completos"=>$v['completos'], "medios"=>$v['medios'], "extras"=>$v['extras'],
-    "siapana"=>$v['siapana'], "carrotanques"=>$v['carrotanques'],
-    "total_bruto" => (int)$total
+    "nombre"=>$nombre,
+    "total_bruto" => (int)$total,
+    "prestamo_pend" => (int)round($prestPend)
   ];
   $total_facturado += (int)$total;
 }
@@ -143,9 +157,13 @@ usort($conductores, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         <label class="block md:col-span-2"><span class="block text-xs font-medium mb-1">Empresa</span>
           <select name="empresa" class="w-full rounded-xl border border-slate-300 px-3 py-2">
             <option value="">-- Todas --</option>
-            <?php foreach($empresas as $e): ?>
-              <option value="<?= htmlspecialchars($e) ?>" <?= ($empresaFiltro==$e?'selected':'') ?>><?= htmlspecialchars($e) ?></option>
-            <?php endforeach; ?>
+            <?php
+              $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
+              if ($resEmp) while ($e = $resEmp->fetch_assoc()) {
+                $sel = ($empresaFiltro==$e['empresa'])?'selected':'';
+                echo "<option value=\"".htmlspecialchars($e['empresa'])."\" $sel>".htmlspecialchars($e['empresa'])."</option>";
+              }
+            ?>
           </select>
         </label>
         <div class="flex md:items-end"><button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow hover:bg-blue-700 active:bg-blue-800">Aplicar</button></div>
@@ -178,14 +196,13 @@ usort($conductores, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       </div>
     </section>
 
-    <!-- Tabla principal -->
+    <!-- Tabla principal (sin “Vehículo” y con “Préstamos (pend.)”) -->
     <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
       <div class="overflow-auto max-h-[70vh] rounded-xl border border-slate-200 table-sticky">
         <table class="min-w-[1200px] w-full text-sm">
           <thead class="bg-blue-600 text-white">
             <tr>
               <th class="px-3 py-2 text-left">Conductor</th>
-              <th class="px-3 py-2 text-center">Vehículo</th>
               <th class="px-3 py-2 text-right">Total viajes (base)</th>
               <th class="px-3 py-2 text-right">Ajuste por diferencia</th>
               <th class="px-3 py-2 text-right">Valor que llegó</th>
@@ -193,6 +210,7 @@ usort($conductores, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
               <th class="px-3 py-2 text-right">4×1000</th>
               <th class="px-3 py-2 text-right">Aporte 10%</th>
               <th class="px-3 py-2 text-right">Seg. social</th>
+              <th class="px-3 py-2 text-right">Préstamos (pend.)</th>
               <th class="px-3 py-2 text-left">N° Cuenta</th>
               <th class="px-3 py-2 text-right">A pagar</th>
             </tr>
@@ -200,12 +218,13 @@ usort($conductores, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
           <tbody id="tbody" class="divide-y divide-slate-100 bg-white"></tbody>
           <tfoot class="bg-slate-50 font-semibold">
             <tr>
-              <td class="px-3 py-2" colspan="4">Totales</td>
+              <td class="px-3 py-2" colspan="3">Totales</td>
               <td class="px-3 py-2 text-right num" id="tot_valor_llego">0</td>
               <td class="px-3 py-2 text-right num" id="tot_retencion">0</td>
               <td class="px-3 py-2 text-right num" id="tot_4x1000">0</td>
               <td class="px-3 py-2 text-right num" id="tot_aporte">0</td>
               <td class="px-3 py-2 text-right num" id="tot_ss">0</td>
+              <td class="px-3 py-2 text-right num" id="tot_prestamos">0</td>
               <td class="px-3 py-2"></td>
               <td class="px-3 py-2 text-right num" id="tot_pagar">0</td>
             </tr>
@@ -217,7 +236,7 @@ usort($conductores, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
   <script>
     const CONDUCTORES = <?php echo json_encode($conductores, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
-    const KEY_SCOPE = <?php echo json_encode($empresaFiltro.'|'.$desde.'|'.$hasta); ?>; // para localStorage
+    const KEY_SCOPE = <?php echo json_encode($empresaFiltro.'|'.$desde.'|'.$hasta); ?>;
 
     // ==== Helpers numéricos ====
     const toInt = (s)=> {
@@ -233,19 +252,18 @@ usort($conductores, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     const ACC_KEY = 'cuentas:'+KEY_SCOPE;
     const SS_KEY  = 'seg_social:'+KEY_SCOPE;
-    let accMap = getLS(ACC_KEY);   // {nombre: nroCuenta}
-    let ssMap  = getLS(SS_KEY);    // {nombre: valor}
+    let accMap = getLS(ACC_KEY);
+    let ssMap  = getLS(SS_KEY);
 
-    // ==== Render de filas ====
+    // ==== Render filas ====
     const tbody = document.getElementById('tbody');
 
     function renderRows() {
       tbody.innerHTML = '';
-      CONDUCTORES.forEach((c, idx) => {
+      CONDUCTORES.forEach((c) => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td class="px-3 py-2">${c.nombre}</td>
-          <td class="px-3 py-2 text-center">${c.vehiculo||''}</td>
           <td class="px-3 py-2 text-right num base">${fmt(c.total_bruto)}</td>
           <td class="px-3 py-2 text-right num ajuste">0</td>
           <td class="px-3 py-2 text-right num llego">0</td>
@@ -256,6 +274,7 @@ usort($conductores, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             <input type="text" class="ss w-full max-w-[120px] rounded-lg border border-slate-300 px-2 py-1 text-right num"
                    value="${fmt(toInt(ssMap[c.nombre]||0))}" placeholder="">
           </td>
+          <td class="px-3 py-2 text-right num prest">${fmt(c.prestamo_pend||0)}</td>
           <td class="px-3 py-2">
             <input type="text" class="cta w-full max-w-[180px] rounded-lg border border-slate-300 px-2 py-1"
                    value="${(accMap[c.nombre]||'')}" placeholder="N° cuenta">
@@ -285,7 +304,6 @@ usort($conductores, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     // ==== Distribución de diferencia (igualitaria) ====
     function distribucionIgualitaria(diffTotal, n) {
-      // devuelve arreglo de n ajustes enteros que suman diffTotal (positivos = se resta a cada uno)
       const ajustes = new Array(n).fill(0);
       if (n<=0 || diffTotal === 0) return ajustes;
       const signo = diffTotal >= 0 ? 1 : -1;
@@ -309,31 +327,33 @@ usort($conductores, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const totMil4 = document.getElementById('tot_4x1000');
     const totAp   = document.getElementById('tot_aporte');
     const totSS   = document.getElementById('tot_ss');
+    const totPrest= document.getElementById('tot_prestamos');
     const totPag  = document.getElementById('tot_pagar');
 
     function recalc() {
       const fact = toInt(inpFact.value);
       const rec  = toInt(inpRec.value);
-      const diff = fact - rec; // lo que falta (positivo) o sobra (negativo)
+      const diff = fact - rec; // positivo: falta; se reparte para restarlo
       lblDif.textContent = fmt(diff);
 
       const n = CONDUCTORES.length;
       const ajustes = distribucionIgualitaria(diff, n);
 
-      let sumLleg=0, sumRet=0, sumMil4=0, sumAp=0, sumSS=0, sumPagar=0;
+      let sumLleg=0, sumRet=0, sumMil4=0, sumAp=0, sumSS=0, sumPrest=0, sumPagar=0;
 
       tbody.querySelectorAll('tr').forEach((tr, i)=>{
         const base = CONDUCTORES[i].total_bruto;
+        const prest = CONDUCTORES[i].prestamo_pend || 0;
         const aj   = ajustes[i] || 0; // positivo = se resta
         const llego = base - aj;
 
-        // Columnas dependientes del "valor que llegó"
+        // Descuentos sobre "valor que llegó"
         const ret = Math.round(llego * 0.035);
         const mil4 = Math.round(llego * 0.004);
         const ap  = Math.round(llego * 0.10);
         const ss  = toInt(tr.querySelector('input.ss').value);
 
-        const pagar = llego - ret - mil4 - ap - ss;
+        const pagar = llego - ret - mil4 - ap - ss - prest;
 
         tr.querySelector('.ajuste').textContent = (aj===0? '0' : (aj>0? '-'+fmt(aj) : '+'+fmt(Math.abs(aj))));
         tr.querySelector('.llego').textContent  = fmt(llego);
@@ -342,7 +362,7 @@ usort($conductores, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         tr.querySelector('.apor').textContent   = fmt(ap);
         tr.querySelector('.pagar').textContent  = fmt(pagar);
 
-        sumLleg += llego; sumRet += ret; sumMil4 += mil4; sumAp += ap; sumSS += ss; sumPagar += pagar;
+        sumLleg += llego; sumRet += ret; sumMil4 += mil4; sumAp += ap; sumSS += ss; sumPrest += prest; sumPagar += pagar;
       });
 
       totLleg.textContent = fmt(sumLleg);
@@ -350,10 +370,11 @@ usort($conductores, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       totMil4.textContent = fmt(sumMil4);
       totAp.textContent   = fmt(sumAp);
       totSS.textContent   = fmt(sumSS);
+      totPrest.textContent= fmt(sumPrest);
       totPag.textContent  = fmt(sumPagar);
     }
 
-    // Eventos globales
+    // Eventos
     inpFact.addEventListener('input', recalc);
     inpRec.addEventListener('input', recalc);
 
