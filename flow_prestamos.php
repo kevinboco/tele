@@ -2,7 +2,89 @@
 // flow_prestamos.php
 require_once __DIR__.'/helpers.php';
 
-/** Keyboards propios (para no chocar callbacks con otros flujos) */
+/* ==========================
+   Utilidades de nombres
+========================== */
+function norm_spaces(string $s): string {
+    // trim + colapsar espacios internos
+    $s = trim(preg_replace('/\s+/u', ' ', $s));
+    return $s;
+}
+function nicecase(string $s): string {
+    // Capitaliza “tipo nombre” sin gritar (Juan Alberto Echeto)
+    $s = mb_strtolower($s, 'UTF-8');
+    return preg_replace_callback('/\b(\p{L})(\p{L}*)/u', function($m){
+        return mb_strtoupper($m[1], 'UTF-8') . $m[2];
+    }, $s);
+}
+
+/* ==========================
+   Sugerencias desde la BD
+========================== */
+function fetchDistinctNames(int $chat_id, string $col, int $limit=40): array {
+    $validCols = ['deudor','prestamista'];
+    if (!in_array($col, $validCols, true)) return [];
+    $conn = db();
+    if (!$conn) return [];
+    $stmt = $conn->prepare("SELECT DISTINCT $col AS nombre 
+                            FROM prestamos 
+                            WHERE chat_id = ? AND $col IS NOT NULL AND $col <> '' 
+                            ORDER BY MAX(id) DESC LIMIT ?");
+    // Si tu tabla no tiene id autoincrement, puedes cambiar el ORDER BY por MAX(created_at)
+    if (!$stmt) { $conn->close(); return []; }
+    $stmt->bind_param("ii", $chat_id, $limit);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    $out = [];
+    while ($row = $res->fetch_assoc()) {
+        $n = norm_spaces($row['nombre']);
+        if ($n !== '') $out[] = $n;
+    }
+    $stmt->close();
+    $conn->close();
+    // Ordenar alfabético por claridad (ya vienen recientes primero por el ORDER BY, ajusta a gusto)
+    sort($out, SORT_NATURAL|SORT_FLAG_CASE);
+    return array_values(array_unique($out));
+}
+
+/* ====================================
+   Keyboards (con paginación) por nombres
+==================================== */
+function kbNombreOpciones(array $opts, string $tipoPaso, int $page=0, int $perPage=6): array {
+    // $tipoPaso: 'p_deudor' o 'p_prestamista' para prefijar callback
+    $kb = ["inline_keyboard" => []];
+    $total = count($opts);
+    $pages = max(1, (int)ceil($total / $perPage));
+    $page = max(0, min($pages-1, $page));
+    $start = $page * $perPage;
+    $slice = array_slice($opts, $start, $perPage);
+
+    foreach ($slice as $i => $name) {
+        // Guardaremos el índice real (start+i) y el flujo decidirá el array desde el estado
+        $kb["inline_keyboard"][] = [
+            ["text" => $name, "callback_data" => "pick_{$tipoPaso}_".($start+$i)]
+        ];
+    }
+
+    // Fila: Escribir otro
+    $kb["inline_keyboard"][] = [
+        ["text" => "✍️ Escribir otro", "callback_data" => "pick_{$tipoPaso}_otro"]
+    ];
+
+    // Paginación si hace falta
+    if ($pages > 1) {
+        $prev = max(0, $page-1);
+        $next = min($pages-1, $page+1);
+        $kb["inline_keyboard"][] = [
+            ["text"=>"⬅️ Prev","callback_data"=>"page_{$tipoPaso}_$prev"],
+            ["text"=>"Página ".($page+1)."/$pages","callback_data"=>"noop"],
+            ["text"=>"Next ➡️","callback_data"=>"page_{$tipoPaso}_$next"],
+        ];
+    }
+    return $kb;
+}
+
+/** Keyboards propios (ya existentes) */
 function kbPrestamoFecha() {
     return [
         "inline_keyboard" => [
@@ -27,7 +109,9 @@ function kbPrestamoMeses($anio) {
     return $kb;
 }
 
-/** /prestamos entrypoint */
+/* ==========================
+   Entrypoint
+========================== */
 function prestamos_entrypoint($chat_id, $estado): void
 {
     if (!empty($estado) && ($estado['flujo'] ?? '') === 'prestamos') {
@@ -35,22 +119,69 @@ function prestamos_entrypoint($chat_id, $estado): void
         return;
     }
     $estado = ["flujo"=>"prestamos","paso"=>"p_deudor"];
+    // Pre-cargar sugerencias
+    $estado['deudor_opts'] = fetchDistinctNames((int)$chat_id, 'deudor');
+    $estado['deudor_page'] = 0;
     saveState($chat_id, $estado);
-    sendMessage($chat_id, "👤 *¿A quién se le presta?* (nombre completo)");
+
+    // Si hay opciones previas, ofrecer lista + “Escribir otro”
+    if (!empty($estado['deudor_opts'])) {
+        sendMessage($chat_id, "👤 *¿A quién se le presta?* (elige o escribe)", kbNombreOpciones($estado['deudor_opts'], 'p_deudor', $estado['deudor_page']));
+    } else {
+        sendMessage($chat_id, "👤 *¿A quién se le presta?* (nombre completo)");
+    }
 }
 
-/** Reenviar paso actual */
+/* ==========================
+   Re-enviar paso actual
+========================== */
 function prestamos_resend_current_step($chat_id, $estado): void
 {
     switch ($estado['paso'] ?? '') {
-        case 'p_deudor':       sendMessage($chat_id, "👤 *¿A quién se le presta?* (nombre)"); break;
-        case 'p_prestamista':  sendMessage($chat_id, "🧾 *¿Quién lo presta?* (tu nombre o el de la persona)"); break;
-        case 'p_monto':        sendMessage($chat_id, "💵 *¿Cuánto se prestó?* (solo número, ej.: 1500000)"); break;
-        case 'p_fecha':        sendMessage($chat_id, "📅 *Fecha del préstamo*:", kbPrestamoFecha()); break;
+        case 'p_deudor':
+            if (!empty($estado['deudor_opts'])) {
+                $p = (int)($estado['deudor_page'] ?? 0);
+                sendMessage($chat_id, "👤 *¿A quién se le presta?* (elige o escribe)", kbNombreOpciones($estado['deudor_opts'], 'p_deudor', $p));
+            } else {
+                sendMessage($chat_id, "👤 *¿A quién se le presta?* (nombre)");
+            }
+            break;
+
+        case 'p_deudor_manual':
+            sendMessage($chat_id, "✍️ *Escribe el nombre* del deudor:");
+            break;
+
+        case 'p_prestamista':
+            if (empty($estado['prestamista_opts'])) {
+                $estado['prestamista_opts'] = fetchDistinctNames((int)$chat_id, 'prestamista');
+                $estado['prestamista_page'] = 0;
+                saveState($chat_id, $estado);
+            }
+            if (!empty($estado['prestamista_opts'])) {
+                $p = (int)($estado['prestamista_page'] ?? 0);
+                sendMessage($chat_id, "🧾 *¿Quién lo presta?* (elige o escribe)", kbNombreOpciones($estado['prestamista_opts'], 'p_prestamista', $p));
+            } else {
+                sendMessage($chat_id, "🧾 *¿Quién lo presta?* (nombre)");
+            }
+            break;
+
+        case 'p_prestamista_manual':
+            sendMessage($chat_id, "✍️ *Escribe el nombre* de quien presta:");
+            break;
+
+        case 'p_monto':
+            sendMessage($chat_id, "💵 *¿Cuánto se prestó?* (solo número, ej.: 1500000)");
+            break;
+
+        case 'p_fecha':
+            sendMessage($chat_id, "📅 *Fecha del préstamo*:", kbPrestamoFecha());
+            break;
+
         case 'p_fecha_mes':
             $anio = $estado['p_anio'] ?? date("Y");
             sendMessage($chat_id, "📆 Selecciona el *mes*:", kbPrestamoMeses($anio));
             break;
+
         case 'p_fecha_dia': {
             $anio=(int)($estado['p_anio'] ?? date('Y'));
             $mes =(int)($estado['p_mes']  ?? date('m'));
@@ -58,16 +189,97 @@ function prestamos_resend_current_step($chat_id, $estado): void
             sendMessage($chat_id, "✍️ Escribe el *día* (1–$max):");
             break;
         }
-        case 'p_foto':         sendMessage($chat_id, "📸 *Envía la captura* de la transferencia (foto o imagen)."); break;
-        default:               sendMessage($chat_id, "Escribe /cancel para reiniciar.");
+
+        case 'p_foto':
+            sendMessage($chat_id, "📸 *Envía la captura* de la transferencia (foto o imagen).");
+            break;
+
+        default:
+            sendMessage($chat_id, "Escribe /cancel para reiniciar.");
     }
 }
 
-/** Callbacks (botones) */
+/* ==========================
+   Callbacks (botones)
+========================== */
 function prestamos_handle_callback($chat_id, &$estado, string $cb_data, ?string $cb_id=null): void
 {
     if (($estado['flujo'] ?? '') !== 'prestamos') return;
 
+    // Navegación de páginas para nombres
+    if (preg_match('/^page_(p_deudor|p_prestamista)_(\d+)$/', $cb_data, $m)) {
+        $tipo = $m[1];
+        $page = (int)$m[2];
+        if ($tipo === 'p_deudor') {
+            $estado['deudor_page'] = $page;
+            saveState($chat_id, $estado);
+            sendMessage($chat_id, "👤 *¿A quién se le presta?*", kbNombreOpciones($estado['deudor_opts'] ?? [], 'p_deudor', $page));
+        } else {
+            $estado['prestamista_page'] = $page;
+            saveState($chat_id, $estado);
+            sendMessage($chat_id, "🧾 *¿Quién lo presta?*", kbNombreOpciones($estado['prestamista_opts'] ?? [], 'p_prestamista', $page));
+        }
+        if ($cb_id) answerCallbackQuery($cb_id);
+        return;
+    }
+
+    // Selección de nombre (por índice) o “otro”
+    if (preg_match('/^pick_(p_deudor|p_prestamista)_(\d+|otro)$/', $cb_data, $m)) {
+        $tipo = $m[1];
+        $idx  = $m[2];
+
+        if ($tipo === 'p_deudor') {
+            if ($idx === 'otro') {
+                $estado['paso'] = 'p_deudor_manual';
+                saveState($chat_id, $estado);
+                sendMessage($chat_id, "✍️ *Escribe el nombre* del deudor:");
+            } else {
+                $i = (int)$idx;
+                $opts = $estado['deudor_opts'] ?? [];
+                if (isset($opts[$i])) {
+                    $estado['p_deudor'] = $opts[$i];
+                    // Siguiente: prestamista
+                    $estado['paso'] = 'p_prestamista';
+                    // Pre-cargar sugerencias prestamista
+                    $estado['prestamista_opts'] = fetchDistinctNames((int)$chat_id, 'prestamista');
+                    $estado['prestamista_page'] = 0;
+                    saveState($chat_id, $estado);
+                    if (!empty($estado['prestamista_opts'])) {
+                        sendMessage($chat_id, "🧾 *¿Quién lo presta?* (elige o escribe)", kbNombreOpciones($estado['prestamista_opts'], 'p_prestamista', 0));
+                    } else {
+                        sendMessage($chat_id, "🧾 *¿Quién lo presta?* (nombre)");
+                    }
+                } else {
+                    sendMessage($chat_id, "⚠️ Opción no válida. Escribe el nombre del deudor:");
+                    $estado['paso'] = 'p_deudor_manual';
+                    saveState($chat_id, $estado);
+                }
+            }
+        } else { // p_prestamista
+            if ($idx === 'otro') {
+                $estado['paso'] = 'p_prestamista_manual';
+                saveState($chat_id, $estado);
+                sendMessage($chat_id, "✍️ *Escribe el nombre* de quien presta:");
+            } else {
+                $i = (int)$idx;
+                $opts = $estado['prestamista_opts'] ?? [];
+                if (isset($opts[$i])) {
+                    $estado['p_prestamista'] = $opts[$i];
+                    $estado['paso'] = 'p_monto';
+                    saveState($chat_id, $estado);
+                    sendMessage($chat_id, "💵 *¿Cuánto se prestó?* (solo número, ej.: 1500000)");
+                } else {
+                    sendMessage($chat_id, "⚠️ Opción no válida. Escribe el nombre de quien presta:");
+                    $estado['paso'] = 'p_prestamista_manual';
+                    saveState($chat_id, $estado);
+                }
+            }
+        }
+        if ($cb_id) answerCallbackQuery($cb_id);
+        return;
+    }
+
+    // Fecha “hoy” u “otro”
     if ($cb_data === 'pfecha_hoy') {
         $estado['p_fecha'] = date('Y-m-d');
         $estado['paso']    = 'p_foto';
@@ -99,28 +311,44 @@ function prestamos_handle_callback($chat_id, &$estado, string $cb_data, ?string 
         return;
     }
 
+    if ($cb_data === 'noop') {
+        if ($cb_id) answerCallbackQuery($cb_id);
+        return;
+    }
+
     if ($cb_id) answerCallbackQuery($cb_id);
 }
 
-/** Texto/foto */
+/* ==========================
+   Texto / Foto
+========================== */
 function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=null): void
 {
     if (($estado['flujo'] ?? '') !== 'prestamos') return;
 
     switch ($estado['paso']) {
         case 'p_deudor':
-            $txt = trim($text ?? '');
+        case 'p_deudor_manual':
+            $txt = norm_spaces($text ?? '');
             if ($txt==='') { sendMessage($chat_id, "⚠️ Escribe el *nombre* del deudor."); return; }
-            $estado['p_deudor'] = $txt;
+            $estado['p_deudor'] = nicecase($txt);
             $estado['paso']     = 'p_prestamista';
+            // precargar sugerencias prestamista
+            $estado['prestamista_opts'] = fetchDistinctNames((int)$chat_id, 'prestamista');
+            $estado['prestamista_page'] = 0;
             saveState($chat_id, $estado);
-            sendMessage($chat_id, "🧾 *¿Quién lo presta?* (nombre)");
+            if (!empty($estado['prestamista_opts'])) {
+                sendMessage($chat_id, "🧾 *¿Quién lo presta?* (elige o escribe)", kbNombreOpciones($estado['prestamista_opts'], 'p_prestamista', 0));
+            } else {
+                sendMessage($chat_id, "🧾 *¿Quién lo presta?* (nombre)");
+            }
             return;
 
         case 'p_prestamista':
-            $txt = trim($text ?? '');
+        case 'p_prestamista_manual':
+            $txt = norm_spaces($text ?? '');
             if ($txt==='') { sendMessage($chat_id, "⚠️ Escribe el *nombre* de quien presta."); return; }
-            $estado['p_prestamista'] = $txt;
+            $estado['p_prestamista'] = nicecase($txt);
             $estado['paso']          = 'p_monto';
             saveState($chat_id, $estado);
             sendMessage($chat_id, "💵 *¿Cuánto se prestó?* (solo número, ej.: 1500000)");
@@ -198,17 +426,21 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
             $conn = db();
             if (!$conn) { sendMessage($chat_id, "❌ Error de conexión a la base de datos."); return; }
 
+            // Normaliza/corrige nombres justo antes de guardar
+            $deudor = nicecase(norm_spaces($estado['p_deudor'] ?? ''));
+            $prestamista = nicecase(norm_spaces($estado['p_prestamista'] ?? ''));
+
             $stmt = $conn->prepare("INSERT INTO prestamos (chat_id, deudor, prestamista, monto, fecha, imagen, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())");
             if (!$stmt) { sendMessage($chat_id, "❌ Error preparando la inserción."); $conn->close(); return; }
 
-            $stmt->bind_param("ississ", $chat_id, $estado['p_deudor'], $estado['p_prestamista'], $estado['p_monto'], $estado['p_fecha'], $nombreArchivo);
+            $stmt->bind_param("ississ", $chat_id, $deudor, $prestamista, $estado['p_monto'], $estado['p_fecha'], $nombreArchivo);
 
             if ($stmt->execute()) {
                 $montoFmt = number_format($estado['p_monto'], 0, ',', '.');
                 sendMessage($chat_id,
                     "✅ *Préstamo registrado*\n".
-                    "👤 Deudor: {$estado['p_deudor']}\n".
-                    "🧾 Prestamista: {$estado['p_prestamista']}\n".
+                    "👤 Deudor: {$deudor}\n".
+                    "🧾 Prestamista: {$prestamista}\n".
                     "💵 Monto: $ $montoFmt\n".
                     "📅 Fecha: {$estado['p_fecha']}"
                 );
