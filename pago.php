@@ -105,10 +105,10 @@ if ($empresaFiltro !== "") {
   if ($resT) while($r=$resT->fetch_assoc()) $tarifas[$r['tipo_vehiculo']] = $r;
 }
 
-/* ================= Préstamos (lista para modal y mapa normalizado) =================
+/* ================= Préstamos (lista multi-select + mapa) =================
    total = SUM(monto + 10% mensual acumulado) para no pagados */
-$prestamosMap = [];     // key = norm_person(deudor) → total
-$prestamosList = [];    // [{name, key, total}]
+$prestamosList = [];    // [{id,name,key,total}]
+$i = 0;
 $qPrest = "
   SELECT deudor,
          SUM(monto + monto*0.10*CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS total
@@ -121,15 +121,9 @@ if ($rP = $conn->query($qPrest)) {
     $name = $r['deudor'];
     $key  = norm_person($name);
     $total = (int)round($r['total']);
-    $prestamosMap[$key] = $total;
-    $prestamosList[] = ['name'=>$name, 'key'=>$key, 'total'=>$total];
+    $prestamosList[] = ['id'=>$i++, 'name'=>$name, 'key'=>$key, 'total'=>$total];
   }
 }
-
-/* (Opcional) Nombres base de conductores_admin para sugerencias del input conductor (lo dejamos por si luego vuelves a usarlo) */
-$adminNombres = [];
-$ra = $conn->query("SELECT nombre FROM conductores_admin ORDER BY nombre ASC");
-if ($ra) while($rr=$ra->fetch_assoc()) $adminNombres[] = $rr['nombre'];
 
 /* ================= Filas base (viajes) ================= */
 $filas = []; $total_facturado = 0;
@@ -156,16 +150,19 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 <html lang="es">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Ajuste de Pago (modal de préstamos)</title>
+<title>Ajuste de Pago (modal préstamos multiselección)</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
   .num { font-variant-numeric: tabular-nums; }
   .table-sticky thead th { position: sticky; top: 0; z-index: 1; }
   .modal-show { display:block }
   .modal-hide { display:none }
-  .opt-active { background:#e5f0ff; border-color:#cfe0ff }
+  .opt-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 12px; border-bottom:1px solid #e5e7eb; }
+  .opt-row:hover { background:#f8fafc; }
+  .opt-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding-right:8px; }
   input[type=number]::-webkit-outer-spin-button,
   input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .chip { display:inline-flex; align-items:center; gap:6px; padding:2px 8px; border-radius:999px; background:#eef2ff; border:1px solid #e5e7eb; margin-left:6px; font-size:11px; }
 </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
@@ -300,24 +297,32 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </section>
   </main>
 
-  <!-- ===== Modal de selección de préstamos ===== -->
+  <!-- ===== Modal de selección de préstamos (multi) ===== -->
   <div id="prestModal" class="modal-hide fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-8 max-w-2xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
       <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-        <h3 class="text-lg font-semibold">Seleccionar deudor (préstamo)</h3>
+        <h3 class="text-lg font-semibold">Seleccionar deudores (puedes marcar varios)</h3>
         <button id="btnCloseModal" class="p-2 rounded hover:bg-slate-100" title="Cerrar">✕</button>
       </div>
       <div class="p-4">
         <div class="flex flex-col md:flex-row md:items-center gap-3 mb-3">
           <input id="prestSearch" type="text" placeholder="Buscar deudor..." class="w-full rounded-xl border border-slate-300 px-3 py-2">
-          <button id="btnClearSel" class="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 hover:bg-slate-100">Quitar selección</button>
+          <div class="flex gap-2">
+            <button id="btnSelectAll" class="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 hover:bg-slate-100">Marcar visibles</button>
+            <button id="btnUnselectAll" class="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 hover:bg-slate-100">Desmarcar</button>
+            <button id="btnClearSel" class="rounded-lg border border-rose-300 text-rose-700 px-3 py-2 text-sm bg-rose-50 hover:bg-rose-100">Quitar selección</button>
+          </div>
         </div>
         <div id="prestList" class="max-h-[50vh] overflow-auto rounded-xl border border-slate-200"></div>
       </div>
-      <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
-        <button id="btnCancel" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
-        <button id="btnAssign" class="rounded-lg border border-blue-600 px-4 py-2 bg-blue-600 text-white hover:bg-blue-700">Asignar</button>
+      <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-between gap-2">
+        <div class="text-sm text-slate-600">Seleccionados: <span id="selCount" class="font-semibold">0</span></div>
+        <div class="flex items-center gap-2">
+          <div class="text-sm">Total seleccionado: <span id="selTotal" class="num font-semibold">0</span></div>
+          <button id="btnCancel" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
+          <button id="btnAssign" class="rounded-lg border border-blue-600 px-4 py-2 bg-blue-600 text-white hover:bg-blue-700">Asignar</button>
+        </div>
       </div>
     </div>
   </div>
@@ -327,9 +332,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const KEY_SCOPE = <?= json_encode(($empresaFiltro?:'__todas__').'|'.$desde.'|'.$hasta) ?>;
   const ACC_KEY   = 'cuentas:'+KEY_SCOPE;
   const SS_KEY    = 'seg_social:'+KEY_SCOPE;
-  const PREST_SEL_KEY = 'prestamo_sel:'+KEY_SCOPE; // asignación del deudor a cada fila (baseName)
+  const PREST_SEL_KEY = 'prestamo_sel_multi:'+KEY_SCOPE; // baseName → [{id,name,total},...]
 
-  const PRESTAMOS_MAP  = <?php echo json_encode($prestamosMap,  JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
   const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 
   // ====== Helpers ======
@@ -350,9 +354,25 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   // ====== Persistencia ======
   let accMap   = getLS(ACC_KEY);
   let ssMap    = getLS(SS_KEY);
-  let prestSel = getLS(PREST_SEL_KEY); // baseName → {key,name,total}
+  let prestSel = getLS(PREST_SEL_KEY); // baseName → array de {id,name,total}
+
+  // Migración desde la versión anterior (si era objeto simple)
+  Object.keys(prestSel).forEach(k=>{
+    if (!Array.isArray(prestSel[k])) {
+      const v = prestSel[k];
+      prestSel[k] = v && typeof v==='object' ? [v] : [];
+    }
+  });
 
   const tbody = document.getElementById('tbody');
+
+  function summarizeNames(arr){
+    if (!arr || arr.length===0) return '';
+    const names = arr.map(x=>x.name);
+    if (names.length <= 2) return names.join(', ');
+    return names.slice(0,2).join(', ') + ` +${names.length-2} más`;
+  }
+  function sumTotals(arr){ return (arr||[]).reduce((a,b)=> a + (toInt(b.total)||0), 0); }
 
   // ====== Inicialización de filas ======
   Array.from(tbody.querySelectorAll('tr')).forEach(tr=>{
@@ -362,65 +382,99 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const prestSpan = tr.querySelector('.prest');
     const selLabel  = tr.querySelector('.selected-deudor');
 
-    // Restaurar pguarda: cuenta y ss
+    // Restaurar cuenta y SS
     if (accMap[baseName]) cta.value = accMap[baseName];
     if (ssMap[baseName])  ss.value  = fmt(toInt(ssMap[baseName]));
 
-    // Restaurar selección de préstamo si existía
-    if (prestSel[baseName]) {
-      prestSpan.textContent = fmt(toInt(prestSel[baseName].total));
-      selLabel.textContent  = prestSel[baseName].name || '';
-    }
+    // Restaurar préstamos múltiples
+    const chosen = prestSel[baseName] || [];
+    prestSpan.textContent = fmt(sumTotals(chosen));
+    selLabel.textContent  = summarizeNames(chosen);
 
-    // Persistir cambios
     cta.addEventListener('change', ()=>{ accMap[baseName] = cta.value.trim(); setLS(ACC_KEY, accMap); });
     ss.addEventListener('input',   ()=>{ ssMap[baseName]  = toInt(ss.value);  setLS(SS_KEY, ssMap);  recalc(); });
   });
 
-  // ====== Modal de préstamos ======
+  // ====== Modal multi-selección ======
   const modal = document.getElementById('prestModal');
   const btnAssign = document.getElementById('btnAssign');
   const btnCancel = document.getElementById('btnCancel');
   const btnClose  = document.getElementById('btnCloseModal');
   const btnClear  = document.getElementById('btnClearSel');
+  const btnSelectAll = document.getElementById('btnSelectAll');
+  const btnUnselectAll = document.getElementById('btnUnselectAll');
   const inputSearch = document.getElementById('prestSearch');
   const listHost = document.getElementById('prestList');
+  const selCount = document.getElementById('selCount');
+  const selTotal = document.getElementById('selTotal');
 
-  let currentRow = null;    // <tr> activo
-  let selectedKey = null;   // key del deudor elegido temporalmente (en el modal)
+  let currentRow = null;     // <tr> activo
+  let selectedIds = new Set(); // ids seleccionados temporalmente (en el modal)
+  let filteredIdx = [];      // índices visibles en el listado (después del filtro)
 
-  // Render listado con filtro
   function renderPrestList(filter=''){
     listHost.innerHTML = '';
-    const normFilter = normPerson(filter);
+    const nf = normPerson(filter);
+    filteredIdx = [];
     const frag = document.createDocumentFragment();
-    PRESTAMOS_LIST.forEach(item=>{
-      if (normFilter && !item.key.includes(normFilter)) return;
-      const row = document.createElement('button');
-      row.type = 'button';
-      row.className = 'w-full text-left px-3 py-2 border-b border-slate-100 hover:bg-slate-50 flex items-center justify-between';
-      row.dataset.key = item.key;
-      row.dataset.total = item.total;
-      row.innerHTML = `
-        <span class="truncate pr-3">${item.name}</span>
-        <span class="num font-semibold">${(item.total||0).toLocaleString('es-CO')}</span>
-      `;
-      row.addEventListener('click', ()=>{
-        selectedKey = item.key;
-        Array.from(listHost.children).forEach(el=>el.classList.remove('opt-active'));
-        row.classList.add('opt-active');
+    PRESTAMOS_LIST.forEach((item, idx)=>{
+      if (nf && !item.key.includes(nf)) return;
+      filteredIdx.push(idx);
+
+      const row = document.createElement('label');
+      row.className = 'opt-row';
+
+      const left = document.createElement('div');
+      left.style.display='flex';
+      left.style.alignItems='center';
+      left.style.gap='10px';
+
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.dataset.id = item.id;
+      cb.checked = selectedIds.has(item.id);
+
+      const name = document.createElement('span');
+      name.className = 'opt-name';
+      name.textContent = item.name;
+
+      left.appendChild(cb);
+      left.appendChild(name);
+
+      const total = document.createElement('span');
+      total.className = 'num font-semibold';
+      total.textContent = (item.total||0).toLocaleString('es-CO');
+
+      row.appendChild(left);
+      row.appendChild(total);
+
+      cb.addEventListener('change', ()=>{
+        if (cb.checked) selectedIds.add(item.id); else selectedIds.delete(item.id);
+        updateSelSummary();
       });
+
       frag.appendChild(row);
     });
     listHost.appendChild(frag);
+    updateSelSummary();
   }
-  renderPrestList();
 
-  inputSearch.addEventListener('input', ()=> renderPrestList(inputSearch.value));
+  function updateSelSummary(){
+    const arr = PRESTAMOS_LIST.filter(it=> selectedIds.has(it.id));
+    selCount.textContent = arr.length;
+    const tot = arr.reduce((a,b)=> a + (b.total||0), 0);
+    selTotal.textContent = tot.toLocaleString('es-CO');
+  }
 
   function openModalForRow(tr){
     currentRow = tr;
-    selectedKey = null;
+    selectedIds = new Set();
+
+    // Pre-cargar lo ya seleccionado para esa fila
+    const baseName = currentRow.children[0].innerText.trim();
+    const chosen = prestSel[baseName] || [];
+    chosen.forEach(x=> selectedIds.add(Number(x.id)));
+
     inputSearch.value = '';
     renderPrestList('');
     modal.classList.remove('modal-hide');
@@ -430,13 +484,13 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     modal.classList.remove('modal-show');
     modal.classList.add('modal-hide');
     currentRow = null;
-    selectedKey = null;
+    selectedIds = new Set();
+    filteredIdx = [];
   }
 
   btnCancel.addEventListener('click', closeModal);
   btnClose.addEventListener('click', closeModal);
 
-  // Quitar selección (pone 0 en la fila)
   btnClear.addEventListener('click', ()=>{
     if (!currentRow) return;
     const baseName = currentRow.children[0].innerText.trim();
@@ -445,26 +499,38 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     delete prestSel[baseName];
     setLS(PREST_SEL_KEY, prestSel);
     recalc();
+    // también limpiar selección temporal
+    selectedIds.clear();
+    renderPrestList(inputSearch.value);
   });
 
-  // Asignar seleccionado
+  btnSelectAll.addEventListener('click', ()=>{
+    filteredIdx.forEach(idx=> selectedIds.add(PRESTAMOS_LIST[idx].id));
+    renderPrestList(inputSearch.value);
+  });
+  btnUnselectAll.addEventListener('click', ()=>{
+    filteredIdx.forEach(idx=> selectedIds.delete(PRESTAMOS_LIST[idx].id));
+    renderPrestList(inputSearch.value);
+  });
+
   btnAssign.addEventListener('click', ()=>{
     if (!currentRow) return;
-    if (!selectedKey) { closeModal(); return; } // si no seleccionó nada, solo cierra
-
-    const item = PRESTAMOS_LIST.find(i=>i.key===selectedKey);
-    if (!item) { closeModal(); return; }
-
     const baseName = currentRow.children[0].innerText.trim();
-    currentRow.querySelector('.prest').textContent = (item.total||0).toLocaleString('es-CO');
-    currentRow.querySelector('.selected-deudor').textContent = item.name || '';
 
-    prestSel[baseName] = { key:item.key, name:item.name, total:item.total };
+    const chosen = PRESTAMOS_LIST.filter(it=> selectedIds.has(it.id))
+      .map(it=> ({ id: it.id, name: it.name, total: it.total }));
+
+    prestSel[baseName] = chosen;
     setLS(PREST_SEL_KEY, prestSel);
+
+    currentRow.querySelector('.prest').textContent = (sumTotals(chosen)).toLocaleString('es-CO');
+    currentRow.querySelector('.selected-deudor').textContent = summarizeNames(chosen);
 
     recalc();
     closeModal();
   });
+
+  inputSearch.addEventListener('input', ()=> renderPrestList(inputSearch.value));
 
   // Botones "Seleccionar" por fila
   tbody.querySelectorAll('.btn-prest').forEach(btn=>{
@@ -542,7 +608,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     totPag.textContent  = fmt(sumPagar);
   }
 
-  // Inputs de totales principales
+  // Inputs de totales principales (con formatter en vivo)
   function numberInputFormatter(el){
     el.addEventListener('input', ()=>{
       const raw = toInt(el.value);
