@@ -105,10 +105,10 @@ if ($empresaFiltro !== "") {
   if ($resT) while($r=$resT->fetch_assoc()) $tarifas[$r['tipo_vehiculo']] = $r;
 }
 
-/* ================= Préstamos (mapa exacto por nombre normalizado) =================
+/* ================= Préstamos (lista para modal y mapa normalizado) =================
    total = SUM(monto + 10% mensual acumulado) para no pagados */
-$prestamosMap = [];     // key = norm_person(deudor), val = total pendiente
-$prestamosNombres = []; // para el datalist
+$prestamosMap = [];     // key = norm_person(deudor) → total
+$prestamosList = [];    // [{name, key, total}]
 $qPrest = "
   SELECT deudor,
          SUM(monto + monto*0.10*CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS total
@@ -118,13 +118,15 @@ $qPrest = "
 ";
 if ($rP = $conn->query($qPrest)) {
   while($r = $rP->fetch_assoc()){
-    $k = norm_person($r['deudor']);
-    $prestamosMap[$k] = (int)round($r['total']);
-    $prestamosNombres[] = $r['deudor'];
+    $name = $r['deudor'];
+    $key  = norm_person($name);
+    $total = (int)round($r['total']);
+    $prestamosMap[$key] = $total;
+    $prestamosList[] = ['name'=>$name, 'key'=>$key, 'total'=>$total];
   }
 }
 
-/* (Opcional) Nombres base de conductores_admin para sugerencias */
+/* (Opcional) Nombres base de conductores_admin para sugerencias del input conductor (lo dejamos por si luego vuelves a usarlo) */
 $adminNombres = [];
 $ra = $conn->query("SELECT nombre FROM conductores_admin ORDER BY nombre ASC");
 if ($ra) while($rr=$ra->fetch_assoc()) $adminNombres[] = $rr['nombre'];
@@ -142,9 +144,8 @@ foreach ($contadores as $nombre => $v) {
          + $v['siapana']     * (int)($t['siapana']     ?? 0);
 
   $filas[] = [
-    'nombre'        => $nombre,          // editable en UI
+    'nombre'        => $nombre,
     'total_bruto'   => (int)$total,
-    // prestamo se obtendrá en UI a partir del nombre editable
   ];
   $total_facturado += (int)$total;
 }
@@ -155,11 +156,14 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 <html lang="es">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Ajuste de Pago (conductor editable)</title>
+<title>Ajuste de Pago (modal de préstamos)</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
   .num { font-variant-numeric: tabular-nums; }
   .table-sticky thead th { position: sticky; top: 0; z-index: 1; }
+  .modal-show { display:block }
+  .modal-hide { display:none }
+  .opt-active { background:#e5f0ff; border-color:#cfe0ff }
   input[type=number]::-webkit-outer-spin-button,
   input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 </style>
@@ -230,23 +234,13 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       </div>
     </section>
 
-    <!-- Datalist para autocompletar nombres -->
-    <datalist id="listaDeudores">
-      <?php
-        // prestamos primero
-        foreach(array_unique($prestamosNombres) as $n){ echo "<option value=\"".htmlspecialchars($n)."\"></option>"; }
-        // y también conductores_admin (por si quieres forzar ese nombre)
-        foreach(array_unique($adminNombres) as $n){ echo "<option value=\"".htmlspecialchars($n)."\"></option>"; }
-      ?>
-    </datalist>
-
     <!-- Tabla principal -->
     <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
       <div class="overflow-auto max-h-[70vh] rounded-xl border border-slate-200 table-sticky">
         <table class="min-w-[1200px] w-full text-sm">
           <thead class="bg-blue-600 text-white">
             <tr>
-              <th class="px-3 py-2 text-left">Conductor (editable)</th>
+              <th class="px-3 py-2 text-left">Conductor</th>
               <th class="px-3 py-2 text-right">Total viajes (base)</th>
               <th class="px-3 py-2 text-right">Ajuste por diferencia</th>
               <th class="px-3 py-2 text-right">Valor que llegó</th>
@@ -262,14 +256,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
           <tbody id="tbody" class="divide-y divide-slate-100 bg-white">
             <?php foreach ($filas as $f): ?>
             <tr>
-              <td class="px-3 py-2">
-                <div class="flex items-center gap-2">
-                  <input type="text" class="conductor-input w-full rounded-lg border border-slate-300 px-2 py-1"
-                         list="listaDeudores" value="<?= htmlspecialchars($f['nombre']) ?>"
-                         placeholder="Escribe el nombre tal como está en PRESTAMOS">
-                  <button type="button" class="reset-name text-xs px-2 py-1 rounded bg-slate-100 border border-slate-300">↺</button>
-                </div>
-              </td>
+              <td class="px-3 py-2"><?= htmlspecialchars($f['nombre']) ?></td>
               <td class="px-3 py-2 text-right num base"><?= number_format($f['total_bruto'],0,',','.') ?></td>
               <td class="px-3 py-2 text-right num ajuste">0</td>
               <td class="px-3 py-2 text-right num llego">0</td>
@@ -279,7 +266,15 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
               <td class="px-3 py-2 text-right">
                 <input type="text" class="ss w-full max-w-[120px] rounded-lg border border-slate-300 px-2 py-1 text-right num" value="">
               </td>
-              <td class="px-3 py-2 text-right num prest">0</td>
+              <td class="px-3 py-2 text-right">
+                <div class="flex items-center justify-end gap-2">
+                  <span class="num prest">0</span>
+                  <button type="button" class="btn-prest text-xs px-2 py-1 rounded border border-slate-300 bg-slate-50 hover:bg-slate-100">
+                    Seleccionar
+                  </button>
+                </div>
+                <div class="text-[11px] text-slate-500 text-right selected-deudor"></div>
+              </td>
               <td class="px-3 py-2">
                 <input type="text" class="cta w-full max-w-[180px] rounded-lg border border-slate-300 px-2 py-1" value="" placeholder="N° cuenta">
               </td>
@@ -305,14 +300,37 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </section>
   </main>
 
+  <!-- ===== Modal de selección de préstamos ===== -->
+  <div id="prestModal" class="modal-hide fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/30"></div>
+    <div class="relative mx-auto my-8 max-w-2xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+        <h3 class="text-lg font-semibold">Seleccionar deudor (préstamo)</h3>
+        <button id="btnCloseModal" class="p-2 rounded hover:bg-slate-100" title="Cerrar">✕</button>
+      </div>
+      <div class="p-4">
+        <div class="flex flex-col md:flex-row md:items-center gap-3 mb-3">
+          <input id="prestSearch" type="text" placeholder="Buscar deudor..." class="w-full rounded-xl border border-slate-300 px-3 py-2">
+          <button id="btnClearSel" class="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 hover:bg-slate-100">Quitar selección</button>
+        </div>
+        <div id="prestList" class="max-h-[50vh] overflow-auto rounded-xl border border-slate-200"></div>
+      </div>
+      <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
+        <button id="btnCancel" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
+        <button id="btnAssign" class="rounded-lg border border-blue-600 px-4 py-2 bg-blue-600 text-white hover:bg-blue-700">Asignar</button>
+      </div>
+    </div>
+  </div>
+
 <script>
   // ====== Datos de servidor a JS ======
   const KEY_SCOPE = <?= json_encode(($empresaFiltro?:'__todas__').'|'.$desde.'|'.$hasta) ?>;
   const ACC_KEY   = 'cuentas:'+KEY_SCOPE;
   const SS_KEY    = 'seg_social:'+KEY_SCOPE;
-  const NAME_KEY  = 'nombre_override:'+KEY_SCOPE;
+  const PREST_SEL_KEY = 'prestamo_sel:'+KEY_SCOPE; // asignación del deudor a cada fila (baseName)
 
-  const PRESTAMOS_MAP = <?php echo json_encode($prestamosMap, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
+  const PRESTAMOS_MAP  = <?php echo json_encode($prestamosMap,  JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
+  const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 
   // ====== Helpers ======
   const toInt = (s)=> {
@@ -329,51 +347,128 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   function getLS(k){ try{ return JSON.parse(localStorage.getItem(k)||'{}'); }catch{return{};} }
   function setLS(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
 
-  // ====== Cargar persistencia ======
-  let accMap  = getLS(ACC_KEY);
-  let ssMap   = getLS(SS_KEY);
-  let nameMap = getLS(NAME_KEY); // override por conductor original (texto mostrado al cargar)
+  // ====== Persistencia ======
+  let accMap   = getLS(ACC_KEY);
+  let ssMap    = getLS(SS_KEY);
+  let prestSel = getLS(PREST_SEL_KEY); // baseName → {key,name,total}
 
   const tbody = document.getElementById('tbody');
 
-  // ====== Inicializa UI por fila ======
+  // ====== Inicialización de filas ======
   Array.from(tbody.querySelectorAll('tr')).forEach(tr=>{
-    const inputName = tr.querySelector('.conductor-input');
-    const resetBtn  = tr.querySelector('.reset-name');
     const cta = tr.querySelector('input.cta');
     const ss  = tr.querySelector('input.ss');
-    const baseName = inputName.value; // nombre que vino de viajes (para clave LS por fila)
+    const baseName = tr.children[0].innerText.trim();
+    const prestSpan = tr.querySelector('.prest');
+    const selLabel  = tr.querySelector('.selected-deudor');
 
-    // Restaura overrides previos
-    if (nameMap[baseName]) inputName.value = nameMap[baseName];
-    // Aplica prestamos según nombre actual
-    const k = normPerson(inputName.value);
-    tr.querySelector('.prest').textContent = fmt(PRESTAMOS_MAP[k] || 0);
-
-    // Restaura cuenta/SS si existían
+    // Restaurar pguarda: cuenta y ss
     if (accMap[baseName]) cta.value = accMap[baseName];
     if (ssMap[baseName])  ss.value  = fmt(toInt(ssMap[baseName]));
 
-    // Eventos
-    inputName.addEventListener('input', ()=>{
-      const key = normPerson(inputName.value);
-      const pend = PRESTAMOS_MAP[key] || 0;
-      tr.querySelector('.prest').textContent = fmt(pend);
-      nameMap[baseName] = inputName.value;
-      setLS(NAME_KEY, nameMap);
-      recalc();
-    });
-    resetBtn.addEventListener('click', ()=>{
-      inputName.value = baseName;
-      const key = normPerson(inputName.value);
-      tr.querySelector('.prest').textContent = fmt(PRESTAMOS_MAP[key] || 0);
-      delete nameMap[baseName];
-      setLS(NAME_KEY, nameMap);
-      recalc();
-    });
+    // Restaurar selección de préstamo si existía
+    if (prestSel[baseName]) {
+      prestSpan.textContent = fmt(toInt(prestSel[baseName].total));
+      selLabel.textContent  = prestSel[baseName].name || '';
+    }
 
+    // Persistir cambios
     cta.addEventListener('change', ()=>{ accMap[baseName] = cta.value.trim(); setLS(ACC_KEY, accMap); });
-    ss.addEventListener('input', ()=>{ ssMap[baseName] = toInt(ss.value); setLS(SS_KEY, ssMap); recalc(); });
+    ss.addEventListener('input',   ()=>{ ssMap[baseName]  = toInt(ss.value);  setLS(SS_KEY, ssMap);  recalc(); });
+  });
+
+  // ====== Modal de préstamos ======
+  const modal = document.getElementById('prestModal');
+  const btnAssign = document.getElementById('btnAssign');
+  const btnCancel = document.getElementById('btnCancel');
+  const btnClose  = document.getElementById('btnCloseModal');
+  const btnClear  = document.getElementById('btnClearSel');
+  const inputSearch = document.getElementById('prestSearch');
+  const listHost = document.getElementById('prestList');
+
+  let currentRow = null;    // <tr> activo
+  let selectedKey = null;   // key del deudor elegido temporalmente (en el modal)
+
+  // Render listado con filtro
+  function renderPrestList(filter=''){
+    listHost.innerHTML = '';
+    const normFilter = normPerson(filter);
+    const frag = document.createDocumentFragment();
+    PRESTAMOS_LIST.forEach(item=>{
+      if (normFilter && !item.key.includes(normFilter)) return;
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'w-full text-left px-3 py-2 border-b border-slate-100 hover:bg-slate-50 flex items-center justify-between';
+      row.dataset.key = item.key;
+      row.dataset.total = item.total;
+      row.innerHTML = `
+        <span class="truncate pr-3">${item.name}</span>
+        <span class="num font-semibold">${(item.total||0).toLocaleString('es-CO')}</span>
+      `;
+      row.addEventListener('click', ()=>{
+        selectedKey = item.key;
+        Array.from(listHost.children).forEach(el=>el.classList.remove('opt-active'));
+        row.classList.add('opt-active');
+      });
+      frag.appendChild(row);
+    });
+    listHost.appendChild(frag);
+  }
+  renderPrestList();
+
+  inputSearch.addEventListener('input', ()=> renderPrestList(inputSearch.value));
+
+  function openModalForRow(tr){
+    currentRow = tr;
+    selectedKey = null;
+    inputSearch.value = '';
+    renderPrestList('');
+    modal.classList.remove('modal-hide');
+    modal.classList.add('modal-show');
+  }
+  function closeModal(){
+    modal.classList.remove('modal-show');
+    modal.classList.add('modal-hide');
+    currentRow = null;
+    selectedKey = null;
+  }
+
+  btnCancel.addEventListener('click', closeModal);
+  btnClose.addEventListener('click', closeModal);
+
+  // Quitar selección (pone 0 en la fila)
+  btnClear.addEventListener('click', ()=>{
+    if (!currentRow) return;
+    const baseName = currentRow.children[0].innerText.trim();
+    currentRow.querySelector('.prest').textContent = '0';
+    currentRow.querySelector('.selected-deudor').textContent = '';
+    delete prestSel[baseName];
+    setLS(PREST_SEL_KEY, prestSel);
+    recalc();
+  });
+
+  // Asignar seleccionado
+  btnAssign.addEventListener('click', ()=>{
+    if (!currentRow) return;
+    if (!selectedKey) { closeModal(); return; } // si no seleccionó nada, solo cierra
+
+    const item = PRESTAMOS_LIST.find(i=>i.key===selectedKey);
+    if (!item) { closeModal(); return; }
+
+    const baseName = currentRow.children[0].innerText.trim();
+    currentRow.querySelector('.prest').textContent = (item.total||0).toLocaleString('es-CO');
+    currentRow.querySelector('.selected-deudor').textContent = item.name || '';
+
+    prestSel[baseName] = { key:item.key, name:item.name, total:item.total };
+    setLS(PREST_SEL_KEY, prestSel);
+
+    recalc();
+    closeModal();
+  });
+
+  // Botones "Seleccionar" por fila
+  tbody.querySelectorAll('.btn-prest').forEach(btn=>{
+    btn.addEventListener('click', ()=> openModalForRow(btn.closest('tr')));
   });
 
   // ====== Distribución igualitaria ======
@@ -447,8 +542,18 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     totPag.textContent  = fmt(sumPagar);
   }
 
-  inpFact.addEventListener('input', recalc);
-  inpRec.addEventListener('input', recalc);
+  // Inputs de totales principales
+  function numberInputFormatter(el){
+    el.addEventListener('input', ()=>{
+      const raw = toInt(el.value);
+      el.value = fmt(raw);
+      recalc();
+    });
+  }
+  numberInputFormatter(document.getElementById('inp_facturado'));
+  numberInputFormatter(document.getElementById('inp_recibido'));
+
+  // Primer cálculo
   recalc();
 </script>
 
