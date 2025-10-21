@@ -329,10 +329,20 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
 <script>
   // ====== Datos de servidor a JS ======
-  const KEY_SCOPE = <?= json_encode(($empresaFiltro?:'__todas__').'|'.$desde.'|'.$hasta) ?>;
-  const ACC_KEY   = 'cuentas:'+KEY_SCOPE;
-  const SS_KEY    = 'seg_social:'+KEY_SCOPE;
-  const PREST_SEL_KEY = 'prestamo_sel_multi:'+KEY_SCOPE; // baseName → [{id,name,total},...]
+  // ---- Claves de almacenamiento ----
+  // Mantener por empresa (o todas), NO por fechas
+  const COMPANY_SCOPE = <?= json_encode(($empresaFiltro ?: '__todas__')) ?>;
+
+  // Persistir cuentas y SS por empresa (sobreviven a cambios de fechas)
+  const ACC_KEY   = 'cuentas:'+COMPANY_SCOPE;
+  const SS_KEY    = 'seg_social:'+COMPANY_SCOPE;
+
+  // NUEVA clave por empresa para préstamos (v2, sin fechas)
+  const PREST_SEL_KEY = 'prestamo_sel_multi:v2:'+COMPANY_SCOPE;
+
+  // Prefijo de claves viejas con fechas (para migración automática)
+  // Ejemplo clave vieja: "prestamo_sel_multi:MiEmpresa|2025-10-01|2025-10-21"
+  const OLD_PREST_PREFIX = 'prestamo_sel_multi:' + (COMPANY_SCOPE + '|');
 
   const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 
@@ -354,15 +364,40 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   // ====== Persistencia ======
   let accMap   = getLS(ACC_KEY);
   let ssMap    = getLS(SS_KEY);
+
+  // Carga nueva clave sin fechas
   let prestSel = getLS(PREST_SEL_KEY); // baseName → array de {id,name,total}
 
-  // Migración desde la versión anterior (si era objeto simple)
-  Object.keys(prestSel).forEach(k=>{
-    if (!Array.isArray(prestSel[k])) {
-      const v = prestSel[k];
-      prestSel[k] = v && typeof v==='object' ? [v] : [];
-    }
-  });
+  // --- Migración automática desde claves antiguas con fechas ---
+  if (!prestSel || Object.keys(prestSel).length === 0) {
+    try {
+      const matches = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i) || '';
+        if (k.startsWith(OLD_PREST_PREFIX)) matches.push(k);
+      }
+      if (matches.length === 1) {
+        const oldData = JSON.parse(localStorage.getItem(matches[0]) || '{}');
+        if (oldData && typeof oldData === 'object') {
+          prestSel = oldData;
+          setLS(PREST_SEL_KEY, prestSel); // guardamos ya en la nueva clave sin fechas
+        }
+      }
+      // Si hay múltiples, podrías decidir cuál migrar; mantenemos simple.
+    } catch (e) { /* noop */ }
+  }
+
+  // Migración de estructura (si alguna fila estuvo guardada como objeto simple)
+  if (prestSel && typeof prestSel === 'object') {
+    Object.keys(prestSel).forEach(k=>{
+      if (!Array.isArray(prestSel[k])) {
+        const v = prestSel[k];
+        prestSel[k] = v && typeof v==='object' ? [v] : [];
+      }
+    });
+  } else {
+    prestSel = {};
+  }
 
   const tbody = document.getElementById('tbody');
 
