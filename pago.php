@@ -341,7 +341,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const PREST_SEL_KEY = 'prestamo_sel_multi:v2:'+COMPANY_SCOPE;
 
   // Prefijo de claves viejas con fechas (para migración automática)
-  // Ejemplo clave vieja: "prestamo_sel_multi:MiEmpresa|2025-10-01|2025-10-21"
   const OLD_PREST_PREFIX = 'prestamo_sel_multi:' + (COMPANY_SCOPE + '|');
 
   const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
@@ -383,7 +382,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
           setLS(PREST_SEL_KEY, prestSel); // guardamos ya en la nueva clave sin fechas
         }
       }
-      // Si hay múltiples, podrías decidir cuál migrar; mantenemos simple.
     } catch (e) { /* noop */ }
   }
 
@@ -443,9 +441,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const selCount = document.getElementById('selCount');
   const selTotal = document.getElementById('selTotal');
 
-  let currentRow = null;     // <tr> activo
+  let currentRow = null;       // <tr> activo
   let selectedIds = new Set(); // ids seleccionados temporalmente (en el modal)
-  let filteredIdx = [];      // índices visibles en el listado (después del filtro)
+  let filteredIdx = [];        // índices visibles en el listado (después del filtro)
 
   function renderPrestList(filter=''){
     listHost.innerHTML = '';
@@ -514,6 +512,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     renderPrestList('');
     modal.classList.remove('modal-hide');
     modal.classList.add('modal-show');
+
+    // 👇 Auto-focus inmediato en el buscador (y seleccionar el texto)
+    requestAnimationFrame(() => {
+      inputSearch.focus();
+      inputSearch.select();
+    });
   }
   function closeModal(){
     modal.classList.remove('modal-show');
@@ -570,6 +574,32 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   // Botones "Seleccionar" por fila
   tbody.querySelectorAll('.btn-prest').forEach(btn=>{
     btn.addEventListener('click', ()=> openModalForRow(btn.closest('tr')));
+  });
+
+  // ====== Listener global para tipear directo en el buscador del modal ======
+  document.addEventListener('keydown', (e) => {
+    const isOpen = modal.classList.contains('modal-show');
+    if (!isOpen) return;
+
+    const activeTag = (document.activeElement && document.activeElement.tagName) || '';
+    const isTextInput = ['INPUT','TEXTAREA'].includes(activeTag);
+    const isTypingKey = e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete';
+
+    // Si el modal está abierto y no estamos en otro input, redirigir teclas al buscador
+    if (!isTextInput && isTypingKey) {
+      inputSearch.focus();
+      if (e.key.length === 1) {
+        const v = inputSearch.value || '';
+        inputSearch.value = v + e.key;
+        const evt = new Event('input', { bubbles: true });
+        inputSearch.dispatchEvent(evt);
+      } else {
+        // Backspace/Delete sin carácter
+        const evt = new Event('input', { bubbles: true });
+        inputSearch.dispatchEvent(evt);
+      }
+      e.preventDefault();
+    }
   });
 
   // ====== Distribución igualitaria ======
