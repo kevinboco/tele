@@ -6,7 +6,8 @@
  * - Deudor: valor prestado + fecha + interés + total
  * - Selector de deudores (fuera del SVG) + "Préstamo pagado"
  * - En el 3er nodo: Ganancia + Total prestado (pendiente)
- * - >>> NUEVO: Colorear nodo 2 según meses (1, 2, 3+)
+ * - >>> Colorear nodo 2 según meses (1, 2, 3+)
+ * - >>> NUEVO: Filtro por Deudor + resumen de sumas del deudor
  *********************************************************/
 include("nav.php");
 // ======= CONFIG =======
@@ -167,7 +168,7 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  .selitem .meta{font-size:12px;color:#555}
  @media (max-width:760px){ .pairs{grid-template-columns:1fr} }
 
- /* >>> NUEVO: Colores por meses en el NODO 2 (deudores) */
+ /* >>> Colores por meses en el NODO 2 (deudores) */
  .nodeRect.m1{ fill:#FFF8DB; }  /* 1 mes - amarillo suave */
  .nodeRect.m2{ fill:#FFE9D6; }  /* 2 meses - naranja suave */
  .nodeRect.m3{ fill:#FFE1E1; }  /* 3+ meses - rojo suave */
@@ -234,14 +235,17 @@ if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!
 else:
 
   // ==== filtros ====
-  $q  = trim($_GET['q'] ?? '');
-  $fp = trim($_GET['fp'] ?? '');
+  $q   = trim($_GET['q']  ?? '');
+  $fp  = trim($_GET['fp'] ?? ''); // prestamista (normalizado)
+  $fd  = trim($_GET['fd'] ?? ''); // >>> NUEVO: deudor (normalizado)
+
   $qNorm  = mbnorm($q);
   $fpNorm = mbnorm($fp);
+  $fdNorm = mbnorm($fd);
 
   $conn=db();
 
-  // Combo de prestamistas
+  // Combo de prestamistas (siempre todos)
   $prestMap = [];
   $resPL = ($view==='graph')
     ? $conn->query("SELECT prestamista FROM prestamos WHERE (pagado IS NULL OR pagado=0)")
@@ -253,11 +257,24 @@ else:
   }
   ksort($prestMap, SORT_NATURAL);
 
+  // >>> NUEVO: Combo de deudores (siempre todos)
+  $deudMap = [];
+  $resDL = ($view==='graph')
+    ? $conn->query("SELECT deudor FROM prestamos WHERE (pagado IS NULL OR pagado=0)")
+    : $conn->query("SELECT deudor FROM prestamos");
+  while($rowDL=$resDL->fetch_row()){
+    $norm = mbnorm($rowDL[0]);
+    if ($norm==='') continue;
+    if (!isset($deudMap[$norm])) $deudMap[$norm] = $rowDL[0];
+  }
+  ksort($deudMap, SORT_NATURAL);
+
   if ($view==='cards'){
     // -------- TARJETAS --------
     $where = "1"; $types=""; $params=[];
     if ($q!==''){ $where.=" AND (LOWER(deudor) LIKE CONCAT('%',?,'%') OR LOWER(prestamista) LIKE CONCAT('%',?,'%'))"; $types.="ss"; $params[]=$qNorm; $params[]=$qNorm; }
     if ($fpNorm!==''){ $where.=" AND LOWER(TRIM(prestamista)) = ?"; $types.="s"; $params[]=$fpNorm; }
+    if ($fdNorm!==''){ $where.=" AND LOWER(TRIM(deudor)) = ?"; $types.="s"; $params[]=$fdNorm; }
 
     $sql = "
       SELECT id,deudor,prestamista,monto,fecha,imagen,created_at,
@@ -273,23 +290,69 @@ else:
       <form class="toolbar" method="get">
         <input type="hidden" name="view" value="cards">
         <input name="q" placeholder="🔎 Buscar (deudor / prestamista)" value="<?= h($q) ?>" style="flex:1;min-width:220px">
-        <select name="fp"><option value="">Todos los prestamistas</option>
-          <?php foreach($prestMap as $norm=>$label): ?><option value="<?= h($norm) ?>" <?= $fpNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option><?php endforeach; ?>
+        <select name="fp" title="Prestamista">
+          <option value="">Todos los prestamistas</option>
+          <?php foreach($prestMap as $norm=>$label): ?>
+            <option value="<?= h($norm) ?>" <?= $fpNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
+          <?php endforeach; ?>
         </select>
+
+        <!-- >>> NUEVO: Filtro por deudor -->
+        <select name="fd" title="Deudor">
+          <option value="">Todos los deudores</option>
+          <?php foreach($deudMap as $norm=>$label): ?>
+            <option value="<?= h($norm) ?>" <?= $fdNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
+          <?php endforeach; ?>
+        </select>
+
         <button class="btn" type="submit">Filtrar</button>
-        <?php if ($q!=='' || $fpNorm!==''): ?><a class="btn gray" href="?view=cards">Quitar filtro</a><?php endif; ?>
+        <?php if ($q!=='' || $fpNorm!=='' || $fdNorm!==''): ?>
+          <a class="btn gray" href="?view=cards">Quitar filtro</a>
+        <?php endif; ?>
       </form>
       <div class="subtitle">Interés 10% desde el día 1 y luego 10% por mes.</div>
     </div>
 
-    <?php if ($rs->num_rows === 0): ?><div class="card"><span class="subtitle">(sin registros)</span></div>
+    <?php
+      // >>> NUEVO: Resumen cuando hay deudor seleccionado
+      if ($fdNorm!=='') {
+        $typesAgg = "s"; $paramsAgg = [$fdNorm];
+        $sqlAgg = "
+          SELECT COUNT(*) AS n,
+                 SUM(monto) AS capital,
+                 SUM(monto*0.10*CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes,
+                 SUM(monto + (monto*0.10*CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
+          FROM prestamos
+          WHERE LOWER(TRIM(deudor)) = ?";
+        $stAgg=$conn->prepare($sqlAgg); $stAgg->bind_param($typesAgg, ...$paramsAgg); $stAgg->execute(); $sum=$stAgg->get_result()->fetch_assoc();
+        $stAgg->close();
+        $deudorLabel = isset($deudMap[$fdNorm]) ? mbtitle($deudMap[$fdNorm]) : '(deudor)';
+    ?>
+      <div class="card" style="margin-bottom:16px">
+        <div class="row">
+          <div class="title">Resumen de <?= h($deudorLabel) ?></div>
+          <span class="chip"><?= (int)($sum['n']??0) ?> préstamo(s)</span>
+        </div>
+        <div class="pairs" style="margin-top:10px">
+          <div class="item"><div class="k">Capital</div><div class="v">$ <?= money($sum['capital']??0) ?></div></div>
+          <div class="item"><div class="k">Interés</div><div class="v">$ <?= money($sum['interes']??0) ?></div></div>
+          <div class="item"><div class="k">Total</div><div class="v">$ <?= money($sum['total']??0) ?></div></div>
+        </div>
+      </div>
+    <?php } ?>
+
+    <?php if ($rs->num_rows === 0): ?>
+      <div class="card"><span class="subtitle">(sin registros)</span></div>
     <?php else: ?>
       <div class="grid-cards">
         <?php while($r=$rs->fetch_assoc()): ?>
           <div class="card">
             <?php if (!empty($r['imagen'])): ?><a href="uploads/<?= h($r['imagen']) ?>" target="_blank"><img class="thumb" src="uploads/<?= h($r['imagen']) ?>" alt=""></a><?php endif; ?>
             <div class="row" style="margin-top:8px">
-              <div><div class="title">#<?= h($r['id']) ?> • <?= h($r['deudor']) ?></div><div class="subtitle">Prestamista: <strong><?= h($r['prestamista']) ?></strong></div></div>
+              <div>
+                <div class="title">#<?= h($r['id']) ?> • <?= h($r['deudor']) ?></div>
+                <div class="subtitle">Prestamista: <strong><?= h($r['prestamista']) ?></strong></div>
+              </div>
               <span class="chip"><?= h($r['fecha']) ?></span>
             </div>
             <div class="pairs" style="margin-top:12px">
@@ -320,8 +383,7 @@ else:
     if ($q!==''){ $where.=" AND (LOWER(deudor) LIKE CONCAT('%',?,'%') OR LOWER(prestamista) LIKE CONCAT('%',?,'%'))"; $types.="ss"; $params[]=$qNorm; $params[]=$qNorm; }
     if ($fpNorm!==''){ $where.=" AND LOWER(TRIM(prestamista)) = ?"; $types.="s"; $params[]=$fpNorm; }
 
-    // Totales por prestamista+deudor (sin IDs)
-    // >>> NUEVO: devolvemos 'meses' para pintar el nodo 2
+    // Totales por prestamista+deudor (sin IDs) — con 'meses' para colorear
     $sql = "
       SELECT LOWER(TRIM(prestamista)) AS prest_key, MIN(prestamista) AS prest_display,
              LOWER(TRIM(deudor)) AS deud_key, MIN(deudor) AS deud_display,
@@ -399,7 +461,7 @@ else:
         <div class="title" style="margin:6px 10px 10px">Prestamista: <?= h($prestLabel) ?></div>
 
         <div class="svgwrap">
-          <!-- >>> NUEVO: Leyenda rápida -->
+          <!-- Leyenda -->
           <div class="subtitle" style="margin:6px 0 8px; padding:0 10px">
             <span class="chip" style="background:#FFF8DB">1 mes</span>
             <span class="chip" style="background:#FFE9D6">2 meses</span>
@@ -425,15 +487,12 @@ else:
             <?php $i=0; foreach($rows as $r):
               $y=$firstY+($i*$rowGap); $boxY=$y-($nodeH/2);
               $cap='$ '.money($r['capital']); $int='$ '.money($r['interes']); $tot='$ '.money($r['total']); $date=h($r['fecha_min']); $deudLbl=mbtitle($r['deud_display']);
-
-              // >>> NUEVO: clase por meses (1, 2, 3+)
               $meses = (int)($r['meses'] ?? 0);
               $mcls  = ($meses >= 3) ? 'm3' : (($meses === 2) ? 'm2' : (($meses === 1) ? 'm1' : ''));
             ?>
               <line x1="<?= $xL+90 ?>" y1="<?= $prestY+$headH/2 ?>" x2="<?= $xC-10 ?>" y2="<?= $y ?>" stroke="#9ca3af" stroke-width="1.5" />
               <line x1="<?= $xC+$nodeW ?>" y1="<?= $y ?>" x2="<?= $xR-120 ?>" y2="<?= $gainY+$headH/2 ?>" stroke="#9ca3af" stroke-width="1.2" />
 
-              <!-- APLICA clase de color al rect del NODO 2 -->
               <rect class="nodeRect <?= $mcls ?>" x="<?= $xC-10 ?>" y="<?= $boxY ?>" rx="12" ry="12" width="<?= $nodeW ?>" height="<?= $nodeH ?>"/>
               <text class="txt" x="<?= $xC ?>" y="<?= $boxY+22 ?>"><tspan font-weight="800"><?= h($deudLbl) ?></tspan></text>
               <text class="txt mut" x="<?= $xC ?>" y="<?= $boxY+40 ?>">valor prestado: <tspan class="amt" fill="#111"><?= $cap ?></tspan></text>
