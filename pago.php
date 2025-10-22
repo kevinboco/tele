@@ -154,7 +154,22 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
   .num { font-variant-numeric: tabular-nums; }
-  .table-sticky thead th { position: sticky; top: 0; z-index: 1; }
+
+  /* ===== Encabezado sticky siempre visible ===== */
+  .table-sticky thead tr {
+    position: sticky;
+    top: 0;            /* pegado al borde superior del contenedor con scroll */
+    z-index: 30;       /* por encima del cuerpo de la tabla */
+  }
+  .table-sticky thead th {
+    position: sticky;  /* algunos navegadores requieren sticky en th también */
+    top: 0;
+    z-index: 31;       /* un poco más que el <tr> para cubrir bordes */
+    background-color: #2563eb !important; /* azul = Tailwind bg-blue-600 */
+    color: #ffffff !important;
+  }
+  .table-sticky thead { box-shadow: 0 2px 0 rgba(0,0,0,0.06); }
+
   .modal-show { display:block }
   .modal-hide { display:none }
   .opt-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 12px; border-bottom:1px solid #e5e7eb; }
@@ -329,20 +344,11 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
 <script>
   // ====== Datos de servidor a JS ======
-  // ---- Claves de almacenamiento ----
-  // Mantener por empresa (o todas), NO por fechas
   const COMPANY_SCOPE = <?= json_encode(($empresaFiltro ?: '__todas__')) ?>;
-
-  // Persistir cuentas y SS por empresa (sobreviven a cambios de fechas)
   const ACC_KEY   = 'cuentas:'+COMPANY_SCOPE;
   const SS_KEY    = 'seg_social:'+COMPANY_SCOPE;
-
-  // NUEVA clave por empresa para préstamos (v2, sin fechas)
   const PREST_SEL_KEY = 'prestamo_sel_multi:v2:'+COMPANY_SCOPE;
-
-  // Prefijo de claves viejas con fechas (para migración automática)
   const OLD_PREST_PREFIX = 'prestamo_sel_multi:' + (COMPANY_SCOPE + '|');
-
   const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 
   // ====== Helpers ======
@@ -385,7 +391,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     } catch (e) { /* noop */ }
   }
 
-  // Migración de estructura (si alguna fila estuvo guardada como objeto simple)
+  // Migración de estructura
   if (prestSel && typeof prestSel === 'object') {
     Object.keys(prestSel).forEach(k=>{
       if (!Array.isArray(prestSel[k])) {
@@ -513,7 +519,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     modal.classList.remove('modal-hide');
     modal.classList.add('modal-show');
 
-    // 👇 Auto-focus inmediato en el buscador (y seleccionar el texto)
+    // Auto-focus en el buscador
     requestAnimationFrame(() => {
       inputSearch.focus();
       inputSearch.select();
@@ -538,7 +544,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     delete prestSel[baseName];
     setLS(PREST_SEL_KEY, prestSel);
     recalc();
-    // también limpiar selección temporal
     selectedIds.clear();
     renderPrestList(inputSearch.value);
   });
@@ -585,7 +590,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const isTextInput = ['INPUT','TEXTAREA'].includes(activeTag);
     const isTypingKey = e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete';
 
-    // Si el modal está abierto y no estamos en otro input, redirigir teclas al buscador
     if (!isTextInput && isTypingKey) {
       inputSearch.focus();
       if (e.key.length === 1) {
@@ -594,7 +598,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         const evt = new Event('input', { bubbles: true });
         inputSearch.dispatchEvent(evt);
       } else {
-        // Backspace/Delete sin carácter
         const evt = new Event('input', { bubbles: true });
         inputSearch.dispatchEvent(evt);
       }
