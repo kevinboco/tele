@@ -1,8 +1,11 @@
 <?php
 require 'vendor/autoload.php';
-include("nav.php");
 use PhpOffice\PhpWord\PhpWord;
 use PhpOffice\PhpWord\IOFactory;
+
+// Desactivar cualquier salida previa
+ob_clean();
+ob_start();
 
 // Conexión BD
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
@@ -12,30 +15,45 @@ if ($conn->connect_error) {
 
 // Si no se han enviado fechas, mostramos formulario
 if (!isset($_POST['desde']) || !isset($_POST['hasta'])) {
-    // Consultar empresas distintas
     $empresas = [];
     $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
     while ($r = $resEmp->fetch_assoc()) {
         $empresas[] = $r['empresa'];
     }
     ?>
-    <form method="post">
-        <h2>📅 Generar Informe de Viajes</h2>
-        <label>Desde: <input type="date" name="desde" required></label><br><br>
-        <label>Hasta: <input type="date" name="hasta" required></label><br><br>
-
-        <label>Empresa: 
-            <select name="empresa">
-                <option value="">-- Todas --</option>
-                <?php foreach($empresas as $e): ?>
-                    <option value="<?= htmlspecialchars($e) ?>"><?= htmlspecialchars($e) ?></option>
-                <?php endforeach; ?>
-            </select>
-        </label>
-        <br><br>
-
-        <button type="submit">Generar Informe</button>
-    </form>
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <title>Generar Informe</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-light p-4">
+        <div class="container">
+            <h2 class="mb-4 text-primary">📅 Generar Informe de Viajes</h2>
+            <form method="post" class="card p-4 shadow">
+                <div class="mb-3">
+                    <label class="form-label">Desde:</label>
+                    <input type="date" name="desde" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Hasta:</label>
+                    <input type="date" name="hasta" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Empresa:</label>
+                    <select name="empresa" class="form-select">
+                        <option value="">-- Todas --</option>
+                        <?php foreach($empresas as $e): ?>
+                            <option value="<?= htmlspecialchars($e) ?>"><?= htmlspecialchars($e) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Generar Informe</button>
+            </form>
+        </div>
+    </body>
+    </html>
     <?php
     exit;
 }
@@ -63,31 +81,22 @@ $section = $phpWord->addSection();
 // === Encabezado ===
 $section->addText("INFORME DE FICHAS TECNICAS DE CONDUCTOR VEHICULOS", ['bold' => true, 'size' => 14], ['align' => 'center']);
 $section->addTextBreak(1);
-
 $section->addText("SEGÚN ACTA DE INICIO AL CONTRATO DE PRESTACIÓN DE SERVICIOS NO. 1313-2025 SUSCRITO LA ESE HOSPITAL SAN JOSE DE MAICAO CON LA ASOCIACION DE TRANSPORTISTA ZONA NORTE EXTREMA WUINPUMUIN.");
 $section->addText("OBJETO: TRASLADO DE PERSONAL ASISTENCIAL DE LA ESE HOSPITAL SAN JOSE DE MAICAO EN INTERVENCION – SEDE NAZARETH.");
 $section->addTextBreak(1);
-
 $section->addText("Periodo: desde $desde hasta $hasta", ['italic' => true]);
 if ($empresaFiltro !== "") {
     $section->addText("Empresa: $empresaFiltro", ['italic' => true]);
 }
 $section->addTextBreak(1);
 
-// === Tabla de viajes ===
-$table = $section->addTable([
-    'borderSize' => 6,
-    'borderColor' => '000000',
-    'cellMargin' => 50
-]);
-
-// Encabezados (solo 3 columnas)
+// === Tabla ===
+$table = $section->addTable(['borderSize' => 6, 'borderColor' => '000000', 'cellMargin' => 50]);
 $table->addRow();
-$table->addCell(2000)->addText("FECHA DEL VIAJE", ['bold' => true]);
+$table->addCell(2000)->addText("FECHA", ['bold' => true]);
 $table->addCell(4000)->addText("CONDUCTOR", ['bold' => true]);
 $table->addCell(4000)->addText("RUTA", ['bold' => true]);
 
-// Filas con los datos
 if ($res->num_rows > 0) {
     while ($row = $res->fetch_assoc()) {
         $table->addRow();
@@ -100,28 +109,28 @@ if ($res->num_rows > 0) {
     $table->addCell(10000, ['gridSpan' => 3])->addText("📭 No hay viajes en este rango de fechas.");
 }
 
-// === Pie de página ===
+// === Pie ===
 $section->addTextBreak(2);
 setlocale(LC_TIME, "es_ES.UTF-8");
 $fechaHoy = strftime("%d de %B de %Y");
 $section->addText("Maicao, " . $fechaHoy, [], ['align' => 'right']);
-$section->addText("Cordialmente,", [], ['align' => 'left']);
+$section->addText("Cordialmente,");
 $section->addTextBreak(2);
-$section->addText("NUMA IGUARAN IGUARAN", ['bold' => true]);
+$section->addText("NUMAS JOSÉ IGUARÁN IGUARÁN", ['bold' => true]);
 $section->addText("Representante Legal");
 
-// Guardar temporalmente
-$file = "informe_viajes.docx";
+// === Guardar y forzar descarga ===
+$file = tempnam(sys_get_temp_dir(), 'informe_') . '.docx';
 $writer = IOFactory::createWriter($phpWord, 'Word2007');
 $writer->save($file);
 
-// Forzar descarga al navegador
 header("Content-Description: File Transfer");
-header("Content-Disposition: attachment; filename=$file");
+header("Content-Disposition: attachment; filename=informe_viajes.docx");
 header("Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-header("Content-Transfer-Encoding: binary");
-header("Cache-Control: must-revalidate");
-header("Pragma: public");
+header("Content-Length: " . filesize($file));
 readfile($file);
+
+// Limpiar buffers
+ob_end_clean();
 exit;
 ?>
