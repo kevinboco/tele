@@ -11,7 +11,6 @@
 <?php include("nav.php"); ?>
 
 <div class="container py-3">
-  
 
   <!-- Filtros -->
   <div class="card shadow mb-4">
@@ -93,11 +92,12 @@
     $where[] = "empresa LIKE '%$empresa%'";
   }
 
+  // Consulta principal ordenada de la más antigua a la más reciente
   $sql = "SELECT * FROM viajes";
   if (count($where) > 0) {
     $sql .= " WHERE " . implode(" AND ", $where);
   }
-  $sql .= " ORDER BY id DESC";
+  $sql .= " ORDER BY fecha ASC, id ASC";
 
   $resultado = $conexion->query($sql);
 
