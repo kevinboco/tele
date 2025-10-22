@@ -154,9 +154,14 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
   .num { font-variant-numeric: tabular-nums; }
-  .table-sticky thead th { position: sticky; top: 0; z-index: 1; }
-  .modal-show { display:block }
-  .modal-hide { display:none }
+  /* Sticky header de la tabla */
+  .table-sticky thead th {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background-color: #2563eb; /* azul Tailwind 600 */
+    color: #fff;
+  }
   .opt-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 12px; border-bottom:1px solid #e5e7eb; }
   .opt-row:hover { background:#f8fafc; }
   .opt-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding-right:8px; }
@@ -233,8 +238,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     <!-- Tabla principal -->
     <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-      <div class="overflow-auto max-h-[70vh] rounded-xl border border-slate-200 table-sticky">
-        <table class="min-w-[1200px] w-full text-sm">
+      <!-- NOTA: relative aquí para que el sticky funcione perfecto -->
+      <div class="overflow-auto max-h-[70vh] rounded-xl border border-slate-200 relative">
+        <table class="min-w-[1200px] w-full text-sm table-sticky">
           <thead class="bg-blue-600 text-white">
             <tr>
               <th class="px-3 py-2 text-left">Conductor</th>
@@ -329,20 +335,11 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
 <script>
   // ====== Datos de servidor a JS ======
-  // ---- Claves de almacenamiento ----
-  // Mantener por empresa (o todas), NO por fechas
   const COMPANY_SCOPE = <?= json_encode(($empresaFiltro ?: '__todas__')) ?>;
-
-  // Persistir cuentas y SS por empresa (sobreviven a cambios de fechas)
   const ACC_KEY   = 'cuentas:'+COMPANY_SCOPE;
   const SS_KEY    = 'seg_social:'+COMPANY_SCOPE;
-
-  // NUEVA clave por empresa para préstamos (v2, sin fechas)
   const PREST_SEL_KEY = 'prestamo_sel_multi:v2:'+COMPANY_SCOPE;
-
-  // Prefijo de claves viejas con fechas (para migración automática)
   const OLD_PREST_PREFIX = 'prestamo_sel_multi:' + (COMPANY_SCOPE + '|');
-
   const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 
   // ====== Helpers ======
@@ -364,10 +361,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   let accMap   = getLS(ACC_KEY);
   let ssMap    = getLS(SS_KEY);
 
-  // Carga nueva clave sin fechas
   let prestSel = getLS(PREST_SEL_KEY); // baseName → array de {id,name,total}
 
-  // --- Migración automática desde claves antiguas con fechas ---
+  // --- Migración desde claves antiguas con fechas ---
   if (!prestSel || Object.keys(prestSel).length === 0) {
     try {
       const matches = [];
@@ -379,13 +375,13 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         const oldData = JSON.parse(localStorage.getItem(matches[0]) || '{}');
         if (oldData && typeof oldData === 'object') {
           prestSel = oldData;
-          setLS(PREST_SEL_KEY, prestSel); // guardamos ya en la nueva clave sin fechas
+          setLS(PREST_SEL_KEY, prestSel);
         }
       }
     } catch (e) { /* noop */ }
   }
 
-  // Migración de estructura (si alguna fila estuvo guardada como objeto simple)
+  // Migración de estructura
   if (prestSel && typeof prestSel === 'object') {
     Object.keys(prestSel).forEach(k=>{
       if (!Array.isArray(prestSel[k])) {
@@ -415,11 +411,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const prestSpan = tr.querySelector('.prest');
     const selLabel  = tr.querySelector('.selected-deudor');
 
-    // Restaurar cuenta y SS
     if (accMap[baseName]) cta.value = accMap[baseName];
     if (ssMap[baseName])  ss.value  = fmt(toInt(ssMap[baseName]));
 
-    // Restaurar préstamos múltiples
     const chosen = prestSel[baseName] || [];
     prestSpan.textContent = fmt(sumTotals(chosen));
     selLabel.textContent  = summarizeNames(chosen);
@@ -441,9 +435,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const selCount = document.getElementById('selCount');
   const selTotal = document.getElementById('selTotal');
 
-  let currentRow = null;       // <tr> activo
-  let selectedIds = new Set(); // ids seleccionados temporalmente (en el modal)
-  let filteredIdx = [];        // índices visibles en el listado (después del filtro)
+  let currentRow = null;
+  let selectedIds = new Set();
+  let filteredIdx = [];
 
   function renderPrestList(filter=''){
     listHost.innerHTML = '';
@@ -503,7 +497,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     currentRow = tr;
     selectedIds = new Set();
 
-    // Pre-cargar lo ya seleccionado para esa fila
     const baseName = currentRow.children[0].innerText.trim();
     const chosen = prestSel[baseName] || [];
     chosen.forEach(x=> selectedIds.add(Number(x.id)));
@@ -513,7 +506,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     modal.classList.remove('modal-hide');
     modal.classList.add('modal-show');
 
-    // 👇 Auto-focus inmediato en el buscador (y seleccionar el texto)
+    // Auto-focus inmediato en el buscador
     requestAnimationFrame(() => {
       inputSearch.focus();
       inputSearch.select();
@@ -538,7 +531,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     delete prestSel[baseName];
     setLS(PREST_SEL_KEY, prestSel);
     recalc();
-    // también limpiar selección temporal
     selectedIds.clear();
     renderPrestList(inputSearch.value);
   });
@@ -576,7 +568,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     btn.addEventListener('click', ()=> openModalForRow(btn.closest('tr')));
   });
 
-  // ====== Listener global para tipear directo en el buscador del modal ======
+  // Tipeo directo al buscador del modal
   document.addEventListener('keydown', (e) => {
     const isOpen = modal.classList.contains('modal-show');
     if (!isOpen) return;
@@ -585,7 +577,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const isTextInput = ['INPUT','TEXTAREA'].includes(activeTag);
     const isTypingKey = e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete';
 
-    // Si el modal está abierto y no estamos en otro input, redirigir teclas al buscador
     if (!isTextInput && isTypingKey) {
       inputSearch.focus();
       if (e.key.length === 1) {
@@ -594,7 +585,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         const evt = new Event('input', { bubbles: true });
         inputSearch.dispatchEvent(evt);
       } else {
-        // Backspace/Delete sin carácter
         const evt = new Event('input', { bubbles: true });
         inputSearch.dispatchEvent(evt);
       }
@@ -673,7 +663,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     totPag.textContent  = fmt(sumPagar);
   }
 
-  // Inputs de totales principales (con formatter en vivo)
+  // Inputs principales con formatter
   function numberInputFormatter(el){
     el.addEventListener('input', ()=>{
       const raw = toInt(el.value);
