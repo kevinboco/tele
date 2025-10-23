@@ -1,4 +1,4 @@
-}<?php
+<?php
 include("nav.php");
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
 if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); }
@@ -36,12 +36,12 @@ if (isset($_GET['viajes_conductor'])) {
   $sql .= " ORDER BY fecha ASC";
 
   $legend = [
-    'completo'     => ['label'=>'Completo',     'badge'=>'bg-emerald-100 text-emerald-700 border border-emerald-200',     'row'=>'bg-emerald-50/40'],
-    'medio'        => ['label'=>'Medio',        'badge'=>'bg-amber-100 text-amber-800 border border-amber-200',           'row'=>'bg-amber-50/40'],
-    'extra'        => ['label'=>'Extra',        'badge'=>'bg-slate-200 text-slate-800 border border-slate-300',           'row'=>'bg-slate-50'],
-    'siapana'      => ['label'=>'Siapana',      'badge'=>'bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-200',     'row'=>'bg-fuchsia-50/40'],
-    'carrotanque'  => ['label'=>'Carrotanque',  'badge'=>'bg-cyan-100 text-cyan-800 border border-cyan-200',              'row'=>'bg-cyan-50/40'],
-    'otro'         => ['label'=>'Otro',         'badge'=>'bg-gray-100 text-gray-700 border border-gray-200',              'row'=>'']
+    'completo'     => ['label'=>'Completo',     'badge'=>'bg-emerald-100 text-emerald-700 border border-emerald-200', 'row'=>'bg-emerald-50/40'],
+    'medio'        => ['label'=>'Medio',        'badge'=>'bg-amber-100 text-amber-800 border border-amber-200',       'row'=>'bg-amber-50/40'],
+    'extra'        => ['label'=>'Extra',        'badge'=>'bg-slate-200 text-slate-800 border border-slate-300',       'row'=>'bg-slate-50'],
+    'siapana'      => ['label'=>'Siapana',      'badge'=>'bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-200', 'row'=>'bg-fuchsia-50/40'],
+    'carrotanque'  => ['label'=>'Carrotanque',  'badge'=>'bg-cyan-100 text-cyan-800 border border-cyan-200',          'row'=>'bg-cyan-50/40'],
+    'otro'         => ['label'=>'Otro',         'badge'=>'bg-gray-100 text-gray-700 border border-gray-200',          'row'=>'']
   ];
 
   $res = $conn->query($sql);
@@ -75,7 +75,7 @@ if (isset($_GET['viajes_conductor'])) {
       $ruta = (string)$r['ruta'];
       $guiones = substr_count($ruta,'-');
 
-      // Clasificación (misma que usas en el conteo)
+      // Clasificación
       if ($r['tipo_vehiculo']==='Carrotanque' && $guiones==0) {
         $cat = 'carrotanque';
       } elseif (stripos($ruta,'Siapana') !== false) {
@@ -243,7 +243,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 <html lang="es">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Ajuste de Pago (dos modales: Préstamos + Viajes)</title>
+<title>Ajuste de Pago (con gestor de cuentas de cobro)</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
   .num { font-variant-numeric: tabular-nums; }
@@ -269,25 +269,25 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     <div class="bg-white border border-slate-200 rounded-2xl shadow-sm px-5 py-4">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <h2 class="text-xl md:text-2xl font-bold">🧾 Ajuste de Pago</h2>
-        <div class="text-sm text-slate-600">
-          Periodo: <strong><?= htmlspecialchars($desde) ?></strong> &rarr; <strong><?= htmlspecialchars($hasta) ?></strong>
-          <?php if ($empresaFiltro !== ""): ?><span class="mx-2">•</span> Empresa: <strong><?= htmlspecialchars($empresaFiltro) ?></strong><?php endif; ?>
+        <div class="flex items-center gap-2">
+          <button id="btnShowSaveCuenta" class="rounded-lg border border-amber-300 px-3 py-2 text-sm bg-amber-50 hover:bg-amber-100">⭐ Guardar como cuenta</button>
+          <button id="btnShowGestorCuentas" class="rounded-lg border border-blue-300 px-3 py-2 text-sm bg-blue-50 hover:bg-blue-100">📚 Cuentas guardadas</button>
         </div>
       </div>
 
       <!-- filtros -->
-      <form class="mt-3 grid grid-cols-1 md:grid-cols-5 gap-3" method="get">
-        <label class="block">
+      <form id="formFiltros" class="mt-3 grid grid-cols-1 md:grid-cols-6 gap-3" method="get">
+        <label class="block md:col-span-1">
           <span class="block text-xs font-medium mb-1">Desde</span>
-          <input type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
+          <input id="inp_desde" type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
         </label>
-        <label class="block">
+        <label class="block md:col-span-1">
           <span class="block text-xs font-medium mb-1">Hasta</span>
-          <input type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
+          <input id="inp_hasta" type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
         </label>
         <label class="block md:col-span-2">
           <span class="block text-xs font-medium mb-1">Empresa</span>
-          <select name="empresa" class="w-full rounded-xl border border-slate-300 px-3 py-2">
+          <select id="sel_empresa" name="empresa" class="w-full rounded-xl border border-slate-300 px-3 py-2">
             <option value="">-- Todas --</option>
             <?php
               $resEmp2 = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
@@ -297,7 +297,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             <?php } ?>
           </select>
         </label>
-        <div class="flex md:items-end">
+        <div class="md:col-span-2 flex md:items-end">
           <button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow">Aplicar</button>
         </div>
       </form>
@@ -427,7 +427,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
   </div>
 
-  <!-- ===== Modal VIAJES (con leyenda) ===== -->
+  <!-- ===== Modal VIAJES ===== -->
   <div id="viajesModal" class="viajes-backdrop">
     <div class="viajes-card">
       <div class="viajes-header">
@@ -438,31 +438,107 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
   </div>
 
+  <!-- ===== Modal GUARDAR CUENTA ===== -->
+  <div id="saveCuentaModal" class="hidden fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/30"></div>
+    <div class="relative mx-auto my-10 w-full max-w-lg bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+        <h3 class="text-lg font-semibold">⭐ Guardar cuenta de cobro</h3>
+        <button id="btnCloseSaveCuenta" class="p-2 rounded hover:bg-slate-100" title="Cerrar">✕</button>
+      </div>
+      <div class="p-5 space-y-3">
+        <label class="block">
+          <span class="block text-xs font-medium mb-1">Nombre</span>
+          <input id="cuenta_nombre" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" placeholder="Ej: Hospital Sep 2025">
+        </label>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label class="block">
+            <span class="block text-xs font-medium mb-1">Empresa</span>
+            <input id="cuenta_empresa" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" readonly>
+          </label>
+          <label class="block">
+            <span class="block text-xs font-medium mb-1">Rango</span>
+            <input id="cuenta_rango" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" readonly>
+          </label>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label class="block">
+            <span class="block text-xs font-medium mb-1">Facturado</span>
+            <input id="cuenta_facturado" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
+          </label>
+          <label class="block">
+            <span class="block text-xs font-medium mb-1">Recibido</span>
+            <input id="cuenta_recibido" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
+          </label>
+        </div>
+      </div>
+      <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
+        <button id="btnCancelSaveCuenta" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
+        <button id="btnDoSaveCuenta" class="rounded-lg border border-amber-500 text-white px-4 py-2 bg-amber-500 hover:bg-amber-600">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Modal GESTOR DE CUENTAS ===== -->
+  <div id="gestorCuentasModal" class="hidden fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/30"></div>
+    <div class="relative mx-auto my-10 w-full max-w-3xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+        <h3 class="text-lg font-semibold">📚 Cuentas guardadas</h3>
+        <button id="btnCloseGestor" class="p-2 rounded hover:bg-slate-100" title="Cerrar">✕</button>
+      </div>
+      <div class="p-4 space-y-3">
+        <div class="flex flex-col md:flex-row md:items-center gap-3">
+          <div class="text-sm">Empresa actual: <strong id="lblEmpresaActual"></strong></div>
+          <input id="buscaCuenta" type="text" placeholder="Buscar por nombre…" class="w-full rounded-xl border border-slate-300 px-3 py-2">
+        </div>
+        <div class="overflow-auto max-h-[60vh] rounded-xl border border-slate-200">
+          <table class="min-w-full text-sm">
+            <thead class="bg-blue-600 text-white">
+              <tr>
+                <th class="px-3 py-2 text-left">Nombre</th>
+                <th class="px-3 py-2 text-left">Rango</th>
+                <th class="px-3 py-2 text-right">Facturado</th>
+                <th class="px-3 py-2 text-right">Recibido</th>
+                <th class="px-3 py-2 text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="tbodyCuentas" class="divide-y divide-slate-100 bg-white"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="px-5 py-4 border-t border-slate-200 text-right">
+        <button id="btnAddDesdeFiltro" class="rounded-lg border border-amber-300 px-3 py-2 text-sm bg-amber-50 hover:bg-amber-100">⭐ Guardar rango actual</button>
+      </div>
+    </div>
+  </div>
+
 <script>
-  // ===== Persistencia por empresa =====
+  // ===== Claves de persistencia =====
   const COMPANY_SCOPE = <?= json_encode(($empresaFiltro ?: '__todas__')) ?>;
   const ACC_KEY   = 'cuentas:'+COMPANY_SCOPE;
   const SS_KEY    = 'seg_social:'+COMPANY_SCOPE;
-  const PREST_SEL_KEY   = 'prestamo_sel_multi:v2:'+COMPANY_SCOPE;
+  const PREST_SEL_KEY = 'prestamo_sel_multi:v2:'+COMPANY_SCOPE;
+  const PERIODOS_KEY  = 'cuentas_cobro_periodos:v1'; // { empresa: [ {id,nombre,desde,hasta,facturado,recibido} ] }
 
   const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 
+  // ===== Helpers =====
   const toInt = (s)=>{ if(typeof s==='number') return Math.round(s); s=(s||'').toString().replace(/\./g,'').replace(/,/g,'').replace(/[^\d\-]/g,''); return parseInt(s||'0',10)||0; };
   const fmt = (n)=> (n||0).toLocaleString('es-CO');
   const getLS=(k)=>{try{return JSON.parse(localStorage.getItem(k)||'{}')}catch{return{}}}
   const setLS=(k,v)=> localStorage.setItem(k, JSON.stringify(v));
 
+  // ===== Restaurar cuentas/SS/préstamos por fila =====
   let accMap = getLS(ACC_KEY);
   let ssMap  = getLS(SS_KEY);
-  let prestSel = getLS(PREST_SEL_KEY);
-  if(!prestSel || typeof prestSel!=='object') prestSel = {};
+  let prestSel = getLS(PREST_SEL_KEY); if(!prestSel || typeof prestSel!=='object') prestSel = {};
 
   const tbody = document.getElementById('tbody');
 
   function summarizeNames(arr){ if(!arr||arr.length===0)return''; const n=arr.map(x=>x.name); return n.length<=2?n.join(', '): n.slice(0,2).join(', ')+' +'+(n.length-2)+' más'; }
   function sumTotals(arr){ return (arr||[]).reduce((a,b)=> a+(toInt(b.total)||0),0); }
 
-  // Restaurar filas
   [...tbody.querySelectorAll('tr')].forEach(tr=>{
     const cta = tr.querySelector('input.cta');
     const ss  = tr.querySelector('input.ss');
@@ -628,6 +704,166 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   fmtInput(document.getElementById('inp_facturado'));
   fmtInput(document.getElementById('inp_recibido'));
   recalc();
+
+  // ====== Gestor de CUENTAS DE COBRO (localStorage por empresa) ======
+  const formFiltros = document.getElementById('formFiltros');
+  const inpDesde = document.getElementById('inp_desde');
+  const inpHasta = document.getElementById('inp_hasta');
+  const selEmpresa = document.getElementById('sel_empresa');
+  const inpFact = document.getElementById('inp_facturado');
+  const inpRec = document.getElementById('inp_recibido');
+
+  // --- Modal Guardar cuenta
+  const saveCuentaModal = document.getElementById('saveCuentaModal');
+  const btnShowSaveCuenta = document.getElementById('btnShowSaveCuenta');
+  const btnCloseSaveCuenta = document.getElementById('btnCloseSaveCuenta');
+  const btnCancelSaveCuenta = document.getElementById('btnCancelSaveCuenta');
+  const btnDoSaveCuenta = document.getElementById('btnDoSaveCuenta');
+
+  const iNombre = document.getElementById('cuenta_nombre');
+  const iEmpresa = document.getElementById('cuenta_empresa');
+  const iRango = document.getElementById('cuenta_rango');
+  const iCFact = document.getElementById('cuenta_facturado');
+  const iCRec  = document.getElementById('cuenta_recibido');
+
+  const PERIODOS = getLS(PERIODOS_KEY); // estructura: { empresa: [ {id,nombre,desde,hasta,facturado,recibido} ] }
+
+  function openSaveCuenta(){
+    const emp = selEmpresa.value.trim();
+    if(!emp){ alert('Selecciona una EMPRESA antes de guardar la cuenta.'); return; }
+    const d = inpDesde.value; const h = inpHasta.value;
+
+    iEmpresa.value = emp;
+    iRango.value = `${d} → ${h}`;
+    iNombre.value = `${emp} ${d} a ${h}`;
+    iCFact.value = fmt(toInt(inpFact.value));
+    iCRec.value  = fmt(toInt(inpRec.value));
+
+    saveCuentaModal.classList.remove('hidden');
+    setTimeout(()=> iNombre.focus(), 0);
+  }
+  function closeSaveCuenta(){ saveCuentaModal.classList.add('hidden'); }
+
+  btnShowSaveCuenta.addEventListener('click', openSaveCuenta);
+  btnCloseSaveCuenta.addEventListener('click', closeSaveCuenta);
+  btnCancelSaveCuenta.addEventListener('click', closeSaveCuenta);
+
+  btnDoSaveCuenta.addEventListener('click', ()=>{
+    const emp = iEmpresa.value.trim();
+    const [desde, hasta] = iRango.value.split('→').map(s=>s.trim());
+    const nombre = iNombre.value.trim() || `${emp} ${desde} a ${hasta}`;
+    const facturado = toInt(iCFact.value);
+    const recibido  = toInt(iCRec.value);
+
+    const item = { id: Date.now(), nombre, desde, hasta, facturado, recibido };
+    if(!PERIODOS[emp]) PERIODOS[emp] = [];
+    PERIODOS[emp].push(item);
+    setLS(PERIODOS_KEY, PERIODOS);
+    closeSaveCuenta();
+    alert('Cuenta guardada ✔');
+  });
+
+  // --- Modal Gestor
+  const gestorModal = document.getElementById('gestorCuentasModal');
+  const btnShowGestor = document.getElementById('btnShowGestorCuentas');
+  const btnCloseGestor = document.getElementById('btnCloseGestor');
+  const btnAddDesdeFiltro = document.getElementById('btnAddDesdeFiltro');
+  const lblEmpresaActual = document.getElementById('lblEmpresaActual');
+  const buscaCuenta = document.getElementById('buscaCuenta');
+  const tbodyCuentas = document.getElementById('tbodyCuentas');
+
+  function renderCuentas(){
+    const emp = selEmpresa.value.trim();
+    const filtro = (buscaCuenta.value||'').toLowerCase();
+    lblEmpresaActual.textContent = emp || '(todas)';
+
+    const arr = (PERIODOS[emp]||[]).slice().sort((a,b)=> (a.desde>b.desde? -1:1));
+    tbodyCuentas.innerHTML = '';
+    if(arr.length===0){
+      tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>No hay cuentas guardadas para esta empresa.</td></tr>";
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    arr.forEach(item=>{
+      if(filtro && !item.nombre.toLowerCase().includes(filtro)) return;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="px-3 py-2">${item.nombre}</td>
+        <td class="px-3 py-2">${item.desde} &rarr; ${item.hasta}</td>
+        <td class="px-3 py-2 text-right num">${fmt(item.facturado||0)}</td>
+        <td class="px-3 py-2 text-right num">${fmt(item.recibido||0)}</td>
+        <td class="px-3 py-2 text-right">
+          <div class="inline-flex gap-2">
+            <button class="btnUsar border px-2 py-1 rounded bg-slate-50 hover:bg-slate-100 text-xs">Usar</button>
+            <button class="btnUsarAplicar border px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 text-xs">Usar y aplicar</button>
+            <button class="btnEditar border px-2 py-1 rounded bg-amber-50 hover:bg-amber-100 text-xs">Editar</button>
+            <button class="btnEliminar border px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-xs text-rose-700">Eliminar</button>
+          </div>
+        </td>`;
+      // acciones
+      tr.querySelector('.btnUsar').addEventListener('click', ()=> usarCuenta(item,false));
+      tr.querySelector('.btnUsarAplicar').addEventListener('click', ()=> usarCuenta(item,true));
+      tr.querySelector('.btnEditar').addEventListener('click', ()=> editarCuenta(item));
+      tr.querySelector('.btnEliminar').addEventListener('click', ()=> eliminarCuenta(item));
+      frag.appendChild(tr);
+    });
+    tbodyCuentas.appendChild(frag);
+  }
+
+  function usarCuenta(item, aplicar){
+    selEmpresa.value = selEmpresa.value; // ya es la empresa correcta
+    inpDesde.value = item.desde;
+    inpHasta.value = item.hasta;
+    if(item.facturado) document.getElementById('inp_facturado').value = fmt(item.facturado);
+    if(item.recibido)  document.getElementById('inp_recibido').value  = fmt(item.recibido);
+    recalc();
+    if(aplicar) formFiltros.submit();
+  }
+
+  function editarCuenta(item){
+    // reutilizamos modal de guardar
+    saveCuentaModal.classList.remove('hidden');
+    iEmpresa.value = selEmpresa.value;
+    iRango.value = `${item.desde} → ${item.hasta}`;
+    iNombre.value = item.nombre;
+    iCFact.value = fmt(item.facturado||0);
+    iCRec.value  = fmt(item.recibido||0);
+    // Guardar reemplazando
+    btnDoSaveCuenta.onclick = ()=>{
+      const [d,h] = iRango.value.split('→').map(s=>s.trim());
+      item.nombre = iNombre.value.trim() || item.nombre;
+      item.desde  = d || item.desde;
+      item.hasta  = h || item.hasta;
+      item.facturado = toInt(iCFact.value);
+      item.recibido  = toInt(iCRec.value);
+      setLS(PERIODOS_KEY, PERIODOS);
+      closeSaveCuenta(); renderCuentas();
+    };
+  }
+
+  function eliminarCuenta(item){
+    const emp = selEmpresa.value.trim();
+    if(!confirm('¿Eliminar esta cuenta?')) return;
+    PERIODOS[emp] = (PERIODOS[emp]||[]).filter(x=> x.id!==item.id);
+    setLS(PERIODOS_KEY, PERIODOS);
+    renderCuentas();
+  }
+
+  function openGestor(){
+    renderCuentas();
+    gestorModal.classList.remove('hidden');
+    setTimeout(()=> buscaCuenta.focus(), 0);
+  }
+  function closeGestor(){ gestorModal.classList.add('hidden'); }
+
+  btnShowGestor.addEventListener('click', openGestor);
+  btnCloseGestor.addEventListener('click', closeGestor);
+  buscaCuenta.addEventListener('input', renderCuentas);
+  btnAddDesdeFiltro.addEventListener('click', ()=>{ closeGestor(); openSaveCuenta(); });
+
+  // formateo live en modal guardar
+  const nf1 = el => el.addEventListener('input', ()=>{ el.value = fmt(toInt(el.value)); });
+  nf1(iCFact); nf1(iCRec);
 </script>
 
 </body>
