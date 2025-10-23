@@ -141,7 +141,8 @@ if ($action==='bulk_update' && $_SERVER['REQUEST_METHOD']==='POST'){
   $st->close(); $c->close();
 
   $msg = $ok ? 'bulkok' : 'bulkoops';
-  go('?view='.urlencode($redir_view).'&q='.urlencode($redir_q).'&fp='.urlencode($redir_fp).'&fd='.urlencode($redir_fd)."&msg=$msg");
+  go('https://asociacion.asociaciondetransportistaszonanorte.io/tele/admin_prestamos.php?view=cards&msg='.$msg);
+
 }
 
 /* ===== CRUD ===== */
