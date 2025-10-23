@@ -8,6 +8,7 @@
  * - En el 3er nodo: Ganancia + Total prestado (pendiente)
  * - >>> Colorear nodo 2 según meses (1, 2, 3+)
  * - >>> NUEVO: Filtro por Deudor + resumen de sumas del deudor
+ * - >>> NUEVO: Selección múltiple en Tarjetas + Edición en lote
  *********************************************************/
 include("nav.php");
 // ======= CONFIG =======
@@ -73,7 +74,75 @@ if ($action==='mark_paid' && $_SERVER['REQUEST_METHOD']==='POST'){
   }
 }
 
-// ===== CRUD =====
+/* ===== NUEVO: Acción Edición en Lote desde TARJETAS ===== */
+if ($action==='bulk_update' && $_SERVER['REQUEST_METHOD']==='POST'){
+  // ids seleccionados
+  $ids = $_POST['ids'] ?? [];
+  if (!is_array($ids)) $ids = [];
+  $ids = array_values(array_unique(array_map(fn($v)=> (int)$v, $ids)));
+  // conservar filtros al regresar
+  $redir_view = $_POST['view'] ?? 'cards';
+  $redir_q    = $_POST['q'] ?? '';
+  $redir_fp   = $_POST['fp'] ?? '';
+  $redir_fd   = $_POST['fd'] ?? '';
+
+  if (!$ids) {
+    go('?view='.urlencode($redir_view).'&q='.urlencode($redir_q).'&fp='.urlencode($redir_fp).'&fd='.urlencode($redir_fd).'&msg=noselect');
+  }
+
+  // Campos opcionales a aplicar
+  $new_deudor      = trim($_POST['new_deudor'] ?? '');
+  $new_prestamista = trim($_POST['new_prestamista'] ?? '');
+  $new_monto_raw   = trim($_POST['new_monto'] ?? '');
+  $new_fecha       = trim($_POST['new_fecha'] ?? '');
+
+  $sets   = [];
+  $types  = '';
+  $values = [];
+
+  if ($new_deudor !== '') {
+    $sets[] = "deudor=?";
+    $types .= 's';
+    $values[] = $new_deudor;
+  }
+  if ($new_prestamista !== '') {
+    $sets[] = "prestamista=?";
+    $types .= 's';
+    $values[] = $new_prestamista;
+  }
+  if ($new_monto_raw !== '' && is_numeric($new_monto_raw)) {
+    $sets[] = "monto=?";
+    $types .= 'd';
+    $values[] = (float)$new_monto_raw;
+  }
+  if ($new_fecha !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $new_fecha)) {
+    $sets[] = "fecha=?";
+    $types .= 's';
+    $values[] = $new_fecha;
+  }
+
+  if (!$sets) {
+    // No hubo campos a actualizar
+    go('?view='.urlencode($redir_view).'&q='.urlencode($redir_q).'&fp='.urlencode($redir_fp).'&fd='.urlencode($redir_fd).'&msg=noupdate');
+  }
+
+  // Construcción del IN (...)
+  $phIds = implode(',', array_fill(0, count($ids), '?'));
+  $types .= str_repeat('i', count($ids));
+  $values = array_merge($values, $ids);
+
+  $c = db();
+  $sql = "UPDATE prestamos SET ".implode(',', $sets)." WHERE id IN ($phIds)";
+  $st  = $c->prepare($sql);
+  $st->bind_param($types, ...$values);
+  $ok = $st->execute();
+  $st->close(); $c->close();
+
+  $msg = $ok ? 'bulkok' : 'bulkoops';
+  go('?view='.urlencode($redir_view).'&q='.urlencode($redir_q).'&fp='.urlencode($redir_fp).'&fd='.urlencode($redir_fd)."&msg=$msg");
+}
+
+/* ===== CRUD ===== */
 if ($action==='create' && $_SERVER['REQUEST_METHOD']==='POST'){
   $deudor = trim($_POST['deudor']??'');
   $prestamista = trim($_POST['prestamista']??'');
@@ -172,6 +241,13 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  .nodeRect.m1{ fill:#FFF8DB; }  /* 1 mes - amarillo suave */
  .nodeRect.m2{ fill:#FFE9D6; }  /* 2 meses - naranja suave */
  .nodeRect.m3{ fill:#FFE1E1; }  /* 3+ meses - rojo suave */
+
+ /* NUEVO: controles de selección múltiple en tarjetas */
+ .bulkbar{display:flex;gap:10px;align-items:center;margin:8px 0 0;flex-wrap:wrap}
+ .bulkpanel{display:none;margin-top:10px;border:1px dashed #e5e7eb;border-radius:12px;padding:12px;background:#fafafa}
+ .badge{background:#111;color:#fff;border-radius:999px;padding:2px 8px;font-size:12px;font-weight:700}
+ .cardSel{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+ .sticky-actions{position:sticky; top:10px; align-self:flex-start}
 </style>
 </head><body>
 
@@ -190,6 +266,10 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
         'eliminado'=>'Registro eliminado.',
         'pagados'=>'Marcados como pagados.',
         'nada'=>'No seleccionaste deudores.',
+        'noselect'=>'No seleccionaste tarjetas.',
+        'noupdate'=>'No indicaste ningún campo para editar.',
+        'bulkok'=>'Actualización en lote aplicada.',
+        'bulkoops'=>'Hubo un error al actualizar en lote.',
         default=>'Operación realizada.'
       };
     ?>
@@ -237,7 +317,7 @@ else:
   // ==== filtros ====
   $q   = trim($_GET['q']  ?? '');
   $fp  = trim($_GET['fp'] ?? ''); // prestamista (normalizado)
-  $fd  = trim($_GET['fd'] ?? ''); // >>> NUEVO: deudor (normalizado)
+  $fd  = trim($_GET['fd'] ?? ''); // deudor (normalizado)
 
   $qNorm  = mbnorm($q);
   $fpNorm = mbnorm($fp);
@@ -245,7 +325,7 @@ else:
 
   $conn=db();
 
-  // Combo de prestamistas (siempre todos)
+  // Combo prestamistas
   $prestMap = [];
   $resPL = ($view==='graph')
     ? $conn->query("SELECT prestamista FROM prestamos WHERE (pagado IS NULL OR pagado=0)")
@@ -257,7 +337,7 @@ else:
   }
   ksort($prestMap, SORT_NATURAL);
 
-  // >>> NUEVO: Combo de deudores (siempre todos)
+  // Combo deudores
   $deudMap = [];
   $resDL = ($view==='graph')
     ? $conn->query("SELECT deudor FROM prestamos WHERE (pagado IS NULL OR pagado=0)")
@@ -286,6 +366,7 @@ else:
       ORDER BY id DESC";
     $st=$conn->prepare($sql); if($types) $st->bind_param($types, ...$params); $st->execute(); $rs=$st->get_result();
 ?>
+    <!-- Toolbar de filtros -->
     <div class="card" style="margin-bottom:16px">
       <form class="toolbar" method="get">
         <input type="hidden" name="view" value="cards">
@@ -296,15 +377,12 @@ else:
             <option value="<?= h($norm) ?>" <?= $fpNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
           <?php endforeach; ?>
         </select>
-
-        <!-- >>> NUEVO: Filtro por deudor -->
         <select name="fd" title="Deudor">
           <option value="">Todos los deudores</option>
           <?php foreach($deudMap as $norm=>$label): ?>
             <option value="<?= h($norm) ?>" <?= $fdNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
           <?php endforeach; ?>
         </select>
-
         <button class="btn" type="submit">Filtrar</button>
         <?php if ($q!=='' || $fpNorm!=='' || $fdNorm!==''): ?>
           <a class="btn gray" href="?view=cards">Quitar filtro</a>
@@ -314,7 +392,7 @@ else:
     </div>
 
     <?php
-      // >>> NUEVO: Resumen cuando hay deudor seleccionado
+      // Resumen de deudor si aplica
       if ($fdNorm!=='') {
         $typesAgg = "s"; $paramsAgg = [$fdNorm];
         $sqlAgg = "
@@ -344,35 +422,92 @@ else:
     <?php if ($rs->num_rows === 0): ?>
       <div class="card"><span class="subtitle">(sin registros)</span></div>
     <?php else: ?>
-      <div class="grid-cards">
-        <?php while($r=$rs->fetch_assoc()): ?>
-          <div class="card">
-            <?php if (!empty($r['imagen'])): ?><a href="uploads/<?= h($r['imagen']) ?>" target="_blank"><img class="thumb" src="uploads/<?= h($r['imagen']) ?>" alt=""></a><?php endif; ?>
-            <div class="row" style="margin-top:8px">
-              <div>
-                <div class="title">#<?= h($r['id']) ?> • <?= h($r['deudor']) ?></div>
-                <div class="subtitle">Prestamista: <strong><?= h($r['prestamista']) ?></strong></div>
+      <!-- NUEVO: FORM para selección múltiple + edición en lote -->
+      <form id="bulkForm" class="card" method="post" action="?action=bulk_update">
+        <!-- conservar filtros -->
+        <input type="hidden" name="view" value="cards">
+        <input type="hidden" name="q"  value="<?= h($q) ?>">
+        <input type="hidden" name="fp" value="<?= h($fpNorm) ?>">
+        <input type="hidden" name="fd" value="<?= h($fdNorm) ?>">
+
+        <div class="row" style="margin-bottom:8px">
+          <div class="title">Selecciona tarjetas</div>
+          <div class="sticky-actions" style="display:flex;gap:8px;align-items:center">
+            <label class="subtitle" style="display:flex;gap:8px;align-items:center">
+              <input id="chkAll" type="checkbox"> Seleccionar todo (página)
+            </label>
+            <button type="button" class="btn gray small" id="btnToggleBulk">✏️ Editar selección</button>
+            <span class="badge" id="selCount">0 seleccionadas</span>
+          </div>
+        </div>
+
+        <div class="grid-cards">
+          <?php while($r=$rs->fetch_assoc()): ?>
+            <div class="card">
+              <div class="cardSel">
+                <input class="chkRow" type="checkbox" name="ids[]" value="<?= (int)$r['id'] ?>">
+                <div class="subtitle">#<?= h($r['id']) ?></div>
               </div>
-              <span class="chip"><?= h($r['fecha']) ?></span>
-            </div>
-            <div class="pairs" style="margin-top:12px">
-              <div class="item"><div class="k">Monto</div><div class="v">$ <?= money($r['monto']) ?></div></div>
-              <div class="item"><div class="k">Meses</div><div class="v"><?= h($r['meses']) ?></div></div>
-              <div class="item"><div class="k">Interés</div><div class="v">$ <?= money($r['interes']) ?></div></div>
-              <div class="item"><div class="k">Total</div><div class="v">$ <?= money($r['total']) ?></div></div>
-            </div>
-            <div class="row" style="margin-top:12px">
-              <div class="subtitle">Creado: <?= h($r['created_at']) ?></div>
-              <div style="display:flex;gap:8px;flex-wrap:wrap">
-                <a class="btn gray small" href="?action=edit&id=<?= $r['id'] ?>&view=cards">✏️ Editar</a>
-                <form style="display:inline" method="post" action="?action=delete&id=<?= $r['id'] ?>" onsubmit="return confirm('¿Eliminar #<?= $r['id'] ?>?')">
-                  <button class="btn red small" type="submit">🗑️ Eliminar</button>
-                </form>
+
+              <?php if (!empty($r['imagen'])): ?>
+                <a href="uploads/<?= h($r['imagen']) ?>" target="_blank"><img class="thumb" src="uploads/<?= h($r['imagen']) ?>" alt=""></a>
+              <?php endif; ?>
+
+              <div class="row" style="margin-top:8px">
+                <div>
+                  <div class="title"><?= h($r['deudor']) ?></div>
+                  <div class="subtitle">Prestamista: <strong><?= h($r['prestamista']) ?></strong></div>
+                </div>
+                <span class="chip"><?= h($r['fecha']) ?></span>
               </div>
+
+              <div class="pairs" style="margin-top:12px">
+                <div class="item"><div class="k">Monto</div><div class="v">$ <?= money($r['monto']) ?></div></div>
+                <div class="item"><div class="k">Meses</div><div class="v"><?= h($r['meses']) ?></div></div>
+                <div class="item"><div class="k">Interés</div><div class="v">$ <?= money($r['interes']) ?></div></div>
+                <div class="item"><div class="k">Total</div><div class="v">$ <?= money($r['total']) ?></div></div>
+              </div>
+
+              <div class="row" style="margin-top:12px">
+                <div class="subtitle">Creado: <?= h($r['created_at']) ?></div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <a class="btn gray small" href="?action=edit&id=<?= $r['id'] ?>&view=cards">✏️ Editar</a>
+                  <form style="display:inline" method="post" action="?action=delete&id=<?= $r['id'] ?>" onsubmit="return confirm('¿Eliminar #<?= $r['id'] ?>?')">
+                    <button class="btn red small" type="submit">🗑️ Eliminar</button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          <?php endwhile; ?>
+        </div>
+
+        <!-- Panel de edición en lote -->
+        <div class="bulkpanel" id="bulkPanel">
+          <div class="subtitle" style="margin-bottom:8px">Aplica solo a las tarjetas seleccionadas. Deja en blanco lo que no quieras cambiar.</div>
+          <div class="row" style="gap:12px;flex-wrap:wrap">
+            <div class="field" style="min-width:220px;flex:1">
+              <label>Nuevo Deudor (opcional)</label>
+              <input name="new_deudor" placeholder="Ej: Juan Pérez">
+            </div>
+            <div class="field" style="min-width:220px;flex:1">
+              <label>Nuevo Prestamista (opcional)</label>
+              <input name="new_prestamista" placeholder="Ej: ATZN">
+            </div>
+            <div class="field" style="min-width:160px">
+              <label>Nuevo Monto (opcional)</label>
+              <input name="new_monto" type="number" step="1" min="0" placeholder="Ej: 1200000">
+            </div>
+            <div class="field" style="min-width:160px">
+              <label>Nueva Fecha (opcional)</label>
+              <input name="new_fecha" type="date">
             </div>
           </div>
-        <?php endwhile; ?>
-      </div>
+          <div class="row" style="margin-top:10px">
+            <button class="btn" type="submit" onclick="return confirm('¿Aplicar cambios a la selección?')">💾 Aplicar a seleccionadas</button>
+            <button class="btn gray" type="button" id="btnCloseBulk">Cerrar</button>
+          </div>
+        </div>
+      </form>
     <?php endif; ?>
 <?php
     $st->close();
@@ -539,4 +674,51 @@ else:
   $conn->close();
 endif; // list / graph
 ?>
+
+<!-- JS mínimo para selección múltiple en tarjetas -->
+<script>
+(function(){
+  const form = document.getElementById('bulkForm');
+  if(!form) return;
+
+  const chkAll   = document.getElementById('chkAll');
+  const chkRows  = Array.from(form.querySelectorAll('.chkRow'));
+  const selCount = document.getElementById('selCount');
+  const panel    = document.getElementById('bulkPanel');
+  const btnTog   = document.getElementById('btnToggleBulk');
+  const btnClose = document.getElementById('btnCloseBulk');
+
+  function updateCount(){
+    const n = chkRows.filter(c=>c.checked).length;
+    selCount.textContent = n + ' seleccionadas';
+  }
+
+  if (chkAll){
+    chkAll.addEventListener('change', () => {
+      chkRows.forEach(c => { c.checked = chkAll.checked; });
+      updateCount();
+    });
+  }
+
+  chkRows.forEach(c => c.addEventListener('change', updateCount));
+  updateCount();
+
+  if (btnTog){
+    btnTog.addEventListener('click', () => {
+      // Solo muestra si hay seleccionadas
+      const any = chkRows.some(c=>c.checked);
+      if (!any) {
+        alert('Selecciona al menos una tarjeta para editar.');
+        return;
+      }
+      panel.style.display = (panel.style.display==='none' || panel.style.display==='') ? 'block' : 'none';
+    });
+  }
+
+  if (btnClose){
+    btnClose.addEventListener('click', () => { panel.style.display = 'none'; });
+  }
+})();
+</script>
+
 </body></html>
