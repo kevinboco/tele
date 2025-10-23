@@ -1,11 +1,11 @@
 <?php
 /*********************************************************
  * prestamos_visual_interactivo.php
- * v4.0
- * - Buscador en vivo
- * - Toolbar por prestamista
- * - Selector para marcar pagados (por prestamista)
- * - Filtro multi-deudor (modo global: muestra todos los prestamistas)
+ * v4.1 (global con resúmenes por prestamista)
+ * - Filtro multi-deudor => muestra TODOS los prestamistas
+ * - Cada deuda (deudor, prestamista) se ve por separado
+ * - Resumen global + resúmenes por prestamista en modo global
+ * - Buscador, toolbar por prestamista y selector “marcar pagados”
  *********************************************************/
 include("nav.php");
 
@@ -112,7 +112,7 @@ $st2->close();
 /* Estructuras para la vista */
 $data = [];            // DATA[prestamista] = [rows...]
 $ganPrest=[]; $capPendPrest=[];
-$allDebtors = [];      // listado global de deudores para el selector
+$allDebtors = [];      // listado global de deudores
 while($r=$rs->fetch_assoc()){
   $pkey=$r['prest_key']; $pdisp=$r['prest_display'];
   $dkey=$r['deud_key'];  $ddis=$r['deud_display'];
@@ -190,7 +190,6 @@ $msg = $_GET['msg'] ?? '';
   .chips{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   .chip{background:#eef2ff;border:1px solid #e5e7eb;border-radius:999px;padding:4px 10px;font-size:12px}
 
-  /* Buscador + filtro deudores */
   .search{ margin-left:auto; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
   .search input{
     height:34px; padding:6px 10px 6px 30px; border-radius:999px; border:1px solid #e5e7eb;
@@ -200,13 +199,9 @@ $msg = $_GET['msg'] ?? '';
   .search button{ height:34px; padding:6px 10px; border-radius:999px; border:1px solid #e5e7eb; background:#fff; cursor:pointer; }
 
   .filter-wrap{ display:flex; align-items:center; gap:8px; }
-  .multiselect {
-    position: relative; min-width: 280px;
-  }
-  .multiselect > button {
-    height:34px; width:100%; text-align:left; border:1px solid #e5e7eb; background:#fff;
-    border-radius:10px; padding:6px 10px; cursor:pointer;
-  }
+  .multiselect { position: relative; min-width: 280px; }
+  .multiselect > button { height:34px; width:100%; text-align:left; border:1px solid #e5e7eb; background:#fff;
+    border-radius:10px; padding:6px 10px; cursor:pointer; }
   .multiselect .panel {
     position:absolute; top:110%; left:0; right:0; z-index:30; background:#fff; border:1px solid #e5e7eb;
     border-radius:12px; box-shadow:0 10px 20px rgba(0,0,0,.06); max-height:280px; overflow:auto; padding:6px;
@@ -231,10 +226,7 @@ $msg = $_GET['msg'] ?? '';
   .link2{fill:none;stroke:#9ca3af;stroke-width:1.4px;opacity:.9}
 
   .nodeCard { stroke:#cbd5e1; stroke-width:1.2px; filter: drop-shadow(0 1px 0 rgba(0,0,0,.02)); }
-  .nodeCard.m1 { fill:#FFF8DB; }
-  .nodeCard.m2 { fill:#FFE9D6; }
-  .nodeCard.m3 { fill:#FFE1E1; }
-  .nodeCard.m0 { fill:#F3F4F6; }
+  .nodeCard.m1 { fill:#FFF8DB; } .nodeCard.m2 { fill:#FFE9D6; } .nodeCard.m3 { fill:#FFE1E1; } .nodeCard.m0 { fill:#F3F4F6; }
 
   .nodeTitle { font-weight:800; fill:#111; font-size:13px }
   .nodeLine  { fill:#6b7280; font-size:12px }
@@ -343,6 +335,9 @@ function renderChips(prest, visibleRows=null){
     const all = visibleRows || collectRowsForSelected();
     interes = all.reduce((a,r)=>a+Number(r.interes||0),0);
     capital = all.reduce((a,r)=>a+Number(r.valor||0),0);
+    const chipM = document.createElement("span"); chipM.className="chip"; chipM.textContent = "Modo global (todos los prestamistas)";
+    const chipF = document.createElement("span"); chipF.className="chip"; chipF.textContent = `Filtro: ${SELECTED_DEUDORES.size} deudor(es)`;
+    chipsHost.append(chipM, chipF);
   } else {
     interes = Number(GANANCIA[prest]||0);
     capital = Number(CAPITAL[prest]||0);
@@ -359,14 +354,6 @@ function renderChips(prest, visibleRows=null){
   const chipL1 = document.createElement("span"); chipL1.className="chip"; chipL1.textContent="1 mes"; chipL1.style.background="#FFF8DB";
   const chipL2 = document.createElement("span"); chipL2.className="chip"; chipL2.textContent="2 meses"; chipL2.style.background="#FFE9D6";
   const chipL3 = document.createElement("span"); chipL3.className="chip"; chipL3.textContent="3+ meses"; chipL3.style.background="#FFE1E1";
-
-  if (SELECTED_DEUDORES.size>0){
-    const chipF = document.createElement("span"); chipF.className="chip";
-    chipF.textContent = `Filtro: ${SELECTED_DEUDORES.size} deudor(es)`;
-    const chipM = document.createElement("span"); chipM.className="chip";
-    chipM.textContent = "Modo global (todos los prestamistas)";
-    chipsHost.append(chipF, chipM);
-  }
   chipsHost.append(chip1, chip2, chipL1, chipL2, chipL3);
 }
 
@@ -405,7 +392,7 @@ const msList   = document.getElementById('ms-list');
 const msAll    = document.getElementById('ms-all');
 const msNone   = document.getElementById('ms-none');
 
-const SELECTED_DEUDORES = new Set(); // nombres tal cual aparecen en DATA
+const SELECTED_DEUDORES = new Set(); // nombres tal cual
 
 function isGlobalMode(){ return SELECTED_DEUDORES.size > 0; }
 
@@ -479,12 +466,12 @@ function drawTree(prestamista) {
   // 1) Filas a dibujar
   let allRows;
   if (global) {
-    allRows = collectRowsForSelected();
+    allRows = collectRowsForSelected();       // (deudor, prestamista) ya separados
   } else {
     allRows = DATA[prestamista] || [];
   }
 
-  // 2) Filtro adicional (buscador textual opcional + multiselección)
+  // 2) Filtro adicional
   const rows = allRows.filter(r => {
     if (SELECTED_DEUDORES.size > 0 && !SELECTED_DEUDORES.has(r.nombre)) return false;
     if (!matches(r)) return false;
@@ -538,7 +525,7 @@ function drawTree(prestamista) {
     const titleRows = temp.selectAll("tspan").nodes().length || 1;
     temp.remove();
 
-    const rowsCount = titleRows + (global ? 2 : 1); // + “Prestamista” si global
+    const rowsCount = titleRows + (global ? 2 : 1);
     const cardH = padY*2 + lineGap*rowsCount;
 
     const m = +d.data.meses || 0;
@@ -589,6 +576,7 @@ function drawTree(prestamista) {
   const midY = d3.mean(deudores, d=>d.x) || 0;
   const summaryX = centerX + cardW + 280;
 
+  // Resumen global
   const sumW = 380, sumH = 140, sumPadX = 14, sumLine = 24;
   const summaryG = g.append("g").attr("class","summary")
     .attr("transform", `translate(${summaryX - 220},${midY})`).style("opacity", 0);
@@ -610,6 +598,7 @@ function drawTree(prestamista) {
   const s2 = summaryG.append("text").attr("class","summaryLine").attr("x", sumPadX).attr("y", sy).text("Total prestado (pend.): ");
   s2.append("tspan").attr("class","summaryAmt").text(`$ ${totalCapital.toLocaleString()}`);
 
+  // Enlaces deudor -> resumen global
   const link2 = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
   g.selectAll(".link2")
     .data(deudores.map(d => ({ source:{x:d.x, y:d.y + cardW}, target:{x:midY, y:summaryX} })))
@@ -618,6 +607,44 @@ function drawTree(prestamista) {
       .attr("stroke-dashoffset", function(){ return this.getTotalLength(); })
     .transition().delay((d,i)=>200+i*25).duration(650).ease(d3.easeCubicOut)
       .attr("stroke-dashoffset", 0);
+
+  // --- NUEVO: Resúmenes por prestamista en modo global ---
+  if (global) {
+    // Agrupar visibles por prestamista
+    const perPrest = {};
+    visibleRows.forEach(r=>{
+      const p = r.__prest || 'Desconocido';
+      if (!perPrest[p]) perPrest[p] = { interes:0, capital:0 };
+      perPrest[p].interes += Number(r.interes||0);
+      perPrest[p].capital += Number(r.valor||0);
+    });
+
+    const names = Object.keys(perPrest).sort((a,b)=> a.localeCompare(b));
+    const cardH = 92, gap = 10;
+    // posicionar bajo el global
+    let startY = midY + sumH/2 + 24;
+
+    names.forEach((p,i)=>{
+      const gP = g.append("g").attr("class","summary")
+        .attr("transform", `translate(${summaryX},${startY + i*(cardH+gap)})`)
+        .style("opacity", 0);
+      gP.transition().delay(250 + i*80).duration(500).style("opacity", 1);
+
+      gP.append("rect").attr("class","summaryCard")
+        .attr("x", 0).attr("y", -cardH/2).attr("width", sumW).attr("height", cardH)
+        .attr("rx", 12).attr("ry", 12);
+
+      gP.append("text").attr("class","summaryTitle")
+        .attr("x", sumPadX).attr("y", -cardH/2 + 22)
+        .text(`Prestamista: ${p}`);
+
+      const sy1 = -cardH/2 + 46;
+      const t1 = gP.append("text").attr("class","summaryLine").attr("x", sumPadX).attr("y", sy1).text("Interés: ");
+      t1.append("tspan").attr("class","summaryAmt").text(`$ ${perPrest[p].interes.toLocaleString()}`);
+      const t2 = gP.append("text").attr("class","summaryLine").attr("x", sumPadX).attr("y", sy1+20).text("Capital: ");
+      t2.append("tspan").attr("class","summaryAmt").text(`$ ${perPrest[p].capital.toLocaleString()}`);
+    });
+  }
 
   renderChips(prestamista, visibleRows);
 
