@@ -1,4 +1,4 @@
-<?php
+}<?php
 include("nav.php");
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
 if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); }
@@ -19,7 +19,7 @@ function norm_person($s){
   return $s;
 }
 
-/* ================= AJAX: Viajes por conductor (respeta fecha/empresa) ================= */
+/* ================= AJAX: Viajes por conductor (con LEYENDA y colores) ================= */
 if (isset($_GET['viajes_conductor'])) {
   $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
   $desde   = $conn->real_escape_string($_GET['desde'] ?? '');
@@ -35,31 +35,85 @@ if (isset($_GET['viajes_conductor'])) {
   }
   $sql .= " ORDER BY fecha ASC";
 
+  $legend = [
+    'completo'     => ['label'=>'Completo',     'badge'=>'bg-emerald-100 text-emerald-700 border border-emerald-200',     'row'=>'bg-emerald-50/40'],
+    'medio'        => ['label'=>'Medio',        'badge'=>'bg-amber-100 text-amber-800 border border-amber-200',           'row'=>'bg-amber-50/40'],
+    'extra'        => ['label'=>'Extra',        'badge'=>'bg-slate-200 text-slate-800 border border-slate-300',           'row'=>'bg-slate-50'],
+    'siapana'      => ['label'=>'Siapana',      'badge'=>'bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-200',     'row'=>'bg-fuchsia-50/40'],
+    'carrotanque'  => ['label'=>'Carrotanque',  'badge'=>'bg-cyan-100 text-cyan-800 border border-cyan-200',              'row'=>'bg-cyan-50/40'],
+    'otro'         => ['label'=>'Otro',         'badge'=>'bg-gray-100 text-gray-700 border border-gray-200',              'row'=>'']
+  ];
+
   $res = $conn->query($sql);
+  echo "<div class='space-y-3'>";
+
+  // Leyenda
+  echo "<div class='flex flex-wrap gap-2 text-xs'>";
+  foreach (['completo','medio','extra','siapana','carrotanque'] as $k) {
+    $l = $legend[$k];
+    echo "<span class='inline-flex items-center gap-2 px-2 py-1 rounded-full {$l['badge']}'>
+            <span class='w-2.5 h-2.5 rounded-full ".str_replace(['bg-','/40'], ['bg-',''], $l['row'])."'></span>{$l['label']}
+          </span>";
+  }
+  echo "</div>";
+
+  // Tabla
+  echo "<div class='overflow-x-auto'>
+          <table class='min-w-full text-sm text-left'>
+            <thead class='bg-blue-600 text-white'>
+              <tr>
+                <th class='px-3 py-2'>Fecha</th>
+                <th class='px-3 py-2'>Ruta</th>
+                <th class='px-3 py-2'>Empresa</th>
+                <th class='px-3 py-2'>Vehículo</th>
+              </tr>
+            </thead>
+            <tbody class='divide-y divide-gray-100 bg-white'>";
+
   if ($res && $res->num_rows > 0) {
-    echo "<div class='overflow-x-auto'>
-            <table class='min-w-full text-sm text-left'>
-              <thead class='bg-blue-600 text-white'>
-                <tr>
-                  <th class='px-3 py-2'>Fecha</th>
-                  <th class='px-3 py-2'>Ruta</th>
-                  <th class='px-3 py-2'>Empresa</th>
-                  <th class='px-3 py-2'>Vehículo</th>
-                </tr>
-              </thead>
-              <tbody class='divide-y divide-gray-100 bg-white'>";
     while ($r = $res->fetch_assoc()) {
-      echo "<tr class='hover:bg-blue-50 transition-colors'>
+      $ruta = (string)$r['ruta'];
+      $guiones = substr_count($ruta,'-');
+
+      // Clasificación (misma que usas en el conteo)
+      if ($r['tipo_vehiculo']==='Carrotanque' && $guiones==0) {
+        $cat = 'carrotanque';
+      } elseif (stripos($ruta,'Siapana') !== false) {
+        $cat = 'siapana';
+      } elseif (stripos($ruta,'Maicao') === false) {
+        $cat = 'extra';
+      } elseif ($guiones==2) {
+        $cat = 'completo';
+      } elseif ($guiones==1) {
+        $cat = 'medio';
+      } else {
+        $cat = 'otro';
+      }
+
+      $l = $legend[$cat];
+      $badge = "<span class='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold {$l['badge']}'>".$l['label']."</span>";
+      $rowCls = trim("hover:bg-blue-50 transition-colors {$l['row']}");
+
+      echo "<tr class='{$rowCls}'>
               <td class='px-3 py-2'>".htmlspecialchars($r['fecha'])."</td>
-              <td class='px-3 py-2'>".htmlspecialchars($r['ruta'])."</td>
+              <td class='px-3 py-2'>
+                <div class='flex items-center gap-2'>
+                  {$badge}
+                  <span>".htmlspecialchars($ruta)."</span>
+                </div>
+              </td>
               <td class='px-3 py-2'>".htmlspecialchars($r['empresa'])."</td>
               <td class='px-3 py-2'>".htmlspecialchars($r['tipo_vehiculo'])."</td>
             </tr>";
     }
-    echo "  </tbody></table></div>";
   } else {
-    echo "<p class='text-center text-slate-500 m-0'>Sin viajes en el rango/empresa.</p>";
+    echo "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresa.</td></tr>";
   }
+
+  echo "    </tbody>
+          </table>
+        </div>
+      </div>";
   exit;
 }
 
@@ -106,7 +160,7 @@ $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
 $empresaFiltro = $_GET['empresa'] ?? "";
 
-/* ================= Viajes del rango ================= */
+/* ================= Viajes del rango (para totales) ================= */
 $sqlV = "SELECT nombre, ruta, empresa, tipo_vehiculo
          FROM viajes
          WHERE fecha BETWEEN '$desde' AND '$hasta'";
@@ -116,7 +170,7 @@ if ($empresaFiltro !== "") {
 }
 $resV = $conn->query($sqlV);
 
-$contadores = [];   // nombre → contadores y vehiculo tomado del primer registro del rango
+$contadores = [];
 if ($resV) {
   while ($row = $resV->fetch_assoc()) {
     $nombre = $row['nombre'];
@@ -142,16 +196,15 @@ if ($resV) {
   }
 }
 
-/* ================= Tarifas por vehículo ================= */
+/* ================= Tarifas ================= */
 $tarifas = [];
 if ($empresaFiltro !== "") {
   $resT = $conn->query("SELECT * FROM tarifas WHERE empresa='".$conn->real_escape_string($empresaFiltro)."'");
   if ($resT) while($r=$resT->fetch_assoc()) $tarifas[$r['tipo_vehiculo']] = $r;
 }
 
-/* ================= Préstamos (lista multi-select + mapa) =================
-   total = SUM(monto + 10% mensual acumulado) para no pagados */
-$prestamosList = [];    // [{id,name,key,total}]
+/* ================= Préstamos: listado multiselección ================= */
+$prestamosList = [];
 $i = 0;
 $qPrest = "
   SELECT deudor,
@@ -181,13 +234,9 @@ foreach ($contadores as $nombre => $v) {
          + $v['carrotanques']* (int)($t['carrotanque'] ?? 0)
          + $v['siapana']     * (int)($t['siapana']     ?? 0);
 
-  $filas[] = [
-    'nombre'        => $nombre,
-    'total_bruto'   => (int)$total,
-  ];
+  $filas[] = ['nombre'=>$nombre, 'total_bruto'=>(int)$total];
   $total_facturado += (int)$total;
 }
-/* ordenar por total desc (solo presentación) */
 usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 ?>
 <!DOCTYPE html>
@@ -201,16 +250,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   .table-sticky thead tr { position: sticky; top: 0; z-index: 30; }
   .table-sticky thead th { position: sticky; top: 0; z-index: 31; background-color: #2563eb !important; color: #fff !important; }
   .table-sticky thead { box-shadow: 0 2px 0 rgba(0,0,0,0.06); }
-  input[type=number]::-webkit-outer-spin-button,
-  input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-
-  /* Modal Préstamos */
-  .modal-show { display:block }
-  .modal-hide { display:none }
-  .opt-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 12px; border-bottom:1px solid #e5e7eb; }
-  .opt-row:hover { background:#f8fafc; }
-  .opt-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding-right:8px; }
-  .chip { display:inline-flex; align-items:center; gap:6px; padding:2px 8px; border-radius:999px; background:#eef2ff; border:1px solid #e5e7eb; margin-left:6px; font-size:11px; }
 
   /* Modal Viajes */
   .viajes-backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:10000; }
@@ -221,6 +260,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   .viajes-body{padding:14px 16px;overflow:auto; max-height:70vh}
   .viajes-close{padding:6px 10px; border-radius:10px}
   .viajes-close:hover{background:#f3f4f6}
+
   .conductor-link{cursor:pointer; color:#0d6efd; text-decoration:underline;}
 </style>
 </head>
@@ -357,8 +397,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </section>
   </main>
 
-  <!-- ===== Modal de selección de PRÉSTAMOS (multi) ===== -->
-  <div id="prestModal" class="modal-hide fixed inset-0 z-50">
+  <!-- ===== Modal PRÉSTAMOS (multi) ===== -->
+  <div id="prestModal" class="hidden fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-8 max-w-2xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
       <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
@@ -387,86 +427,43 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
   </div>
 
-  <!-- ===== Modal de VIAJES ===== -->
+  <!-- ===== Modal VIAJES (con leyenda) ===== -->
   <div id="viajesModal" class="viajes-backdrop">
     <div class="viajes-card">
       <div class="viajes-header">
         <h3 id="viajesTitle" class="text-lg font-semibold flex items-center gap-2">🧳 Viajes</h3>
         <button class="viajes-close" id="viajesCloseBtn" title="Cerrar">✕</button>
       </div>
-      <div class="viajes-body" id="viajesContent">
-        <!-- contenido AJAX -->
-      </div>
+      <div class="viajes-body" id="viajesContent"></div>
     </div>
   </div>
 
 <script>
-  // ====== Datos de servidor a JS (persistencia préstamos por EMPRESA, sin fechas) ======
+  // ===== Persistencia por empresa =====
   const COMPANY_SCOPE = <?= json_encode(($empresaFiltro ?: '__todas__')) ?>;
   const ACC_KEY   = 'cuentas:'+COMPANY_SCOPE;
   const SS_KEY    = 'seg_social:'+COMPANY_SCOPE;
-
-  // clave nueva (sin fechas) — ¡NO se borra al cambiar rango!
   const PREST_SEL_KEY   = 'prestamo_sel_multi:v2:'+COMPANY_SCOPE;
-  // prefijo de claves antiguas con fecha, por si existe migración
-  const OLD_PREST_PREFIX = 'prestamo_sel_multi:' + (COMPANY_SCOPE + '|');
 
   const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 
-  // ====== Helpers ======
-  const toInt = (s)=> {
-    if (typeof s === 'number') return Math.round(s);
-    s = (s||'').toString().replace(/\./g,'').replace(/,/g,'').replace(/[^\d\-]/g,'');
-    return parseInt(s||'0',10) || 0;
-  };
+  const toInt = (s)=>{ if(typeof s==='number') return Math.round(s); s=(s||'').toString().replace(/\./g,'').replace(/,/g,'').replace(/[^\d\-]/g,''); return parseInt(s||'0',10)||0; };
   const fmt = (n)=> (n||0).toLocaleString('es-CO');
-  function getLS(k){ try{ return JSON.parse(localStorage.getItem(k)||'{}'); }catch{return{};} }
-  function setLS(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
+  const getLS=(k)=>{try{return JSON.parse(localStorage.getItem(k)||'{}')}catch{return{}}}
+  const setLS=(k,v)=> localStorage.setItem(k, JSON.stringify(v));
 
-  function summarizeNames(arr){
-    if (!arr || arr.length===0) return '';
-    const names = arr.map(x=>x.name);
-    if (names.length <= 2) return names.join(', ');
-    return names.slice(0,2).join(', ') + ` +${names.length-2} más`;
-  }
-  function sumTotals(arr){ return (arr||[]).reduce((a,b)=> a + (toInt(b.total)||0), 0); }
-
-  // ====== Persistencia ======
   let accMap = getLS(ACC_KEY);
   let ssMap  = getLS(SS_KEY);
-
-  let prestSel = getLS(PREST_SEL_KEY); // baseName → array de {id,name,total}
-  // Migración opcional desde antiguas claves con fecha
-  if (!prestSel || Object.keys(prestSel).length === 0) {
-    try {
-      const matches = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i) || '';
-        if (k.startsWith(OLD_PREST_PREFIX)) matches.push(k);
-      }
-      if (matches.length === 1) {
-        const oldData = JSON.parse(localStorage.getItem(matches[0]) || '{}');
-        if (oldData && typeof oldData === 'object') {
-          prestSel = oldData;
-          setLS(PREST_SEL_KEY, prestSel);
-        }
-      }
-    } catch(e){/* noop */}
-  }
-  // Garantizar arrays
-  if (prestSel && typeof prestSel === 'object') {
-    Object.keys(prestSel).forEach(k=>{
-      if(!Array.isArray(prestSel[k])){
-        const v = prestSel[k];
-        prestSel[k] = v && typeof v==='object' ? [v] : [];
-      }
-    });
-  } else { prestSel = {}; }
+  let prestSel = getLS(PREST_SEL_KEY);
+  if(!prestSel || typeof prestSel!=='object') prestSel = {};
 
   const tbody = document.getElementById('tbody');
 
-  // ====== Inicialización de filas (restaura cuenta, SS y PRÉSTAMOS acumulados) ======
-  Array.from(tbody.querySelectorAll('tr')).forEach(tr=>{
+  function summarizeNames(arr){ if(!arr||arr.length===0)return''; const n=arr.map(x=>x.name); return n.length<=2?n.join(', '): n.slice(0,2).join(', ')+' +'+(n.length-2)+' más'; }
+  function sumTotals(arr){ return (arr||[]).reduce((a,b)=> a+(toInt(b.total)||0),0); }
+
+  // Restaurar filas
+  [...tbody.querySelectorAll('tr')].forEach(tr=>{
     const cta = tr.querySelector('input.cta');
     const ss  = tr.querySelector('input.ss');
     const baseName = tr.children[0].innerText.trim();
@@ -484,138 +481,82 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     ss.addEventListener('input', ()=>{ ssMap[baseName] = toInt(ss.value); setLS(SS_KEY, ssMap); recalc(); });
   });
 
-  // ====== MODAL PRÉSTAMOS (multi) ======
-  const prestModalEl   = document.getElementById('prestModal');
-  const btnAssign      = document.getElementById('btnAssign');
-  const btnCancel      = document.getElementById('btnCancel');
-  const btnClose       = document.getElementById('btnCloseModal');
-  const btnClear       = document.getElementById('btnClearSel');
-  const btnSelectAll   = document.getElementById('btnSelectAll');
+  // ===== Modal préstamos =====
+  const prestModal   = document.getElementById('prestModal');
+  const btnAssign    = document.getElementById('btnAssign');
+  const btnCancel    = document.getElementById('btnCancel');
+  const btnClose     = document.getElementById('btnCloseModal');
+  const btnSelectAll = document.getElementById('btnSelectAll');
   const btnUnselectAll = document.getElementById('btnUnselectAll');
-  const inputSearch    = document.getElementById('prestSearch');
-  const listHost       = document.getElementById('prestList');
-  const selCount       = document.getElementById('selCount');
-  const selTotal       = document.getElementById('selTotal');
+  const btnClearSel  = document.getElementById('btnClearSel');
+  const prestSearch  = document.getElementById('prestSearch');
+  const prestList    = document.getElementById('prestList');
+  const selCount     = document.getElementById('selCount');
+  const selTotal     = document.getElementById('selTotal');
 
-  let currentRow = null;
-  let selectedIds = new Set();
-  let filteredIdx = [];
+  let currentRow=null, selectedIds=new Set(), filteredIdx=[];
 
   function renderPrestList(filter=''){
-    listHost.innerHTML = '';
-    const nf = (filter||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
-    filteredIdx = [];
-    const frag = document.createDocumentFragment();
-    PRESTAMOS_LIST.forEach((item, idx)=>{
-      if (nf && !item.key.includes(nf)) return;
+    prestList.innerHTML='';
+    const nf=(filter||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+    filteredIdx=[];
+    const frag=document.createDocumentFragment();
+    PRESTAMOS_LIST.forEach((item,idx)=>{
+      if(nf && !item.key.includes(nf)) return;
       filteredIdx.push(idx);
 
-      const row = document.createElement('label');
-      row.className = 'opt-row';
-
-      const left = document.createElement('div');
-      left.style.display='flex';
-      left.style.alignItems='center';
-      left.style.gap='10px';
-
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.dataset.id = item.id;
-      cb.checked = selectedIds.has(item.id);
-
-      const name = document.createElement('span');
-      name.className = 'opt-name';
-      name.textContent = item.name;
-
-      left.appendChild(cb);
-      left.appendChild(name);
-
-      const total = document.createElement('span');
-      total.className = 'num font-semibold';
-      total.textContent = (item.total||0).toLocaleString('es-CO');
-
-      row.appendChild(left);
-      row.appendChild(total);
-
-      cb.addEventListener('change', ()=>{
-        if (cb.checked) selectedIds.add(item.id); else selectedIds.delete(item.id);
-        updateSelSummary();
-      });
-
-      frag.appendChild(row);
+      const row=document.createElement('label');
+      row.className='flex items-center justify-between gap-3 px-3 py-2 border-b border-slate-200';
+      const left=document.createElement('div'); left.className='flex items-center gap-3';
+      const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=selectedIds.has(item.id); cb.dataset.id=item.id;
+      const nm=document.createElement('span'); nm.className='truncate max-w-[360px]'; nm.textContent=item.name;
+      left.append(cb,nm);
+      const val=document.createElement('span'); val.className='num font-semibold'; val.textContent=(item.total||0).toLocaleString('es-CO');
+      row.append(left,val);
+      cb.addEventListener('change',()=>{ if(cb.checked)selectedIds.add(item.id); else selectedIds.delete(item.id); updateSelSummary(); });
+      frag.append(row);
     });
-    listHost.appendChild(frag);
+    prestList.append(frag);
     updateSelSummary();
   }
   function updateSelSummary(){
-    const arr = PRESTAMOS_LIST.filter(it=> selectedIds.has(it.id));
-    selCount.textContent = arr.length;
-    const tot = arr.reduce((a,b)=> a + (b.total||0), 0);
-    selTotal.textContent = tot.toLocaleString('es-CO');
+    const arr=PRESTAMOS_LIST.filter(it=>selectedIds.has(it.id));
+    selCount.textContent=arr.length;
+    selTotal.textContent=arr.reduce((a,b)=>a+(b.total||0),0).toLocaleString('es-CO');
   }
   function openPrestModalForRow(tr){
-    currentRow = tr;
-    selectedIds = new Set();
-
-    const baseName = currentRow.children[0].innerText.trim();
-    const chosen = prestSel[baseName] || [];
-    chosen.forEach(x=> selectedIds.add(Number(x.id)));
-
-    inputSearch.value = '';
-    renderPrestList('');
-    prestModalEl.classList.remove('modal-hide');
-    prestModalEl.classList.add('modal-show');
-
-    requestAnimationFrame(()=>{ inputSearch.focus(); inputSearch.select(); });
+    currentRow=tr; selectedIds=new Set();
+    const baseName=tr.children[0].innerText.trim();
+    (prestSel[baseName]||[]).forEach(x=> selectedIds.add(Number(x.id)));
+    prestSearch.value=''; renderPrestList('');
+    prestModal.classList.remove('hidden');
+    requestAnimationFrame(()=>{ prestSearch.focus(); prestSearch.select(); });
   }
-  function closePrestModal(){
-    prestModalEl.classList.remove('modal-show');
-    prestModalEl.classList.add('modal-hide');
-    currentRow = null;
-    selectedIds = new Set();
-    filteredIdx = [];
-  }
-
-  btnCancel.addEventListener('click', closePrestModal);
-  btnClose.addEventListener('click', closePrestModal);
-  btnClear.addEventListener('click', ()=>{
-    if (!currentRow) return;
-    const baseName = currentRow.children[0].innerText.trim();
-    currentRow.querySelector('.prest').textContent = '0';
-    currentRow.querySelector('.selected-deudor').textContent = '';
-    delete prestSel[baseName];
-    setLS(PREST_SEL_KEY, prestSel);
-    recalc();
-    selectedIds.clear();
-    renderPrestList(inputSearch.value);
+  function closePrest(){ prestModal.classList.add('hidden'); currentRow=null; selectedIds=new Set(); filteredIdx=[]; }
+  btnCancel.addEventListener('click',closePrest); btnClose.addEventListener('click',closePrest);
+  btnSelectAll.addEventListener('click',()=>{ filteredIdx.forEach(i=>selectedIds.add(PRESTAMOS_LIST[i].id)); renderPrestList(prestSearch.value); });
+  btnUnselectAll.addEventListener('click',()=>{ filteredIdx.forEach(i=>selectedIds.delete(PRESTAMOS_LIST[i].id)); renderPrestList(prestSearch.value); });
+  btnClearSel.addEventListener('click',()=>{
+    if(!currentRow) return;
+    const baseName=currentRow.children[0].innerText.trim();
+    currentRow.querySelector('.prest').textContent='0';
+    currentRow.querySelector('.selected-deudor').textContent='';
+    delete prestSel[baseName]; setLS(PREST_SEL_KEY, prestSel); recalc();
+    selectedIds.clear(); renderPrestList(prestSearch.value);
   });
-  btnSelectAll.addEventListener('click', ()=>{ filteredIdx.forEach(idx=> selectedIds.add(PRESTAMOS_LIST[idx].id)); renderPrestList(inputSearch.value); });
-  btnUnselectAll.addEventListener('click', ()=>{ filteredIdx.forEach(idx=> selectedIds.delete(PRESTAMOS_LIST[idx].id)); renderPrestList(inputSearch.value); });
-
-  btnAssign.addEventListener('click', ()=>{
-    if (!currentRow) return;
-    const baseName = currentRow.children[0].innerText.trim();
-
-    const chosen = PRESTAMOS_LIST.filter(it=> selectedIds.has(it.id))
-      .map(it=> ({ id: it.id, name: it.name, total: it.total }));
-
-    prestSel[baseName] = chosen;
-    setLS(PREST_SEL_KEY, prestSel);
-
-    currentRow.querySelector('.prest').textContent = (sumTotals(chosen)).toLocaleString('es-CO');
+  btnAssign.addEventListener('click',()=>{
+    if(!currentRow) return;
+    const baseName=currentRow.children[0].innerText.trim();
+    const chosen=PRESTAMOS_LIST.filter(it=>selectedIds.has(it.id)).map(it=>({id:it.id,name:it.name,total:it.total}));
+    prestSel[baseName]=chosen; setLS(PREST_SEL_KEY, prestSel);
+    currentRow.querySelector('.prest').textContent = sumTotals(chosen).toLocaleString('es-CO');
     currentRow.querySelector('.selected-deudor').textContent = summarizeNames(chosen);
-
-    recalc();
-    closePrestModal();
+    recalc(); closePrest();
   });
+  prestSearch.addEventListener('input',()=>renderPrestList(prestSearch.value));
+  tbody.querySelectorAll('.btn-prest').forEach(btn=> btn.addEventListener('click',()=>openPrestModalForRow(btn.closest('tr'))));
 
-  inputSearch.addEventListener('input', ()=> renderPrestList(inputSearch.value));
-  // Abrir modal préstamos por fila
-  tbody.querySelectorAll('.btn-prest').forEach(btn=>{
-    btn.addEventListener('click', ()=> openPrestModalForRow(btn.closest('tr')));
-  });
-
-  // ====== MODAL VIAJES ======
+  // ===== Modal VIAJES =====
   const RANGO_DESDE = <?= json_encode($desde) ?>;
   const RANGO_HASTA = <?= json_encode($hasta) ?>;
   const RANGO_EMP   = <?= json_encode($empresaFiltro) ?>;
@@ -626,51 +567,24 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const viajesClose   = document.getElementById('viajesCloseBtn');
 
   function abrirModalViajes(nombre){
-    viajesTitle.innerHTML = '🧳 Viajes — <span class="font-normal">'+nombre+'</span>';
-    viajesContent.innerHTML = '<p class="text-center m-0 animate-pulse">Cargando…</p>';
+    viajesTitle.innerHTML = '🧳 Viajes — <span class=\"font-normal\">'+nombre+'</span>';
+    viajesContent.innerHTML = '<p class=\"text-center m-0 animate-pulse\">Cargando…</p>';
     viajesModal.classList.add('show');
 
-    const qs = new URLSearchParams({
-      viajes_conductor: nombre,
-      desde: RANGO_DESDE,
-      hasta: RANGO_HASTA,
-      empresa: RANGO_EMP
-    });
-
-    fetch('<?= basename(__FILE__) ?>?' + qs.toString())
-      .then(r => r.text())
-      .then(html => { viajesContent.innerHTML = html; })
-      .catch(() => { viajesContent.innerHTML = '<p class="text-center text-rose-600">Error cargando viajes.</p>'; });
+    const qs = new URLSearchParams({ viajes_conductor:nombre, desde:RANGO_DESDE, hasta:RANGO_HASTA, empresa:RANGO_EMP });
+    fetch('<?= basename(__FILE__) ?>?'+qs.toString())
+      .then(r=>r.text())
+      .then(html=>{ viajesContent.innerHTML = html; })
+      .catch(()=>{ viajesContent.innerHTML='<p class=\"text-center text-rose-600\">Error cargando viajes.</p>'; });
   }
   function cerrarModalViajes(){ viajesModal.classList.remove('show'); viajesContent.innerHTML=''; }
 
   viajesClose.addEventListener('click', cerrarModalViajes);
   viajesModal.addEventListener('click', (e)=>{ if(e.target===viajesModal) cerrarModalViajes(); });
-  document.addEventListener('keydown', (e)=>{ if(e.key==='Escape' && viajesModal.classList.contains('show')) cerrarModalViajes(); });
+  document.querySelectorAll('#tbody .conductor-link').forEach(btn=> btn.addEventListener('click', ()=> abrirModalViajes(btn.textContent.trim())));
 
-  // Click en nombre del conductor → modal de viajes
-  document.querySelectorAll('#tbody .conductor-link').forEach(btn=>{
-    btn.addEventListener('click', ()=> abrirModalViajes(btn.textContent.trim()));
-  });
-
-  // ====== Totales ======
-  const totLleg = document.getElementById('tot_valor_llego');
-  const totRet  = document.getElementById('tot_retencion');
-  const totMil4 = document.getElementById('tot_4x1000');
-  const totAp   = document.getElementById('tot_aporte');
-  const totSS   = document.getElementById('tot_ss');
-  const totPrest= document.getElementById('tot_prestamos');
-  const totPag  = document.getElementById('tot_pagar');
-
-  function distribIgual(diff,n){
-    const arr=new Array(n).fill(0);
-    if(n<=0||diff===0) return arr;
-    const s=diff>=0?1:-1; let a=Math.abs(diff);
-    const base=Math.floor(a/n); let resto=a%n;
-    for(let i=0;i<n;i++){ arr[i]=s*base + (resto>0?s:0); if(resto>0) resto--; }
-    return arr;
-  }
-
+  // ===== Cálculos =====
+  function distribIgual(diff,n){ const arr=new Array(n).fill(0); if(n<=0||diff===0)return arr; const s=diff>=0?1:-1; let a=Math.abs(diff); const base=Math.floor(a/n); let resto=a%n; for(let i=0;i<n;i++){arr[i]=s*base+(resto>0?s:0); if(resto>0)resto--;} return arr; }
   function recalc(){
     const fact=toInt(document.getElementById('inp_facturado').value);
     const rec =toInt(document.getElementById('inp_recibido').value);
@@ -681,70 +595,39 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const ajustes=distribIgual(diff, rows.length);
 
     let sumLleg=0,sumRet=0,sumMil4=0,sumAp=0,sumSS=0,sumPrest=0,sumPagar=0;
-
     rows.forEach((tr,i)=>{
-      const base  = toInt(tr.querySelector('.base').textContent);
-      const prest = toInt(tr.querySelector('.prest')?.textContent || 0);
-      const aj    = ajustes[i]||0;
-      const llego = base - aj;
-
-      const ret  = Math.round(llego*0.035);
-      const mil4 = Math.round(llego*0.004);
-      const ap   = Math.round(llego*0.10);
-      const ss   = toInt(tr.querySelector('input.ss')?.value || 0);
-
+      const base=toInt(tr.querySelector('.base').textContent);
+      const prest=toInt(tr.querySelector('.prest').textContent);
+      const aj=ajustes[i]||0;
+      const llego=base-aj;
+      const ret=Math.round(llego*0.035);
+      const mil4=Math.round(llego*0.004);
+      const ap=Math.round(llego*0.10);
+      const ss=toInt(tr.querySelector('input.ss').value);
       const pagar = llego - ret - mil4 - ap - ss - prest;
 
-      tr.querySelector('.ajuste').textContent = (aj===0?'0':(aj>0?'-'+fmt(aj):'+'+fmt(Math.abs(aj))));
-      tr.querySelector('.llego').textContent  = fmt(llego);
-      tr.querySelector('.ret').textContent    = fmt(ret);
-      tr.querySelector('.mil4').textContent   = fmt(mil4);
-      tr.querySelector('.apor').textContent   = fmt(ap);
-      tr.querySelector('.pagar').textContent  = fmt(pagar);
+      tr.querySelector('.ajuste').textContent=(aj===0?'0':(aj>0?'-'+fmt(aj):'+'+fmt(Math.abs(aj))));
+      tr.querySelector('.llego').textContent=fmt(llego);
+      tr.querySelector('.ret').textContent=fmt(ret);
+      tr.querySelector('.mil4').textContent=fmt(mil4);
+      tr.querySelector('.apor').textContent=fmt(ap);
+      tr.querySelector('.pagar').textContent=fmt(pagar);
 
       sumLleg+=llego; sumRet+=ret; sumMil4+=mil4; sumAp+=ap; sumSS+=ss; sumPrest+=prest; sumPagar+=pagar;
     });
 
-    totLleg.textContent=fmt(sumLleg);
-    totRet.textContent=fmt(sumRet);
-    totMil4.textContent=fmt(sumMil4);
-    totAp.textContent=fmt(sumAp);
-    totSS.textContent=fmt(sumSS);
-    totPrest.textContent=fmt(sumPrest);
-    totPag.textContent=fmt(sumPagar);
+    document.getElementById('tot_valor_llego').textContent=fmt(sumLleg);
+    document.getElementById('tot_retencion').textContent=fmt(sumRet);
+    document.getElementById('tot_4x1000').textContent=fmt(sumMil4);
+    document.getElementById('tot_aporte').textContent=fmt(sumAp);
+    document.getElementById('tot_ss').textContent=fmt(sumSS);
+    document.getElementById('tot_prestamos').textContent=fmt(sumPrest);
+    document.getElementById('tot_pagar').textContent=fmt(sumPagar);
   }
-  function numberInputFormatter(el){
-    el.addEventListener('input', ()=>{ const raw=toInt(el.value); el.value=fmt(raw); recalc(); });
-  }
-  numberInputFormatter(document.getElementById('inp_facturado'));
-  numberInputFormatter(document.getElementById('inp_recibido'));
-
-  // Cálculo inicial
+  const fmtInput=(el)=> el.addEventListener('input',()=>{ const raw=toInt(el.value); el.value=fmt(raw); recalc(); });
+  fmtInput(document.getElementById('inp_facturado'));
+  fmtInput(document.getElementById('inp_recibido'));
   recalc();
-
-  // ====== Atajos de teclado cuando está abierto el modal de préstamos: tipear para buscar ======
-  document.addEventListener('keydown', (e) => {
-    const isOpen = prestModalEl.classList.contains('modal-show');
-    if (!isOpen) return;
-
-    const activeTag = (document.activeElement && document.activeElement.tagName) || '';
-    const isTextInput = ['INPUT','TEXTAREA'].includes(activeTag);
-    const isTypingKey = e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete';
-
-    if (!isTextInput && isTypingKey) {
-      inputSearch.focus();
-      if (e.key.length === 1) {
-        const v = inputSearch.value || '';
-        inputSearch.value = v + e.key;
-        const evt = new Event('input', { bubbles: true });
-        inputSearch.dispatchEvent(evt);
-      } else {
-        const evt = new Event('input', { bubbles: true });
-        inputSearch.dispatchEvent(evt);
-      }
-      e.preventDefault();
-    }
-  });
 </script>
 
 </body>
