@@ -20,13 +20,27 @@ define('DB_NAME', 'u648222299_viajes');
 const UPLOAD_DIR = __DIR__ . '/uploads/';
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
+// URL absoluta para volver a Tarjetas después del bulk update
+const BASE_URL = 'https://asociacion.asociaciondetransportistaszonanorte.io/tele/admin_prestamos.php';
+
 if (!is_dir(UPLOAD_DIR)) @mkdir(UPLOAD_DIR, 0775, true);
 
 // ===== Helpers =====
 function db(): mysqli { $m = @new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME); if ($m->connect_errno) exit("Error DB: ".$m->connect_error); $m->set_charset('utf8mb4'); return $m; }
 function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES,'UTF-8'); }
 function money($n){ return number_format((float)$n,0,',','.'); }
-function go($qs){ header("Location: ".$qs); exit; }
+
+/* Redirección robusta: si ya se enviaron headers, usa JS + meta */
+function go($url){
+  if (!headers_sent()){
+    header("Location: ".$url, true, 302);
+    exit;
+  }
+  $u = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
+  echo "<!doctype html><html><head><meta http-equiv='refresh' content='0;url={$u}'><script>location.replace('{$u}');</script></head><body><a href='{$u}'>Ir</a></body></html>";
+  exit;
+}
+
 function mbnorm($s){ return mb_strtolower(trim((string)$s),'UTF-8'); }
 function mbtitle($s){ return function_exists('mb_convert_case') ? mb_convert_case((string)$s, MB_CASE_TITLE, 'UTF-8') : ucwords(strtolower((string)$s)); }
 
@@ -82,14 +96,8 @@ if ($action==='bulk_update' && $_SERVER['REQUEST_METHOD']==='POST'){
   if (!is_array($ids)) $ids = [];
   $ids = array_values(array_unique(array_map(fn($v)=> (int)$v, $ids)));
 
-  // conservar filtros al regresar
-  $redir_view = $_POST['view'] ?? 'cards';
-  $redir_q    = $_POST['q'] ?? '';
-  $redir_fp   = $_POST['fp'] ?? '';
-  $redir_fd   = $_POST['fd'] ?? '';
-
   if (!$ids) {
-    go('?view='.urlencode($redir_view).'&q='.urlencode($redir_q).'&fp='.urlencode($redir_fp).'&fd='.urlencode($redir_fd).'&msg=noselect');
+    go(BASE_URL.'?view=cards&msg=noselect');
   }
 
   // Campos opcionales a aplicar
@@ -124,8 +132,7 @@ if ($action==='bulk_update' && $_SERVER['REQUEST_METHOD']==='POST'){
   }
 
   if (!$sets) {
-    // No hubo campos a actualizar
-    go('?view='.urlencode($redir_view).'&q='.urlencode($redir_q).'&fp='.urlencode($redir_fp).'&fd='.urlencode($redir_fd).'&msg=noupdate');
+    go(BASE_URL.'?view=cards&msg=noupdate');
   }
 
   // Construcción del IN (...)
@@ -141,8 +148,8 @@ if ($action==='bulk_update' && $_SERVER['REQUEST_METHOD']==='POST'){
   $st->close(); $c->close();
 
   $msg = $ok ? 'bulkok' : 'bulkoops';
-  go('https://asociacion.asociaciondetransportistaszonanorte.io/tele/admin_prestamos.php?view=cards&msg='.$msg);
-
+  // Redirigir SIEMPRE a la URL absoluta de Tarjetas
+  go(BASE_URL.'?view=cards&msg='.$msg);
 }
 
 /* ===== CRUD ===== */
@@ -427,11 +434,8 @@ else:
     <?php else: ?>
       <!-- FORM para selección múltiple + edición en lote (NO forms anidados dentro) -->
       <form id="bulkForm" class="card" method="post" action="?action=bulk_update">
-        <!-- conservar filtros -->
+        <!-- conservar filtros (ya no necesarios para la redirección fija, pero no molestan) -->
         <input type="hidden" name="view" value="cards">
-        <input type="hidden" name="q"  value="<?= h($q) ?>">
-        <input type="hidden" name="fp" value="<?= h($fpNorm) ?>">
-        <input type="hidden" name="fd" value="<?= h($fdNorm) ?>">
 
         <div class="row" style="margin-bottom:8px">
           <div class="title">Selecciona tarjetas</div>
@@ -475,10 +479,7 @@ else:
                 <div class="subtitle">Creado: <?= h($r['created_at']) ?></div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap">
                   <a class="btn gray small" href="?action=edit&id=<?= $r['id'] ?>&view=cards">✏️ Editar</a>
-
-                  <!-- IMPORTANTE: NO usar form interno (evita forms anidados).
-                       Usamos un botón que crea un form temporal por JS para mantener
-                       exactamente la misma lógica de eliminación del backend. -->
+                  <!-- Botón Eliminar sin formulario anidado -->
                   <button class="btn red small" type="button" onclick="submitDelete(<?= (int)$r['id'] ?>)">🗑️ Eliminar</button>
                 </div>
               </div>
@@ -520,7 +521,9 @@ else:
   } else {
     // -------- VISUAL 3-NODOS (SOLO NO PAGADOS) --------
     $where = "(pagado IS NULL OR pagado=0)"; $types=""; $params=[];
-    if ($q!==''){ $where.=" AND (LOWER(deudor) LIKE CONCAT('%',?,'%') OR LOWER(prestamista) LIKE CONCAT('%',?,'%'))"; $types.="ss"; $params[]=$qNorm; $params[]=$qNorm; }
+    $qNorm = mbnorm($_GET['q'] ?? '');
+    $fpNorm = mbnorm($_GET['fp'] ?? '');
+    if ($qNorm!==''){ $where.=" AND (LOWER(deudor) LIKE CONCAT('%',?,'%') OR LOWER(prestamista) LIKE CONCAT('%',?,'%'))"; $types.="ss"; $params[]=$qNorm; $params[]=$qNorm; }
     if ($fpNorm!==''){ $where.=" AND LOWER(TRIM(prestamista)) = ?"; $types.="s"; $params[]=$fpNorm; }
 
     // Totales por prestamista+deudor (sin IDs) — con 'meses' para colorear
@@ -569,12 +572,12 @@ else:
     <div class="card" style="margin-bottom:16px">
       <form class="toolbar" method="get">
         <input type="hidden" name="view" value="graph">
-        <input name="q" placeholder="🔎 Buscar (deudor / prestamista)" value="<?= h($q) ?>" style="flex:1;min-width:220px">
+        <input name="q" placeholder="🔎 Buscar (deudor / prestamista)" value="<?= h($_GET['q'] ?? '') ?>" style="flex:1;min-width:220px">
         <select name="fp"><option value="">Todos los prestamistas</option>
           <?php foreach($prestMap as $norm=>$label): ?><option value="<?= h($norm) ?>" <?= $fpNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option><?php endforeach; ?>
         </select>
         <button class="btn" type="submit">Filtrar</button>
-        <?php if ($q!=='' || $fpNorm!==''): ?><a class="btn gray" href="?view=graph">Quitar filtro</a><?php endif; ?>
+        <?php if (!empty($_GET['q']) || $fpNorm!==''): ?><a class="btn gray" href="?view=graph">Quitar filtro</a><?php endif; ?>
       </form>
       <div class="subtitle">
         Diagrama: <strong>Prestamista ➜ Deudores (valor, fecha, interés, total) ➜ Ganancia</strong>.
@@ -583,7 +586,7 @@ else:
       </div>
     </div>
 
-    <?php if (empty($groups)): ?>
+    <?php if ($rs->num_rows===0): ?>
       <div class="card"><span class="subtitle">(sin registros)</span></div>
     <?php else: foreach($groups as $pkey => $ginfo):
         $rows = $ginfo['rows']; $prestLabel = mbtitle($ginfo['label']); $n = count($rows);
@@ -591,17 +594,16 @@ else:
         $rowGap=100; $nodeH=100; $nodeW=320; $headH=52; $topPad=30;
         $firstY=$topPad+80; $lastY=$firstY+max(0,($n-1)*$rowGap); $centerY=($firstY+$lastY)/2; $height=max(250,(int)($lastY+110));
         $xL=140; $xC=560; $xR=1080; $prestY=(int)($centerY-$headH/2); $gainY=$prestY;
-        $capPend = $capPendPrest[$pkey] ?? 0.0; // capital no pagado de ese prestamista
+        $capPend = $capPendPrest[$pkey] ?? 0.0;
     ?>
       <form class="group" method="post" action="?action=mark_paid">
         <input type="hidden" name="view" value="graph">
-        <input type="hidden" name="q" value="<?= h($q) ?>">
+        <input type="hidden" name="q" value="<?= h($_GET['q'] ?? '') ?>">
         <input type="hidden" name="fp" value="<?= h($fpNorm) ?>">
 
         <div class="title" style="margin:6px 10px 10px">Prestamista: <?= h($prestLabel) ?></div>
 
         <div class="svgwrap">
-          <!-- Leyenda -->
           <div class="subtitle" style="margin:6px 0 8px; padding:0 10px">
             <span class="chip" style="background:#FFF8DB">1 mes</span>
             <span class="chip" style="background:#FFE9D6">2 meses</span>
@@ -609,17 +611,14 @@ else:
           </div>
 
           <svg width="1320" height="<?= $height ?>" viewBox="0 0 1320 <?= $height ?>" xmlns="http://www.w3.org/2000/svg">
-            <!-- Prestamista -->
             <rect class="nodeRect" x="<?= $xL-90 ?>" y="<?= $prestY ?>" rx="12" ry="12" width="180" height="<?= $headH ?>"/>
             <text class="txt" x="<?= $xL-80 ?>" y="<?= $prestY+20 ?>">Prestamista</text>
             <text class="txt" x="<?= $xL-80 ?>" y="<?= $prestY+40 ?>"><tspan font-weight="800"><?= h($prestLabel) ?></tspan></text>
 
-            <!-- Ganancia -->
             <rect class="nodeRect" x="<?= $xR-120 ?>" y="<?= $gainY ?>" rx="12" ry="12" width="240" height="<?= $headH ?>"/>
             <text class="txt" x="<?= $xR-105 ?>" y="<?= $gainY+20 ?>">Ganancia (interés)</text>
             <text class="txt" x="<?= $xR-105 ?>" y="<?= $gainY+40 ?>">$ <?= money($ganPrest[$pkey] ?? 0) ?></text>
 
-            <!-- Total prestado (pendiente) -->
             <rect class="nodeRect" x="<?= $xR-120 ?>" y="<?= $gainY + $headH + 12 ?>" rx="12" ry="12" width="240" height="<?= $headH ?>"/>
             <text class="txt" x="<?= $xR-105 ?>" y="<?= $gainY + $headH + 12 + 20 ?>">Total prestado (pend.)</text>
             <text class="txt" x="<?= $xR-105 ?>" y="<?= $gainY + $headH + 12 + 40 ?>">$ <?= money($capPend) ?></text>
@@ -642,7 +641,6 @@ else:
           </svg>
         </div>
 
-        <!-- Selector de deudores (fuera del SVG) -->
         <div class="selector">
           <div class="selhead">
             <div class="subtitle">Selecciona deudores para marcarlos como pagados:</div>
@@ -713,7 +711,6 @@ endif; // list / graph
       const any = chkRows.some(c=>c.checked);
       if (!any) { alert('Selecciona al menos una tarjeta para editar.'); return; }
       panel.style.display = (panel.style.display==='none' || panel.style.display==='') ? 'block' : 'none';
-      // foco al primer campo del panel
       const first = panel.querySelector('input[name="new_deudor"]');
       if (first) first.focus();
     });
