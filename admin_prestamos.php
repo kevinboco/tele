@@ -6,11 +6,12 @@
  * - Deudor: valor prestado + fecha + interés + total
  * - Selector de deudores (fuera del SVG) + "Préstamo pagado"
  * - En el 3er nodo: Ganancia + Total prestado (pendiente)
- * - >>> Colorear nodo 2 según meses (1, 2, 3+)
- * - >>> NUEVO: Filtro por Deudor + resumen de sumas del deudor
- * - >>> NUEVO: Selección múltiple en Tarjetas + Edición en lote
+ * - Colorear nodo 2 según meses (1, 2, 3+)
+ * - Filtro por Deudor + resumen de sumas del deudor
+ * - Selección múltiple en Tarjetas + Edición en lote
  *********************************************************/
 include("nav.php");
+
 // ======= CONFIG =======
 define('DB_HOST', 'mysql.hostinger.com');
 define('DB_USER', 'u648222299_keboco5');
@@ -47,7 +48,7 @@ function save_image($file): ?string {
   return $name;
 }
 
-/* ===== Acción: marcar pagado SOLO deudores seleccionados ===== */
+/* ===== Acción: marcar pagado SOLO deudores seleccionados (vista graph) ===== */
 if ($action==='mark_paid' && $_SERVER['REQUEST_METHOD']==='POST'){
   $nodes = $_POST['nodes'] ?? []; // array de CSVs de ids
   if (!is_array($nodes)) $nodes = [];
@@ -74,12 +75,13 @@ if ($action==='mark_paid' && $_SERVER['REQUEST_METHOD']==='POST'){
   }
 }
 
-/* ===== NUEVO: Acción Edición en Lote desde TARJETAS ===== */
+/* ===== Acción: Edición en Lote desde TARJETAS ===== */
 if ($action==='bulk_update' && $_SERVER['REQUEST_METHOD']==='POST'){
   // ids seleccionados
   $ids = $_POST['ids'] ?? [];
   if (!is_array($ids)) $ids = [];
   $ids = array_values(array_unique(array_map(fn($v)=> (int)$v, $ids)));
+
   // conservar filtros al regresar
   $redir_view = $_POST['view'] ?? 'cards';
   $redir_q    = $_POST['q'] ?? '';
@@ -237,7 +239,7 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  .selitem .meta{font-size:12px;color:#555}
  @media (max-width:760px){ .pairs{grid-template-columns:1fr} }
 
- /* >>> Colores por meses en el NODO 2 (deudores) */
+ /* Colores por meses */
  .nodeRect.m1{ fill:#FFF8DB; }  /* 1 mes - amarillo suave */
  .nodeRect.m2{ fill:#FFE9D6; }  /* 2 meses - naranja suave */
  .nodeRect.m3{ fill:#FFE1E1; }  /* 3+ meses - rojo suave */
@@ -422,7 +424,7 @@ else:
     <?php if ($rs->num_rows === 0): ?>
       <div class="card"><span class="subtitle">(sin registros)</span></div>
     <?php else: ?>
-      <!-- NUEVO: FORM para selección múltiple + edición en lote -->
+      <!-- FORM para selección múltiple + edición en lote (NO forms anidados dentro) -->
       <form id="bulkForm" class="card" method="post" action="?action=bulk_update">
         <!-- conservar filtros -->
         <input type="hidden" name="view" value="cards">
@@ -472,9 +474,11 @@ else:
                 <div class="subtitle">Creado: <?= h($r['created_at']) ?></div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap">
                   <a class="btn gray small" href="?action=edit&id=<?= $r['id'] ?>&view=cards">✏️ Editar</a>
-                  <form style="display:inline" method="post" action="?action=delete&id=<?= $r['id'] ?>" onsubmit="return confirm('¿Eliminar #<?= $r['id'] ?>?')">
-                    <button class="btn red small" type="submit">🗑️ Eliminar</button>
-                  </form>
+
+                  <!-- IMPORTANTE: NO usar form interno (evita forms anidados).
+                       Usamos un botón que crea un form temporal por JS para mantener
+                       exactamente la misma lógica de eliminación del backend. -->
+                  <button class="btn red small" type="button" onclick="submitDelete(<?= (int)$r['id'] ?>)">🗑️ Eliminar</button>
                 </div>
               </div>
             </div>
@@ -675,7 +679,7 @@ else:
 endif; // list / graph
 ?>
 
-<!-- JS mínimo para selección múltiple en tarjetas -->
+<!-- JS: selección múltiple + eliminar sin anidar formularios -->
 <script>
 (function(){
   const form = document.getElementById('bulkForm');
@@ -705,13 +709,12 @@ endif; // list / graph
 
   if (btnTog){
     btnTog.addEventListener('click', () => {
-      // Solo muestra si hay seleccionadas
       const any = chkRows.some(c=>c.checked);
-      if (!any) {
-        alert('Selecciona al menos una tarjeta para editar.');
-        return;
-      }
+      if (!any) { alert('Selecciona al menos una tarjeta para editar.'); return; }
       panel.style.display = (panel.style.display==='none' || panel.style.display==='') ? 'block' : 'none';
+      // foco al primer campo del panel
+      const first = panel.querySelector('input[name="new_deudor"]');
+      if (first) first.focus();
     });
   }
 
@@ -719,6 +722,16 @@ endif; // list / graph
     btnClose.addEventListener('click', () => { panel.style.display = 'none'; });
   }
 })();
+
+/* Eliminar: crea un form temporal POST para no anidar formularios */
+function submitDelete(id){
+  if(!confirm('¿Eliminar #'+id+'?')) return;
+  const f = document.createElement('form');
+  f.method = 'post';
+  f.action = '?action=delete&id='+id;
+  document.body.appendChild(f);
+  f.submit();
+}
 </script>
 
 </body></html>
