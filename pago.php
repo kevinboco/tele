@@ -38,13 +38,13 @@ if (isset($_GET['viajes_conductor'])) {
   $res = $conn->query($sql);
   if ($res && $res->num_rows > 0) {
     echo "<div class='overflow-x-auto'>
-            <table class='min-w-full text-sm'>
+            <table class='min-w-full text-sm text-left'>
               <thead class='bg-blue-600 text-white'>
                 <tr>
-                  <th class='px-3 py-2 text-left'>Fecha</th>
-                  <th class='px-3 py-2 text-left'>Ruta</th>
-                  <th class='px-3 py-2 text-left'>Empresa</th>
-                  <th class='px-3 py-2 text-left'>Vehículo</th>
+                  <th class='px-3 py-2'>Fecha</th>
+                  <th class='px-3 py-2'>Ruta</th>
+                  <th class='px-3 py-2'>Empresa</th>
+                  <th class='px-3 py-2'>Vehículo</th>
                 </tr>
               </thead>
               <tbody class='divide-y divide-gray-100 bg-white'>";
@@ -116,7 +116,7 @@ if ($empresaFiltro !== "") {
 }
 $resV = $conn->query($sqlV);
 
-$contadores = [];   // nombre → contadores y vehiculo del primer registro del rango
+$contadores = [];   // nombre → contadores y vehiculo tomado del primer registro del rango
 if ($resV) {
   while ($row = $resV->fetch_assoc()) {
     $nombre = $row['nombre'];
@@ -149,6 +149,26 @@ if ($empresaFiltro !== "") {
   if ($resT) while($r=$resT->fetch_assoc()) $tarifas[$r['tipo_vehiculo']] = $r;
 }
 
+/* ================= Préstamos (lista multi-select + mapa) =================
+   total = SUM(monto + 10% mensual acumulado) para no pagados */
+$prestamosList = [];    // [{id,name,key,total}]
+$i = 0;
+$qPrest = "
+  SELECT deudor,
+         SUM(monto + monto*0.10*CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS total
+  FROM prestamos
+  WHERE (pagado IS NULL OR pagado=0)
+  GROUP BY deudor
+";
+if ($rP = $conn->query($qPrest)) {
+  while($r = $rP->fetch_assoc()){
+    $name = $r['deudor'];
+    $key  = norm_person($name);
+    $total = (int)round($r['total']);
+    $prestamosList[] = ['id'=>$i++, 'name'=>$name, 'key'=>$key, 'total'=>$total];
+  }
+}
+
 /* ================= Filas base (viajes) ================= */
 $filas = []; $total_facturado = 0;
 foreach ($contadores as $nombre => $v) {
@@ -174,7 +194,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 <html lang="es">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Ajuste de Pago (con modal de Viajes)</title>
+<title>Ajuste de Pago (dos modales: Préstamos + Viajes)</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
   .num { font-variant-numeric: tabular-nums; }
@@ -183,6 +203,14 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   .table-sticky thead { box-shadow: 0 2px 0 rgba(0,0,0,0.06); }
   input[type=number]::-webkit-outer-spin-button,
   input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+  /* Modal Préstamos */
+  .modal-show { display:block }
+  .modal-hide { display:none }
+  .opt-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 12px; border-bottom:1px solid #e5e7eb; }
+  .opt-row:hover { background:#f8fafc; }
+  .opt-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding-right:8px; }
+  .chip { display:inline-flex; align-items:center; gap:6px; padding:2px 8px; border-radius:999px; background:#eef2ff; border:1px solid #e5e7eb; margin-left:6px; font-size:11px; }
 
   /* Modal Viajes */
   .viajes-backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:10000; }
@@ -284,7 +312,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             <?php foreach ($filas as $f): ?>
             <tr>
               <td class="px-3 py-2">
-                <button type="button" class="conductor-link"><?= htmlspecialchars($f['nombre']) ?></button>
+                <button type="button" class="conductor-link" title="Ver viajes"><?= htmlspecialchars($f['nombre']) ?></button>
               </td>
               <td class="px-3 py-2 text-right num base"><?= number_format($f['total_bruto'],0,',','.') ?></td>
               <td class="px-3 py-2 text-right num ajuste">0</td>
@@ -298,15 +326,14 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
               <td class="px-3 py-2 text-right">
                 <div class="flex items-center justify-end gap-2">
                   <span class="num prest">0</span>
-                  <!-- Si tienes tu modal de préstamos aquí puedes dejar el botón “Seleccionar” -->
-                  <button type="button" class="text-xs px-2 py-1 rounded border border-slate-300 bg-slate-50 hover:bg-slate-100">
+                  <button type="button" class="btn-prest text-xs px-2 py-1 rounded border border-slate-300 bg-slate-50 hover:bg-slate-100">
                     Seleccionar
                   </button>
                 </div>
                 <div class="text-[11px] text-slate-500 text-right selected-deudor"></div>
               </td>
               <td class="px-3 py-2">
-                <input type="text" class="cta w-full max-w-[180px] rounded-lg border border-slate-300 px-2 py-1" placeholder="N° cuenta">
+                <input type="text" class="cta w-full max-w-[180px] rounded-lg border border-slate-300 px-2 py-1" value="" placeholder="N° cuenta">
               </td>
               <td class="px-3 py-2 text-right num pagar">0</td>
             </tr>
@@ -330,7 +357,37 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </section>
   </main>
 
-  <!-- Modal VIAJES -->
+  <!-- ===== Modal de selección de PRÉSTAMOS (multi) ===== -->
+  <div id="prestModal" class="modal-hide fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/30"></div>
+    <div class="relative mx-auto my-8 max-w-2xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+        <h3 class="text-lg font-semibold">Seleccionar deudores (puedes marcar varios)</h3>
+        <button id="btnCloseModal" class="p-2 rounded hover:bg-slate-100" title="Cerrar">✕</button>
+      </div>
+      <div class="p-4">
+        <div class="flex flex-col md:flex-row md:items-center gap-3 mb-3">
+          <input id="prestSearch" type="text" placeholder="Buscar deudor..." class="w-full rounded-xl border border-slate-300 px-3 py-2">
+          <div class="flex gap-2">
+            <button id="btnSelectAll" class="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 hover:bg-slate-100">Marcar visibles</button>
+            <button id="btnUnselectAll" class="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 hover:bg-slate-100">Desmarcar</button>
+            <button id="btnClearSel" class="rounded-lg border border-rose-300 text-rose-700 px-3 py-2 text-sm bg-rose-50 hover:bg-rose-100">Quitar selección</button>
+          </div>
+        </div>
+        <div id="prestList" class="max-h-[50vh] overflow-auto rounded-xl border border-slate-200"></div>
+      </div>
+      <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-between gap-2">
+        <div class="text-sm text-slate-600">Seleccionados: <span id="selCount" class="font-semibold">0</span></div>
+        <div class="flex items-center gap-2">
+          <div class="text-sm">Total seleccionado: <span id="selTotal" class="num font-semibold">0</span></div>
+          <button id="btnCancel" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
+          <button id="btnAssign" class="rounded-lg border border-blue-600 px-4 py-2 bg-blue-600 text-white hover:bg-blue-700">Asignar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Modal de VIAJES ===== -->
   <div id="viajesModal" class="viajes-backdrop">
     <div class="viajes-card">
       <div class="viajes-header">
@@ -344,16 +401,259 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   </div>
 
 <script>
-  // Helpers numéricos
-  const toInt = (s)=>{ if(typeof s==='number') return Math.round(s);
-    s=(s||'').toString().replace(/\./g,'').replace(/,/g,'').replace(/[^\d\-]/g,''); return parseInt(s||'0',10)||0; };
+  // ====== Datos de servidor a JS (persistencia préstamos por EMPRESA, sin fechas) ======
+  const COMPANY_SCOPE = <?= json_encode(($empresaFiltro ?: '__todas__')) ?>;
+  const ACC_KEY   = 'cuentas:'+COMPANY_SCOPE;
+  const SS_KEY    = 'seg_social:'+COMPANY_SCOPE;
+
+  // clave nueva (sin fechas) — ¡NO se borra al cambiar rango!
+  const PREST_SEL_KEY   = 'prestamo_sel_multi:v2:'+COMPANY_SCOPE;
+  // prefijo de claves antiguas con fecha, por si existe migración
+  const OLD_PREST_PREFIX = 'prestamo_sel_multi:' + (COMPANY_SCOPE + '|');
+
+  const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
+
+  // ====== Helpers ======
+  const toInt = (s)=> {
+    if (typeof s === 'number') return Math.round(s);
+    s = (s||'').toString().replace(/\./g,'').replace(/,/g,'').replace(/[^\d\-]/g,'');
+    return parseInt(s||'0',10) || 0;
+  };
   const fmt = (n)=> (n||0).toLocaleString('es-CO');
+  function getLS(k){ try{ return JSON.parse(localStorage.getItem(k)||'{}'); }catch{return{};} }
+  function setLS(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
 
-  // Totales principales
-  const inpFact = document.getElementById('inp_facturado');
-  const inpRec  = document.getElementById('inp_recibido');
-  const lblDif  = document.getElementById('lbl_diferencia');
+  function summarizeNames(arr){
+    if (!arr || arr.length===0) return '';
+    const names = arr.map(x=>x.name);
+    if (names.length <= 2) return names.join(', ');
+    return names.slice(0,2).join(', ') + ` +${names.length-2} más`;
+  }
+  function sumTotals(arr){ return (arr||[]).reduce((a,b)=> a + (toInt(b.total)||0), 0); }
 
+  // ====== Persistencia ======
+  let accMap = getLS(ACC_KEY);
+  let ssMap  = getLS(SS_KEY);
+
+  let prestSel = getLS(PREST_SEL_KEY); // baseName → array de {id,name,total}
+  // Migración opcional desde antiguas claves con fecha
+  if (!prestSel || Object.keys(prestSel).length === 0) {
+    try {
+      const matches = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i) || '';
+        if (k.startsWith(OLD_PREST_PREFIX)) matches.push(k);
+      }
+      if (matches.length === 1) {
+        const oldData = JSON.parse(localStorage.getItem(matches[0]) || '{}');
+        if (oldData && typeof oldData === 'object') {
+          prestSel = oldData;
+          setLS(PREST_SEL_KEY, prestSel);
+        }
+      }
+    } catch(e){/* noop */}
+  }
+  // Garantizar arrays
+  if (prestSel && typeof prestSel === 'object') {
+    Object.keys(prestSel).forEach(k=>{
+      if(!Array.isArray(prestSel[k])){
+        const v = prestSel[k];
+        prestSel[k] = v && typeof v==='object' ? [v] : [];
+      }
+    });
+  } else { prestSel = {}; }
+
+  const tbody = document.getElementById('tbody');
+
+  // ====== Inicialización de filas (restaura cuenta, SS y PRÉSTAMOS acumulados) ======
+  Array.from(tbody.querySelectorAll('tr')).forEach(tr=>{
+    const cta = tr.querySelector('input.cta');
+    const ss  = tr.querySelector('input.ss');
+    const baseName = tr.children[0].innerText.trim();
+    const prestSpan = tr.querySelector('.prest');
+    const selLabel  = tr.querySelector('.selected-deudor');
+
+    if (accMap[baseName]) cta.value = accMap[baseName];
+    if (ssMap[baseName])  ss.value  = fmt(toInt(ssMap[baseName]));
+
+    const chosen = prestSel[baseName] || [];
+    prestSpan.textContent = fmt(sumTotals(chosen));
+    selLabel.textContent  = summarizeNames(chosen);
+
+    cta.addEventListener('change', ()=>{ accMap[baseName] = cta.value.trim(); setLS(ACC_KEY, accMap); });
+    ss.addEventListener('input', ()=>{ ssMap[baseName] = toInt(ss.value); setLS(SS_KEY, ssMap); recalc(); });
+  });
+
+  // ====== MODAL PRÉSTAMOS (multi) ======
+  const prestModalEl   = document.getElementById('prestModal');
+  const btnAssign      = document.getElementById('btnAssign');
+  const btnCancel      = document.getElementById('btnCancel');
+  const btnClose       = document.getElementById('btnCloseModal');
+  const btnClear       = document.getElementById('btnClearSel');
+  const btnSelectAll   = document.getElementById('btnSelectAll');
+  const btnUnselectAll = document.getElementById('btnUnselectAll');
+  const inputSearch    = document.getElementById('prestSearch');
+  const listHost       = document.getElementById('prestList');
+  const selCount       = document.getElementById('selCount');
+  const selTotal       = document.getElementById('selTotal');
+
+  let currentRow = null;
+  let selectedIds = new Set();
+  let filteredIdx = [];
+
+  function renderPrestList(filter=''){
+    listHost.innerHTML = '';
+    const nf = (filter||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+    filteredIdx = [];
+    const frag = document.createDocumentFragment();
+    PRESTAMOS_LIST.forEach((item, idx)=>{
+      if (nf && !item.key.includes(nf)) return;
+      filteredIdx.push(idx);
+
+      const row = document.createElement('label');
+      row.className = 'opt-row';
+
+      const left = document.createElement('div');
+      left.style.display='flex';
+      left.style.alignItems='center';
+      left.style.gap='10px';
+
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.dataset.id = item.id;
+      cb.checked = selectedIds.has(item.id);
+
+      const name = document.createElement('span');
+      name.className = 'opt-name';
+      name.textContent = item.name;
+
+      left.appendChild(cb);
+      left.appendChild(name);
+
+      const total = document.createElement('span');
+      total.className = 'num font-semibold';
+      total.textContent = (item.total||0).toLocaleString('es-CO');
+
+      row.appendChild(left);
+      row.appendChild(total);
+
+      cb.addEventListener('change', ()=>{
+        if (cb.checked) selectedIds.add(item.id); else selectedIds.delete(item.id);
+        updateSelSummary();
+      });
+
+      frag.appendChild(row);
+    });
+    listHost.appendChild(frag);
+    updateSelSummary();
+  }
+  function updateSelSummary(){
+    const arr = PRESTAMOS_LIST.filter(it=> selectedIds.has(it.id));
+    selCount.textContent = arr.length;
+    const tot = arr.reduce((a,b)=> a + (b.total||0), 0);
+    selTotal.textContent = tot.toLocaleString('es-CO');
+  }
+  function openPrestModalForRow(tr){
+    currentRow = tr;
+    selectedIds = new Set();
+
+    const baseName = currentRow.children[0].innerText.trim();
+    const chosen = prestSel[baseName] || [];
+    chosen.forEach(x=> selectedIds.add(Number(x.id)));
+
+    inputSearch.value = '';
+    renderPrestList('');
+    prestModalEl.classList.remove('modal-hide');
+    prestModalEl.classList.add('modal-show');
+
+    requestAnimationFrame(()=>{ inputSearch.focus(); inputSearch.select(); });
+  }
+  function closePrestModal(){
+    prestModalEl.classList.remove('modal-show');
+    prestModalEl.classList.add('modal-hide');
+    currentRow = null;
+    selectedIds = new Set();
+    filteredIdx = [];
+  }
+
+  btnCancel.addEventListener('click', closePrestModal);
+  btnClose.addEventListener('click', closePrestModal);
+  btnClear.addEventListener('click', ()=>{
+    if (!currentRow) return;
+    const baseName = currentRow.children[0].innerText.trim();
+    currentRow.querySelector('.prest').textContent = '0';
+    currentRow.querySelector('.selected-deudor').textContent = '';
+    delete prestSel[baseName];
+    setLS(PREST_SEL_KEY, prestSel);
+    recalc();
+    selectedIds.clear();
+    renderPrestList(inputSearch.value);
+  });
+  btnSelectAll.addEventListener('click', ()=>{ filteredIdx.forEach(idx=> selectedIds.add(PRESTAMOS_LIST[idx].id)); renderPrestList(inputSearch.value); });
+  btnUnselectAll.addEventListener('click', ()=>{ filteredIdx.forEach(idx=> selectedIds.delete(PRESTAMOS_LIST[idx].id)); renderPrestList(inputSearch.value); });
+
+  btnAssign.addEventListener('click', ()=>{
+    if (!currentRow) return;
+    const baseName = currentRow.children[0].innerText.trim();
+
+    const chosen = PRESTAMOS_LIST.filter(it=> selectedIds.has(it.id))
+      .map(it=> ({ id: it.id, name: it.name, total: it.total }));
+
+    prestSel[baseName] = chosen;
+    setLS(PREST_SEL_KEY, prestSel);
+
+    currentRow.querySelector('.prest').textContent = (sumTotals(chosen)).toLocaleString('es-CO');
+    currentRow.querySelector('.selected-deudor').textContent = summarizeNames(chosen);
+
+    recalc();
+    closePrestModal();
+  });
+
+  inputSearch.addEventListener('input', ()=> renderPrestList(inputSearch.value));
+  // Abrir modal préstamos por fila
+  tbody.querySelectorAll('.btn-prest').forEach(btn=>{
+    btn.addEventListener('click', ()=> openPrestModalForRow(btn.closest('tr')));
+  });
+
+  // ====== MODAL VIAJES ======
+  const RANGO_DESDE = <?= json_encode($desde) ?>;
+  const RANGO_HASTA = <?= json_encode($hasta) ?>;
+  const RANGO_EMP   = <?= json_encode($empresaFiltro) ?>;
+
+  const viajesModal   = document.getElementById('viajesModal');
+  const viajesContent = document.getElementById('viajesContent');
+  const viajesTitle   = document.getElementById('viajesTitle');
+  const viajesClose   = document.getElementById('viajesCloseBtn');
+
+  function abrirModalViajes(nombre){
+    viajesTitle.innerHTML = '🧳 Viajes — <span class="font-normal">'+nombre+'</span>';
+    viajesContent.innerHTML = '<p class="text-center m-0 animate-pulse">Cargando…</p>';
+    viajesModal.classList.add('show');
+
+    const qs = new URLSearchParams({
+      viajes_conductor: nombre,
+      desde: RANGO_DESDE,
+      hasta: RANGO_HASTA,
+      empresa: RANGO_EMP
+    });
+
+    fetch('<?= basename(__FILE__) ?>?' + qs.toString())
+      .then(r => r.text())
+      .then(html => { viajesContent.innerHTML = html; })
+      .catch(() => { viajesContent.innerHTML = '<p class="text-center text-rose-600">Error cargando viajes.</p>'; });
+  }
+  function cerrarModalViajes(){ viajesModal.classList.remove('show'); viajesContent.innerHTML=''; }
+
+  viajesClose.addEventListener('click', cerrarModalViajes);
+  viajesModal.addEventListener('click', (e)=>{ if(e.target===viajesModal) cerrarModalViajes(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key==='Escape' && viajesModal.classList.contains('show')) cerrarModalViajes(); });
+
+  // Click en nombre del conductor → modal de viajes
+  document.querySelectorAll('#tbody .conductor-link').forEach(btn=>{
+    btn.addEventListener('click', ()=> abrirModalViajes(btn.textContent.trim()));
+  });
+
+  // ====== Totales ======
   const totLleg = document.getElementById('tot_valor_llego');
   const totRet  = document.getElementById('tot_retencion');
   const totMil4 = document.getElementById('tot_4x1000');
@@ -361,8 +661,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const totSS   = document.getElementById('tot_ss');
   const totPrest= document.getElementById('tot_prestamos');
   const totPag  = document.getElementById('tot_pagar');
-
-  const tbody = document.getElementById('tbody');
 
   function distribIgual(diff,n){
     const arr=new Array(n).fill(0);
@@ -374,8 +672,11 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   }
 
   function recalc(){
-    const fact=toInt(inpFact.value), rec=toInt(inpRec.value), diff=fact-rec;
-    lblDif.textContent=fmt(diff);
+    const fact=toInt(document.getElementById('inp_facturado').value);
+    const rec =toInt(document.getElementById('inp_recibido').value);
+    const diff=fact-rec;
+    document.getElementById('lbl_diferencia').textContent=fmt(diff);
+
     const rows=[...tbody.querySelectorAll('tr')];
     const ajustes=distribIgual(diff, rows.length);
 
@@ -415,52 +716,36 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   function numberInputFormatter(el){
     el.addEventListener('input', ()=>{ const raw=toInt(el.value); el.value=fmt(raw); recalc(); });
   }
-  numberInputFormatter(inpFact);
-  numberInputFormatter(inpRec);
+  numberInputFormatter(document.getElementById('inp_facturado'));
+  numberInputFormatter(document.getElementById('inp_recibido'));
 
-  // ===== Modal VIAJES =====
-  const RANGO_DESDE = <?= json_encode($desde) ?>;
-  const RANGO_HASTA = <?= json_encode($hasta) ?>;
-  const RANGO_EMP   = <?= json_encode($empresaFiltro) ?>;
-
-  const viajesModal   = document.getElementById('viajesModal');
-  const viajesContent = document.getElementById('viajesContent');
-  const viajesTitle   = document.getElementById('viajesTitle');
-  const viajesClose   = document.getElementById('viajesCloseBtn');
-
-  function abrirModalViajes(nombre){
-    viajesTitle.innerHTML = '🧳 Viajes — <span class="font-normal">'+nombre+'</span>';
-    viajesContent.innerHTML = '<p class="text-center m-0 animate-pulse">Cargando…</p>';
-    viajesModal.classList.add('show');
-
-    const qs = new URLSearchParams({
-      viajes_conductor: nombre,
-      desde: RANGO_DESDE,
-      hasta: RANGO_HASTA,
-      empresa: RANGO_EMP
-    });
-
-    fetch('<?= basename(__FILE__) ?>?' + qs.toString())
-      .then(r => r.text())
-      .then(html => { viajesContent.innerHTML = html; })
-      .catch(() => { viajesContent.innerHTML = '<p class="text-center text-rose-600">Error cargando viajes.</p>'; });
-  }
-  function cerrarModalViajes(){ viajesModal.classList.remove('show'); viajesContent.innerHTML=''; }
-
-  viajesClose.addEventListener('click', cerrarModalViajes);
-  viajesModal.addEventListener('click', (e)=>{ if(e.target===viajesModal) cerrarModalViajes(); });
-  document.addEventListener('keydown', (e)=>{ if(e.key==='Escape' && viajesModal.classList.contains('show')) cerrarModalViajes(); });
-
-  // Click en nombre del conductor
-  document.querySelectorAll('#tbody .conductor-link').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const nombre = btn.textContent.trim();
-      abrirModalViajes(nombre);
-    });
-  });
-
-  // Primer cálculo
+  // Cálculo inicial
   recalc();
+
+  // ====== Atajos de teclado cuando está abierto el modal de préstamos: tipear para buscar ======
+  document.addEventListener('keydown', (e) => {
+    const isOpen = prestModalEl.classList.contains('modal-show');
+    if (!isOpen) return;
+
+    const activeTag = (document.activeElement && document.activeElement.tagName) || '';
+    const isTextInput = ['INPUT','TEXTAREA'].includes(activeTag);
+    const isTypingKey = e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete';
+
+    if (!isTextInput && isTypingKey) {
+      inputSearch.focus();
+      if (e.key.length === 1) {
+        const v = inputSearch.value || '';
+        inputSearch.value = v + e.key;
+        const evt = new Event('input', { bubbles: true });
+        inputSearch.dispatchEvent(evt);
+      } else {
+        const evt = new Event('input', { bubbles: true });
+        inputSearch.dispatchEvent(evt);
+      }
+      e.preventDefault();
+    }
+  });
 </script>
+
 </body>
 </html>
