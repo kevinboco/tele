@@ -1,7 +1,11 @@
 <?php
 /*********************************************************
  * prestamos_visual_interactivo.php
- * v4.0: Filtro por selección múltiple de deudores
+ * v4.0
+ * - Buscador en vivo
+ * - Toolbar por prestamista
+ * - Selector para marcar pagados (por prestamista)
+ * - Filtro multi-deudor (modo global: muestra todos los prestamistas)
  *********************************************************/
 include("nav.php");
 
@@ -50,7 +54,7 @@ if (($_GET['action'] ?? '') === 'mark_paid' && $_SERVER['REQUEST_METHOD']==='POS
 }
 
 /* ===== Filtros (server) ===== */
-$q  = trim($_GET['q'] ?? '');               // (lo dejamos por compatibilidad)
+$q  = trim($_GET['q'] ?? '');
 $qNorm = mbnorm($q);
 
 $conn = db();
@@ -106,14 +110,14 @@ while($row=$rsIds->fetch_assoc()){
 $st2->close();
 
 /* Estructuras para la vista */
-$data = [];
+$data = [];            // DATA[prestamista] = [rows...]
 $ganPrest=[]; $capPendPrest=[];
-$deudoresAll = []; // << NUEVO: lista global de deudores
+$allDebtors = [];      // listado global de deudores para el selector
 while($r=$rs->fetch_assoc()){
   $pkey=$r['prest_key']; $pdisp=$r['prest_display'];
   $dkey=$r['deud_key'];  $ddis=$r['deud_display'];
-  if (!isset($data[$pdisp])) $data[$pdisp]=[];
 
+  if (!isset($data[$pdisp])) $data[$pdisp]=[];
   $data[$pdisp][] = [
     'nombre'  => $ddis,
     'valor'   => (float)$r['capital'],
@@ -127,13 +131,12 @@ while($r=$rs->fetch_assoc()){
   $ganPrest[$pdisp]     = ($ganPrest[$pdisp] ?? 0) + (float)$r['interes'];
   $capPendPrest[$pdisp] = ($capPendPrest[$pdisp] ?? 0) + (float)$r['capital'];
 
-  $deudoresAll[$ddis] = true; // recolecta
+  $allDebtors[$ddis] = 1;
 }
 $st->close();
 $conn->close();
-
-$deudoresAll = array_keys($deudoresAll);
-sort($deudoresAll, SORT_NATURAL);
+$allDebtors = array_keys($allDebtors);
+natcasesort($allDebtors);
 
 /* Selectores (checkboxes) por prestamista */
 $selectors = [];
@@ -187,29 +190,36 @@ $msg = $_GET['msg'] ?? '';
   .chips{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   .chip{background:#eef2ff;border:1px solid #e5e7eb;border-radius:999px;padding:4px 10px;font-size:12px}
 
-  /* ====== NUEVO: botón y dropdown multiselección ====== */
-  .multi-btn{height:34px;padding:6px 10px;border-radius:999px;border:1px solid #e5e7eb;background:#fff;cursor:pointer}
-  .multi-wrap{position:relative}
-  .multi-panel{
-    position:absolute; right:0; top:40px; z-index:40;
-    width:min(420px,92vw); max-height:60vh; overflow:auto;
-    background:#fff; border:1px solid #e5e7eb; border-radius:14px; box-shadow:0 12px 30px rgba(0,0,0,.12);
-    display:none;
+  /* Buscador + filtro deudores */
+  .search{ margin-left:auto; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .search input{
+    height:34px; padding:6px 10px 6px 30px; border-radius:999px; border:1px solid #e5e7eb;
+    background:#fff url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="%239aa1b2" viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001l3.85 3.85a1 1 0 0 0 1.415-1.415l-3.85-3.85zm-5.242.656a5 5 0 1 1 0-10 5 5 0 0 1 0 10z"/></svg>') no-repeat 10px center;
+    outline:0; width:260px;
   }
-  .multi-panel.show{display:block}
-  .multi-head{display:flex;gap:8px;align-items:center;padding:10px;border-bottom:1px solid #eef2f7;position:sticky;top:0;background:#fff;z-index:1}
-  .multi-head input{flex:1;border:1px solid #e5e7eb;border-radius:10px;padding:8px 10px}
-  .multi-actions{display:flex;gap:8px}
-  .multi-actions button{border:1px solid #e5e7eb;background:#f8fafc;border-radius:8px;padding:6px 8px;font-size:12px;cursor:pointer}
-  .multi-list{padding:6px}
-  .multi-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid #f1f5f9}
-  .multi-foot{position:sticky;bottom:0;display:flex;justify-content:space-between;align-items:center;gap:8px;background:#fff;border-top:1px solid #eef2f7;padding:10px}
-  .multi-apply{background:#0b5ed7;color:#fff;border:0;border-radius:8px;padding:8px 12px;cursor:pointer}
+  .search button{ height:34px; padding:6px 10px; border-radius:999px; border:1px solid #e5e7eb; background:#fff; cursor:pointer; }
 
-  .toolbar { position:absolute; left:80px; top:60px; z-index:5;
+  .filter-wrap{ display:flex; align-items:center; gap:8px; }
+  .multiselect {
+    position: relative; min-width: 280px;
+  }
+  .multiselect > button {
+    height:34px; width:100%; text-align:left; border:1px solid #e5e7eb; background:#fff;
+    border-radius:10px; padding:6px 10px; cursor:pointer;
+  }
+  .multiselect .panel {
+    position:absolute; top:110%; left:0; right:0; z-index:30; background:#fff; border:1px solid #e5e7eb;
+    border-radius:12px; box-shadow:0 10px 20px rgba(0,0,0,.06); max-height:280px; overflow:auto; padding:6px;
+  }
+  .multiselect .opt { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:8px; }
+  .multiselect .opt:hover { background:#f8fafc; }
+
+  .toolbar {
+    position:absolute; left:80px; top:60px; z-index:5;
     display:flex; gap:8px; flex-wrap:wrap; align-items:center;
     background:rgba(255,255,255,.8); backdrop-filter:saturate(1.2) blur(2px);
-    padding:6px 8px; border-radius:10px; border:1px solid #e5e7eb; }
+    padding:6px 8px; border-radius:10px; border:1px solid #e5e7eb;
+  }
   .prest-chip{ padding:6px 10px; border-radius:999px; cursor:pointer; user-select:none;
     background:#e3f2fd; font-weight:600; border:1px solid #dbeafe; }
   .prest-chip:hover{ background:#dbeafe }
@@ -221,10 +231,15 @@ $msg = $_GET['msg'] ?? '';
   .link2{fill:none;stroke:#9ca3af;stroke-width:1.4px;opacity:.9}
 
   .nodeCard { stroke:#cbd5e1; stroke-width:1.2px; filter: drop-shadow(0 1px 0 rgba(0,0,0,.02)); }
-  .nodeCard.m1 { fill:#FFF8DB; } .nodeCard.m2 { fill:#FFE9D6; } .nodeCard.m3 { fill:#FFE1E1; } .nodeCard.m0 { fill:#F3F4F6; }
+  .nodeCard.m1 { fill:#FFF8DB; }
+  .nodeCard.m2 { fill:#FFE9D6; }
+  .nodeCard.m3 { fill:#FFE1E1; }
+  .nodeCard.m0 { fill:#F3F4F6; }
+
   .nodeTitle { font-weight:800; fill:#111; font-size:13px }
   .nodeLine  { fill:#6b7280; font-size:12px }
   .nodeAmt   { fill:#111; font-weight:800 }
+
   .summaryCard { fill:#EAF5FF; stroke:#cfe8ff; stroke-width:1.2px; }
   .summaryTitle { font-weight:800; fill:#0b5ed7; font-size:14px }
   .summaryLine  { fill:#374151; font-size:13px }
@@ -251,34 +266,31 @@ $msg = $_GET['msg'] ?? '';
       ?>
     </div>
   <?php endif; ?>
+
   <div class="chips" id="chips"></div>
 
-  <!-- ====== NUEVO: selector múltiple de deudores ====== -->
-  <div class="multi-wrap" id="deudorMulti">
-    <button type="button" class="multi-btn" id="openMulti">👤 Filtrar deudores</button>
-    <div class="multi-panel" id="multiPanel">
-      <div class="multi-head">
-        <input id="multiSearch" type="text" placeholder="Buscar en la lista…">
-        <div class="multi-actions">
-          <button type="button" id="mSelect">Seleccionar visibles</button>
-          <button type="button" id="mUnselect">Quitar visibles</button>
-          <button type="button" id="mClear">Limpiar</button>
+  <!-- Filtro deudores (multiselección) -->
+  <div class="filter-wrap">
+    <div class="multiselect" id="ms-deudores">
+      <button type="button" id="ms-toggle">Filtrar deudores (0 seleccionados)</button>
+      <div class="panel" id="ms-panel" style="display:none">
+        <div class="opt" style="justify-content:space-between; padding:6px 8px; border-bottom:1px solid #eef2ff;">
+          <div style="font-weight:600">Deudores</div>
+          <div style="display:flex; gap:6px">
+            <button type="button" id="ms-all" class="btn small" style="background:#eef2ff;color:#0b5ed7;border:0">Todos</button>
+            <button type="button" id="ms-none" class="btn small" style="background:#fff;color:#374151;border:1px solid #e5e7eb">Ninguno</button>
+          </div>
         </div>
-      </div>
-      <div class="multi-list" id="multiList"></div>
-      <div class="multi-foot">
-        <small id="multiCount">0 seleccionados</small>
-        <button type="button" class="multi-apply" id="mApply">Aplicar</button>
+        <div id="ms-list"></div>
       </div>
     </div>
   </div>
 
-  <!-- Si quieres mantener tu buscador antiguo, déjalo.
-       Si no, puedes borrar este bloque:
+  <!-- Buscador -->
   <div class="search">
-    <input id="searchInput" type="text" placeholder="Buscar deudor..." autocomplete="off">
+    <input id="searchInput" type="text" placeholder="Buscar..." autocomplete="off">
     <button id="clearSearch" title="Limpiar">✕</button>
-  </div> -->
+  </div>
 </div>
 
 <div id="stage">
@@ -294,7 +306,7 @@ const DATA = <?php echo json_encode($data, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_C
 const GANANCIA = <?php echo json_encode($ganPrest, JSON_NUMERIC_CHECK); ?>;
 const CAPITAL  = <?php echo json_encode($capPendPrest, JSON_NUMERIC_CHECK); ?>;
 const SELECTORS_HTML = <?php echo json_encode($selectors, JSON_UNESCAPED_UNICODE); ?>;
-const DEUDORES_ALL = <?php echo json_encode($deudoresAll, JSON_UNESCAPED_UNICODE); ?>;
+const ALL_DEBTORS = <?php echo json_encode(array_values($allDebtors), JSON_UNESCAPED_UNICODE); ?>;
 
 /* ===== D3 Setup ===== */
 const svg = d3.select("#chart");
@@ -325,12 +337,21 @@ renderToolbar(currentPrest);
 /* ===== Chips ===== */
 function renderChips(prest, visibleRows=null){
   chipsHost.innerHTML = "";
-  let interes = Number(GANANCIA[prest]||0);
-  let capital = Number(CAPITAL[prest]||0);
-  if (Array.isArray(visibleRows)) {
-    interes = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
-    capital = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
+
+  let interes, capital;
+  if (isGlobalMode()) {
+    const all = visibleRows || collectRowsForSelected();
+    interes = all.reduce((a,r)=>a+Number(r.interes||0),0);
+    capital = all.reduce((a,r)=>a+Number(r.valor||0),0);
+  } else {
+    interes = Number(GANANCIA[prest]||0);
+    capital = Number(CAPITAL[prest]||0);
+    if (Array.isArray(visibleRows)) {
+      interes = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
+      capital = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
+    }
   }
+
   const chip1 = document.createElement("span");
   chip1.className = "chip"; chip1.textContent = `Ganancia (interés): $ ${interes.toLocaleString()}`;
   const chip2 = document.createElement("span");
@@ -339,17 +360,17 @@ function renderChips(prest, visibleRows=null){
   const chipL2 = document.createElement("span"); chipL2.className="chip"; chipL2.textContent="2 meses"; chipL2.style.background="#FFE9D6";
   const chipL3 = document.createElement("span"); chipL3.className="chip"; chipL3.textContent="3+ meses"; chipL3.style.background="#FFE1E1";
 
-  // Info del filtro activo
   if (SELECTED_DEUDORES.size>0){
     const chipF = document.createElement("span"); chipF.className="chip";
     chipF.textContent = `Filtro: ${SELECTED_DEUDORES.size} deudor(es)`;
-    chipsHost.append(chipF);
+    const chipM = document.createElement("span"); chipM.className="chip";
+    chipM.textContent = "Modo global (todos los prestamistas)";
+    chipsHost.append(chipF, chipM);
   }
-
   chipsHost.append(chip1, chip2, chipL1, chipL2, chipL3);
 }
 
-/* ===== Selector pagados ===== */
+/* ===== Selector ===== */
 function renderSelector(prest){
   selectorHost.innerHTML = "";
   const wrap = document.createElement("div");
@@ -360,85 +381,56 @@ function renderSelector(prest){
   if (form) form.style.display = "block";
 }
 
-/* ======= (1) NUEVO: multiselect de deudores ======= */
-const openMulti = document.getElementById('openMulti');
-const panel = document.getElementById('multiPanel');
-const mSearch = document.getElementById('multiSearch');
-const mList = document.getElementById('multiList');
-const mSelect = document.getElementById('mSelect');
-const mUnselect = document.getElementById('mUnselect');
-const mClear = document.getElementById('mClear');
-const mApply = document.getElementById('mApply');
-const mCount = document.getElementById('multiCount');
-
-const SELECTED_DEUDORES = new Set(); // estado global
-
-function renderMultiList(){
-  const f = (mSearch.value||'').toLowerCase();
-  mList.innerHTML = '';
-  const frag = document.createDocumentFragment();
-  DEUDORES_ALL.forEach(name=>{
-    if (f && !name.toLowerCase().includes(f)) return;
-    const row = document.createElement('label');
-    row.className = 'multi-item';
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.checked = SELECTED_DEUDORES.has(name);
-    const span = document.createElement('span');
-    span.textContent = name;
-    row.append(cb, span);
-    cb.addEventListener('change', ()=> {
-      if (cb.checked) SELECTED_DEUDORES.add(name); else SELECTED_DEUDORES.delete(name);
-      mCount.textContent = `${SELECTED_DEUDORES.size} seleccionados`;
-    });
-    frag.appendChild(row);
-  });
-  mList.appendChild(frag);
-  mCount.textContent = `${SELECTED_DEUDORES.size} seleccionados`;
-}
-openMulti.addEventListener('click', ()=>{
-  panel.classList.toggle('show');
-  if (panel.classList.contains('show')){
-    mSearch.value=''; renderMultiList(); setTimeout(()=>mSearch.focus(),0);
-  }
-});
-document.addEventListener('click', (e)=>{
-  if (!panel.contains(e.target) && !openMulti.contains(e.target)) panel.classList.remove('show');
-});
-mSearch.addEventListener('input', renderMultiList);
-mSelect.addEventListener('click', ()=>{
-  // marcar visibles
-  mList.querySelectorAll('.multi-item input[type=checkbox]').forEach(cb=>{
-    cb.checked = true; const name = cb.nextSibling.textContent; SELECTED_DEUDORES.add(name);
-  });
-  mCount.textContent = `${SELECTED_DEUDORES.size} seleccionados`;
-});
-mUnselect.addEventListener('click', ()=>{
-  mList.querySelectorAll('.multi-item input[type=checkbox]').forEach(cb=>{
-    cb.checked = false; const name = cb.nextSibling.textContent; SELECTED_DEUDORES.delete(name);
-  });
-  mCount.textContent = `${SELECTED_DEUDORES.size} seleccionados`;
-});
-mClear.addEventListener('click', ()=>{
-  SELECTED_DEUDORES.clear(); renderMultiList();
-});
-mApply.addEventListener('click', ()=>{
-  panel.classList.remove('show');
-  if (currentPrest) drawTree(currentPrest);
-});
-
-/* ======= (2) Buscador de texto (opcional, lo dejo por compatibilidad) ======= */
-let searchTerm = ''; // si no lo usas, déjalo vacío y no afecta
+/* ===== Buscador (cliente) ===== */
 const searchInput = document.getElementById('searchInput');
 const clearBtn = document.getElementById('clearSearch');
-const debounce = (fn,ms)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}}
-if (searchInput){
-  searchInput.addEventListener('input', debounce(e=>{ searchTerm = e.target.value || ''; if (currentPrest) drawTree(currentPrest); },160));
+let searchTerm = '';
+function norm(s){ return (s||'').toString().toLocaleLowerCase(); }
+function matches(row){
+  if (!searchTerm) return true;
+  const q = norm(searchTerm);
+  return norm(row.nombre).includes(q) || norm(row.fecha).includes(q) ||
+         norm(String(row.valor)).includes(q) || norm(String(row.total)).includes(q) ||
+         norm(String(row.__prest||'')).includes(q);
 }
-if (clearBtn){
-  clearBtn.addEventListener('click', ()=>{ searchTerm=''; if(searchInput) searchInput.value=''; if (currentPrest) drawTree(currentPrest); });
+function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
+searchInput.addEventListener('input', debounce(e=>{ searchTerm = e.target.value || ''; if (currentPrest) drawTree(currentPrest); }, 160));
+clearBtn.addEventListener('click', ()=>{ searchTerm = ''; searchInput.value = ''; if (currentPrest) drawTree(currentPrest); });
+
+/* ===== Filtro multi-deudor ===== */
+const ms = document.getElementById('ms-deudores');
+const msToggle = document.getElementById('ms-toggle');
+const msPanel  = document.getElementById('ms-panel');
+const msList   = document.getElementById('ms-list');
+const msAll    = document.getElementById('ms-all');
+const msNone   = document.getElementById('ms-none');
+
+const SELECTED_DEUDORES = new Set(); // nombres tal cual aparecen en DATA
+
+function isGlobalMode(){ return SELECTED_DEUDORES.size > 0; }
+
+function updateMsLabel(){
+  msToggle.textContent = `Filtrar deudores (${SELECTED_DEUDORES.size} seleccionados)`;
 }
-function norm(s){ return (s||'').toString().toLowerCase(); }
+function renderMsList(){
+  msList.innerHTML = '';
+  const frag = document.createDocumentFragment();
+  ALL_DEBTORS.forEach(name=>{
+    const row = document.createElement('label');
+    row.className = 'opt';
+    const cb = document.createElement('input'); cb.type='checkbox'; cb.checked = SELECTED_DEUDORES.has(name);
+    const sp = document.createElement('span'); sp.textContent = name;
+    row.appendChild(cb); row.appendChild(sp);
+    cb.addEventListener('change', ()=>{ if(cb.checked) SELECTED_DEUDORES.add(name); else SELECTED_DEUDORES.delete(name); updateMsLabel(); drawTree(currentPrest); });
+    frag.appendChild(row);
+  });
+  msList.appendChild(frag);
+}
+msToggle.addEventListener('click', ()=>{ msPanel.style.display = (msPanel.style.display==='none' || !msPanel.style.display) ? 'block':'none'; });
+msAll.addEventListener('click', ()=>{ ALL_DEBTORS.forEach(n=>SELECTED_DEUDORES.add(n)); updateMsLabel(); renderMsList(); drawTree(currentPrest); });
+msNone.addEventListener('click', ()=>{ SELECTED_DEUDORES.clear(); updateMsLabel(); renderMsList(); drawTree(currentPrest); });
+document.addEventListener('click', (e)=>{ if (!ms.contains(e.target)) msPanel.style.display='none'; });
+renderMsList(); updateMsLabel();
 
 /* ===== Helper: wrap de texto en SVG ===== */
 function wrapText(textSel, width){
@@ -453,48 +445,72 @@ function wrapText(textSel, width){
       line.push(w);
       tspan.text(line.join(" "));
       if (tspan.node().getComputedTextLength() > width){
-        line.pop(); tspan.text(line.join(" "));
+        line.pop();
+        tspan.text(line.join(" "));
         line = [w];
-        tspan = text.append("tspan").attr("x", text.attr("x")).attr("dy", ++lineNumber * lineHeight).text(w);
+        tspan = text.append("tspan")
+          .attr("x", text.attr("x"))
+          .attr("dy", ++lineNumber * lineHeight)
+          .text(w);
       }
     });
   });
 }
 
-/* ===== Dibujo ===== */
-function matches(row){
-  // 1) Filtro por multiselección (si hay alguno seleccionado)
-  if (SELECTED_DEUDORES.size > 0 && !SELECTED_DEUDORES.has(row.nombre)) return false;
-  // 2) (opcional) Filtro por texto
-  if (searchTerm){
-    const q = norm(searchTerm);
-    if (!norm(row.nombre).includes(q) && !norm(row.fecha).includes(q) &&
-        !norm(String(row.valor)).includes(q) && !norm(String(row.total)).includes(q)) return false;
+/* ===== Global helpers ===== */
+function collectRowsForSelected(){
+  const rows = [];
+  if (SELECTED_DEUDORES.size === 0) return rows;
+  for (const prest of Object.keys(DATA)) {
+    const list = DATA[prest] || [];
+    list.forEach(r => {
+      if (SELECTED_DEUDORES.has(r.nombre)) rows.push({ ...r, __prest: prest });
+    });
   }
-  return true;
+  return rows;
 }
 
+/* ===== Dibujo ===== */
 function drawTree(prestamista) {
   g.selectAll("*").remove();
 
-  const allRows = DATA[prestamista] || [];
-  const rows = allRows.filter(matches);
+  const global = isGlobalMode();
 
-  const cardW = 460, padX=12, padY=10, lineGap=18;
+  // 1) Filas a dibujar
+  let allRows;
+  if (global) {
+    allRows = collectRowsForSelected();
+  } else {
+    allRows = DATA[prestamista] || [];
+  }
+
+  // 2) Filtro adicional (buscador textual opcional + multiselección)
+  const rows = allRows.filter(r => {
+    if (SELECTED_DEUDORES.size > 0 && !SELECTED_DEUDORES.has(r.nombre)) return false;
+    if (!matches(r)) return false;
+    return true;
+  });
+
+  // 3) Layout
+  const cardW = 480, padX=12, padY=10, lineGap=18;
   const svgWidth = document.getElementById("stage").clientWidth;
   svg.attr("width", svgWidth);
   const svgH = +svg.attr("height");
 
-  const approxCardH = padY*2 + lineGap*3;
+  const extraLines = global ? 2 : 1; // +1 línea “Prestamista” en global
+  const approxCardH = padY*2 + lineGap*(2 + extraLines); // titulo + (prestamista opcional) + montos
   const treeLayout = d3.tree().nodeSize([ approxCardH + 24, cardW + 240 ])
                            .separation((a,b)=> (a.parent===b.parent? 1.2 : 1.5));
-  const root = d3.hierarchy({ name: prestamista, children: rows });
+
+  const rootName = global ? "Todos los prestamistas" : prestamista;
+  const root = d3.hierarchy({ name: rootName, children: rows });
   treeLayout.size([svgH - 200, 1]); treeLayout(root);
 
   const usableW = svgWidth - ROOT_TX - 40;
   const centerX = Math.max(cardW/2 + 40, (usableW - cardW) / 2);
   root.each(d => { if (d.depth === 0) d.y = 0; if (d.depth === 1) d.y = centerX; });
 
+  // Enlaces raíz→deudor
   const linkPath = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
   const links = g.selectAll(".link").data(root.links()).join("path")
       .attr("class", "link").attr("d", linkPath)
@@ -502,6 +518,7 @@ function drawTree(prestamista) {
       .attr("stroke-dashoffset", function(){ return this.getTotalLength(); });
   links.transition().delay((d,i)=>120+i*30).duration(700).ease(d3.easeCubicOut).attr("stroke-dashoffset",0);
 
+  // Nodos
   const nodes = g.selectAll(".node").data(root.descendants()).join("g")
       .attr("class","node").attr("transform", d => `translate(${d.y - 160},${d.x})`).style("opacity",0);
   nodes.transition().delay((d,i)=> d.depth===0?0:150+i*40).duration(600).ease(d3.easeCubicOut)
@@ -514,12 +531,14 @@ function drawTree(prestamista) {
       sel.append("text").attr("dy","0.31em").attr("x",-14).attr("text-anchor","end").text(d.data.name);
       return;
     }
+
+    // Alto de tarjeta
     const temp = sel.append("text").attr("class","nodeTitle").attr("x", padX).attr("y", 0).style("opacity",0).text(d.data.nombre);
     wrapText(temp, cardW - padX*2);
     const titleRows = temp.selectAll("tspan").nodes().length || 1;
     temp.remove();
 
-    const rowsCount = titleRows + 1;
+    const rowsCount = titleRows + (global ? 2 : 1); // + “Prestamista” si global
     const cardH = padY*2 + lineGap*rowsCount;
 
     const m = +d.data.meses || 0;
@@ -532,31 +551,45 @@ function drawTree(prestamista) {
       .transition().delay(250).duration(400).ease(d3.easeCubicOut).attr("transform", "scale(1)");
 
     let y = -cardH/2 + padY + 12;
+
+    // Título (deudor)
     const t = sel.append("text").attr("class","nodeTitle").attr("x", padX).attr("y", y).text(d.data.nombre);
     wrapText(t, cardW - padX*2);
     const titleBox = t.node().getBBox();
     y = titleBox.y + titleBox.height + 2;
 
-    const line = sel.append("text").attr("class","nodeLine").attr("x", padX).attr("y", y + lineGap).style("opacity", 0).text("valor prestado: ");
-    line.append("tspan").attr("class","nodeAmt").text(`$ ${Number(d.data.valor||0).toLocaleString()}`);
-    line.append("tspan").text(" • interés: ");
-    line.append("tspan").attr("class","nodeAmt").text(`$ ${Number(d.data.interes||0).toLocaleString()}`);
-    line.append("tspan").text(" • total ");
-    line.append("tspan").attr("class","nodeAmt").text(`$ ${Number(d.data.total||0).toLocaleString()}`);
-    line.append("tspan").text(" • fecha: ");
-    line.append("tspan").attr("class","nodeAmt").text(d.data.fecha || "");
-    wrapText(line, cardW - padX*2);
-    line.transition().delay(260).duration(400).style("opacity", 1);
+    // “Prestamista” (solo en global)
+    if (global) {
+      const l0 = sel.append("text").attr("class","nodeLine").attr("x", padX).attr("y", y + lineGap/1.2);
+      l0.text("Prestamista: ");
+      l0.append("tspan").attr("class","nodeAmt").text(d.data.__prest || "");
+      y += lineGap;
+    }
+
+    // Montos/Fecha
+    const l1 = sel.append("text").attr("class","nodeLine").attr("x", padX).attr("y", y + lineGap)
+      .style("opacity", 0).text("valor prestado: ");
+    l1.append("tspan").attr("class","nodeAmt").text(`$ ${Number(d.data.valor||0).toLocaleString()}`);
+    l1.append("tspan").text(" • interés: ");
+    l1.append("tspan").attr("class","nodeAmt").text(`$ ${Number(d.data.interes||0).toLocaleString()}`);
+    l1.append("tspan").text(" • total ");
+    l1.append("tspan").attr("class","nodeAmt").text(`$ ${Number(d.data.total||0).toLocaleString()}`);
+    l1.append("tspan").text(" • fecha: ");
+    l1.append("tspan").attr("class","nodeAmt").text(d.data.fecha || "");
+    wrapText(l1, cardW - padX*2);
+    l1.transition().delay(260).duration(400).style("opacity", 1);
   });
 
-  // Resumen (recalcula con filtro activo)
+  // Resumen (con lo visible)
   const visibleRows = rows;
   const totalInteres = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
   const totalCapital = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
+
   const deudores = root.descendants().filter(d=>d.depth===1);
   const midY = d3.mean(deudores, d=>d.x) || 0;
   const summaryX = centerX + cardW + 280;
-  const sumW = 360, sumH = 130, sumPadX = 14, sumLine = 24;
+
+  const sumW = 380, sumH = 140, sumPadX = 14, sumLine = 24;
   const summaryG = g.append("g").attr("class","summary")
     .attr("transform", `translate(${summaryX - 220},${midY})`).style("opacity", 0);
   summaryG.transition().delay(220).duration(600).ease(d3.easeCubicOut)
@@ -565,8 +598,11 @@ function drawTree(prestamista) {
   summaryG.append("rect").attr("class","summaryCard")
     .attr("x", 0).attr("y", -sumH/2).attr("width", sumW).attr("height", sumH)
     .attr("rx", 14).attr("ry", 14);
+
   summaryG.append("text").attr("class","summaryTitle")
-    .attr("x", sumPadX).attr("y", -sumH/2 + sumLine).text("Resumen del prestamista");
+    .attr("x", sumPadX).attr("y", -sumH/2 + sumLine)
+    .text(global ? "Resumen (todos los prestamistas)" : "Resumen del prestamista");
+
   let sy = -sumH/2 + sumLine + 20;
   const s1 = summaryG.append("text").attr("class","summaryLine").attr("x", sumPadX).attr("y", sy).text("Ganancia (interés): ");
   s1.append("tspan").attr("class","summaryAmt").text(`$ ${totalInteres.toLocaleString()}`);
@@ -584,7 +620,9 @@ function drawTree(prestamista) {
       .attr("stroke-dashoffset", 0);
 
   renderChips(prestamista, visibleRows);
-  renderSelector(prestamista);
+
+  // En modo global no mostramos el bloque de “marcar pagados”
+  if (!global) renderSelector(prestamista);
 }
 
 /* Resize */
