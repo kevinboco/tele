@@ -51,11 +51,9 @@ if (empty($_POST['desde']) || empty($_POST['hasta'])) {
         </div>
         <div class="mt-3">
           <button class="btn btn-primary">Generar Informe</button>
-        </div>
-        <div class="mt-3 d-flex gap-2">
-          <button class="btn btn-primary">Generar Informe</button>
           <a class="btn btn-secondary" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/index2.php">Ir a Inicio</a>
         </div>
+        
       </form>
     </div>
     </body></html>
