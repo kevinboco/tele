@@ -256,9 +256,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   .viajes-backdrop.show{ display:flex; }
   .viajes-card{ width:min(720px,94vw); max-height:90vh; overflow:hidden; border-radius:16px; background:#fff;
                 box-shadow:0 20px 60px rgba(0,0,0,.25); border:1px solid #e5e7eb; }
-  .viajes-header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #eef2f7}
+  .viajes-header{padding:14px 16px;border-bottom:1px solid #eef2f7}
   .viajes-body{padding:14px 16px;overflow:auto; max-height:70vh}
-  .viajes-close{padding:6px 10px; border-radius:10px}
+  .viajes-close{padding:6px 10px; border-radius:10px; cursor:pointer;}
   .viajes-close:hover{background:#f3f4f6}
 
   .conductor-link{cursor:pointer; color:#0d6efd; text-decoration:underline;}
@@ -427,13 +427,38 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
   </div>
 
-  <!-- ===== Modal VIAJES ===== -->
+  <!-- ===== Modal VIAJES (actualizado con selector de conductor) ===== -->
   <div id="viajesModal" class="viajes-backdrop">
     <div class="viajes-card">
       <div class="viajes-header">
-        <h3 id="viajesTitle" class="text-lg font-semibold flex items-center gap-2">🧳 Viajes</h3>
-        <button class="viajes-close" id="viajesCloseBtn" title="Cerrar">✕</button>
+        <div class="flex flex-col gap-2 w-full md:flex-row md:items-center md:justify-between">
+          <div class="flex flex-col gap-1">
+            <h3 class="text-lg font-semibold flex items-center gap-2">
+              🧳 Viajes — <span id="viajesTitle" class="font-normal"></span>
+            </h3>
+
+            <!-- rangos / empresa para contexto -->
+            <div class="text-[11px] text-slate-500 leading-tight">
+              <span id="viajesRango"></span>
+              <span class="mx-1">•</span>
+              <span id="viajesEmpresa"></span>
+            </div>
+          </div>
+
+          <!-- selector rápido de conductor -->
+          <div class="flex items-center gap-2">
+            <label class="text-xs text-slate-600 whitespace-nowrap">Conductor:</label>
+            <select id="viajesSelectConductor"
+              class="rounded-lg border border-slate-300 px-2 py-1 text-sm min-w-[200px] focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500">
+            </select>
+
+            <button class="viajes-close text-slate-600 hover:bg-slate-100 border border-slate-300 px-2 py-1 rounded-lg text-sm" id="viajesCloseBtn" title="Cerrar">
+              ✕
+            </button>
+          </div>
+        </div>
       </div>
+
       <div class="viajes-body" id="viajesContent"></div>
     </div>
   </div>
@@ -632,32 +657,106 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   prestSearch.addEventListener('input',()=>renderPrestList(prestSearch.value));
   tbody.querySelectorAll('.btn-prest').forEach(btn=> btn.addEventListener('click',()=>openPrestModalForRow(btn.closest('tr'))));
 
-  // ===== Modal VIAJES =====
+  // ===== Constantes de rango para el modal de viajes =====
   const RANGO_DESDE = <?= json_encode($desde) ?>;
   const RANGO_HASTA = <?= json_encode($hasta) ?>;
   const RANGO_EMP   = <?= json_encode($empresaFiltro) ?>;
 
-  const viajesModal   = document.getElementById('viajesModal');
-  const viajesContent = document.getElementById('viajesContent');
-  const viajesTitle   = document.getElementById('viajesTitle');
-  const viajesClose   = document.getElementById('viajesCloseBtn');
+  // Lista de conductores disponibles en este rango (para el select del modal viajes)
+  const CONDUCTORES_LIST = <?= json_encode(array_map(
+    fn($f)=>$f['nombre'],
+    $filas
+  ), JSON_UNESCAPED_UNICODE); ?>;
 
-  function abrirModalViajes(nombre){
-    viajesTitle.innerHTML = '🧳 Viajes — <span class=\"font-normal\">'+nombre+'</span>';
-    viajesContent.innerHTML = '<p class=\"text-center m-0 animate-pulse\">Cargando…</p>';
+  // ===== Modal VIAJES con selector =====
+  const viajesModal            = document.getElementById('viajesModal');
+  const viajesContent          = document.getElementById('viajesContent');
+  const viajesTitle            = document.getElementById('viajesTitle');
+  const viajesClose            = document.getElementById('viajesCloseBtn');
+  const viajesSelectConductor  = document.getElementById('viajesSelectConductor');
+  const viajesRango            = document.getElementById('viajesRango');
+  const viajesEmpresa          = document.getElementById('viajesEmpresa');
+
+  let viajesConductorActual = null;
+
+  // Rellena el <select> con todos los conductores del rango
+  function initViajesSelect(selectedName) {
+    viajesSelectConductor.innerHTML = "";
+    CONDUCTORES_LIST.forEach(nombre => {
+      const opt = document.createElement('option');
+      opt.value = nombre;
+      opt.textContent = nombre;
+      if (nombre === selectedName) opt.selected = true;
+      viajesSelectConductor.appendChild(opt);
+    });
+  }
+
+  // Cargar viajes (AJAX)
+  function loadViajes(nombre) {
+    viajesContent.innerHTML = '<p class="text-center m-0 animate-pulse">Cargando…</p>';
+    viajesConductorActual = nombre;
+    viajesTitle.textContent = nombre;
+
+    const qs = new URLSearchParams({
+      viajes_conductor: nombre,
+      desde: RANGO_DESDE,
+      hasta: RANGO_HASTA,
+      empresa: RANGO_EMP
+    });
+
+    fetch('<?= basename(__FILE__) ?>?' + qs.toString())
+      .then(r => r.text())
+      .then(html => {
+        viajesContent.innerHTML = html;
+      })
+      .catch(() => {
+        viajesContent.innerHTML = '<p class="text-center text-rose-600">Error cargando viajes.</p>';
+      });
+  }
+
+  // Abrir modal
+  function abrirModalViajes(nombreInicial){
+    // Info contextual arriba
+    viajesRango.textContent   = RANGO_DESDE + " → " + RANGO_HASTA;
+    viajesEmpresa.textContent = (RANGO_EMP && RANGO_EMP !== "") ? RANGO_EMP : "Todas las empresas";
+
+    // Llenar select y seleccionar el conductor que se clickeó
+    initViajesSelect(nombreInicial);
+
+    // Mostrar modal
     viajesModal.classList.add('show');
 
-    const qs = new URLSearchParams({ viajes_conductor:nombre, desde:RANGO_DESDE, hasta:RANGO_HASTA, empresa:RANGO_EMP });
-    fetch('<?= basename(__FILE__) ?>?'+qs.toString())
-      .then(r=>r.text())
-      .then(html=>{ viajesContent.innerHTML = html; })
-      .catch(()=>{ viajesContent.innerHTML='<p class=\"text-center text-rose-600\">Error cargando viajes.</p>'; });
+    // Cargar viajes de ese conductor
+    loadViajes(nombreInicial);
   }
-  function cerrarModalViajes(){ viajesModal.classList.remove('show'); viajesContent.innerHTML=''; }
 
+  // Cerrar modal
+  function cerrarModalViajes(){
+    viajesModal.classList.remove('show');
+    viajesContent.innerHTML = '';
+    viajesConductorActual = null;
+  }
+
+  // Evento cerrar
   viajesClose.addEventListener('click', cerrarModalViajes);
-  viajesModal.addEventListener('click', (e)=>{ if(e.target===viajesModal) cerrarModalViajes(); });
-  document.querySelectorAll('#tbody .conductor-link').forEach(btn=> btn.addEventListener('click', ()=> abrirModalViajes(btn.textContent.trim())));
+
+  // También cerrar si clic fuera de la tarjeta
+  viajesModal.addEventListener('click', (e)=>{
+    if(e.target===viajesModal) cerrarModalViajes();
+  });
+
+  // Cuando cambian el conductor en el select
+  viajesSelectConductor.addEventListener('change', ()=>{
+    const nuevo = viajesSelectConductor.value;
+    loadViajes(nuevo);
+  });
+
+  // Click en el nombre del conductor en la tabla principal
+  document.querySelectorAll('#tbody .conductor-link').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      abrirModalViajes(btn.textContent.trim());
+    });
+  });
 
   // ===== Cálculos =====
   function distribIgual(diff,n){ const arr=new Array(n).fill(0); if(n<=0||diff===0)return arr; const s=diff>=0?1:-1; let a=Math.abs(diff); const base=Math.floor(a/n); let resto=a%n; for(let i=0;i<n;i++){arr[i]=s*base+(resto>0?s:0); if(resto>0)resto--;} return arr; }
