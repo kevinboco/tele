@@ -19,7 +19,7 @@ function norm_person($s){
   return $s;
 }
 
-/* ================= AJAX: Viajes por conductor (con LEYENDA y colores) ================= */
+/* ================= AJAX: Viajes por conductor (leyenda con contadores y soporte de filtro) ================= */
 if (isset($_GET['viajes_conductor'])) {
   $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
   $desde   = $conn->real_escape_string($_GET['desde'] ?? '');
@@ -45,30 +45,16 @@ if (isset($_GET['viajes_conductor'])) {
   ];
 
   $res = $conn->query($sql);
-  echo "<div class='space-y-3'>";
 
-  // Leyenda
-  echo "<div class='flex flex-wrap gap-2 text-xs'>";
-  foreach (['completo','medio','extra','siapana','carrotanque'] as $k) {
-    $l = $legend[$k];
-    echo "<span class='inline-flex items-center gap-2 px-2 py-1 rounded-full {$l['badge']}'>
-            <span class='w-2.5 h-2.5 rounded-full ".str_replace(['bg-','/40'], ['bg-',''], $l['row'])."'></span>{$l['label']}
-          </span>";
-  }
-  echo "</div>";
-
-  // Tabla
-  echo "<div class='overflow-x-auto'>
-          <table class='min-w-full text-sm text-left'>
-            <thead class='bg-blue-600 text-white'>
-              <tr>
-                <th class='px-3 py-2'>Fecha</th>
-                <th class='px-3 py-2'>Ruta</th>
-                <th class='px-3 py-2'>Empresa</th>
-                <th class='px-3 py-2'>Vehículo</th>
-              </tr>
-            </thead>
-            <tbody class='divide-y divide-gray-100 bg-white'>";
+  $rowsHTML = "";
+  $counts = [
+    'completo'=>0,
+    'medio'=>0,
+    'extra'=>0,
+    'siapana'=>0,
+    'carrotanque'=>0,
+    'otro'=>0
+  ];
 
   if ($res && $res->num_rows > 0) {
     while ($r = $res->fetch_assoc()) {
@@ -90,11 +76,17 @@ if (isset($_GET['viajes_conductor'])) {
         $cat = 'otro';
       }
 
+      if (isset($counts[$cat])) {
+        $counts[$cat]++;
+      } else {
+        $counts[$cat] = 1;
+      }
+
       $l = $legend[$cat];
       $badge = "<span class='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold {$l['badge']}'>".$l['label']."</span>";
-      $rowCls = trim("hover:bg-blue-50 transition-colors {$l['row']}");
+      $rowCls = trim("row-viaje hover:bg-blue-50 transition-colors {$l['row']} cat-$cat");
 
-      echo "<tr class='{$rowCls}'>
+      $rowsHTML .= "<tr class='{$rowCls}'>
               <td class='px-3 py-2'>".htmlspecialchars($r['fecha'])."</td>
               <td class='px-3 py-2'>
                 <div class='flex items-center gap-2'>
@@ -107,13 +99,49 @@ if (isset($_GET['viajes_conductor'])) {
             </tr>";
     }
   } else {
-    echo "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresa.</td></tr>";
+    $rowsHTML .= "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresa.</td></tr>";
   }
 
-  echo "    </tbody>
-          </table>
-        </div>
-      </div>";
+  // lo que devolvemos al fetch (sin <script>, el JS global hará el filtro)
+  ?>
+  <div class='space-y-3'>
+
+    <!-- Leyenda con contadores y filtro -->
+    <div class='flex flex-wrap gap-2 text-xs' id="legendFilterBar">
+      <?php
+      foreach (['completo','medio','extra','siapana','carrotanque'] as $k) {
+        $l = $legend[$k];
+        $countVal = $counts[$k] ?? 0;
+        echo "<button
+                class='legend-pill inline-flex items-center gap-2 px-3 py-2 rounded-full {$l['badge']} hover:opacity-90 transition ring-0 outline-none border cursor-pointer select-none'
+                data-tipo='{$k}'
+              >
+                <span class='w-2.5 h-2.5 rounded-full ".str_replace(['bg-','/40'], ['bg-',''], $l['row'])." bg-opacity-100 border border-white/30 shadow-inner'></span>
+                <span class='font-semibold text-[13px]'>{$l['label']}</span>
+                <span class='text-[11px] font-semibold opacity-80'>({$countVal})</span>
+              </button>";
+      }
+      ?>
+    </div>
+
+    <!-- Tabla -->
+    <div class='overflow-x-auto'>
+      <table class='min-w-full text-sm text-left'>
+        <thead class='bg-blue-600 text-white'>
+          <tr>
+            <th class='px-3 py-2'>Fecha</th>
+            <th class='px-3 py-2'>Ruta</th>
+            <th class='px-3 py-2'>Empresa</th>
+            <th class='px-3 py-2'>Vehículo</th>
+          </tr>
+        </thead>
+        <tbody class='divide-y divide-gray-100 bg-white' id="viajesTableBody">
+          <?= $rowsHTML ?>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <?php
   exit;
 }
 
@@ -427,7 +455,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
   </div>
 
-  <!-- ===== Modal VIAJES (actualizado con selector de conductor) ===== -->
+  <!-- ===== Modal VIAJES ===== -->
   <div id="viajesModal" class="viajes-backdrop">
     <div class="viajes-card">
       <div class="viajes-header">
@@ -436,22 +464,17 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             <h3 class="text-lg font-semibold flex items-center gap-2">
               🧳 Viajes — <span id="viajesTitle" class="font-normal"></span>
             </h3>
-
-            <!-- rangos / empresa para contexto -->
             <div class="text-[11px] text-slate-500 leading-tight">
               <span id="viajesRango"></span>
               <span class="mx-1">•</span>
               <span id="viajesEmpresa"></span>
             </div>
           </div>
-
-          <!-- selector rápido de conductor -->
           <div class="flex items-center gap-2">
             <label class="text-xs text-slate-600 whitespace-nowrap">Conductor:</label>
             <select id="viajesSelectConductor"
               class="rounded-lg border border-slate-300 px-2 py-1 text-sm min-w-[200px] focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500">
             </select>
-
             <button class="viajes-close text-slate-600 hover:bg-slate-100 border border-slate-300 px-2 py-1 rounded-lg text-sm" id="viajesCloseBtn" title="Cerrar">
               ✕
             </button>
@@ -544,17 +567,15 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const ACC_KEY   = 'cuentas:'+COMPANY_SCOPE;
   const SS_KEY    = 'seg_social:'+COMPANY_SCOPE;
   const PREST_SEL_KEY = 'prestamo_sel_multi:v2:'+COMPANY_SCOPE;
-  const PERIODOS_KEY  = 'cuentas_cobro_periodos:v1'; // { empresa: [ {id,nombre,desde,hasta,facturado,recibido} ] }
+  const PERIODOS_KEY  = 'cuentas_cobro_periodos:v1';
 
   const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 
-  // ===== Helpers =====
   const toInt = (s)=>{ if(typeof s==='number') return Math.round(s); s=(s||'').toString().replace(/\./g,'').replace(/,/g,'').replace(/[^\d\-]/g,''); return parseInt(s||'0',10)||0; };
   const fmt = (n)=> (n||0).toLocaleString('es-CO');
   const getLS=(k)=>{try{return JSON.parse(localStorage.getItem(k)||'{}')}catch{return{}}}
   const setLS=(k,v)=> localStorage.setItem(k, JSON.stringify(v));
 
-  // ===== Restaurar cuentas/SS/préstamos por fila =====
   let accMap = getLS(ACC_KEY);
   let ssMap  = getLS(SS_KEY);
   let prestSel = getLS(PREST_SEL_KEY); if(!prestSel || typeof prestSel!=='object') prestSel = {};
@@ -657,18 +678,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   prestSearch.addEventListener('input',()=>renderPrestList(prestSearch.value));
   tbody.querySelectorAll('.btn-prest').forEach(btn=> btn.addEventListener('click',()=>openPrestModalForRow(btn.closest('tr'))));
 
-  // ===== Constantes de rango para el modal de viajes =====
+  // ===== Datos para el modal de viajes =====
   const RANGO_DESDE = <?= json_encode($desde) ?>;
   const RANGO_HASTA = <?= json_encode($hasta) ?>;
   const RANGO_EMP   = <?= json_encode($empresaFiltro) ?>;
+  const CONDUCTORES_LIST = <?= json_encode(array_map(fn($f)=>$f['nombre'],$filas), JSON_UNESCAPED_UNICODE); ?>;
 
-  // Lista de conductores disponibles en este rango (para el select del modal viajes)
-  const CONDUCTORES_LIST = <?= json_encode(array_map(
-    fn($f)=>$f['nombre'],
-    $filas
-  ), JSON_UNESCAPED_UNICODE); ?>;
-
-  // ===== Modal VIAJES con selector =====
   const viajesModal            = document.getElementById('viajesModal');
   const viajesContent          = document.getElementById('viajesContent');
   const viajesTitle            = document.getElementById('viajesTitle');
@@ -679,7 +694,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
   let viajesConductorActual = null;
 
-  // Rellena el <select> con todos los conductores del rango
   function initViajesSelect(selectedName) {
     viajesSelectConductor.innerHTML = "";
     CONDUCTORES_LIST.forEach(nombre => {
@@ -691,7 +705,51 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     });
   }
 
-  // Cargar viajes (AJAX)
+  // Esta función SE LLAMA cada vez que cargamos viajes via fetch
+  function attachFiltroViajes(){
+    const pills = viajesContent.querySelectorAll('#legendFilterBar .legend-pill');
+    const rows  = viajesContent.querySelectorAll('#viajesTableBody .row-viaje');
+    if (!pills.length || !rows.length) return;
+
+    let activeCat = null;
+
+    function applyFilter(cat){
+      if (cat === activeCat) {
+        activeCat = null;
+      } else {
+        activeCat = cat;
+      }
+
+      pills.forEach(p => {
+        const pcat = p.getAttribute('data-tipo');
+        if (activeCat && pcat === activeCat) {
+          p.classList.add('ring-2','ring-blue-500','ring-offset-1','ring-offset-white');
+        } else {
+          p.classList.remove('ring-2','ring-blue-500','ring-offset-1','ring-offset-white');
+        }
+      });
+
+      rows.forEach(r => {
+        if (!activeCat) {
+          r.style.display = '';
+        } else {
+          if (r.classList.contains('cat-' + activeCat)) {
+            r.style.display = '';
+          } else {
+            r.style.display = 'none';
+          }
+        }
+      });
+    }
+
+    pills.forEach(p => {
+      p.addEventListener('click', ()=>{
+        const cat = p.getAttribute('data-tipo');
+        applyFilter(cat);
+      });
+    });
+  }
+
   function loadViajes(nombre) {
     viajesContent.innerHTML = '<p class="text-center m-0 animate-pulse">Cargando…</p>';
     viajesConductorActual = nombre;
@@ -708,50 +766,40 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       .then(r => r.text())
       .then(html => {
         viajesContent.innerHTML = html;
+        attachFiltroViajes(); // <-- importante
       })
       .catch(() => {
         viajesContent.innerHTML = '<p class="text-center text-rose-600">Error cargando viajes.</p>';
       });
   }
 
-  // Abrir modal
   function abrirModalViajes(nombreInicial){
-    // Info contextual arriba
     viajesRango.textContent   = RANGO_DESDE + " → " + RANGO_HASTA;
     viajesEmpresa.textContent = (RANGO_EMP && RANGO_EMP !== "") ? RANGO_EMP : "Todas las empresas";
 
-    // Llenar select y seleccionar el conductor que se clickeó
     initViajesSelect(nombreInicial);
 
-    // Mostrar modal
     viajesModal.classList.add('show');
 
-    // Cargar viajes de ese conductor
     loadViajes(nombreInicial);
   }
 
-  // Cerrar modal
   function cerrarModalViajes(){
     viajesModal.classList.remove('show');
     viajesContent.innerHTML = '';
     viajesConductorActual = null;
   }
 
-  // Evento cerrar
   viajesClose.addEventListener('click', cerrarModalViajes);
-
-  // También cerrar si clic fuera de la tarjeta
   viajesModal.addEventListener('click', (e)=>{
     if(e.target===viajesModal) cerrarModalViajes();
   });
 
-  // Cuando cambian el conductor en el select
   viajesSelectConductor.addEventListener('change', ()=>{
     const nuevo = viajesSelectConductor.value;
     loadViajes(nuevo);
   });
 
-  // Click en el nombre del conductor en la tabla principal
   document.querySelectorAll('#tbody .conductor-link').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       abrirModalViajes(btn.textContent.trim());
@@ -759,7 +807,20 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   });
 
   // ===== Cálculos =====
-  function distribIgual(diff,n){ const arr=new Array(n).fill(0); if(n<=0||diff===0)return arr; const s=diff>=0?1:-1; let a=Math.abs(diff); const base=Math.floor(a/n); let resto=a%n; for(let i=0;i<n;i++){arr[i]=s*base+(resto>0?s:0); if(resto>0)resto--;} return arr; }
+  function distribIgual(diff,n){
+    const arr=new Array(n).fill(0);
+    if(n<=0||diff===0)return arr;
+    const s=diff>=0?1:-1;
+    let a=Math.abs(diff);
+    const base=Math.floor(a/n);
+    let resto=a%n;
+    for(let i=0;i<n;i++){
+      arr[i]=s*base+(resto>0?s:0);
+      if(resto>0)resto--;
+    }
+    return arr;
+  }
+
   function recalc(){
     const fact=toInt(document.getElementById('inp_facturado').value);
     const rec =toInt(document.getElementById('inp_recibido').value);
@@ -799,12 +860,13 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     document.getElementById('tot_prestamos').textContent=fmt(sumPrest);
     document.getElementById('tot_pagar').textContent=fmt(sumPagar);
   }
+
   const fmtInput=(el)=> el.addEventListener('input',()=>{ const raw=toInt(el.value); el.value=fmt(raw); recalc(); });
   fmtInput(document.getElementById('inp_facturado'));
   fmtInput(document.getElementById('inp_recibido'));
   recalc();
 
-  // ====== Gestor de CUENTAS DE COBRO (localStorage por empresa) ======
+  // ===== Gestor de cuentas =====
   const formFiltros = document.getElementById('formFiltros');
   const inpDesde = document.getElementById('inp_desde');
   const inpHasta = document.getElementById('inp_hasta');
@@ -812,7 +874,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const inpFact = document.getElementById('inp_facturado');
   const inpRec = document.getElementById('inp_recibido');
 
-  // --- Modal Guardar cuenta
   const saveCuentaModal = document.getElementById('saveCuentaModal');
   const btnShowSaveCuenta = document.getElementById('btnShowSaveCuenta');
   const btnCloseSaveCuenta = document.getElementById('btnCloseSaveCuenta');
@@ -825,7 +886,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const iCFact = document.getElementById('cuenta_facturado');
   const iCRec  = document.getElementById('cuenta_recibido');
 
-  const PERIODOS = getLS(PERIODOS_KEY); // estructura: { empresa: [ {id,nombre,desde,hasta,facturado,recibido} ] }
+  const PERIODOS = getLS(PERIODOS_KEY);
 
   function openSaveCuenta(){
     const emp = selEmpresa.value.trim();
@@ -849,7 +910,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
   btnDoSaveCuenta.addEventListener('click', ()=>{
     const emp = iEmpresa.value.trim();
-    const [desde, hasta] = iRango.value.split('→').map(s=>s.trim());
+    const [d1, d2raw] = iRango.value.split('→');
+    const desde = (d1||'').trim();
+    const hasta = (d2raw||'').trim();
     const nombre = iNombre.value.trim() || `${emp} ${desde} a ${hasta}`;
     const facturado = toInt(iCFact.value);
     const recibido  = toInt(iCRec.value);
@@ -862,7 +925,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     alert('Cuenta guardada ✔');
   });
 
-  // --- Modal Gestor
   const gestorModal = document.getElementById('gestorCuentasModal');
   const btnShowGestor = document.getElementById('btnShowGestorCuentas');
   const btnCloseGestor = document.getElementById('btnCloseGestor');
@@ -899,7 +961,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             <button class="btnEliminar border px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-xs text-rose-700">Eliminar</button>
           </div>
         </td>`;
-      // acciones
       tr.querySelector('.btnUsar').addEventListener('click', ()=> usarCuenta(item,false));
       tr.querySelector('.btnUsarAplicar').addEventListener('click', ()=> usarCuenta(item,true));
       tr.querySelector('.btnEditar').addEventListener('click', ()=> editarCuenta(item));
@@ -910,7 +971,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   }
 
   function usarCuenta(item, aplicar){
-    selEmpresa.value = selEmpresa.value; // ya es la empresa correcta
+    selEmpresa.value = selEmpresa.value;
     inpDesde.value = item.desde;
     inpHasta.value = item.hasta;
     if(item.facturado) document.getElementById('inp_facturado').value = fmt(item.facturado);
@@ -920,14 +981,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   }
 
   function editarCuenta(item){
-    // reutilizamos modal de guardar
     saveCuentaModal.classList.remove('hidden');
     iEmpresa.value = selEmpresa.value;
     iRango.value = `${item.desde} → ${item.hasta}`;
     iNombre.value = item.nombre;
     iCFact.value = fmt(item.facturado||0);
     iCRec.value  = fmt(item.recibido||0);
-    // Guardar reemplazando
     btnDoSaveCuenta.onclick = ()=>{
       const [d,h] = iRango.value.split('→').map(s=>s.trim());
       item.nombre = iNombre.value.trim() || item.nombre;
@@ -960,7 +1019,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   buscaCuenta.addEventListener('input', renderCuentas);
   btnAddDesdeFiltro.addEventListener('click', ()=>{ closeGestor(); openSaveCuenta(); });
 
-  // formateo live en modal guardar
   const nf1 = el => el.addEventListener('input', ()=>{ el.value = fmt(toInt(el.value)); });
   nf1(iCFact); nf1(iCRec);
 </script>
