@@ -1,14 +1,13 @@
 <?php
 /*********************************************************
  * prestamos_visual_interactivo.php
- * v4.4
- * - Visual D3
- * - Modo global multi-deudor
- * - Selector marcar pagados
- * - Modal con historial individual
- * - Colores de antigüedad por fila en el modal
- * - Leyenda de colores en el modal
- * - Fila TOTAL en el modal
+ * v4.6
+ * - Visual D3 (vista por prestamista / global multi-deudor)
+ * - Selector "marcar pagados"
+ * - Modal con historial individual (click en el nodo)
+ * - Fila TOTAL y leyenda de colores en el modal
+ * - Colores por antigüedad (meses) en modal y nodos
+ * - Contador de préstamos por deudor en cada nodo
  *********************************************************/
 include("nav.php");
 
@@ -17,8 +16,6 @@ define('DB_HOST', 'mysql.hostinger.com');
 define('DB_USER', 'u648222299_keboco5');
 define('DB_PASS', 'Bucaramanga3011');
 define('DB_NAME', 'u648222299_viajes');
-
-
 
 function db(): mysqli {
   $m = @new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
@@ -68,13 +65,13 @@ if (($_GET['action'] ?? '') === 'mark_paid' && $_SERVER['REQUEST_METHOD']==='POS
   }
 }
 
-/* ===== Filtro texto (buscador server, aunque el cliente hace el principal) ===== */
+/* ===== Filtro texto ===== */
 $q  = trim($_GET['q'] ?? '');
 $qNorm = mbnorm($q);
 
 $conn = db();
 
-/* ===== Prestamistas activos (con deuda pendiente) ===== */
+/* ===== Prestamistas activos (deudas pendientes) ===== */
 $prestMap = [];
 $resPL = $conn->query("SELECT prestamista
                        FROM prestamos
@@ -97,13 +94,13 @@ if ($q !== ''){
   $params[]=$qNorm;
 }
 
-/* ===== Agregado por (prestamista,deudor) ===== */
+/* ===== Agregado prestamista+deudor ===== */
 $sql = "
   SELECT LOWER(TRIM(prestamista)) AS prest_key,
-         MIN(prestamista) AS prest_display,
-         LOWER(TRIM(deudor)) AS deud_key,
-         MIN(deudor) AS deud_display,
-         MIN(fecha) AS fecha_min,
+         MIN(prestamista)        AS prest_display,
+         LOWER(TRIM(deudor))     AS deud_key,
+         MIN(deudor)             AS deud_display,
+         MIN(fecha)              AS fecha_min,
          CASE WHEN CURDATE() < MIN(fecha)
               THEN 0
               ELSE TIMESTAMPDIFF(MONTH, MIN(fecha), CURDATE()) + 1
@@ -133,11 +130,11 @@ if($types) $st->bind_param($types, ...$params);
 $st->execute();
 $rs=$st->get_result();
 
-/* ===== IDs por (prestamista,deudor) (para marcar pagado en bloque) ===== */
+/* ===== IDs por prestamista+deudor (para marcar pagado en bloque) ===== */
 $sqlIds = "
   SELECT LOWER(TRIM(prestamista)) AS prest_key,
-         LOWER(TRIM(deudor)) AS deud_key,
-         GROUP_CONCAT(id) AS ids
+         LOWER(TRIM(deudor))     AS deud_key,
+         GROUP_CONCAT(id)        AS ids
   FROM prestamos
   WHERE $where
   GROUP BY prest_key, deud_key";
@@ -152,12 +149,12 @@ while($row=$rsIds->fetch_assoc()){
 }
 $st2->close();
 
-/* ===== Detalle crudo de cada préstamo (para el modal) ===== */
+/* ===== Detalle crudo de cada préstamo (para el modal y para el contador por deudor) ===== */
 $sqlDet = "
   SELECT
     LOWER(TRIM(prestamista)) AS prest_key,
     prestamista,
-    LOWER(TRIM(deudor)) AS deud_key,
+    LOWER(TRIM(deudor))      AS deud_key,
     deudor,
     id,
     fecha,
@@ -225,8 +222,8 @@ while($r=$rs->fetch_assoc()){
     'total'   => (float)$r['total'],
     'meses'   => (int)$r['meses'],
     'ids_csv' => $idsMap[$pkey][$dkey] ?? '',
-    '__pkey'  => $pkey, // clave normalizada del prestamista
-    '__dkey'  => $dkey  // clave normalizada del deudor
+    '__pkey'  => $pkey, // clave normalizada prestamista
+    '__dkey'  => $dkey  // clave normalizada deudor
   ];
 
   $ganPrest[$pdisp]     = ($ganPrest[$pdisp] ?? 0) + (float)$r['interes'];
@@ -539,18 +536,10 @@ $msg = $_GET['msg'] ?? '';
   }
 
   /* colores de antigüedad por fila modal */
-  .age-m0 td {
-    background:#F3F4F6;
-  }
-  .age-m1 td {
-    background:#FFF8DB;
-  }
-  .age-m2 td {
-    background:#FFE9D6;
-  }
-  .age-m3 td {
-    background:#FFE1E1;
-  }
+  .age-m0 td { background:#F3F4F6; }
+  .age-m1 td { background:#FFF8DB; }
+  .age-m2 td { background:#FFE9D6; }
+  .age-m3 td { background:#FFE1E1; }
   .detalle-table tbody tr.age-m0 td,
   .detalle-table tbody tr.age-m1 td,
   .detalle-table tbody tr.age-m2 td,
@@ -631,8 +620,7 @@ $msg = $_GET['msg'] ?? '';
       <button class="close-btn" id="modalClose">Cerrar</button>
     </div>
     <div class="modal-body">
-
-      <!-- Leyenda de colores (antigüedad en meses) -->
+      <!-- Leyenda de colores -->
       <div class="modal-legend">
         <div class="legend-item">
           <span class="legend-swatch swatch-m0"></span>
@@ -778,7 +766,7 @@ function renderSelector(prest){
   if (form) form.style.display = "block";
 }
 
-/* ===== Buscador (cliente) ===== */
+/* ===== Buscador ===== */
 const searchInput = document.getElementById('searchInput');
 const clearBtn = document.getElementById('clearSearch');
 let searchTerm = '';
@@ -941,16 +929,13 @@ loanModal.addEventListener('click', (e)=>{
   if (e.target === loanModal) loanModal.style.display='none';
 });
 
-// Capitaliza estilo título "Juan Perez"
+// Capitaliza estilo título
 function mbTitleJs(str){
   const s = (str||'').toString().toLowerCase();
   return s.replace(/\b([a-záéíóúñ])/gi, (m) => m.toUpperCase());
 }
 
-/**
- * fillAndOpenModal(prestKey,deudKey,prestName,deudName)
- * Busca DETALLE[prestKey][deudKey] y renderiza filas con totales
- */
+/* Rellena y abre modal */
 function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
   modalRows.innerHTML = '';
 
@@ -963,7 +948,6 @@ function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
       '<tr><td colspan="7" style="text-align:center;color:#6b7280;padding:16px;">No hay registros.</td></tr>';
   } else {
 
-    // acumuladores para total
     let sumMonto = 0;
     let sumInteres = 0;
     let sumTotal = 0;
@@ -971,7 +955,6 @@ function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
     lista.forEach(item=>{
       const tr = document.createElement('tr');
 
-      // ===== color por antigüedad =====
       const mesesNum = Number(item.meses || 0);
       let ageClass = 'age-m0';
       if (mesesNum >= 3) {
@@ -980,10 +963,9 @@ function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
         ageClass = 'age-m2';
       } else if (mesesNum === 1) {
         ageClass = 'age-m1';
-      } // else queda m0
+      }
       tr.className = ageClass;
 
-      // columnas
       const tdId = document.createElement('td');
       tdId.textContent = item.id;
 
@@ -1023,21 +1005,19 @@ function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
 
       modalRows.appendChild(tr);
 
-      // acumular totales
       sumMonto   += Number(item.monto||0);
       sumInteres += Number(item.interes||0);
       sumTotal   += Number(item.total||0);
     });
 
-    // ===== fila resumen TOTAL =====
     const trTotal = document.createElement('tr');
     trTotal.className = 'detalle-total-row';
 
     const tdEmpty1 = document.createElement('td');
-    tdEmpty1.textContent = ''; // ID vacío
+    tdEmpty1.textContent = '';
 
     const tdEmpty2 = document.createElement('td');
-    tdEmpty2.textContent = ''; // Fecha vacío
+    tdEmpty2.textContent = '';
 
     const tdEmpty3 = document.createElement('td');
     tdEmpty3.className = 'label-cell';
@@ -1053,7 +1033,7 @@ function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
     tdGranTotal.textContent = "$ " + sumTotal.toLocaleString();
 
     const tdEstadoTotal = document.createElement('td');
-    tdEstadoTotal.textContent = ''; // estado vacío
+    tdEstadoTotal.textContent = '';
 
     trTotal.appendChild(tdEmpty1);
     trTotal.appendChild(tdEmpty2);
@@ -1072,23 +1052,21 @@ function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
   loanModal.style.display='flex';
 }
 
-/* ===== Dibujo del árbol principal ===== */
+/* ===== Dibujar árbol principal ===== */
 function drawTree(prestamista) {
   g.selectAll("*").remove();
 
   const global = isGlobalMode();
 
-  // 1) Conjunto base de filas a mostrar
+  // 1) Filas base
   let allRows;
   if (global) {
-    // modo global: todos los prestamistas pero solo los deudores seleccionados
-    allRows = collectRowsForSelected();
+    allRows = collectRowsForSelected(); // multi prestamistass, solo deudores filtrados
   } else {
-    // modo normal: solo el prestamista activo
     allRows = DATA[prestamista] || [];
   }
 
-  // 2) Filtro buscador + filtro deudor
+  // 2) Filtros cliente
   const rows = allRows.filter(r => {
     if (SELECTED_DEUDORES.size > 0 && !SELECTED_DEUDORES.has(r.nombre)) return false;
     if (!matches(r)) return false;
@@ -1101,7 +1079,7 @@ function drawTree(prestamista) {
   svg.attr("width", svgWidth);
   const svgH = +svg.attr("height");
 
-  const extraLines = global ? 2 : 1; // si es global mostramos "Prestamista"
+  const extraLines = global ? 2 : 1;
   const approxCardH = padY*2 + lineGap*(2 + extraLines);
   const treeLayout = d3.tree()
     .nodeSize([ approxCardH + 24, cardW + 240 ])
@@ -1137,7 +1115,7 @@ function drawTree(prestamista) {
     .ease(d3.easeCubicOut)
     .attr("stroke-dashoffset",0);
 
-  // nodos (prestamista raíz + tarjetas deudor)
+  // nodos
   const nodes = g.selectAll(".node")
     .data(root.descendants())
     .join("g")
@@ -1155,7 +1133,6 @@ function drawTree(prestamista) {
   nodes.each(function(d){
     const sel = d3.select(this);
 
-    // nodo raíz (título del árbol)
     if (d.depth === 0) {
       sel.append("circle")
         .attr("r", 8)
@@ -1171,7 +1148,7 @@ function drawTree(prestamista) {
       return;
     }
 
-    // calcular alto de la tarjeta en base al título
+    /* ===== calcular alto de tarjeta ===== */
     const temp = sel.append("text")
       .attr("class","nodeTitle")
       .attr("x", padX)
@@ -1189,7 +1166,23 @@ function drawTree(prestamista) {
     const m = +d.data.meses || 0;
     const mcls = (m >= 3) ? "m3" : (m === 2 ? "m2" : (m === 1 ? "m1" : "m0"));
 
-    // rectángulo clickable
+    // === NUEVO contador de préstamos:
+    const prestKeyForCount = (
+      global
+        ? (d.data.__prest || '').toLowerCase().trim()
+        : (prestamista || '').toLowerCase().trim()
+    );
+    const deudKeyForCount = (d.data.__dkey || '').toLowerCase().trim();
+
+    let loanCount = 0;
+    if (
+      DETALLE[prestKeyForCount] &&
+      DETALLE[prestKeyForCount][deudKeyForCount]
+    ) {
+      loanCount = DETALLE[prestKeyForCount][deudKeyForCount].length;
+    }
+
+    // tarjeta clickable
     sel.append("rect")
       .attr("class", `nodeCard ${mcls}`)
       .attr("x", 0)
@@ -1198,20 +1191,10 @@ function drawTree(prestamista) {
       .attr("height", cardH)
       .attr("rx", 12)
       .attr("ry", 12)
-      .attr("data-prest-key",
-        global
-          ? (d.data.__prest||'').toLowerCase().trim()
-          : (prestamista||'').toLowerCase().trim()
-      )
-      .attr("data-deud-key",
-        (d.data.__dkey || '').toLowerCase().trim()
-      )
-      .attr("data-prest-name",
-        global ? (d.data.__prest||'') : prestamista
-      )
-      .attr("data-deud-name",
-        d.data.nombre
-      )
+      .attr("data-prest-key", prestKeyForCount)
+      .attr("data-deud-key",  deudKeyForCount)
+      .attr("data-prest-name", global ? (d.data.__prest||'') : prestamista)
+      .attr("data-deud-name",  d.data.nombre)
       .attr("transform", "scale(0.98)")
       .on("click", function(){
         const pk = this.getAttribute('data-prest-key');
@@ -1226,21 +1209,26 @@ function drawTree(prestamista) {
       .ease(d3.easeCubicOut)
       .attr("transform", "scale(1)");
 
-    // contenido de la tarjeta
     let y = -cardH/2 + padY + 12;
 
-    // título (deudor)
+    // título con número de préstamos
+    const titleText =
+      loanCount === 1
+        ? `${d.data.nombre} (1 préstamo)`
+        : `${d.data.nombre} (${loanCount} préstamos)`;
+
     const t = sel.append("text")
       .attr("class","nodeTitle")
       .attr("x", padX)
       .attr("y", y)
-      .text(d.data.nombre);
+      .text(titleText);
+
     wrapText(t, cardW - padX*2);
 
     const titleBox = t.node().getBBox();
     y = titleBox.y + titleBox.height + 2;
 
-    // si es global, mostramos el prestamista
+    // en modo global mostramos prestamista
     if (global) {
       const l0 = sel.append("text")
         .attr("class","nodeLine")
@@ -1254,7 +1242,7 @@ function drawTree(prestamista) {
       y += lineGap;
     }
 
-    // línea con montos, intereses, fecha
+    // línea montos/fecha
     const l1 = sel.append("text")
       .attr("class","nodeLine")
       .attr("x", padX)
@@ -1362,7 +1350,7 @@ function drawTree(prestamista) {
     .ease(d3.easeCubicOut)
     .attr("stroke-dashoffset", 0);
 
-  // ===== Tarjetas resumen extra por prestamista en modo global =====
+  // ===== Resúmenes por prestamista en modo global =====
   if (global) {
     const perPrest = {};
     visibleRows.forEach(r=>{
@@ -1426,16 +1414,16 @@ function drawTree(prestamista) {
   // chips arriba
   renderChips(prestamista, visibleRows);
 
-  // abajo: selector de "pagados" SOLO si no es global
+  // selector abajo (solo modo prestamista)
   if (!global) renderSelector(prestamista);
 }
 
-/* ===== resize ===== */
+/* ===== Resize ===== */
 window.addEventListener('resize', ()=>{
   if (currentPrest) drawTree(currentPrest);
 });
 
-/* ===== inicio ===== */
+/* ===== Inicio ===== */
 if (currentPrest){
   drawTree(currentPrest);
 }
