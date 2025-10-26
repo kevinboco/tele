@@ -1,6 +1,6 @@
 <?php
 include("nav.php");
-$conn = new mysqli("localhost", "root", "", "viajes");
+$conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
 if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); }
 $conn->set_charset('utf8mb4');
 
