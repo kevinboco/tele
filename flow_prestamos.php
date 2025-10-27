@@ -387,7 +387,7 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
         }
 
         default:
-            sendMessage($chat_id, "❌ Usa */prestamos* para iniciar el flujo. */cancel* para reiniciar.");
+            sendMessage($chat_id, "❌ Usa */prestamos* para iniciar el flujo. */cancel* para reiniciar");
             clearState($chat_id);
             return;
     }
