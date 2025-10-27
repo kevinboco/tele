@@ -69,15 +69,30 @@ function kbPrestamoFecha() {
     ];
 }
 function kbPrestamoMeses($anio) {
-    $labels=[1=>"Enero",2=>"Febrero",3=>"Marzo",4=>"Abril",5=>"Mayo",6=>"Junio",7=>"Julio",8=>"Agosto",9=>"Septiembre",10=>"Octubre",11=>"Noviembre",12=>"Diciembre"];
+    $labels=[
+        1=>"Enero",2=>"Febrero",3=>"Marzo",4=>"Abril",5=>"Mayo",6=>"Junio",
+        7=>"Julio",8=>"Agosto",9=>"Septiembre",10=>"Octubre",11=>"Noviembre",12=>"Diciembre"
+    ];
     $kb=["inline_keyboard"=>[]];
     for ($i=1;$i<=12;$i+=2) {
         $row=[];
         $row[]=["text"=>$labels[$i]." $anio","callback_data"=>"pmes_".$anio."_".str_pad($i,2,"0",STR_PAD_LEFT)];
-        if ($i+1<=12) $row[]=["text"=>$labels[$i+1]." $anio","callback_data"=>"pmes_".$anio."_".str_pad($i+1,2,"0",STR_PAD_LEFT)];
+        if ($i+1<=12) {
+            $row[]=["text"=>$labels[$i+1]." $anio","callback_data"=>"pmes_".$anio."_".str_pad($i+1,2,"0",STR_PAD_LEFT)];
+        }
         $kb["inline_keyboard"][]=$row;
     }
     return $kb;
+}
+
+/* === NUEVO: teclado para comisión sí/no === */
+function kbComisionPregunta() {
+    return [
+        "inline_keyboard" => [
+            [["text"=>"💼 No, es mi plata / sin comisión","callback_data"=>"comi_no"]],
+            [["text"=>"🤝 Sí, yo cobro comisión","callback_data"=>"comi_si"]],
+        ]
+    ];
 }
 
 /* ========= entry ========= */
@@ -93,7 +108,11 @@ function prestamos_entrypoint($chat_id, $estado): void
     saveState($chat_id, $estado);
 
     if (!empty($estado['deudor_opts'])) {
-        sendMessage($chat_id, "👤 *¿A quién se le presta?* (elige o escribe)", kbNombreLista($estado['deudor_opts'], 'p_deudor'));
+        sendMessage(
+            $chat_id,
+            "👤 *¿A quién se le presta?* (elige o escribe)",
+            kbNombreLista($estado['deudor_opts'], 'p_deudor')
+        );
     } else {
         sendMessage($chat_id, "👤 *¿A quién se le presta?* (nombre completo)");
     }
@@ -105,11 +124,16 @@ function prestamos_resend_current_step($chat_id, $estado): void
     switch ($estado['paso'] ?? '') {
         case 'p_deudor':
             if (!empty($estado['deudor_opts'])) {
-                sendMessage($chat_id, "👤 *¿A quién se le presta?* (elige o escribe)", kbNombreLista($estado['deudor_opts'], 'p_deudor'));
+                sendMessage(
+                    $chat_id,
+                    "👤 *¿A quién se le presta?* (elige o escribe)",
+                    kbNombreLista($estado['deudor_opts'], 'p_deudor')
+                );
             } else {
                 sendMessage($chat_id, "👤 *¿A quién se le presta?* (nombre)");
             }
             break;
+
         case 'p_deudor_manual':
             sendMessage($chat_id, "✍️ *Escribe el nombre* del deudor:");
             break;
@@ -120,17 +144,55 @@ function prestamos_resend_current_step($chat_id, $estado): void
                 saveState($chat_id, $estado);
             }
             if (!empty($estado['prestamista_opts'])) {
-                sendMessage($chat_id, "🧾 *¿Quién lo presta?* (elige o escribe)", kbNombreLista($estado['prestamista_opts'], 'p_prestamista'));
+                sendMessage(
+                    $chat_id,
+                    "🧾 *¿Quién lo presta?* (elige o escribe)",
+                    kbNombreLista($estado['prestamista_opts'], 'p_prestamista')
+                );
             } else {
                 sendMessage($chat_id, "🧾 *¿Quién lo presta?* (nombre)");
             }
             break;
+
         case 'p_prestamista_manual':
             sendMessage($chat_id, "✍️ *Escribe el nombre* de quien presta:");
             break;
 
         case 'p_monto':
             sendMessage($chat_id, "💵 *¿Cuánto se prestó?* (solo número, ej.: 1500000)");
+            break;
+
+        /* === NUEVO PASO: preguntar si hay comisión === */
+        case 'p_comision_pregunta':
+            sendMessage(
+                $chat_id,
+                "📌 *¿Tú vas a cobrar comisión por este préstamo aunque la plata sea de otra persona?*",
+                kbComisionPregunta()
+            );
+            break;
+
+        /* === SUBFLUJO COMISIÓN: pedir origen de la plata === */
+        case 'p_comision_origen':
+            sendMessage(
+                $chat_id,
+                "🏦 *¿De quién es realmente la plata?* (escribe el nombre de quien puso el dinero)"
+            );
+            break;
+
+        /* === SUBFLUJO COMISIÓN: pedir % comisión del gestor === */
+        case 'p_comision_porcentaje':
+            sendMessage(
+                $chat_id,
+                "💸 *¿Cuál es TU porcentaje de comisión?* (solo número, ej.: 2 para 2%)"
+            );
+            break;
+
+        /* === SUBFLUJO COMISIÓN: pedir el nombre del que cobra la comisión === */
+        case 'p_comision_nombre_gestor':
+            sendMessage(
+                $chat_id,
+                "✍️ Escribe tu nombre (quien cobra la comisión)."
+            );
             break;
 
         case 'p_fecha':
@@ -164,7 +226,7 @@ function prestamos_handle_callback($chat_id, &$estado, string $cb_data, ?string 
 {
     if (($estado['flujo'] ?? '') !== 'prestamos') return;
 
-    // Picks
+    // Picks (deudor / prestamista)
     if (preg_match('/^pick_(p_deudor|p_prestamista)_(\d+|otro)$/', $cb_data, $m)) {
         $tipo = $m[1]; $idx = $m[2];
 
@@ -183,12 +245,17 @@ function prestamos_handle_callback($chat_id, &$estado, string $cb_data, ?string 
                     $estado['prestamista_opts'] = fetch_names_admin((int)$chat_id, 'prestamista');
                     saveState($chat_id, $estado);
                     if (!empty($estado['prestamista_opts'])) {
-                        sendMessage($chat_id, "🧾 *¿Quién lo presta?* (elige o escribe)", kbNombreLista($estado['prestamista_opts'], 'p_prestamista'));
+                        sendMessage(
+                            $chat_id,
+                            "🧾 *¿Quién lo presta?* (elige o escribe)",
+                            kbNombreLista($estado['prestamista_opts'], 'p_prestamista')
+                        );
                     } else {
                         sendMessage($chat_id, "🧾 *¿Quién lo presta?* (nombre)");
                     }
                 } else {
-                    $estado['paso']='p_deudor_manual'; saveState($chat_id,$estado);
+                    $estado['paso']='p_deudor_manual';
+                    saveState($chat_id,$estado);
                     sendMessage($chat_id, "⚠️ Opción inválida. Escribe el nombre del deudor:");
                 }
             }
@@ -206,7 +273,8 @@ function prestamos_handle_callback($chat_id, &$estado, string $cb_data, ?string 
                     saveState($chat_id, $estado);
                     sendMessage($chat_id, "💵 *¿Cuánto se prestó?* (solo número, ej.: 1500000)");
                 } else {
-                    $estado['paso']='p_prestamista_manual'; saveState($chat_id,$estado);
+                    $estado['paso']='p_prestamista_manual';
+                    saveState($chat_id,$estado);
                     sendMessage($chat_id, "⚠️ Opción inválida. Escribe el nombre de quien presta:");
                 }
             }
@@ -215,7 +283,7 @@ function prestamos_handle_callback($chat_id, &$estado, string $cb_data, ?string 
         return;
     }
 
-    // Fecha
+    // Fecha rápida / otra fecha
     if ($cb_data === 'pfecha_hoy') {
         $estado['p_fecha'] = date('Y-m-d');
         $estado['paso']    = 'p_foto';
@@ -244,6 +312,33 @@ function prestamos_handle_callback($chat_id, &$estado, string $cb_data, ?string 
         if ($cb_id) answerCallbackQuery($cb_id);
         return;
     }
+
+    /* === NUEVO: manejo de comisión === */
+    if ($cb_data === 'comi_no') {
+        // sin comisión -> limpiamos cualquier cosa previa
+        unset($estado['comision_gestor_nombre']);
+        unset($estado['comision_gestor_porcentaje']);
+        unset($estado['comision_base_monto']);
+        unset($estado['comision_origen_prestamista']);
+
+        $estado['paso'] = 'p_fecha';
+        saveState($chat_id, $estado);
+        sendMessage($chat_id, "📅 *Fecha del préstamo*:", kbPrestamoFecha());
+        if ($cb_id) answerCallbackQuery($cb_id);
+        return;
+    }
+    if ($cb_data === 'comi_si') {
+        // vamos a pedir detalles de comisión
+        $estado['paso'] = 'p_comision_origen';
+        saveState($chat_id, $estado);
+        sendMessage(
+            $chat_id,
+            "🏦 *¿De quién es realmente la plata?* (escribe el nombre de quien puso el dinero)"
+        );
+        if ($cb_id) answerCallbackQuery($cb_id);
+        return;
+    }
+
     if ($cb_id) answerCallbackQuery($cb_id);
 }
 
@@ -253,10 +348,14 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
     if (($estado['flujo'] ?? '') !== 'prestamos') return;
 
     switch ($estado['paso']) {
+
         case 'p_deudor':
         case 'p_deudor_manual': {
             $txt = norm_spaces($text ?? '');
-            if ($txt==='') { sendMessage($chat_id, "⚠️ Escribe el *nombre* del deudor."); return; }
+            if ($txt==='') {
+                sendMessage($chat_id, "⚠️ Escribe el *nombre* del deudor.");
+                return;
+            }
             $bonito = nicecase($txt);
             $estado['p_deudor'] = $bonito;
             upsert_name_admin((int)$chat_id, 'deudor', $bonito);
@@ -264,8 +363,13 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
             $estado['paso'] = 'p_prestamista';
             $estado['prestamista_opts'] = fetch_names_admin((int)$chat_id, 'prestamista');
             saveState($chat_id, $estado);
+
             if (!empty($estado['prestamista_opts'])) {
-                sendMessage($chat_id, "🧾 *¿Quién lo presta?* (elige o escribe)", kbNombreLista($estado['prestamista_opts'], 'p_prestamista'));
+                sendMessage(
+                    $chat_id,
+                    "🧾 *¿Quién lo presta?* (elige o escribe)",
+                    kbNombreLista($estado['prestamista_opts'], 'p_prestamista')
+                );
             } else {
                 sendMessage($chat_id, "🧾 *¿Quién lo presta?* (nombre)");
             }
@@ -275,7 +379,10 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
         case 'p_prestamista':
         case 'p_prestamista_manual': {
             $txt = norm_spaces($text ?? '');
-            if ($txt==='') { sendMessage($chat_id, "⚠️ Escribe el *nombre* de quien presta."); return; }
+            if ($txt==='') {
+                sendMessage($chat_id, "⚠️ Escribe el *nombre* de quien presta.");
+                return;
+            }
             $bonito = nicecase($txt);
             $estado['p_prestamista'] = $bonito;
             upsert_name_admin((int)$chat_id, 'prestamista', $bonito);
@@ -286,14 +393,80 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
             return;
         }
 
-        case 'p_monto':
+        case 'p_monto': {
             $raw = preg_replace('/[^\d]/','', (string)$text);
-            if ($raw==='' || !ctype_digit($raw)) { sendMessage($chat_id, "⚠️ Ingresa solo *números* (ej.: 1500000)."); return; }
+            if ($raw==='' || !ctype_digit($raw)) {
+                sendMessage($chat_id, "⚠️ Ingresa solo *números* (ej.: 1500000).");
+                return;
+            }
             $estado['p_monto'] = (int)$raw;
-            $estado['paso']    = 'p_fecha';
+
+            // Después del monto vamos a preguntar si hay comisión
+            $estado['paso']    = 'p_comision_pregunta';
+            saveState($chat_id, $estado);
+            sendMessage(
+                $chat_id,
+                "📌 *¿Tú vas a cobrar comisión por este préstamo aunque la plata sea de otra persona?*",
+                kbComisionPregunta()
+            );
+            return;
+        }
+
+        /* === SUBFLUJO COMISIÓN === */
+
+        // 1. Origen de la plata (quién puso el capital real)
+        case 'p_comision_origen': {
+            $origen = norm_spaces($text ?? '');
+            if ($origen==='') {
+                sendMessage($chat_id, "⚠️ Escribe el nombre de quien puso la plata.");
+                return;
+            }
+            $estado['comision_origen_prestamista'] = nicecase($origen);
+
+            $estado['paso'] = 'p_comision_porcentaje';
+            saveState($chat_id, $estado);
+            sendMessage(
+                $chat_id,
+                "💸 *¿Cuál es TU porcentaje de comisión?* (solo número, ej.: 2 para 2%)"
+            );
+            return;
+        }
+
+        // 2. Cuánto % cobras tú
+        case 'p_comision_porcentaje': {
+            $raw = preg_replace('/[^\d.]/','', (string)$text);
+            if ($raw==='' || !is_numeric($raw)) {
+                sendMessage($chat_id, "⚠️ Ingresa solo número (ej.: 2 para 2%).");
+                return;
+            }
+            $estado['comision_gestor_porcentaje'] = (float)$raw;
+            // base de comisión = monto total prestado
+            $estado['comision_base_monto'] = (int)($estado['p_monto'] ?? 0);
+
+            $estado['paso'] = 'p_comision_nombre_gestor';
+            saveState($chat_id, $estado);
+            sendMessage(
+                $chat_id,
+                "✍️ Escribe tu nombre (quien cobra la comisión)."
+            );
+            return;
+        }
+
+        // 3. Nombre de quien cobra la comisión (tú)
+        case 'p_comision_nombre_gestor': {
+            $gestor = norm_spaces($text ?? '');
+            if ($gestor==='') {
+                sendMessage($chat_id, "⚠️ Escribe tu nombre.");
+                return;
+            }
+            $estado['comision_gestor_nombre'] = nicecase($gestor);
+
+            // listo, seguimos con la fecha
+            $estado['paso'] = 'p_fecha';
             saveState($chat_id, $estado);
             sendMessage($chat_id, "📅 *Fecha del préstamo*:", kbPrestamoFecha());
             return;
+        }
 
         case 'p_fecha_dia': {
             $anio=(int)($estado['p_anio'] ?? date('Y'));
@@ -303,8 +476,12 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
                 sendMessage($chat_id, "⚠️ Debe ser un número entre 1 y $max. Escribe el *día*:");
                 return;
             }
-            $dia=(int)$text; $max=cal_days_in_month(CAL_GREGORIAN,$mes,$anio);
-            if ($dia<1 || $dia>$max) { sendMessage($chat_id, "⚠️ Día fuera de rango (1–$max)."); return; }
+            $dia=(int)$text;
+            $max=cal_days_in_month(CAL_GREGORIAN,$mes,$anio);
+            if ($dia<1 || $dia>$max) {
+                sendMessage($chat_id, "⚠️ Día fuera de rango (1–$max).");
+                return;
+            }
             $estado['p_fecha'] = sprintf('%04d-%02d-%02d',$anio,$mes,$dia);
             $estado['paso']    = 'p_foto';
             saveState($chat_id, $estado);
@@ -313,7 +490,12 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
         }
 
         case 'p_foto': {
-            file_put_contents("debug.txt", "[PRESTAMOS][{$chat_id}] paso=foto; hasPhoto=".(!empty($photo))."; hasDoc=".(isset($GLOBALS['update']['message']['document'])?'1':'0')."\n", FILE_APPEND);
+
+            file_put_contents(
+                "debug.txt",
+                "[PRESTAMOS][{$chat_id}] paso=foto; hasPhoto=".(!empty($photo))."; hasDoc=".(isset($GLOBALS['update']['message']['document'])?'1':'0')."\n",
+                FILE_APPEND
+            );
 
             $file_id = null;
             if (!empty($photo) && is_array($photo)) {
@@ -325,12 +507,19 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
             if (!$file_id && $doc && isset($doc['mime_type']) && strpos($doc['mime_type'], 'image/') === 0) {
                 $file_id = $doc['file_id'];
             }
-            if (!$file_id) { sendMessage($chat_id, "⚠️ Envía una *imagen* válida (foto o archivo de imagen)."); return; }
+            if (!$file_id) {
+                sendMessage($chat_id, "⚠️ Envía una *imagen* válida (foto o archivo de imagen).");
+                return;
+            }
 
             global $TOKEN;
-            $info = @json_decode(@file_get_contents("https://api.telegram.org/bot{$TOKEN}/getFile?file_id=".urlencode($file_id)), true);
+            $info = @json_decode(@file_get_contents(
+                "https://api.telegram.org/bot{$TOKEN}/getFile?file_id=".urlencode($file_id)
+            ), true);
+
             if (!$info || empty($info['ok']) || empty($info['result']['file_path'])) {
-                sendMessage($chat_id, "❌ No pude obtener el archivo desde Telegram."); return;
+                sendMessage($chat_id, "❌ No pude obtener el archivo desde Telegram.");
+                return;
             }
             $file_path = $info['result']['file_path'];
             $fileUrl   = "https://api.telegram.org/file/bot{$TOKEN}/{$file_path}";
@@ -342,40 +531,111 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
 
             $ok = false;
             if (function_exists('curl_init')) {
-                $ch=curl_init($fileUrl); $fp=fopen($destino,'wb');
-                curl_setopt_array($ch,[CURLOPT_FILE=>$fp,CURLOPT_FOLLOWLOCATION=>true,CURLOPT_TIMEOUT=>30]);
-                $ok=curl_exec($ch); $code=curl_getinfo($ch,CURLINFO_HTTP_CODE);
-                curl_close($ch); fclose($fp);
+                $ch=curl_init($fileUrl);
+                $fp=fopen($destino,'wb');
+                curl_setopt_array($ch,[
+                    CURLOPT_FILE=>$fp,
+                    CURLOPT_FOLLOWLOCATION=>true,
+                    CURLOPT_TIMEOUT=>30
+                ]);
+                $ok=curl_exec($ch);
+                $code=curl_getinfo($ch,CURLINFO_HTTP_CODE);
+                curl_close($ch);
+                fclose($fp);
                 if ($code!==200) $ok=false;
             } else {
                 $data=@file_get_contents($fileUrl);
-                if ($data!==false) $ok=(file_put_contents($destino,$data)!==false);
+                if ($data!==false) {
+                    $ok=(file_put_contents($destino,$data)!==false);
+                }
             }
-            if (!$ok || !file_exists($destino)) { sendMessage($chat_id,"❌ No pude guardar la imagen. Reenvíala, por favor."); return; }
+            if (!$ok || !file_exists($destino)) {
+                sendMessage($chat_id,"❌ No pude guardar la imagen. Reenvíala, por favor.");
+                return;
+            }
 
             // Guardar préstamo
             $conn = db();
-            if (!$conn) { sendMessage($chat_id, "❌ Error de conexión a la base de datos."); return; }
+            if (!$conn) {
+                sendMessage($chat_id, "❌ Error de conexión a la base de datos.");
+                return;
+            }
 
             $deudor = nicecase(norm_spaces($estado['p_deudor'] ?? ''));
             $prestamista = nicecase(norm_spaces($estado['p_prestamista'] ?? ''));
 
-            // (opcional) asegurar que queden en catálogo, por si vinieron por teclado
+            // asegurar catálogo
             upsert_name_admin((int)$chat_id, 'deudor', $deudor);
             upsert_name_admin((int)$chat_id, 'prestamista', $prestamista);
 
-            $stmt = $conn->prepare("INSERT INTO prestamos (chat_id, deudor, prestamista, monto, fecha, imagen, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())");
-            if (!$stmt) { sendMessage($chat_id, "❌ Error preparando la inserción."); $conn->close(); return; }
-            $stmt->bind_param("ississ", $chat_id, $deudor, $prestamista, $estado['p_monto'], $estado['p_fecha'], $nombreArchivo);
+            // valores de comisión si existen
+            $comi_nombre = $estado['comision_gestor_nombre']      ?? null;
+            $comi_pct    = $estado['comision_gestor_porcentaje']  ?? null;
+            $comi_base   = $estado['comision_base_monto']         ?? null;
+            $comi_origen = $estado['comision_origen_prestamista'] ?? null;
+
+            $stmt = $conn->prepare("
+                INSERT INTO prestamos
+                (chat_id,
+                 deudor,
+                 prestamista,
+                 monto,
+                 fecha,
+                 imagen,
+                 comision_gestor_nombre,
+                 comision_gestor_porcentaje,
+                 comision_base_monto,
+                 comision_origen_prestamista,
+                 created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            ");
+            if (!$stmt) {
+                sendMessage($chat_id, "❌ Error preparando la inserción.");
+                $conn->close();
+                return;
+            }
+
+            // bind_param:
+            // i = int
+            // s = string
+            // d = double/float
+            // orden debe coincidir con la query
+            $stmt->bind_param(
+                "ississsdis",
+                $chat_id,
+                $deudor,
+                $prestamista,
+                $estado['p_monto'],
+                $estado['p_fecha'],
+                $nombreArchivo,
+                $comi_nombre,
+                $comi_pct,
+                $comi_base,
+                $comi_origen
+            );
 
             if ($stmt->execute()) {
                 $montoFmt = number_format($estado['p_monto'], 0, ',', '.');
-                sendMessage($chat_id,
+
+                $extraComi = "";
+                if (!empty($comi_nombre) && $comi_pct !== null) {
+                    $baseFmt = number_format($comi_base ?? 0, 0, ',', '.');
+                    $extraComi =
+                        "\n🏷 Comisión" .
+                        "\n   👤 Para: {$comi_nombre}".
+                        "\n   📌 % Comisión: {$comi_pct}%".
+                        "\n   💵 Base: $ $baseFmt".
+                        "\n   💼 Origen capital: {$comi_origen}";
+                }
+
+                sendMessage(
+                    $chat_id,
                     "✅ *Préstamo registrado*\n".
                     "👤 Deudor: {$deudor}\n".
-                    "🧾 Prestamista: {$prestamista}\n".
-                    "💵 Monto: $ $montoFmt\n".
-                    "📅 Fecha: {$estado['p_fecha']}"
+                    "🧾 Prestamista (capital): {$prestamista}\n".
+                    "💵 Monto total: $ $montoFmt\n".
+                    "📅 Fecha: {$estado['p_fecha']}".
+                    $extraComi
                 );
             } else {
                 sendMessage($chat_id, "❌ Error al guardar: ".$conn->error);
@@ -387,7 +647,9 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
         }
 
         default:
-            sendMessage($chat_id, "❌ Usa */prestamos* para iniciar el flujo. */cancel* para reiniciar");
+            sendMessage($chat_id,
+                "❌ Usa */prestamos* para iniciar el flujo. */cancel* para reiniciar."
+            );
             clearState($chat_id);
             return;
     }
