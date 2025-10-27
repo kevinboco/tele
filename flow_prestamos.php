@@ -1,5 +1,28 @@
 <?php
-// flow_prestamos.php
+// flow_prestamos.php (versión extendida con comisión de intermediación)
+// REQUIERE que la tabla `prestamos` tenga estas columnas:
+//
+// ALTER TABLE prestamos
+// ADD COLUMN comision_gestor_nombre VARCHAR(100) NULL AFTER prestamista,
+// ADD COLUMN comision_gestor_porcentaje DECIMAL(5,2) NULL AFTER comision_gestor_nombre,
+// ADD COLUMN comision_base_monto BIGINT NULL AFTER comision_gestor_porcentaje,
+// ADD COLUMN comision_origen_prestamista VARCHAR(100) NULL AFTER comision_base_monto,
+// ADD COLUMN comision_origen_porcentaje DECIMAL(5,2) NULL AFTER comision_origen_prestamista;
+//
+// Esta versión soporta:
+// - Caso normal: tu plata → sin comisión, todo como antes
+// - Caso “plata de otra persona”: prestamista real + tu comisión
+//
+// Flujo nuevo después de monto:
+//   p_comision_pregunta  -> comi_no | comi_si
+//   si comi_no -> vamos directo a fecha
+//   si comi_si -> p_comision_origen
+//              -> p_comision_porcentaje_origen
+//              -> p_comision_porcentaje
+//              -> p_comision_nombre_gestor
+//              -> fecha
+//
+
 require_once __DIR__.'/helpers.php';
 
 /* ========= util ========= */
@@ -68,6 +91,7 @@ function kbPrestamoFecha() {
         ]
     ];
 }
+
 function kbPrestamoMeses($anio) {
     $labels=[
         1=>"Enero",2=>"Febrero",3=>"Marzo",4=>"Abril",5=>"Mayo",6=>"Junio",
@@ -122,6 +146,7 @@ function prestamos_entrypoint($chat_id, $estado): void
 function prestamos_resend_current_step($chat_id, $estado): void
 {
     switch ($estado['paso'] ?? '') {
+
         case 'p_deudor':
             if (!empty($estado['deudor_opts'])) {
                 sendMessage(
@@ -171,7 +196,7 @@ function prestamos_resend_current_step($chat_id, $estado): void
             );
             break;
 
-        /* === SUBFLUJO COMISIÓN: pedir origen de la plata === */
+        /* === SUBFLUJO COMISIÓN: pedir origen del capital === */
         case 'p_comision_origen':
             sendMessage(
                 $chat_id,
@@ -179,7 +204,15 @@ function prestamos_resend_current_step($chat_id, $estado): void
             );
             break;
 
-        /* === SUBFLUJO COMISIÓN: pedir % comisión del gestor === */
+        /* === SUBFLUJO COMISIÓN: % que cobra el dueño del capital === */
+        case 'p_comision_porcentaje_origen':
+            sendMessage(
+                $chat_id,
+                "📈 *¿Qué porcentaje cobra la persona que puso la plata?* (solo número, ej.: 8 para 8%)"
+            );
+            break;
+
+        /* === SUBFLUJO COMISIÓN: tu % de comisión === */
         case 'p_comision_porcentaje':
             sendMessage(
                 $chat_id,
@@ -187,7 +220,7 @@ function prestamos_resend_current_step($chat_id, $estado): void
             );
             break;
 
-        /* === SUBFLUJO COMISIÓN: pedir el nombre del que cobra la comisión === */
+        /* === SUBFLUJO COMISIÓN: tu nombre como gestor === */
         case 'p_comision_nombre_gestor':
             sendMessage(
                 $chat_id,
@@ -226,7 +259,7 @@ function prestamos_handle_callback($chat_id, &$estado, string $cb_data, ?string 
 {
     if (($estado['flujo'] ?? '') !== 'prestamos') return;
 
-    // Picks (deudor / prestamista)
+    // Picks de deudor / prestamista
     if (preg_match('/^pick_(p_deudor|p_prestamista)_(\d+|otro)$/', $cb_data, $m)) {
         $tipo = $m[1]; $idx = $m[2];
 
@@ -320,6 +353,7 @@ function prestamos_handle_callback($chat_id, &$estado, string $cb_data, ?string 
         unset($estado['comision_gestor_porcentaje']);
         unset($estado['comision_base_monto']);
         unset($estado['comision_origen_prestamista']);
+        unset($estado['comision_origen_porcentaje']);
 
         $estado['paso'] = 'p_fecha';
         saveState($chat_id, $estado);
@@ -327,6 +361,7 @@ function prestamos_handle_callback($chat_id, &$estado, string $cb_data, ?string 
         if ($cb_id) answerCallbackQuery($cb_id);
         return;
     }
+
     if ($cb_data === 'comi_si') {
         // vamos a pedir detalles de comisión
         $estado['paso'] = 'p_comision_origen';
@@ -401,7 +436,7 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
             }
             $estado['p_monto'] = (int)$raw;
 
-            // Después del monto vamos a preguntar si hay comisión
+            // Después del monto preguntar si hay comisión
             $estado['paso']    = 'p_comision_pregunta';
             saveState($chat_id, $estado);
             sendMessage(
@@ -414,15 +449,37 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
 
         /* === SUBFLUJO COMISIÓN === */
 
-        // 1. Origen de la plata (quién puso el capital real)
+        // 1. Quién puso realmente la plata
         case 'p_comision_origen': {
             $origen = norm_spaces($text ?? '');
             if ($origen==='') {
                 sendMessage($chat_id, "⚠️ Escribe el nombre de quien puso la plata.");
                 return;
             }
+
             $estado['comision_origen_prestamista'] = nicecase($origen);
 
+            // siguiente: % que cobra esa persona
+            $estado['paso'] = 'p_comision_porcentaje_origen';
+            saveState($chat_id, $estado);
+            sendMessage(
+                $chat_id,
+                "📈 *¿Qué porcentaje cobra la persona que puso la plata?* (solo número, ej.: 8 para 8%)"
+            );
+            return;
+        }
+
+        // 2. % del dueño del capital (ej.: Selene cobra 8%)
+        case 'p_comision_porcentaje_origen': {
+            $raw = preg_replace('/[^\d.]/','', (string)$text);
+            if ($raw==='' || !is_numeric($raw)) {
+                sendMessage($chat_id, "⚠️ Ingresa solo número (ej.: 8 para 8%).");
+                return;
+            }
+
+            $estado['comision_origen_porcentaje'] = (float)$raw;
+
+            // siguiente: tu % de comisión
             $estado['paso'] = 'p_comision_porcentaje';
             saveState($chat_id, $estado);
             sendMessage(
@@ -432,17 +489,19 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
             return;
         }
 
-        // 2. Cuánto % cobras tú
+        // 3. % de comisión tuya (ej.: tú cobras 2%)
         case 'p_comision_porcentaje': {
             $raw = preg_replace('/[^\d.]/','', (string)$text);
             if ($raw==='' || !is_numeric($raw)) {
                 sendMessage($chat_id, "⚠️ Ingresa solo número (ej.: 2 para 2%).");
                 return;
             }
+
             $estado['comision_gestor_porcentaje'] = (float)$raw;
-            // base de comisión = monto total prestado
+            // base = monto total prestado
             $estado['comision_base_monto'] = (int)($estado['p_monto'] ?? 0);
 
+            // siguiente: tu nombre (quien cobra la comisión)
             $estado['paso'] = 'p_comision_nombre_gestor';
             saveState($chat_id, $estado);
             sendMessage(
@@ -452,13 +511,14 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
             return;
         }
 
-        // 3. Nombre de quien cobra la comisión (tú)
+        // 4. Tu nombre para esa comisión
         case 'p_comision_nombre_gestor': {
             $gestor = norm_spaces($text ?? '');
             if ($gestor==='') {
                 sendMessage($chat_id, "⚠️ Escribe tu nombre.");
                 return;
             }
+
             $estado['comision_gestor_nombre'] = nicecase($gestor);
 
             // listo, seguimos con la fecha
@@ -569,10 +629,11 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
             upsert_name_admin((int)$chat_id, 'prestamista', $prestamista);
 
             // valores de comisión si existen
-            $comi_nombre = $estado['comision_gestor_nombre']      ?? null;
-            $comi_pct    = $estado['comision_gestor_porcentaje']  ?? null;
-            $comi_base   = $estado['comision_base_monto']         ?? null;
-            $comi_origen = $estado['comision_origen_prestamista'] ?? null;
+            $comi_nombre       = $estado['comision_gestor_nombre']       ?? null;
+            $comi_pct          = $estado['comision_gestor_porcentaje']   ?? null;
+            $comi_base         = $estado['comision_base_monto']          ?? null;
+            $comi_origen       = $estado['comision_origen_prestamista']  ?? null;
+            $comi_origen_pct   = $estado['comision_origen_porcentaje']   ?? null;
 
             $stmt = $conn->prepare("
                 INSERT INTO prestamos
@@ -586,8 +647,9 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
                  comision_gestor_porcentaje,
                  comision_base_monto,
                  comision_origen_prestamista,
+                 comision_origen_porcentaje,
                  created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
             ");
             if (!$stmt) {
                 sendMessage($chat_id, "❌ Error preparando la inserción.");
@@ -601,7 +663,7 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
             // d = double/float
             // orden debe coincidir con la query
             $stmt->bind_param(
-                "ississsdis",
+                "ississsdisd",
                 $chat_id,
                 $deudor,
                 $prestamista,
@@ -611,7 +673,8 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
                 $comi_nombre,
                 $comi_pct,
                 $comi_base,
-                $comi_origen
+                $comi_origen,
+                $comi_origen_pct
             );
 
             if ($stmt->execute()) {
@@ -621,11 +684,19 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
                 if (!empty($comi_nombre) && $comi_pct !== null) {
                     $baseFmt = number_format($comi_base ?? 0, 0, ',', '.');
                     $extraComi =
-                        "\n🏷 Comisión" .
-                        "\n   👤 Para: {$comi_nombre}".
-                        "\n   📌 % Comisión: {$comi_pct}%".
-                        "\n   💵 Base: $ $baseFmt".
-                        "\n   💼 Origen capital: {$comi_origen}";
+                        "\n🏷 Comisión / Intermediación" .
+                        "\n   👤 Quien cobra comisión: {$comi_nombre}".
+                        "\n   💸 % Comisión propia: {$comi_pct}%".
+                        "\n   💵 Base comisión: $ $baseFmt";
+
+                    if (!empty($comi_origen)) {
+                        $extraComi .=
+                        "\n   🏦 Dueño del capital: {$comi_origen}";
+                        if ($comi_origen_pct !== null) {
+                            $extraComi .=
+                            "\n   📈 % Dueño del capital: {$comi_origen_pct}%";
+                        }
+                    }
                 }
 
                 sendMessage(
