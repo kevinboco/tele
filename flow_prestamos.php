@@ -457,16 +457,20 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
                 return;
             }
 
-            $estado['comision_origen_prestamista'] = nicecase($origen);
+            $bonitoOrigen = nicecase($origen);
 
-            // siguiente: % que cobra esa persona
-            $estado['paso'] = 'p_comision_porcentaje_origen';
+            // esto: el dueño real del capital pasa a ser el prestamista oficial del préstamo
+            $estado['comision_origen_prestamista'] = $bonitoOrigen;
+            $estado['p_prestamista'] = $bonitoOrigen;
+
+            // y lo registramos también en la tabla de prestamistas conocidos
+            upsert_name_admin((int)$chat_id, 'prestamista', $bonitoOrigen);
+
+            $estado['paso'] = 'p_comision_porcentaje';
             saveState($chat_id, $estado);
-            sendMessage(
-                $chat_id,
-                "📈 *¿Qué porcentaje cobra la persona que puso la plata?* (solo número, ej.: 8 para 8%)"
-            );
+            sendMessage($chat_id, "📈 *¿Qué porcentaje cobra la persona que puso la plata?* (solo número, ej.: 8 para 8%)");
             return;
+
         }
 
         // 2. % del dueño del capital (ej.: Selene cobra 8%)
