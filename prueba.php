@@ -8,7 +8,7 @@
  * - Fila TOTAL y leyenda de colores en el modal
  * - Colores por antigüedad (meses) en modal y nodos
  * - Contador de préstamos por deudor en cada nodo
- *********************************************************/
+
 include("nav.php");
 
 /* ===== Config ===== */
