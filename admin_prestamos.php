@@ -9,6 +9,7 @@
  * - Colorear nodo 2 según meses (1, 2, 3+)
  * - Filtro por Deudor + resumen de sumas del deudor
  * - Selección múltiple en Tarjetas + Edición en lote
+ * - COMISIONES en tarjetas con color azul
  *********************************************************/
 include("nav.php");
 
@@ -258,6 +259,12 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  .badge{background:#111;color:#fff;border-radius:999px;padding:2px 8px;font-size:12px;font-weight:700}
  .cardSel{display:flex;align-items:center;gap:8px;margin-bottom:6px}
  .sticky-actions{position:sticky; top:10px; align-self:flex-start}
+
+ /* NUEVO: Estilos para comisiones en tarjetas */
+ .card-comision { border-left: 4px solid #0b5ed7; background: #F0F9FF !important; }
+ .comision-badge { background: #0b5ed7 !important; color: white !important; }
+ .comision-info { background: #EAF5FF !important; border: 1px solid #BAE6FD !important; }
+ .comision-text { color: #0369A1 !important; font-weight: 600; }
 </style>
 </head><body>
 
@@ -366,8 +373,10 @@ else:
     if ($fpNorm!==''){ $where.=" AND LOWER(TRIM(prestamista)) = ?"; $types.="s"; $params[]=$fpNorm; }
     if ($fdNorm!==''){ $where.=" AND LOWER(TRIM(deudor)) = ?"; $types.="s"; $params[]=$fdNorm; }
 
+    // MODIFICADO: Incluir campos de comisión en la consulta
     $sql = "
       SELECT id,deudor,prestamista,monto,fecha,imagen,created_at,
+             comision_gestor_nombre, comision_gestor_porcentaje, comision_base_monto, comision_origen_prestamista,
              CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS meses,
              (monto*0.10*CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes,
              (monto + (monto*0.10*CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
@@ -449,11 +458,19 @@ else:
         </div>
 
         <div class="grid-cards">
-          <?php while($r=$rs->fetch_assoc()): ?>
-            <div class="card">
+          <?php while($r=$rs->fetch_assoc()): 
+            // Determinar si es una comisión
+            $esComision = !empty($r['comision_gestor_nombre']);
+            $cardClass = $esComision ? 'card-comision' : '';
+            $badgeClass = $esComision ? 'comision-badge' : 'chip';
+          ?>
+            <div class="card <?= $cardClass ?>">
               <div class="cardSel">
                 <input class="chkRow" type="checkbox" name="ids[]" value="<?= (int)$r['id'] ?>">
                 <div class="subtitle">#<?= h($r['id']) ?></div>
+                <?php if ($esComision): ?>
+                  <span class="<?= $badgeClass ?>" style="margin-left:auto">💰 Comisión</span>
+                <?php endif; ?>
               </div>
 
               <?php if (!empty($r['imagen'])): ?>
@@ -467,6 +484,28 @@ else:
                 </div>
                 <span class="chip"><?= h($r['fecha']) ?></span>
               </div>
+
+              <!-- NUEVO: Mostrar información de comisión si existe -->
+              <?php if ($esComision): ?>
+                <div class="pairs comision-info" style="margin-top:8px; padding:8px; border-radius:8px;">
+                  <div class="item">
+                    <div class="k comision-text">Gestor Comisión</div>
+                    <div class="v comision-text"><?= h($r['comision_gestor_nombre']) ?></div>
+                  </div>
+                  <div class="item">
+                    <div class="k comision-text">% Comisión</div>
+                    <div class="v comision-text"><?= h($r['comision_gestor_porcentaje']) ?>%</div>
+                  </div>
+                  <div class="item">
+                    <div class="k comision-text">Base Comisión</div>
+                    <div class="v comision-text">$ <?= money($r['comision_base_monto']) ?></div>
+                  </div>
+                  <div class="item">
+                    <div class="k comision-text">Origen</div>
+                    <div class="v comision-text"><?= h($r['comision_origen_prestamista']) ?></div>
+                  </div>
+                </div>
+              <?php endif; ?>
 
               <div class="pairs" style="margin-top:12px">
                 <div class="item"><div class="k">Monto</div><div class="v">$ <?= money($r['monto']) ?></div></div>
