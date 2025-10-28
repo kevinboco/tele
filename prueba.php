@@ -124,7 +124,7 @@ $sql = "
           SUM(
             monto * COALESCE(comision_origen_porcentaje, 
               CASE 
-                WHEN comision_gestor_nombre IS NULL AND fecha >= '2025-10-29' THEN 12
+                WHEN comision_gestor_nombre IS NULL AND fecha >= '2025-10-28' THEN 12
                 ELSE 10 
               END) / 100 *
             CASE WHEN CURDATE() < fecha
