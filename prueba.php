@@ -268,19 +268,30 @@ foreach ($detalleMap as $pkey => $byDeudor){
       if (!empty($it['comi_nombre']) && (int)$it['pagado']===0){
         $gestor = $it['comi_nombre'];
         
-        if (!isset($comisionesPorPrestamista[$gestor])) {
-          $comisionesPorPrestamista[$gestor] = [];
+        // Buscar el prestamista que coincide con el gestor
+        $prestamistaEncontrado = null;
+        foreach ($data as $prestNombre => $rows) {
+            if (mbnorm($prestNombre) === mbnorm($gestor)) {
+                $prestamistaEncontrado = $prestNombre;
+                break;
+            }
         }
         
-        $comisionesPorPrestamista[$gestor][] = [
-          'deudor'      => $it['deudor'],
-          'origen'      => $it['comi_origen'] ?: $it['prestamista'],
-          'fecha'       => $it['fecha'],
-          'base'        => (float)$it['comi_base'],
-          'pct'         => (float)$it['comi_pct'],
-          'ganancia'    => (float)$it['comi_base'] * ($it['comi_pct']/100.0),
-          'meses'       => $it['meses']
-        ];
+        if ($prestamistaEncontrado) {
+            if (!isset($comisionesPorPrestamista[$prestamistaEncontrado])) {
+                $comisionesPorPrestamista[$prestamistaEncontrado] = [];
+            }
+            
+            $comisionesPorPrestamista[$prestamistaEncontrado][] = [
+                'deudor'      => $it['deudor'],
+                'origen'      => $it['comi_origen'] ?: $it['prestamista'],
+                'fecha'       => $it['fecha'],
+                'base'        => (float)$it['comi_base'],
+                'pct'         => (float)$it['comi_pct'],
+                'ganancia'    => (float)$it['comi_base'] * ($it['comi_pct']/100.0),
+                'meses'       => $it['meses']
+            ];
+        }
       }
     }
   }
@@ -288,34 +299,31 @@ foreach ($detalleMap as $pkey => $byDeudor){
 
 // Agregar las comisiones a cada prestamista correspondiente
 foreach ($comisionesPorPrestamista as $prestamista => $comisiones) {
-  // Solo agregar si el prestamista ya existe en los datos
-  if (isset($data[$prestamista])) {
     foreach ($comisiones as $comision) {
-      $deudorComision = $comision['deudor'] . ' 💼 Comisión ' . $comision['pct'] . '%';
-      
-      $data[$prestamista][] = [
-        'nombre'      => $deudorComision,
-        'valor'       => $comision['ganancia'],
-        'fecha'       => $comision['fecha'],
-        'interes'     => 0,
-        'total'       => $comision['ganancia'],
-        'meses'       => $comision['meses'],
-        'ids_csv'     => '', // Las comisiones no se marcan como pagadas aquí
-        '__pkey'      => mbnorm($prestamista),
-        '__dkey'      => mbnorm($deudorComision),
-        'es_comision' => true, // Flag para identificar que es comisión
-        'origen'      => $comision['origen'],
-        'base'        => $comision['base'],
-        'pct_comision'=> $comision['pct']
-      ];
-      
-      // Actualizar totales del prestamista
-      $ganPrest[$prestamista] = ($ganPrest[$prestamista] ?? 0) + $comision['ganancia'];
-      $capPendPrest[$prestamista] = ($capPendPrest[$prestamista] ?? 0) + $comision['ganancia'];
-      
-      $allDebtors[$deudorComision] = 1;
+        $deudorComision = $comision['deudor'] . ' 💼 Comisión ' . $comision['pct'] . '%';
+        
+        $data[$prestamista][] = [
+            'nombre'      => $deudorComision,
+            'valor'       => $comision['ganancia'],
+            'fecha'       => $comision['fecha'],
+            'interes'     => 0,
+            'total'       => $comision['ganancia'],
+            'meses'       => $comision['meses'],
+            'ids_csv'     => '', // Las comisiones no se marcan como pagadas aquí
+            '__pkey'      => mbnorm($prestamista),
+            '__dkey'      => mbnorm($deudorComision),
+            'es_comision' => true, // Flag para identificar que es comisión
+            'origen'      => $comision['origen'],
+            'base'        => $comision['base'],
+            'pct_comision'=> $comision['pct']
+        ];
+        
+        // Actualizar totales del prestamista
+        $ganPrest[$prestamista] = ($ganPrest[$prestamista] ?? 0) + $comision['ganancia'];
+        $capPendPrest[$prestamista] = ($capPendPrest[$prestamista] ?? 0) + $comision['ganancia'];
+        
+        $allDebtors[$deudorComision] = 1;
     }
-  }
 }
 
 /* ===== cerrar conn ===== */
