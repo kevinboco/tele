@@ -13,6 +13,7 @@
  * - Fila TOTAL y leyenda de colores en el modal
  * - Colores por antigüedad (meses) en modal y nodos
  * - Contador de préstamos por deudor
+ * - NUEVOS PRÉSTAMOS SIN COMISIÓN: 12% (antes 10%)
  *********************************************************/
 
 include("nav.php");
@@ -121,7 +122,11 @@ $sql = "
           END AS meses,
           SUM(monto) AS capital,
           SUM(
-            monto * COALESCE(comision_origen_porcentaje, 10) / 100 *
+            monto * COALESCE(comision_origen_porcentaje, 
+              CASE 
+                WHEN comision_gestor_nombre IS NULL AND fecha >= '2025-10-29' THEN 12
+                ELSE 10 
+              END) / 100 *
             CASE WHEN CURDATE() < fecha
                  THEN 0
                  ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
@@ -129,7 +134,11 @@ $sql = "
           ) AS interes,
           SUM(
             monto +
-            monto * COALESCE(comision_origen_porcentaje, 10) / 100 *
+            monto * COALESCE(comision_origen_porcentaje, 
+              CASE 
+                WHEN comision_gestor_nombre IS NULL AND fecha >= '2025-10-29' THEN 12
+                ELSE 10 
+              END) / 100 *
             CASE WHEN CURDATE() < fecha
                  THEN 0
                  ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
@@ -174,17 +183,26 @@ $sqlDet = "
      fecha,
      monto,
      comision_origen_porcentaje,
+     comision_gestor_nombre,
      CASE WHEN CURDATE() < fecha
           THEN 0
           ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
      END AS meses,
-     (monto * COALESCE(comision_origen_porcentaje, 10) / 100 *
+     (monto * COALESCE(comision_origen_porcentaje, 
+        CASE 
+          WHEN comision_gestor_nombre IS NULL AND fecha >= '2025-10-29' THEN 12
+          ELSE 10 
+        END) / 100 *
       CASE WHEN CURDATE() < fecha
            THEN 0
            ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
       END) AS interes,
      (monto +
-      monto * COALESCE(comision_origen_porcentaje, 10) / 100 *
+      monto * COALESCE(comision_origen_porcentaje, 
+        CASE 
+          WHEN comision_gestor_nombre IS NULL AND fecha >= '2025-10-29' THEN 12
+          ELSE 10 
+        END) / 100 *
       CASE WHEN CURDATE() < fecha
            THEN 0
            ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
@@ -217,6 +235,17 @@ while($row=$rsDet->fetch_assoc()){
   $pkey = $row['prest_key']; // prestamista que puso la plata original
   $dkey = $row['deud_key'];
 
+  // Determinar el porcentaje de interés para este préstamo
+  $porcentaje_interes = (float)$row['comision_origen_porcentaje'];
+  if ($porcentaje_interes == 0) {
+    // Si no tiene porcentaje definido, aplicar la nueva regla
+    if (empty($row['comision_gestor_nombre']) && $row['fecha'] >= '2025-10-29') {
+      $porcentaje_interes = 12.0; // Nuevos préstamos sin comisión
+    } else {
+      $porcentaje_interes = 10.0; // Préstamos anteriores
+    }
+  }
+
   // push préstamo normal
   if (!isset($detalleMap[$pkey])) $detalleMap[$pkey]=[];
   if (!isset($detalleMap[$pkey][$dkey])) $detalleMap[$pkey][$dkey]=[];
@@ -230,7 +259,7 @@ while($row=$rsDet->fetch_assoc()){
     'pagado'     => (int)$row['pagado'],
     'prestamista'=> $row['prestamista'],
     'deudor'     => $row['deudor'],
-    'porcentaje_interes' => (float)$row['comision_origen_porcentaje'],
+    'porcentaje_interes' => $porcentaje_interes,
 
     // info de comisión (si existiera)
     'comi_nombre'   => $row['comision_gestor_nombre'],      // quién cobra comisión
