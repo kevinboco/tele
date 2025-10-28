@@ -121,7 +121,7 @@ $sql = "
           END AS meses,
           SUM(monto) AS capital,
           SUM(
-            monto*0.10*
+            monto * COALESCE(comision_origen_porcentaje, 10) / 100 *
             CASE WHEN CURDATE() < fecha
                  THEN 0
                  ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
@@ -129,7 +129,7 @@ $sql = "
           ) AS interes,
           SUM(
             monto +
-            monto*0.10*
+            monto * COALESCE(comision_origen_porcentaje, 10) / 100 *
             CASE WHEN CURDATE() < fecha
                  THEN 0
                  ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
@@ -173,17 +173,18 @@ $sqlDet = "
      id,
      fecha,
      monto,
+     comision_origen_porcentaje,
      CASE WHEN CURDATE() < fecha
           THEN 0
           ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
      END AS meses,
-     (monto*0.10*
+     (monto * COALESCE(comision_origen_porcentaje, 10) / 100 *
       CASE WHEN CURDATE() < fecha
            THEN 0
            ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
       END) AS interes,
      (monto +
-      monto*0.10*
+      monto * COALESCE(comision_origen_porcentaje, 10) / 100 *
       CASE WHEN CURDATE() < fecha
            THEN 0
            ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
@@ -229,6 +230,7 @@ while($row=$rsDet->fetch_assoc()){
     'pagado'     => (int)$row['pagado'],
     'prestamista'=> $row['prestamista'],
     'deudor'     => $row['deudor'],
+    'porcentaje_interes' => (float)$row['comision_origen_porcentaje'],
 
     // info de comisión (si existiera)
     'comi_nombre'   => $row['comision_gestor_nombre'],      // quién cobra comisión
@@ -1094,7 +1096,8 @@ function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
       tdMonto.textContent = "$ " + Number(item.monto||0).toLocaleString();
 
       const tdInt = document.createElement('td');
-      tdInt.textContent = "$ " + Number(item.interes||0).toLocaleString();
+      tdInt.textContent = "$ " + Number(item.interes||0).toLocaleString() + 
+                         " (" + (Number(item.porcentaje_interes) || 10) + "%)";
 
       const tdTot = document.createElement('td');
       tdTot.textContent = "$ " + Number(item.total||0).toLocaleString();
