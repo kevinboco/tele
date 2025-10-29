@@ -10,6 +10,7 @@ include("nav.php");
  * - Colores por antigüedad (meses) en modal y nodos
  * - Contador de préstamos por deudor en cada nodo
  * - Interés 13% para préstamos desde hoy, 10% para anteriores
+ * - COMISIÓN GLADYS: 5% sobre prestamistas seleccionados
  *********************************************************/
 
 /* ===== Config ===== */
@@ -330,6 +331,10 @@ $msg = $_GET['msg'] ?? '';
     border-radius:999px;padding:4px 10px;
     font-size:12px
   }
+  .chip-comision{
+    background:#f0f9ff;border:1px solid #7dd3fc;
+    color:#0c4a6e;
+  }
 
   .search{
     margin-left:auto;display:flex;
@@ -608,6 +613,23 @@ $msg = $_GET['msg'] ?? '';
     </div>
   </div>
 
+  <!-- Selección prestamistas para comisión Gladys -->
+  <div class="filter-wrap">
+    <div class="multiselect" id="ms-prestamistas-comision">
+      <button type="button" id="ms-toggle-comision">Seleccionar prestamistas para comisión 5% (0)</button>
+      <div class="panel" id="ms-panel-comision" style="display:none">
+        <div class="opt" style="justify-content:space-between; padding:6px 8px; border-bottom:1px solid #eef2ff;">
+          <div style="font-weight:600">Prestamistas para comisión Gladys</div>
+          <div style="display:flex; gap:6px">
+            <button type="button" id="ms-all-comision" class="btn small" style="background:#eef2ff;color:#0b5ed7;border:0">Todos</button>
+            <button type="button" id="ms-none-comision" class="btn small" style="background:#fff;color:#374151;border:1px solid #e5e7eb">Ninguno</button>
+          </div>
+        </div>
+        <div id="ms-list-comision"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Buscador -->
   <div class="search">
     <input id="searchInput" type="text" placeholder="Buscar..." autocomplete="off">
@@ -724,22 +746,28 @@ function renderChips(prest, visibleRows=null){
     const all = visibleRows || collectRowsForSelected();
     interes = all.reduce((a,r)=>a+Number(r.interes||0),0);
     capital = all.reduce((a,r)=>a+Number(r.valor||0),0);
-
-    const chipM = document.createElement("span");
-    chipM.className="chip";
-    chipM.textContent = "Modo global (todos los prestamistas)";
-
-    const chipF = document.createElement("span");
-    chipF.className="chip";
-    chipF.textContent = `Filtro: ${SELECTED_DEUDORES.size} deudor(es)`;
-
-    chipsHost.append(chipM, chipF);
   } else {
     interes = Number(GANANCIA[prest]||0);
     capital = Number(CAPITAL[prest]||0);
     if (Array.isArray(visibleRows)) {
       interes = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
       capital = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
+    }
+  }
+
+  // CALCULAR COMISIÓN DE GLADYS (5% sobre prestamistas seleccionados)
+  let comisionGladys = 0;
+  if (PRESTAMISTAS_SELECCIONADOS.size > 0) {
+    if (isGlobalMode()) {
+      // En modo global, calcular sobre los prestamistas seleccionados
+      const rowsForComision = (visibleRows || collectRowsForSelected())
+        .filter(r => PRESTAMISTAS_SELECCIONADOS.has(r.__prest));
+      comisionGladys = rowsForComision.reduce((a,r)=>a+Number(r.interes||0),0) * 0.05;
+    } else {
+      // En modo prestamista individual
+      if (PRESTAMISTAS_SELECCIONADOS.has(prest)) {
+        comisionGladys = interes * 0.05;
+      }
     }
   }
 
@@ -750,6 +778,14 @@ function renderChips(prest, visibleRows=null){
   const chip2 = document.createElement("span");
   chip2.className = "chip";
   chip2.textContent = `Total prestado (pend.): $ ${capital.toLocaleString()}`;
+
+  // Chip de comisión Gladys
+  if (comisionGladys > 0) {
+    const chipComision = document.createElement("span");
+    chipComision.className = "chip chip-comision";
+    chipComision.textContent = `Mi comisión 5%: $ ${comisionGladys.toLocaleString()}`;
+    chipsHost.appendChild(chipComision);
+  }
 
   const chipL1 = document.createElement("span");
   chipL1.className="chip";
@@ -884,8 +920,75 @@ document.addEventListener('click', (e)=>{
   if (!ms.contains(e.target)) msPanel.style.display='none';
 });
 
+/* ===== Selección de prestamistas para comisión Gladys ===== */
+const msComision = document.getElementById('ms-prestamistas-comision');
+const msToggleComision = document.getElementById('ms-toggle-comision');
+const msPanelComision  = document.getElementById('ms-panel-comision');
+const msListComision   = document.getElementById('ms-list-comision');
+const msAllComision    = document.getElementById('ms-all-comision');
+const msNoneComision   = document.getElementById('ms-none-comision');
+
+const PRESTAMISTAS_SELECCIONADOS = new Set();
+
+function updateMsComisionLabel(){
+  msToggleComision.textContent = `Seleccionar prestamistas para comisión 5% (${PRESTAMISTAS_SELECCIONADOS.size})`;
+}
+
+function renderMsComisionList(){
+  msListComision.innerHTML = '';
+  const frag = document.createDocumentFragment();
+  prestNombres.forEach(name=>{
+    const row = document.createElement('label');
+    row.className = 'opt';
+
+    const cb = document.createElement('input');
+    cb.type='checkbox';
+    cb.checked = PRESTAMISTAS_SELECCIONADOS.has(name);
+
+    const sp = document.createElement('span');
+    sp.textContent = name;
+
+    row.appendChild(cb);
+    row.appendChild(sp);
+
+    cb.addEventListener('change', ()=>{
+      if(cb.checked) PRESTAMISTAS_SELECCIONADOS.add(name);
+      else PRESTAMISTAS_SELECCIONADOS.delete(name);
+      updateMsComisionLabel();
+      drawTree(currentPrest);
+    });
+
+    frag.appendChild(row);
+  });
+  msListComision.appendChild(frag);
+}
+
+msToggleComision.addEventListener('click', ()=>{
+  msPanelComision.style.display = (msPanelComision.style.display==='none' || !msPanelComision.style.display) ? 'block':'none';
+});
+
+msAllComision.addEventListener('click', ()=>{
+  prestNombres.forEach(n=>PRESTAMISTAS_SELECCIONADOS.add(n));
+  updateMsComisionLabel();
+  renderMsComisionList();
+  drawTree(currentPrest);
+});
+
+msNoneComision.addEventListener('click', ()=>{
+  PRESTAMISTAS_SELECCIONADOS.clear();
+  updateMsComisionLabel();
+  renderMsComisionList();
+  drawTree(currentPrest);
+});
+
+document.addEventListener('click', (e)=>{
+  if (!msComision.contains(e.target)) msPanelComision.style.display='none';
+});
+
 renderMsList();
 updateMsLabel();
+renderMsComisionList();
+updateMsComisionLabel();
 
 /* ===== wrapText para SVG ===== */
 function wrapText(textSel, width){
@@ -1076,7 +1179,7 @@ function drawTree(prestamista) {
   // 1) Filas base
   let allRows;
   if (global) {
-    allRows = collectRowsForSelected(); // multi prestamistass, solo deudores filtrados
+    allRows = collectRowsForSelected(); // multi prestamistas, solo deudores filtrados
   } else {
     allRows = DATA[prestamista] || [];
   }
@@ -1181,7 +1284,7 @@ function drawTree(prestamista) {
     const m = +d.data.meses || 0;
     const mcls = (m >= 3) ? "m3" : (m === 2 ? "m2" : (m === 1 ? "m1" : "m0"));
 
-    // === NUEVO contador de préstamos:
+    // Contador de préstamos:
     const prestKeyForCount = (
       global
         ? (d.data.__prest || '').toLowerCase().trim()
@@ -1293,11 +1396,24 @@ function drawTree(prestamista) {
   const totalInteres = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
   const totalCapital = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
 
+  // Calcular comisión Gladys para el resumen
+  let comisionGladysResumen = 0;
+  if (PRESTAMISTAS_SELECCIONADOS.size > 0) {
+    if (global) {
+      const rowsForComision = visibleRows.filter(r => PRESTAMISTAS_SELECCIONADOS.has(r.__prest));
+      comisionGladysResumen = rowsForComision.reduce((a,r)=>a+Number(r.interes||0),0) * 0.05;
+    } else {
+      if (PRESTAMISTAS_SELECCIONADOS.has(prestamista)) {
+        comisionGladysResumen = totalInteres * 0.05;
+      }
+    }
+  }
+
   const deudores = root.descendants().filter(d=>d.depth===1);
   const midY = d3.mean(deudores, d=>d.x) || 0;
 
   const summaryX = centerX + cardW + 280;
-  const sumW = 380, sumH = 140, sumPadX = 14, sumLine = 24;
+  const sumW = 380, sumH = comisionGladysResumen > 0 ? 160 : 140, sumPadX = 14, sumLine = 24;
 
   const summaryG = g.append("g")
     .attr("class","summary")
@@ -1344,6 +1460,20 @@ function drawTree(prestamista) {
   s2.append("tspan")
     .attr("class","summaryAmt")
     .text(`$ ${totalCapital.toLocaleString()}`);
+
+  // Mostrar comisión Gladys en el resumen si aplica
+  if (comisionGladysResumen > 0) {
+    sy += 22;
+    const s3 = summaryG.append("text")
+      .attr("class","summaryLine")
+      .attr("x", sumPadX)
+      .attr("y", sy)
+      .text("Comisión Gladys (5%): ");
+    s3.append("tspan")
+      .attr("class","summaryAmt")
+      .style("fill", "#0c4a6e")
+      .text(`$ ${comisionGladysResumen.toLocaleString()}`);
+  }
 
   // enlaces deudor -> resumen global
   const link2 = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
