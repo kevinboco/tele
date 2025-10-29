@@ -10,6 +10,7 @@
  * - Filtro por Deudor + resumen de sumas del deudor
  * - Selección múltiple en Tarjetas + Edición en lote
  * - COMISIONES en tarjetas con color azul
+ * - Interés 13% para préstamos desde hoy, 10% para anteriores
  *********************************************************/
 include("nav.php");
 
@@ -373,15 +374,19 @@ else:
     if ($fpNorm!==''){ $where.=" AND LOWER(TRIM(prestamista)) = ?"; $types.="s"; $params[]=$fpNorm; }
     if ($fdNorm!==''){ $where.=" AND LOWER(TRIM(deudor)) = ?"; $types.="s"; $params[]=$fdNorm; }
 
-    // MODIFICADO: Incluir campos de comisión y calcular interés correctamente
+    // MODIFICADO: Incluir campos de comisión y calcular interés correctamente con tasa variable
     $sql = "
       SELECT id,deudor,prestamista,monto,fecha,imagen,created_at,
              comision_gestor_nombre, comision_gestor_porcentaje, comision_base_monto, 
              comision_origen_prestamista, comision_origen_porcentaje,
              CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS meses,
              
-             /* Interés del prestamista (dueño del capital) */
-             (monto * COALESCE(comision_origen_porcentaje, 10) / 100 *
+             /* Interés del prestamista (dueño del capital) - TASA VARIABLE */
+             (monto * 
+              CASE 
+                WHEN fecha >= CURDATE() THEN COALESCE(comision_origen_porcentaje, 13)
+                ELSE COALESCE(comision_origen_porcentaje, 10)
+              END / 100 *
               CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes_prestamista,
              
              /* Comisión del gestor */
@@ -389,13 +394,21 @@ else:
               CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS comision_gestor,
              
              /* Interés total (prestamista + gestor) */
-             ((monto * COALESCE(comision_origen_porcentaje, 10) / 100) + 
+             ((monto * 
+               CASE 
+                 WHEN fecha >= CURDATE() THEN COALESCE(comision_origen_porcentaje, 13)
+                 ELSE COALESCE(comision_origen_porcentaje, 10)
+               END / 100) + 
               (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
               CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS interes_total,
              
              /* Total a pagar (monto + interés total) */
              (monto + 
-              (((monto * COALESCE(comision_origen_porcentaje, 10) / 100) + 
+              (((monto * 
+                CASE 
+                  WHEN fecha >= CURDATE() THEN COALESCE(comision_origen_porcentaje, 13)
+                  ELSE COALESCE(comision_origen_porcentaje, 10)
+                END / 100) + 
                (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
                CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
               
@@ -426,7 +439,7 @@ else:
           <a class="btn gray" href="?view=cards">Quitar filtro</a>
         <?php endif; ?>
       </form>
-      <div class="subtitle">Interés variable según porcentajes configurados + comisión gestor.</div>
+      <div class="subtitle">Interés variable: 13% desde hoy, 10% para préstamos anteriores.</div>
     </div>
 
     <?php
@@ -436,11 +449,19 @@ else:
         $sqlAgg = "
           SELECT COUNT(*) AS n,
                  SUM(monto) AS capital,
-                 SUM(((monto * COALESCE(comision_origen_porcentaje, 10) / 100) + 
+                 SUM(((monto * 
+                      CASE 
+                        WHEN fecha >= CURDATE() THEN COALESCE(comision_origen_porcentaje, 13)
+                        ELSE COALESCE(comision_origen_porcentaje, 10)
+                      END / 100) + 
                      (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
                      CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes,
                  SUM(monto + 
-                     (((monto * COALESCE(comision_origen_porcentaje, 10) / 100) + 
+                     (((monto * 
+                       CASE 
+                         WHEN fecha >= CURDATE() THEN COALESCE(comision_origen_porcentaje, 13)
+                         ELSE COALESCE(comision_origen_porcentaje, 10)
+                       END / 100) + 
                       (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
                       CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
           FROM prestamos
@@ -489,7 +510,9 @@ else:
             $badgeClass = $esComision ? 'comision-badge' : 'chip';
             
             // Calcular porcentaje total
-            $porcentajeTotal = (float)($r['comision_origen_porcentaje'] ?? 10) + (float)($r['comision_gestor_porcentaje'] ?? 0);
+            $porcentajeTotal = (float)($r['comision_origen_porcentaje'] ?? 
+              (strtotime($r['fecha']) >= strtotime(date('Y-m-d')) ? 13 : 10)) + 
+              (float)($r['comision_gestor_porcentaje'] ?? 0);
           ?>
             <div class="card <?= $cardClass ?>">
               <div class="cardSel">
@@ -608,7 +631,7 @@ else:
     if ($qNorm!==''){ $where.=" AND (LOWER(deudor) LIKE CONCAT('%',?,'%') OR LOWER(prestamista) LIKE CONCAT('%',?,'%'))"; $types.="ss"; $params[]=$qNorm; $params[]=$qNorm; }
     if ($fpNorm!==''){ $where.=" AND LOWER(TRIM(prestamista)) = ?"; $types.="s"; $params[]=$fpNorm; }
 
-    // MODIFICADO: Cálculo correcto de intereses con comisiones
+    // MODIFICADO: Cálculo correcto de intereses con comisiones y tasa variable
     $sql = "
       SELECT LOWER(TRIM(prestamista)) AS prest_key, MIN(prestamista) AS prest_display,
              LOWER(TRIM(deudor)) AS deud_key, MIN(deudor) AS deud_display,
@@ -619,14 +642,22 @@ else:
              END AS meses,
              SUM(monto) AS capital,
              
-             /* Interés total (prestamista + gestor) */
-             SUM(((monto * COALESCE(comision_origen_porcentaje, 10) / 100) + 
+             /* Interés total (prestamista + gestor) - TASA VARIABLE */
+             SUM(((monto * 
+                  CASE 
+                    WHEN fecha >= CURDATE() THEN COALESCE(comision_origen_porcentaje, 13)
+                    ELSE COALESCE(comision_origen_porcentaje, 10)
+                  END / 100) + 
                  (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
                  CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes,
              
              /* Total a pagar */
              SUM(monto + 
-                 (((monto * COALESCE(comision_origen_porcentaje, 10) / 100) + 
+                 (((monto * 
+                   CASE 
+                     WHEN fecha >= CURDATE() THEN COALESCE(comision_origen_porcentaje, 13)
+                     ELSE COALESCE(comision_origen_porcentaje, 10)
+                   END / 100) + 
                   (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
                   CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
               
@@ -675,6 +706,7 @@ else:
         Diagrama: <strong>Prestamista ➜ Deudores (valor, fecha, interés, total) ➜ Ganancia</strong>.
         Debajo hay un selector para marcar <strong>Préstamo pagado</strong>.
         El recuadro adicional muestra <strong>Total prestado (pendiente)</strong>.
+        Interés: <strong>13% desde hoy, 10% para préstamos anteriores</strong>.
       </div>
     </div>
 
