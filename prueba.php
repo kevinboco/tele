@@ -9,8 +9,8 @@ include("nav.php");
  * - Fila TOTAL y leyenda de colores en el modal
  * - Colores por antigüedad (meses) en modal y nodos
  * - Contador de préstamos por deudor en cada nodo
-
-include("nav.php");
+ * - Interés 13% para préstamos desde hoy, 10% para anteriores
+ *********************************************************/
 
 /* ===== Config ===== */
 define('DB_HOST', 'mysql.hostinger.com');
@@ -108,7 +108,10 @@ $sql = "
          END AS meses,
          SUM(monto) AS capital,
          SUM(
-           monto*0.10*
+           CASE 
+             WHEN fecha >= CURDATE() THEN monto * 0.13
+             ELSE monto * 0.10
+           END *
            CASE WHEN CURDATE() < fecha
                 THEN 0
                 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
@@ -116,7 +119,10 @@ $sql = "
          ) AS interes,
          SUM(
            monto +
-           monto*0.10*
+           CASE 
+             WHEN fecha >= CURDATE() THEN monto * 0.13
+             ELSE monto * 0.10
+           END *
            CASE WHEN CURDATE() < fecha
                 THEN 0
                 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
@@ -164,13 +170,21 @@ $sqlDet = "
          THEN 0
          ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
     END AS meses,
-    (monto*0.10*
+    (monto *
+     CASE 
+       WHEN fecha >= CURDATE() THEN 0.13
+       ELSE 0.10
+     END *
      CASE WHEN CURDATE() < fecha
           THEN 0
           ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
      END) AS interes,
     (monto +
-     monto*0.10*
+     monto *
+     CASE 
+       WHEN fecha >= CURDATE() THEN 0.13
+       ELSE 0.10
+     END *
      CASE WHEN CURDATE() < fecha
           THEN 0
           ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
