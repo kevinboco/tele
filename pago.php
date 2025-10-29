@@ -234,9 +234,19 @@ if ($empresaFiltro !== "") {
 /* ================= Préstamos: listado multiselección ================= */
 $prestamosList = [];
 $i = 0;
+
+// MODIFICADO: Consulta actualizada para aplicar 13% desde hoy, 10% para préstamos anteriores
 $qPrest = "
   SELECT deudor,
-         SUM(monto + monto*0.10*CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS total
+         SUM(
+           monto + 
+           monto * 
+           CASE 
+             WHEN fecha >= CURDATE() THEN 0.13
+             ELSE 0.10
+           END *
+           CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
+         ) AS total
   FROM prestamos
   WHERE (pagado IS NULL OR pagado=0)
   GROUP BY deudor
