@@ -1,20 +1,13 @@
 <?php
 /*********************************************************
  * prestamos_visual_interactivo.php
- * v5.2
- *
- * - Vista D3 por prestamista / global multi-deudor
- * - Comisiones:
- *    • NO salen como nodos aparte
- *    • SÍ se suman a la ganancia del prestamista
- *    • SÍ aparecen en el modal de cada deudor
+ * v4.6
+ * - Visual D3 (vista por prestamista / global multi-deudor)
  * - Selector "marcar pagados"
  * - Modal con historial individual (click en el nodo)
  * - Fila TOTAL y leyenda de colores en el modal
  * - Colores por antigüedad (meses) en modal y nodos
- * - Contador de préstamos por deudor
- * - NUEVOS PRÉSTAMOS SIN COMISIÓN: 12% (antes 10%)
- *********************************************************/
+ * - Contador de préstamos por deudor en cada nodo
 
 include("nav.php");
 
@@ -90,64 +83,48 @@ while($rowPL=$resPL->fetch_row()){
 }
 ksort($prestMap, SORT_NATURAL);
 
-/* ===== WHERE base para préstamos vigentes ===== */
+/* ===== WHERE base ===== */
 $where = "(pagado IS NULL OR pagado=0)";
-$types="";
-$params=[];
+$types=""; $params=[];
 if ($q !== ''){
   $where .= " AND (LOWER(deudor) LIKE CONCAT('%',?,'%')
-               OR  LOWER(prestamista) LIKE CONCAT('%',?,'%')
-               OR  LOWER(IFNULL(comision_gestor_nombre,'')) LIKE CONCAT('%',?,'%')
-               OR  LOWER(IFNULL(comision_origen_prestamista,'')) LIKE CONCAT('%',?,'%')
-               )";
-  $types .= "ssss";
-  $params[]=$qNorm;
-  $params[]=$qNorm;
+               OR  LOWER(prestamista) LIKE CONCAT('%',?,'%'))";
+  $types .= "ss";
   $params[]=$qNorm;
   $params[]=$qNorm;
 }
 
-/* =========================================================
-   = NORMAL VIEW (por prestamista y deudor)
-   ========================================================= */
+/* ===== Agregado prestamista+deudor ===== */
 $sql = "
-   SELECT LOWER(TRIM(prestamista)) AS prest_key,
-          MIN(prestamista)        AS prest_display,
-          LOWER(TRIM(deudor))     AS deud_key,
-          MIN(deudor)             AS deud_display,
-          MIN(fecha)              AS fecha_min,
-          CASE WHEN CURDATE() < MIN(fecha)
-               THEN 0
-               ELSE TIMESTAMPDIFF(MONTH, MIN(fecha), CURDATE()) + 1
-          END AS meses,
-          SUM(monto) AS capital,
-          SUM(
-            monto * COALESCE(comision_origen_porcentaje, 
-              CASE 
-                WHEN comision_gestor_nombre IS NULL AND fecha >= '2025-10-28' THEN 12
-                ELSE 10 
-              END) / 100 *
-            CASE WHEN CURDATE() < fecha
-                 THEN 0
-                 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
-            END
-          ) AS interes,
-          SUM(
-            monto +
-            monto * COALESCE(comision_origen_porcentaje, 
-              CASE 
-                WHEN comision_gestor_nombre IS NULL AND fecha >= '2025-10-29' THEN 12
-                ELSE 10 
-              END) / 100 *
-            CASE WHEN CURDATE() < fecha
-                 THEN 0
-                 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
-            END
-          ) AS total
-   FROM prestamos
-   WHERE $where
-   GROUP BY prest_key, deud_key
-   ORDER BY prest_key ASC, deud_display ASC";
+  SELECT LOWER(TRIM(prestamista)) AS prest_key,
+         MIN(prestamista)        AS prest_display,
+         LOWER(TRIM(deudor))     AS deud_key,
+         MIN(deudor)             AS deud_display,
+         MIN(fecha)              AS fecha_min,
+         CASE WHEN CURDATE() < MIN(fecha)
+              THEN 0
+              ELSE TIMESTAMPDIFF(MONTH, MIN(fecha), CURDATE()) + 1
+         END AS meses,
+         SUM(monto) AS capital,
+         SUM(
+           monto*0.10*
+           CASE WHEN CURDATE() < fecha
+                THEN 0
+                ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
+           END
+         ) AS interes,
+         SUM(
+           monto +
+           monto*0.10*
+           CASE WHEN CURDATE() < fecha
+                THEN 0
+                ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
+           END
+         ) AS total
+  FROM prestamos
+  WHERE $where
+  GROUP BY prest_key, deud_key
+  ORDER BY prest_key ASC, deud_display ASC";
 $st=$conn->prepare($sql);
 if($types) $st->bind_param($types, ...$params);
 $st->execute();
@@ -155,12 +132,12 @@ $rs=$st->get_result();
 
 /* ===== IDs por prestamista+deudor (para marcar pagado en bloque) ===== */
 $sqlIds = "
-   SELECT LOWER(TRIM(prestamista)) AS prest_key,
-          LOWER(TRIM(deudor))     AS deud_key,
-          GROUP_CONCAT(id)        AS ids
-   FROM prestamos
-   WHERE $where
-   GROUP BY prest_key, deud_key";
+  SELECT LOWER(TRIM(prestamista)) AS prest_key,
+         LOWER(TRIM(deudor))     AS deud_key,
+         GROUP_CONCAT(id)        AS ids
+  FROM prestamos
+  WHERE $where
+  GROUP BY prest_key, deud_key";
 $st2=$conn->prepare($sqlIds);
 if($types) $st2->bind_param($types, ...$params);
 $st2->execute();
@@ -172,81 +149,44 @@ while($row=$rsIds->fetch_assoc()){
 }
 $st2->close();
 
-/* ===== Detalle crudo cada préstamo (para modal y contador) ===== */
+/* ===== Detalle crudo de cada préstamo (para el modal y para el contador por deudor) ===== */
 $sqlDet = "
-   SELECT
-     LOWER(TRIM(prestamista)) AS prest_key,
-     prestamista,
-     LOWER(TRIM(deudor))      AS deud_key,
-     deudor,
-     id,
-     fecha,
-     monto,
-     comision_origen_porcentaje,
-     comision_gestor_nombre,
+  SELECT
+    LOWER(TRIM(prestamista)) AS prest_key,
+    prestamista,
+    LOWER(TRIM(deudor))      AS deud_key,
+    deudor,
+    id,
+    fecha,
+    monto,
+    CASE WHEN CURDATE() < fecha
+         THEN 0
+         ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
+    END AS meses,
+    (monto*0.10*
      CASE WHEN CURDATE() < fecha
           THEN 0
           ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
-     END AS meses,
-     (monto * COALESCE(comision_origen_porcentaje, 
-        CASE 
-          WHEN comision_gestor_nombre IS NULL AND fecha >= '2025-10-29' THEN 12
-          ELSE 10 
-        END) / 100 *
-      CASE WHEN CURDATE() < fecha
-           THEN 0
-           ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
-      END) AS interes,
-     (monto +
-      monto * COALESCE(comision_origen_porcentaje, 
-        CASE 
-          WHEN comision_gestor_nombre IS NULL AND fecha >= '2025-10-29' THEN 12
-          ELSE 10 
-        END) / 100 *
-      CASE WHEN CURDATE() < fecha
-           THEN 0
-           ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
-      END) AS total,
-     IFNULL(pagado,0) AS pagado,
-     comision_gestor_nombre,
-     comision_gestor_porcentaje,
-     comision_base_monto,
-     comision_origen_prestamista
-   FROM prestamos
-   WHERE $where
-   ORDER BY prestamista, deudor, fecha ASC, id ASC";
+     END) AS interes,
+    (monto +
+     monto*0.10*
+     CASE WHEN CURDATE() < fecha
+          THEN 0
+          ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
+     END) AS total,
+    IFNULL(pagado,0) AS pagado
+  FROM prestamos
+  WHERE $where
+  ORDER BY prestamista, deudor, fecha ASC, id ASC";
 $st3=$conn->prepare($sqlDet);
 if($types) $st3->bind_param($types, ...$params);
 $st3->execute();
 $rsDet=$st3->get_result();
 
-/*
-  Vamos a construir dos estructuras:
-  - $detalleMap[prest_key][deud_key][] = préstamo normal (tal cual ya lo teníamos)
-  - $comisionesMap[prest_key][deud_key][] = comisión asociada a ese deudor para ese gestor (prestamista que gana)
-    Nota: una comisión se guarda solo si:
-      - hay comision_gestor_nombre (el que cobra comisión)
-      - pagado=0
-*/
 $detalleMap = [];
-$comisionesMap = [];
-
 while($row=$rsDet->fetch_assoc()){
-  $pkey = $row['prest_key']; // prestamista que puso la plata original
+  $pkey = $row['prest_key'];
   $dkey = $row['deud_key'];
-
-  // Determinar el porcentaje de interés para este préstamo
-  $porcentaje_interes = (float)$row['comision_origen_porcentaje'];
-  if ($porcentaje_interes == 0) {
-    // Si no tiene porcentaje definido, aplicar la nueva regla
-    if (empty($row['comision_gestor_nombre']) && $row['fecha'] >= '2025-10-29') {
-      $porcentaje_interes = 12.0; // Nuevos préstamos sin comisión
-    } else {
-      $porcentaje_interes = 10.0; // Préstamos anteriores
-    }
-  }
-
-  // push préstamo normal
   if (!isset($detalleMap[$pkey])) $detalleMap[$pkey]=[];
   if (!isset($detalleMap[$pkey][$dkey])) $detalleMap[$pkey][$dkey]=[];
   $detalleMap[$pkey][$dkey][] = [
@@ -259,47 +199,15 @@ while($row=$rsDet->fetch_assoc()){
     'pagado'     => (int)$row['pagado'],
     'prestamista'=> $row['prestamista'],
     'deudor'     => $row['deudor'],
-    'porcentaje_interes' => $porcentaje_interes,
-
-    // info de comisión (si existiera)
-    'comi_nombre'   => $row['comision_gestor_nombre'],      // quién cobra comisión
-    'comi_pct'      => $row['comision_gestor_porcentaje'],  // %
-    'comi_base'     => $row['comision_base_monto'],         // base $
-    'comi_origen'   => $row['comision_origen_prestamista'], // de dónde viene
   ];
-
-  // si este préstamo genera comisión y NO está pagado, guardamos esa comisión
-  if (!empty($row['comision_gestor_nombre']) && (int)$row['pagado']===0){
-    $gestor = $row['comision_gestor_nombre']; // la persona que gana la comisión
-    $gestorKey = mbnorm($gestor);
-
-    // esta comisión se le asocia al "gestor" como prest_key lógico para mostrarla en su modal,
-    // pero sigue siendo del mismo deudor ($dkey)
-    if (!isset($comisionesMap[$gestorKey])) $comisionesMap[$gestorKey]=[];
-    if (!isset($comisionesMap[$gestorKey][$dkey])) $comisionesMap[$gestorKey][$dkey]=[];
-
-    $base = (float)$row['comision_base_monto'];
-    $pct  = (float)$row['comision_gestor_porcentaje'];
-    $gan  = ($base>0 && $pct>0) ? $base*($pct/100.0) : 0.0;
-
-    $comisionesMap[$gestorKey][$dkey][] = [
-      'fecha'     => $row['fecha'],
-      'base'      => $base,
-      'pct'       => $pct,
-      'ganancia'  => $gan,
-      'origen'    => $row['comision_origen_prestamista'],
-      'deudor'    => $row['deudor'],
-      'prest_orig'=> $row['prestamista'], // quien puso plata original
-    ];
-  }
 }
 $st3->close();
 
-/* ===== Armar DATA para vista normal (por prestamista) ===== */
-$data = [];
-$ganPrest=[];
-$capPendPrest=[];
-$allDebtors = [];
+/* ===== Armar estructuras para el front ===== */
+$data = [];            // DATA[prestamista] = [rows...]
+$ganPrest=[];          // total interés por prestamista
+$capPendPrest=[];      // total capital pendiente por prestamista
+$allDebtors = [];      // listado global de deudores únicos
 
 while($r=$rs->fetch_assoc()){
   $pkey=$r['prest_key']; $pdisp=$r['prest_display'];
@@ -314,8 +222,8 @@ while($r=$rs->fetch_assoc()){
     'total'   => (float)$r['total'],
     'meses'   => (int)$r['meses'],
     'ids_csv' => $idsMap[$pkey][$dkey] ?? '',
-    '__pkey'  => $pkey,
-    '__dkey'  => $dkey
+    '__pkey'  => $pkey, // clave normalizada prestamista
+    '__dkey'  => $dkey  // clave normalizada deudor
   ];
 
   $ganPrest[$pdisp]     = ($ganPrest[$pdisp] ?? 0) + (float)$r['interes'];
@@ -324,43 +232,8 @@ while($r=$rs->fetch_assoc()){
   $allDebtors[$ddis] = 1;
 }
 $st->close();
-
-/* =========================================================
-   = COMISIONES EN TOTALES (sin nodos visuales)
-   - Sumamos la ganancia de comisión a cada gestor/prestamista
-   - También la contamos como pendiente a cobrar
-   - Para esto usamos $comisionesMap
-========================================================= */
-foreach ($comisionesMap as $gestorKey => $byDeudor){
-  // necesitamos el nombre visible EXACTO del prestamista en $data
-  // buscar el prestamista "bonito" que matchee este $gestorKey
-  $prestamistaVisible = null;
-  foreach ($data as $prestNombre => $_rows){
-    if (mbnorm($prestNombre) === $gestorKey){
-      $prestamistaVisible = $prestNombre;
-      break;
-    }
-  }
-  if (!$prestamistaVisible) continue;
-
-  $totalComisionesDeEsePrest = 0.0;
-  foreach ($byDeudor as $dkey => $arrCom){
-    foreach ($arrCom as $cinfo){
-      $totalComisionesDeEsePrest += (float)$cinfo['ganancia'];
-    }
-  }
-
-  // sumar a ganancia
-  $ganPrest[$prestamistaVisible] = ($ganPrest[$prestamistaVisible] ?? 0) + $totalComisionesDeEsePrest;
-
-  // y también al capital pendiente mostrado
-  $capPendPrest[$prestamistaVisible] = ($capPendPrest[$prestamistaVisible] ?? 0) + $totalComisionesDeEsePrest;
-}
-
-/* ===== cerrar conn ===== */
 $conn->close();
 
-/* ===== Normalizamos lista de deudores para el filtro ===== */
 $allDebtors = array_keys($allDebtors);
 natcasesort($allDebtors);
 
@@ -500,6 +373,7 @@ $msg = $_GET['msg'] ?? '';
   #stage { position:relative }
   svg{ display:block; width:100%; }
   .link{fill:none;stroke:#cbd5e1;stroke-width:1.5px}
+  .link2{fill:none;stroke:#9ca3af;stroke-width:1.4px;opacity:.9}
 
   .nodeCard{
     stroke:#cbd5e1;stroke-width:1.2px;
@@ -605,6 +479,7 @@ $msg = $_GET['msg'] ?? '';
     padding:16px 20px;overflow:auto
   }
 
+  /* leyenda de colores dentro del modal */
   .modal-legend {
     display:flex;
     flex-wrap:wrap;
@@ -630,6 +505,7 @@ $msg = $_GET['msg'] ?? '';
   .swatch-m2 { background:#FFE9D6; }
   .swatch-m3 { background:#FFE1E1; }
 
+  /* tabla del modal */
   table.detalle-table{
     width:100%;border-collapse:collapse;
     font-size:13px;line-height:1.4;color:#1f2937;
@@ -659,11 +535,11 @@ $msg = $_GET['msg'] ?? '';
     font-weight:600;display:inline-block;
   }
 
+  /* colores de antigüedad por fila modal */
   .age-m0 td { background:#F3F4F6; }
   .age-m1 td { background:#FFF8DB; }
   .age-m2 td { background:#FFE9D6; }
   .age-m3 td { background:#FFE1E1; }
-
   .detalle-table tbody tr.age-m0 td,
   .detalle-table tbody tr.age-m1 td,
   .detalle-table tbody tr.age-m2 td,
@@ -672,14 +548,7 @@ $msg = $_GET['msg'] ?? '';
     color:#1f2937;
   }
 
-  /* fila de comisión en el modal */
-  .row-comision td {
-    background:#F0F9FF !important;
-    border-bottom:1px solid #BAE6FD;
-    color:#0369A1 !important;
-    font-weight:600;
-  }
-
+  /* fila total al final */
   .detalle-total-row td {
     background:#f8fafc !important;
     font-weight:700;
@@ -769,10 +638,6 @@ $msg = $_GET['msg'] ?? '';
           <span class="legend-swatch swatch-m3"></span>
           <span>3+ meses</span>
         </div>
-        <div class="legend-item">
-          <span class="legend-swatch" style="background:#F0F9FF;border:1px solid #BAE6FD;"></span>
-          <span>Comisión (tu ganancia)</span>
-        </div>
       </div>
 
       <div style="overflow-x:auto;">
@@ -783,8 +648,8 @@ $msg = $_GET['msg'] ?? '';
               <th>Fecha</th>
               <th>Meses</th>
               <th>Monto</th>
-              <th>Interés / %</th>
-              <th>Total / Ganancia</th>
+              <th>Interés</th>
+              <th>Total</th>
               <th>Estado</th>
             </tr>
           </thead>
@@ -803,7 +668,6 @@ const CAPITAL  = <?php echo json_encode($capPendPrest, JSON_NUMERIC_CHECK); ?>;
 const SELECTORS_HTML = <?php echo json_encode($selectors, JSON_UNESCAPED_UNICODE); ?>;
 const ALL_DEBTORS = <?php echo json_encode(array_values($allDebtors), JSON_UNESCAPED_UNICODE); ?>;
 const DETALLE = <?php echo json_encode($detalleMap, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
-const COMISIONES = <?php echo json_encode($comisionesMap, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 
 /* ===== D3 setup ===== */
 const svg = d3.select("#chart");
@@ -856,13 +720,17 @@ function renderChips(prest, visibleRows=null){
 
     chipsHost.append(chipM, chipF);
   } else {
-    interes = Number(GANANCIA[prest]||0); // ya incluye comisión
-    capital = Number(CAPITAL[prest]||0);  // ya incluye comisión si la contamos como por cobrar
+    interes = Number(GANANCIA[prest]||0);
+    capital = Number(CAPITAL[prest]||0);
+    if (Array.isArray(visibleRows)) {
+      interes = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
+      capital = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
+    }
   }
 
   const chip1 = document.createElement("span");
   chip1.className = "chip";
-  chip1.textContent = `Ganancia (interés + comisión): $ ${interes.toLocaleString()}`;
+  chip1.textContent = `Ganancia (interés): $ ${interes.toLocaleString()}`;
 
   const chip2 = document.createElement("span");
   chip2.className = "chip";
@@ -883,17 +751,10 @@ function renderChips(prest, visibleRows=null){
   chipL3.textContent="3+ meses";
   chipL3.style.background="#FFE1E1";
 
-  const chipCom = document.createElement("span");
-  chipCom.className="chip";
-  chipCom.style.background="#F0F9FF";
-  chipCom.style.border="1px solid #BAE6FD";
-  chipCom.style.color="#0369A1";
-  chipCom.textContent="Incluye comisión";
-
-  chipsHost.append(chip1, chip2, chipL1, chipL2, chipL3, chipCom);
+  chipsHost.append(chip1, chip2, chipL1, chipL2, chipL3);
 }
 
-/* ===== Selector "marcar pagados" ===== */
+/* ===== Selector "marcar pagados" abajo ===== */
 function renderSelector(prest){
   selectorHost.innerHTML = "";
   const wrap = document.createElement("div");
@@ -915,13 +776,11 @@ function norm(s){ return (s||'').toString().toLocaleLowerCase(); }
 function matches(row){
   if (!searchTerm) return true;
   const q = norm(searchTerm);
-  return norm(row.nombre||'').includes(q)
-    || norm(row.fecha||'').includes(q)
-    || norm(String(row.valor||'')).includes(q)
-    || norm(String(row.total||'')).includes(q)
-    || norm(String(row.__prest||'')).includes(q)
-    || norm(String(row.deudor||'')).includes(q)
-    || norm(String(row.origen||'')).includes(q);
+  return norm(row.nombre).includes(q)
+    || norm(row.fecha).includes(q)
+    || norm(String(row.valor)).includes(q)
+    || norm(String(row.total)).includes(q)
+    || norm(String(row.__prest||'')).includes(q);
 }
 
 function debounce(fn, ms){
@@ -931,6 +790,7 @@ function debounce(fn, ms){
     t=setTimeout(()=>fn(...a), ms);
   };
 }
+
 searchInput.addEventListener('input', debounce(e=>{
   searchTerm = e.target.value || '';
   if (currentPrest) drawTree(currentPrest);
@@ -957,6 +817,7 @@ function isGlobalMode(){ return SELECTED_DEUDORES.size > 0; }
 function updateMsLabel(){
   msToggle.textContent = `Filtrar deudores (${SELECTED_DEUDORES.size} seleccionados)`;
 }
+
 function renderMsList(){
   msList.innerHTML = '';
   const frag = document.createDocumentFragment();
@@ -985,28 +846,33 @@ function renderMsList(){
   });
   msList.appendChild(frag);
 }
+
 msToggle.addEventListener('click', ()=>{
   msPanel.style.display = (msPanel.style.display==='none' || !msPanel.style.display) ? 'block':'none';
 });
+
 msAll.addEventListener('click', ()=>{
   ALL_DEBTORS.forEach(n=>SELECTED_DEUDORES.add(n));
   updateMsLabel();
   renderMsList();
   drawTree(currentPrest);
 });
+
 msNone.addEventListener('click', ()=>{
   SELECTED_DEUDORES.clear();
   updateMsLabel();
   renderMsList();
   drawTree(currentPrest);
 });
+
 document.addEventListener('click', (e)=>{
   if (!ms.contains(e.target)) msPanel.style.display='none';
 });
+
 renderMsList();
 updateMsLabel();
 
-/* ===== wrapText p/ SVG ===== */
+/* ===== wrapText para SVG ===== */
 function wrapText(textSel, width){
   textSel.each(function(){
     const text = d3.select(this);
@@ -1063,21 +929,13 @@ loanModal.addEventListener('click', (e)=>{
   if (e.target === loanModal) loanModal.style.display='none';
 });
 
+// Capitaliza estilo título
 function mbTitleJs(str){
   const s = (str||'').toString().toLowerCase();
   return s.replace(/\b([a-záéíóúñ])/gi, (m) => m.toUpperCase());
 }
 
-/*
-  fillAndOpenModal:
-  - pk = prest_key en minúsculas (del prestamista actual que está viendo)
-  - dk = deud_key en minúsculas
-  - pn = nombre visible del prestamista (quien está viendo)
-  - dn = nombre visible del deudor
-  Mostramos:
-    1. Préstamos normales de DETALLE[pk][dk]
-    2. Comisiones COMISIONES[pk][dk] (si existen)
-*/
+/* Rellena y abre modal */
 function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
   modalRows.innerHTML = '';
 
@@ -1085,19 +943,15 @@ function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
     ? DETALLE[prestKey][deudKey]
     : [];
 
-  // comisiones asociadas a ESTE prestamista (prestKey) y ESTE deudor (deudKey)
-  const comList = (COMISIONES[prestKey] && COMISIONES[prestKey][deudKey])
-    ? COMISIONES[prestKey][deudKey]
-    : [];
-
-  let sumMonto = 0;
-  let sumInteres = 0;
-  let sumTotal = 0;
-
-  // 1. filas normales
   if (!lista.length){
-    // si no hay préstamos normales igual revisamos comisiones: podrían existir solo comisiones
+    modalRows.innerHTML =
+      '<tr><td colspan="7" style="text-align:center;color:#6b7280;padding:16px;">No hay registros.</td></tr>';
   } else {
+
+    let sumMonto = 0;
+    let sumInteres = 0;
+    let sumTotal = 0;
+
     lista.forEach(item=>{
       const tr = document.createElement('tr');
 
@@ -1125,8 +979,7 @@ function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
       tdMonto.textContent = "$ " + Number(item.monto||0).toLocaleString();
 
       const tdInt = document.createElement('td');
-      tdInt.textContent = "$ " + Number(item.interes||0).toLocaleString() + 
-                         " (" + (Number(item.porcentaje_interes) || 10) + "%)";
+      tdInt.textContent = "$ " + Number(item.interes||0).toLocaleString();
 
       const tdTot = document.createElement('td');
       tdTot.textContent = "$ " + Number(item.total||0).toLocaleString();
@@ -1156,72 +1009,16 @@ function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
       sumInteres += Number(item.interes||0);
       sumTotal   += Number(item.total||0);
     });
-  }
 
-  // 2. filas de comisión (para este prestamista y este deudor)
-  // estas filas muestran TU GANANCIA por comisión
-  if (Array.isArray(comList) && comList.length){
-    comList.forEach(info=>{
-      const trc = document.createElement('tr');
-      trc.className = 'row-comision';
-
-      // No es un préstamo capital / meses, así que llenamos así:
-      const tdId = document.createElement('td');
-      tdId.textContent = "COM";
-
-      const tdFecha = document.createElement('td');
-      tdFecha.textContent = info.fecha || '';
-
-      const tdMeses = document.createElement('td');
-      tdMeses.textContent = "-";
-
-      const tdMonto = document.createElement('td');
-      // base de la comisión
-      tdMonto.textContent = "$ " + Number(info.base||0).toLocaleString();
-
-      const tdPct = document.createElement('td');
-      // porcentaje de comisión
-      tdPct.textContent = (Number(info.pct||0).toLocaleString()) + " %";
-
-      const tdGan = document.createElement('td');
-      // ganancia real de la comisión
-      tdGan.textContent = "$ " + Number(info.ganancia||0).toLocaleString();
-
-      const tdEstado = document.createElement('td');
-      // comisión pendiente = la tratamos como pendiente
-      const badge = document.createElement('span');
-      badge.className = 'badge-pend';
-      badge.textContent = 'Pendiente (Comisión)';
-      tdEstado.appendChild(badge);
-
-      trc.appendChild(tdId);
-      trc.appendChild(tdFecha);
-      trc.appendChild(tdMeses);
-      trc.appendChild(tdMonto);
-      trc.appendChild(tdPct);
-      trc.appendChild(tdGan);
-      trc.appendChild(tdEstado);
-
-      modalRows.appendChild(trc);
-
-      // sumas: la comisión es ganancia pura. La contamos en "interés" y "total".
-      sumInteres += Number(info.ganancia||0);
-      sumTotal   += Number(info.ganancia||0);
-      // sumMonto no sube porque no es capital que se prestó.
-    });
-  }
-
-  // si no hay nada de nada
-  if (!lista.length && (!Array.isArray(comList) || !comList.length)){
-    modalRows.innerHTML =
-      '<tr><td colspan="7" style="text-align:center;color:#6b7280;padding:16px;">No hay registros.</td></tr>';
-  } else {
-    // 3. fila TOTAL
     const trTotal = document.createElement('tr');
     trTotal.className = 'detalle-total-row';
 
-    const tdEmpty1 = document.createElement('td'); tdEmpty1.textContent = '';
-    const tdEmpty2 = document.createElement('td'); tdEmpty2.textContent = '';
+    const tdEmpty1 = document.createElement('td');
+    tdEmpty1.textContent = '';
+
+    const tdEmpty2 = document.createElement('td');
+    tdEmpty2.textContent = '';
+
     const tdEmpty3 = document.createElement('td');
     tdEmpty3.className = 'label-cell';
     tdEmpty3.textContent = 'TOTAL:';
@@ -1250,38 +1047,40 @@ function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
   }
 
   modalTitle.textContent = 'Detalle de préstamos';
-  modalSub.textContent   = mbTitleJs(deudName) + ' ↔️ ' + mbTitleJs(prestName);
+  modalSub.textContent   = mbTitleJs(deudName) + ' ↔ ' + mbTitleJs(prestName);
 
   loanModal.style.display='flex';
 }
 
-/* ===== Dibujo principal ===== */
+/* ===== Dibujar árbol principal ===== */
 function drawTree(prestamista) {
   g.selectAll("*").remove();
 
   const global = isGlobalMode();
 
-  // PREPARAMOS ROWS A MOSTRAR
-  let allRows = global ? collectRowsForSelected() : (DATA[prestamista] || []);
+  // 1) Filas base
+  let allRows;
+  if (global) {
+    allRows = collectRowsForSelected(); // multi prestamistass, solo deudores filtrados
+  } else {
+    allRows = DATA[prestamista] || [];
+  }
 
-  // FILTROS (buscador / multi)
+  // 2) Filtros cliente
   const rows = allRows.filter(r => {
-    if (global && SELECTED_DEUDORES.size > 0 && !SELECTED_DEUDORES.has(r.nombre)) return false;
+    if (SELECTED_DEUDORES.size > 0 && !SELECTED_DEUDORES.has(r.nombre)) return false;
     if (!matches(r)) return false;
     return true;
   });
 
-  // LAYOUT / TREE
-  const cardW = 480;
-  const padX=12, padY=10, lineGap=18;
-
+  // 3) Layout
+  const cardW = 480, padX=12, padY=10, lineGap=18;
   const svgWidth = document.getElementById("stage").clientWidth;
   svg.attr("width", svgWidth);
   const svgH = +svg.attr("height");
 
-  const extraLines = (global ? 2 : 1);
+  const extraLines = global ? 2 : 1;
   const approxCardH = padY*2 + lineGap*(2 + extraLines);
-
   const treeLayout = d3.tree()
     .nodeSize([ approxCardH + 24, cardW + 240 ])
     .separation((a,b)=> (a.parent===b.parent? 1.2 : 1.5));
@@ -1300,7 +1099,7 @@ function drawTree(prestamista) {
     if (d.depth === 1) d.y = centerX;
   });
 
-  // enlaces raíz -> hijos
+  // enlaces raíz → deudores
   const linkPath = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
   const links = g.selectAll(".link")
     .data(root.links())
@@ -1335,7 +1134,6 @@ function drawTree(prestamista) {
     const sel = d3.select(this);
 
     if (d.depth === 0) {
-      // Nodo raíz
       sel.append("circle")
         .attr("r", 8)
         .attr("fill", "#1976d2")
@@ -1350,13 +1148,9 @@ function drawTree(prestamista) {
       return;
     }
 
-    // ---- tarjeta hijo normal ----
-    const padX=12, padY=10, lineGap=18;
-    const cardW=480;
-
-    // alto estimado según título envuelto
+    /* ===== calcular alto de tarjeta ===== */
     const temp = sel.append("text")
-      .attr("class", "nodeTitle")
+      .attr("class","nodeTitle")
       .attr("x", padX)
       .attr("y", 0)
       .style("opacity",0)
@@ -1366,18 +1160,15 @@ function drawTree(prestamista) {
     const titleRows = temp.selectAll("tspan").nodes().length || 1;
     temp.remove();
 
-    const globalMode = isGlobalMode();
-    const rowsCount = titleRows + (globalMode ? 2 : 1);
+    const rowsCount = titleRows + (global ? 2 : 1);
     const cardH = padY*2 + lineGap*rowsCount;
 
-    // color por antigüedad
     const m = +d.data.meses || 0;
     const mcls = (m >= 3) ? "m3" : (m === 2 ? "m2" : (m === 1 ? "m1" : "m0"));
-    let cardClass = "nodeCard " + mcls;
 
-    // contador de préstamos
+    // === NUEVO contador de préstamos:
     const prestKeyForCount = (
-      globalMode
+      global
         ? (d.data.__prest || '').toLowerCase().trim()
         : (prestamista || '').toLowerCase().trim()
     );
@@ -1391,31 +1182,28 @@ function drawTree(prestamista) {
       loanCount = DETALLE[prestKeyForCount][deudKeyForCount].length;
     }
 
-    const rect = sel.append("rect")
-      .attr("class", cardClass)
+    // tarjeta clickable
+    sel.append("rect")
+      .attr("class", `nodeCard ${mcls}`)
       .attr("x", 0)
       .attr("y", -cardH/2)
       .attr("width", cardW)
       .attr("height", cardH)
       .attr("rx", 12)
       .attr("ry", 12)
-      .attr("transform", "scale(0.98)");
-
-    // abre modal
-    rect
-      .attr("data-prest-key",  globalMode ? (d.data.__prest||'').toLowerCase().trim() : (prestamista||'').toLowerCase().trim())
-      .attr("data-deud-key",   (d.data.__dkey||'').toLowerCase().trim())
-      .attr("data-prest-name", globalMode ? (d.data.__prest||'') : prestamista)
+      .attr("data-prest-key", prestKeyForCount)
+      .attr("data-deud-key",  deudKeyForCount)
+      .attr("data-prest-name", global ? (d.data.__prest||'') : prestamista)
       .attr("data-deud-name",  d.data.nombre)
+      .attr("transform", "scale(0.98)")
       .on("click", function(){
         const pk = this.getAttribute('data-prest-key');
         const dk = this.getAttribute('data-deud-key');
         const pn = this.getAttribute('data-prest-name');
         const dn = this.getAttribute('data-deud-name');
         fillAndOpenModal(pk, dk, pn, dn);
-      });
-
-    rect.transition()
+      })
+      .transition()
       .delay(250)
       .duration(400)
       .ease(d3.easeCubicOut)
@@ -1423,7 +1211,7 @@ function drawTree(prestamista) {
 
     let y = -cardH/2 + padY + 12;
 
-    // título con contador
+    // título con número de préstamos
     const titleText =
       loanCount === 1
         ? `${d.data.nombre} (1 préstamo)`
@@ -1434,13 +1222,14 @@ function drawTree(prestamista) {
       .attr("x", padX)
       .attr("y", y)
       .text(titleText);
+
     wrapText(t, cardW - padX*2);
 
     const titleBox = t.node().getBBox();
     y = titleBox.y + titleBox.height + 2;
 
-    // info normal / global
-    if (globalMode) {
+    // en modo global mostramos prestamista
+    if (global) {
       const l0 = sel.append("text")
         .attr("class","nodeLine")
         .attr("x", padX)
@@ -1453,6 +1242,7 @@ function drawTree(prestamista) {
       y += lineGap;
     }
 
+    // línea montos/fecha
     const l1 = sel.append("text")
       .attr("class","nodeLine")
       .attr("x", padX)
@@ -1483,29 +1273,16 @@ function drawTree(prestamista) {
       .style("opacity", 1);
   });
 
-  // RESUMEN LATERAL
-  let totalInteres, totalCapital;
-
-  if (isGlobalMode()) {
-    // en global usamos lo visible
-    totalInteres = rows.reduce((a,r)=>a+Number(r.interes||0),0);
-    totalCapital = rows.reduce((a,r)=>a+Number(r.valor||0),0);
-  } else {
-    // en vista de prestamista: usamos PHP (ya incluye comisión)
-    totalInteres = Number(GANANCIA[prestamista] || 0);
-    totalCapital = Number(CAPITAL[prestamista] || 0);
-  }
+  // ===== Resumen lateral =====
+  const visibleRows = rows;
+  const totalInteres = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
+  const totalCapital = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
 
   const deudores = root.descendants().filter(d=>d.depth===1);
   const midY = d3.mean(deudores, d=>d.x) || 0;
 
-  const summaryX = (function(){
-    const cardWlocal = 480;
-    return (Math.max(cardWlocal/2 + 40, ((document.getElementById("stage").clientWidth - ROOT_TX - 40 - cardWlocal)/2)) + cardWlocal + 280);
-  })();
-  const sumW = 380, sumH = 140, sumPadX = 14;
-  let baseLineOff = 24;
-  const summaryLineH = 24;
+  const summaryX = centerX + cardW + 280;
+  const sumW = 380, sumH = 140, sumPadX = 14, sumLine = 24;
 
   const summaryG = g.append("g")
     .attr("class","summary")
@@ -1528,26 +1305,22 @@ function drawTree(prestamista) {
     .attr("rx", 14)
     .attr("ry", 14);
 
-  let titleTxt = isGlobalMode() ? "Resumen (todos los prestamistas)" : "Resumen del prestamista";
-
   summaryG.append("text")
     .attr("class","summaryTitle")
     .attr("x", sumPadX)
-    .attr("y", -sumH/2 + baseLineOff)
-    .text(titleTxt);
+    .attr("y", -sumH/2 + sumLine)
+    .text(global ? "Resumen (todos los prestamistas)" : "Resumen del prestamista");
 
-  let sy = -sumH/2 + baseLineOff + 20;
-
+  let sy = -sumH/2 + sumLine + 20;
   const s1 = summaryG.append("text")
     .attr("class","summaryLine")
     .attr("x", sumPadX)
     .attr("y", sy)
-    .text("Ganancia (interés + comisión): ");
+    .text("Ganancia (interés): ");
   s1.append("tspan")
     .attr("class","summaryAmt")
     .text(`$ ${totalInteres.toLocaleString()}`);
-  sy += summaryLineH;
-
+  sy += 22;
   const s2 = summaryG.append("text")
     .attr("class","summaryLine")
     .attr("x", sumPadX)
@@ -1556,11 +1329,93 @@ function drawTree(prestamista) {
   s2.append("tspan")
     .attr("class","summaryAmt")
     .text(`$ ${totalCapital.toLocaleString()}`);
-  sy += summaryLineH;
 
-  // CHIPS ARRIBA + SELECTOR ABAJO
-  renderChips(prestamista, rows);
-  renderSelector(prestamista);
+  // enlaces deudor -> resumen global
+  const link2 = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
+  g.selectAll(".link2")
+    .data(
+      deudores.map(d => ({
+        source:{x:d.x, y:d.y + cardW},
+        target:{x:midY, y:summaryX}
+      }))
+    )
+    .join("path")
+    .attr("class","link2")
+    .attr("d", link2)
+    .attr("stroke-dasharray", function(){ return this.getTotalLength(); })
+    .attr("stroke-dashoffset", function(){ return this.getTotalLength(); })
+    .transition()
+    .delay((d,i)=>200+i*25)
+    .duration(650)
+    .ease(d3.easeCubicOut)
+    .attr("stroke-dashoffset", 0);
+
+  // ===== Resúmenes por prestamista en modo global =====
+  if (global) {
+    const perPrest = {};
+    visibleRows.forEach(r=>{
+      const p = r.__prest || 'Desconocido';
+      if (!perPrest[p]) perPrest[p] = { interes:0, capital:0 };
+      perPrest[p].interes += Number(r.interes||0);
+      perPrest[p].capital += Number(r.valor||0);
+    });
+
+    const names = Object.keys(perPrest).sort((a,b)=> a.localeCompare(b));
+    const cardHres = 92, gap = 10;
+    let startY = midY + sumH/2 + 24;
+
+    names.forEach((p,i)=>{
+      const gP = g.append("g")
+        .attr("class","summary")
+        .attr("transform", `translate(${summaryX},${startY + i*(cardHres+gap)})`)
+        .style("opacity", 0);
+
+      gP.transition()
+        .delay(250 + i*80)
+        .duration(500)
+        .style("opacity", 1);
+
+      gP.append("rect")
+        .attr("class","summaryCard")
+        .attr("x", 0)
+        .attr("y", -cardHres/2)
+        .attr("width", sumW)
+        .attr("height", cardHres)
+        .attr("rx", 12)
+        .attr("ry", 12);
+
+      gP.append("text")
+        .attr("class","summaryTitle")
+        .attr("x", sumPadX)
+        .attr("y", -cardHres/2 + 22)
+        .text(`Prestamista: ${p}`);
+
+      const sy1 = -cardHres/2 + 46;
+      const t1 = gP.append("text")
+        .attr("class","summaryLine")
+        .attr("x", sumPadX)
+        .attr("y", sy1)
+        .text("Interés: ");
+      t1.append("tspan")
+        .attr("class","summaryAmt")
+        .text(`$ ${perPrest[p].interes.toLocaleString()}`);
+
+      const t2 = gP.append("text")
+        .attr("class","summaryLine")
+        .attr("x", sumPadX)
+        .attr("y", sy1+20)
+        .text("Capital: ");
+      t2.append("tspan")
+        .attr("class","summaryAmt")
+        .text(`$ ${perPrest[p].capital.toLocaleString()}`);
+    });
+  }
+
+  // chips arriba
+  renderChips(prestamista, visibleRows);
+
+  // selector abajo (solo modo prestamista)
+  if (!global) renderSelector(prestamista);
 }
 
 /* ===== Resize ===== */
