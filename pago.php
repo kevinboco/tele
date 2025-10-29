@@ -19,14 +19,19 @@ $debugHector = "
 ";
 $debugResult = $conn->query($debugHector);
 $totalHectorDebug = 0;
+
+echo "<div style='background: #ffeb3b; padding: 10px; margin: 10px; border: 2px solid red;'>";
+echo "<h3>DEBUG HÉCTOR IGUARAN</h3>";
 if ($debugResult && $debugResult->num_rows > 0) {
-    echo "<!-- DEBUG HÉCTOR IGUARAN -->";
     while ($debug = $debugResult->fetch_assoc()) {
         $totalHectorDebug += $debug['total_prestamo'];
-        echo "<!-- Préstamo ID: {$debug['id']} | Monto: {$debug['monto']} | Fecha: {$debug['fecha']} | Intereses: {$debug['intereses']} | Total: {$debug['total_prestamo']} -->";
+        echo "Préstamo ID: {$debug['id']} | Monto: " . number_format($debug['monto'], 0, ',', '.') . " | Fecha: {$debug['fecha']} | Intereses: " . number_format($debug['intereses'], 0, ',', '.') . " | Total: " . number_format($debug['total_prestamo'], 0, ',', '.') . "<br>";
     }
-    echo "<!-- Total Héctor Iguaran (debug): " . number_format($totalHectorDebug, 0, ',', '.') . " -->";
+    echo "<strong>Total Héctor Iguaran (debug): " . number_format($totalHectorDebug, 0, ',', '.') . "</strong>";
+} else {
+    echo "No se encontraron préstamos para Héctor Iguaran";
 }
+echo "</div>";
 
 if ($rP = $conn->query($qPrest)) {
   while($r = $rP->fetch_assoc()){
@@ -37,7 +42,9 @@ if ($rP = $conn->query($qPrest)) {
     
     // DEBUG para Héctor Iguaran
     if ($name === 'Héctor Iguaran') {
-        echo "<!-- Héctor Iguaran - Total en consulta principal: " . number_format($total, 0, ',', '.') . " -->";
+        echo "<div style='background: #4caf50; padding: 10px; margin: 10px; border: 2px solid blue; color: white;'>";
+        echo "<strong>Héctor Iguaran - Total en consulta principal: " . number_format($total, 0, ',', '.') . "</strong>";
+        echo "</div>";
     }
   }
 }
