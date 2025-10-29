@@ -234,62 +234,19 @@ if ($empresaFiltro !== "") {
 /* ================= Préstamos: listado multiselección ================= */
 $prestamosList = [];
 $i = 0;
-
-// CONSULTA CORREGIDA - Solo suma comisiones que son para el deudor
 $qPrest = "
   SELECT deudor,
-         SUM(
-           monto + 
-           (monto * 0.10 * CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) +
-           COALESCE(comision_base_monto, 0) +
-           (monto * COALESCE(comision_gestor_porcentaje, 0) / 100) +
-           (monto * COALESCE(comision_origen_porcentaje, 0) / 100)
-         ) AS total
+         SUM(monto + monto*0.10*CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS total
   FROM prestamos
   WHERE (pagado IS NULL OR pagado=0)
   GROUP BY deudor
 ";
-
-// DEBUG: Mostrar cálculo detallado para Héctor Iguaran
-$debugQuery = "
-  SELECT 
-    deudor,
-    monto,
-    fecha,
-    comision_base_monto,
-    comision_gestor_porcentaje,
-    comision_origen_porcentaje,
-    (monto * 0.10 * CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS intereses,
-    COALESCE(comision_base_monto, 0) AS comision_base,
-    (monto * COALESCE(comision_gestor_porcentaje, 0) / 100) AS comision_gestor,
-    (monto * COALESCE(comision_origen_porcentaje, 0) / 100) AS comision_origen,
-    (monto + 
-     (monto * 0.10 * CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) +
-     COALESCE(comision_base_monto, 0) +
-     (monto * COALESCE(comision_gestor_porcentaje, 0) / 100) +
-     (monto * COALESCE(comision_origen_porcentaje, 0) / 100)
-    ) AS total_calculado
-  FROM prestamos 
-  WHERE deudor = 'Héctor Iguaran' AND (pagado IS NULL OR pagado=0)
-";
-$debugResult = $conn->query($debugQuery);
-if ($debugResult && $debugResult->num_rows > 0) {
-  while ($debug = $debugResult->fetch_assoc()) {
-    error_log("DEBUG PRÉSTAMO Héctor Iguaran: " . print_r($debug, true));
-  }
-}
-
 if ($rP = $conn->query($qPrest)) {
   while($r = $rP->fetch_assoc()){
     $name = $r['deudor'];
     $key  = norm_person($name);
     $total = (int)round($r['total']);
     $prestamosList[] = ['id'=>$i++, 'name'=>$name, 'key'=>$key, 'total'=>$total];
-    
-    // DEBUG para Héctor Iguaran
-    if ($name === 'Héctor Iguaran') {
-      error_log("Héctor Iguaran - Total calculado: " . $total);
-    }
   }
 }
 
@@ -613,14 +570,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const PERIODOS_KEY  = 'cuentas_cobro_periodos:v1';
 
   const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
-
-  // DEBUG: Mostrar en consola los préstamos para verificar cálculos
-  console.log("PRESTAMOS_LIST:", PRESTAMOS_LIST);
-  PRESTAMOS_LIST.forEach(p => {
-    if (p.name === 'Héctor Iguaran') {
-      console.log("Héctor Iguaran - Total en PHP:", p.total);
-    }
-  });
 
   const toInt = (s)=>{ if(typeof s==='number') return Math.round(s); s=(s||'').toString().replace(/\./g,'').replace(/,/g,'').replace(/[^\d\-]/g,''); return parseInt(s||'0',10)||0; };
   const fmt = (n)=> (n||0).toLocaleString('es-CO');
