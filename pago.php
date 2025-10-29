@@ -1,1432 +1,1027 @@
 <?php
-/*********************************************************
- * prestamos_visual_interactivo.php
- * v4.6
- * - Visual D3 (vista por prestamista / global multi-deudor)
- * - Selector "marcar pagados"
- * - Modal con historial individual (click en el nodo)
- * - Fila TOTAL y leyenda de colores en el modal
- * - Colores por antigüedad (meses) en modal y nodos
- * - Contador de préstamos por deudor en cada nodo
-
 include("nav.php");
+$conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
+if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); }
+$conn->set_charset('utf8mb4');
 
-/* ===== Config ===== */
-define('DB_HOST', 'mysql.hostinger.com');
-define('DB_USER', 'u648222299_keboco5');
-define('DB_PASS', 'Bucaramanga3011');
-define('DB_NAME', 'u648222299_viajes');
-
-function db(): mysqli {
-  $m = @new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
-  if ($m->connect_errno) exit("Error DB: ".$m->connect_error);
-  $m->set_charset('utf8mb4');
-  return $m;
+/* ================= Helpers ================= */
+function strip_accents($s){
+  $t = @iconv('UTF-8','ASCII//TRANSLIT//IGNORE',$s);
+  if ($t !== false) return $t;
+  $repl = ['á'=>'a','é'=>'e','í'=>'i','ó'=>'o','ú'=>'u','ñ'=>'n','Á'=>'A','É'=>'E','Í'=>'I','Ó'=>'O','Ú'=>'U','Ñ'=>'N'];
+  return strtr($s,$repl);
 }
-function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
-function money($n){ return number_format((float)$n,0,',','.'); }
-function mbnorm($s){ return mb_strtolower(trim((string)$s),'UTF-8'); }
-function mbtitle($s){
-  return function_exists('mb_convert_case')
-    ? mb_convert_case((string)$s, MB_CASE_TITLE, 'UTF-8')
-    : ucwords(strtolower((string)$s));
+function norm_person($s){
+  $s = strip_accents((string)$s);
+  $s = mb_strtolower($s,'UTF-8');
+  $s = preg_replace('/[^a-z0-9\s]/',' ', $s);
+  $s = preg_replace('/\s+/',' ', trim($s));
+  return $s;
 }
 
-/* ===== Acción: marcar pagados ===== */
-if (($_GET['action'] ?? '') === 'mark_paid' && $_SERVER['REQUEST_METHOD']==='POST'){
-  $nodes = $_POST['nodes'] ?? [];
-  if (!is_array($nodes)) $nodes = [];
-  $all = [];
-  foreach($nodes as $csv){
-    foreach(explode(',', (string)$csv) as $raw){
-      $n=(int)trim($raw);
-      if($n>0) $all[$n]=1;
-    }
+/* ================= AJAX: Viajes por conductor (leyenda con contadores y soporte de filtro) ================= */
+if (isset($_GET['viajes_conductor'])) {
+  $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
+  $desde   = $conn->real_escape_string($_GET['desde'] ?? '');
+  $hasta   = $conn->real_escape_string($_GET['hasta'] ?? '');
+  $empresa = $conn->real_escape_string($_GET['empresa'] ?? '');
+
+  $sql = "SELECT fecha, ruta, empresa, tipo_vehiculo
+          FROM viajes
+          WHERE nombre = '$nombre'
+            AND fecha BETWEEN '$desde' AND '$hasta'";
+  if ($empresa !== '') {
+    $sql .= " AND empresa = '$empresa'";
   }
-  $ids = array_keys($all);
-  if ($ids){
-    $c=db();
-    foreach(array_chunk($ids,200) as $chunk){
-      $ph = implode(',', array_fill(0,count($chunk),'?'));
-      $types = str_repeat('i', count($chunk));
-      $sql = "UPDATE prestamos
-              SET pagado=1, pagado_at=NOW()
-              WHERE id IN ($ph)
-                AND (pagado IS NULL OR pagado=0)";
-      $st=$c->prepare($sql);
-      $st->bind_param($types, ...$chunk);
-      $st->execute();
-      $st->close();
+  $sql .= " ORDER BY fecha ASC";
+
+  $legend = [
+    'completo'     => ['label'=>'Completo',     'badge'=>'bg-emerald-100 text-emerald-700 border border-emerald-200', 'row'=>'bg-emerald-50/40'],
+    'medio'        => ['label'=>'Medio',        'badge'=>'bg-amber-100 text-amber-800 border border-amber-200',       'row'=>'bg-amber-50/40'],
+    'extra'        => ['label'=>'Extra',        'badge'=>'bg-slate-200 text-slate-800 border border-slate-300',       'row'=>'bg-slate-50'],
+    'siapana'      => ['label'=>'Siapana',      'badge'=>'bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-200', 'row'=>'bg-fuchsia-50/40'],
+    'carrotanque'  => ['label'=>'Carrotanque',  'badge'=>'bg-cyan-100 text-cyan-800 border border-cyan-200',          'row'=>'bg-cyan-50/40'],
+    'otro'         => ['label'=>'Otro',         'badge'=>'bg-gray-100 text-gray-700 border border-gray-200',          'row'=>'']
+  ];
+
+  $res = $conn->query($sql);
+
+  $rowsHTML = "";
+  $counts = [
+    'completo'=>0,
+    'medio'=>0,
+    'extra'=>0,
+    'siapana'=>0,
+    'carrotanque'=>0,
+    'otro'=>0
+  ];
+
+  if ($res && $res->num_rows > 0) {
+    while ($r = $res->fetch_assoc()) {
+      $ruta = (string)$r['ruta'];
+      $guiones = substr_count($ruta,'-');
+
+      // Clasificación
+      if ($r['tipo_vehiculo']==='Carrotanque' && $guiones==0) {
+        $cat = 'carrotanque';
+      } elseif (stripos($ruta,'Siapana') !== false) {
+        $cat = 'siapana';
+      } elseif (stripos($ruta,'Maicao') === false) {
+        $cat = 'extra';
+      } elseif ($guiones==2) {
+        $cat = 'completo';
+      } elseif ($guiones==1) {
+        $cat = 'medio';
+      } else {
+        $cat = 'otro';
+      }
+
+      if (isset($counts[$cat])) {
+        $counts[$cat]++;
+      } else {
+        $counts[$cat] = 1;
+      }
+
+      $l = $legend[$cat];
+      $badge = "<span class='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold {$l['badge']}'>".$l['label']."</span>";
+      $rowCls = trim("row-viaje hover:bg-blue-50 transition-colors {$l['row']} cat-$cat");
+
+      $rowsHTML .= "<tr class='{$rowCls}'>
+              <td class='px-3 py-2'>".htmlspecialchars($r['fecha'])."</td>
+              <td class='px-3 py-2'>
+                <div class='flex items-center gap-2'>
+                  {$badge}
+                  <span>".htmlspecialchars($ruta)."</span>
+                </div>
+              </td>
+              <td class='px-3 py-2'>".htmlspecialchars($r['empresa'])."</td>
+              <td class='px-3 py-2'>".htmlspecialchars($r['tipo_vehiculo'])."</td>
+            </tr>";
     }
-    $c->close();
-    header("Location: ".$_SERVER['PHP_SELF']."?msg=pagados"); exit;
   } else {
-    header("Location: ".$_SERVER['PHP_SELF']."?msg=nada"); exit;
-  }
-}
-
-/* ===== Filtro texto ===== */
-$q  = trim($_GET['q'] ?? '');
-$qNorm = mbnorm($q);
-
-$conn = db();
-
-/* ===== Prestamistas activos (deudas pendientes) ===== */
-$prestMap = [];
-$resPL = $conn->query("SELECT prestamista
-                       FROM prestamos
-                       WHERE (pagado IS NULL OR pagado=0)");
-while($rowPL=$resPL->fetch_row()){
-  $norm = mbnorm($rowPL[0]);
-  if ($norm==='') continue;
-  if (!isset($prestMap[$norm])) $prestMap[$norm] = $rowPL[0];
-}
-ksort($prestMap, SORT_NATURAL);
-
-/* ===== WHERE base ===== */
-$where = "(pagado IS NULL OR pagado=0)";
-$types=""; $params=[];
-if ($q !== ''){
-  $where .= " AND (LOWER(deudor) LIKE CONCAT('%',?,'%')
-               OR  LOWER(prestamista) LIKE CONCAT('%',?,'%'))";
-  $types .= "ss";
-  $params[]=$qNorm;
-  $params[]=$qNorm;
-}
-
-/* ===== Agregado prestamista+deudor ===== */
-$sql = "
-  SELECT LOWER(TRIM(prestamista)) AS prest_key,
-         MIN(prestamista)        AS prest_display,
-         LOWER(TRIM(deudor))     AS deud_key,
-         MIN(deudor)             AS deud_display,
-         MIN(fecha)              AS fecha_min,
-         CASE WHEN CURDATE() < MIN(fecha)
-              THEN 0
-              ELSE TIMESTAMPDIFF(MONTH, MIN(fecha), CURDATE()) + 1
-         END AS meses,
-         SUM(monto) AS capital,
-         SUM(
-           monto*0.10*
-           CASE WHEN CURDATE() < fecha
-                THEN 0
-                ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
-           END
-         ) AS interes,
-         SUM(
-           monto +
-           monto*0.10*
-           CASE WHEN CURDATE() < fecha
-                THEN 0
-                ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
-           END
-         ) AS total
-  FROM prestamos
-  WHERE $where
-  GROUP BY prest_key, deud_key
-  ORDER BY prest_key ASC, deud_display ASC";
-$st=$conn->prepare($sql);
-if($types) $st->bind_param($types, ...$params);
-$st->execute();
-$rs=$st->get_result();
-
-/* ===== IDs por prestamista+deudor (para marcar pagado en bloque) ===== */
-$sqlIds = "
-  SELECT LOWER(TRIM(prestamista)) AS prest_key,
-         LOWER(TRIM(deudor))     AS deud_key,
-         GROUP_CONCAT(id)        AS ids
-  FROM prestamos
-  WHERE $where
-  GROUP BY prest_key, deud_key";
-$st2=$conn->prepare($sqlIds);
-if($types) $st2->bind_param($types, ...$params);
-$st2->execute();
-$rsIds=$st2->get_result();
-$idsMap=[];
-while($row=$rsIds->fetch_assoc()){
-  $p=$row['prest_key']; $d=$row['deud_key'];
-  $idsMap[$p][$d] = preg_replace('/[^0-9,]/','', (string)$row['ids']);
-}
-$st2->close();
-
-/* ===== Detalle crudo de cada préstamo (para el modal y para el contador por deudor) ===== */
-$sqlDet = "
-  SELECT
-    LOWER(TRIM(prestamista)) AS prest_key,
-    prestamista,
-    LOWER(TRIM(deudor))      AS deud_key,
-    deudor,
-    id,
-    fecha,
-    monto,
-    CASE WHEN CURDATE() < fecha
-         THEN 0
-         ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
-    END AS meses,
-    (monto*0.10*
-     CASE WHEN CURDATE() < fecha
-          THEN 0
-          ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
-     END) AS interes,
-    (monto +
-     monto*0.10*
-     CASE WHEN CURDATE() < fecha
-          THEN 0
-          ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
-     END) AS total,
-    IFNULL(pagado,0) AS pagado
-  FROM prestamos
-  WHERE $where
-  ORDER BY prestamista, deudor, fecha ASC, id ASC";
-$st3=$conn->prepare($sqlDet);
-if($types) $st3->bind_param($types, ...$params);
-$st3->execute();
-$rsDet=$st3->get_result();
-
-$detalleMap = [];
-while($row=$rsDet->fetch_assoc()){
-  $pkey = $row['prest_key'];
-  $dkey = $row['deud_key'];
-  if (!isset($detalleMap[$pkey])) $detalleMap[$pkey]=[];
-  if (!isset($detalleMap[$pkey][$dkey])) $detalleMap[$pkey][$dkey]=[];
-  $detalleMap[$pkey][$dkey][] = [
-    'id'         => (int)$row['id'],
-    'fecha'      => $row['fecha'],
-    'monto'      => (float)$row['monto'],
-    'meses'      => (int)$row['meses'],
-    'interes'    => (float)$row['interes'],
-    'total'      => (float)$row['total'],
-    'pagado'     => (int)$row['pagado'],
-    'prestamista'=> $row['prestamista'],
-    'deudor'     => $row['deudor'],
-  ];
-}
-$st3->close();
-
-/* ===== Armar estructuras para el front ===== */
-$data = [];            // DATA[prestamista] = [rows...]
-$ganPrest=[];          // total interés por prestamista
-$capPendPrest=[];      // total capital pendiente por prestamista
-$allDebtors = [];      // listado global de deudores únicos
-
-while($r=$rs->fetch_assoc()){
-  $pkey=$r['prest_key']; $pdisp=$r['prest_display'];
-  $dkey=$r['deud_key'];  $ddis=$r['deud_display'];
-
-  if (!isset($data[$pdisp])) $data[$pdisp]=[];
-  $data[$pdisp][] = [
-    'nombre'  => $ddis,
-    'valor'   => (float)$r['capital'],
-    'fecha'   => $r['fecha_min'],
-    'interes' => (float)$r['interes'],
-    'total'   => (float)$r['total'],
-    'meses'   => (int)$r['meses'],
-    'ids_csv' => $idsMap[$pkey][$dkey] ?? '',
-    '__pkey'  => $pkey, // clave normalizada prestamista
-    '__dkey'  => $dkey  // clave normalizada deudor
-  ];
-
-  $ganPrest[$pdisp]     = ($ganPrest[$pdisp] ?? 0) + (float)$r['interes'];
-  $capPendPrest[$pdisp] = ($capPendPrest[$pdisp] ?? 0) + (float)$r['capital'];
-
-  $allDebtors[$ddis] = 1;
-}
-$st->close();
-$conn->close();
-
-$allDebtors = array_keys($allDebtors);
-natcasesort($allDebtors);
-
-/* ===== Formularios de marcar pagados por prestamista ===== */
-$selectors = [];
-foreach($data as $prest => $rows){
-  ob_start(); ?>
-  <form class="selector-form" method="post" action="?action=mark_paid" data-prest="<?= h($prest) ?>" style="display:none">
-    <div class="selhead">
-      <div class="subtitle">
-        Selecciona deudores de <strong><?= h(mbtitle($prest)) ?></strong> para marcarlos como pagados:
-      </div>
-      <label class="subtitle" style="display:flex;gap:8px;align-items:center">
-        <input type="checkbox"
-               onclick="(function(ch){
-                 const f=ch.closest('form');
-                 f.querySelectorAll('input[name=nodes\\[\\]]').forEach(i=>i.checked=ch.checked);
-               })(this)">
-        Seleccionar todo
-      </label>
-    </div>
-    <div class="selgrid">
-      <?php foreach($rows as $r):
-        if (($r['ids_csv'] ?? '') === '') continue; ?>
-        <label class="selitem">
-          <input class="cb" type="checkbox" name="nodes[]" value="<?= h($r['ids_csv']) ?>">
-          <div>
-            <div><strong><?= h(mbtitle($r['nombre'])) ?></strong></div>
-            <div class="meta">
-              prestado: $ <?= money($r['valor']) ?>
-              • interés: $ <?= money($r['interes']) ?>
-              • total: $ <?= money($r['total']) ?>
-              • fecha: <?= h($r['fecha']) ?>
-            </div>
-          </div>
-        </label>
-      <?php endforeach; ?>
-    </div>
-    <div style="display:flex;justify-content:flex-end;margin-top:8px">
-      <button class="btn small" type="submit"
-              onclick="return confirm('¿Marcar como pagados los seleccionados?')">
-        ✔ Préstamo pagado
-      </button>
-    </div>
-  </form>
-  <?php
-  $selectors[$prest] = ob_get_clean();
-}
-
-/* Mensaje flash */
-$msg = $_GET['msg'] ?? '';
-?>
-<!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<title>Préstamos Interactivos</title>
-<script src="https://d3js.org/d3.v7.min.js"></script>
-<style>
-  :root{ --line:#d1d5db; --primary:#1976d2; }
-  *{box-sizing:border-box}
-  body{
-    font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;
-    margin:0;background:#f4f6fa;color:#111;overflow-x:hidden
+    $rowsHTML .= "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresa.</td></tr>";
   }
 
-  .topbar{
-    padding:10px 16px;
-    display:flex;gap:10px;align-items:center;flex-wrap:wrap
-  }
-  .msg{
-    background:#e8f7ee;color:#196a3b;
-    padding:8px 12px;border-radius:10px;
-    display:inline-flex;align-items:center;gap:8px
-  }
-  .chips{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-  .chip{
-    background:#eef2ff;border:1px solid #e5e7eb;
-    border-radius:999px;padding:4px 10px;
-    font-size:12px
-  }
+  // lo que devolvemos al fetch (sin <script>, el JS global hará el filtro)
+  ?>
+  <div class='space-y-3'>
 
-  .search{
-    margin-left:auto;display:flex;
-    align-items:center;gap:6px;flex-wrap:wrap
-  }
-  .search input{
-    height:34px;padding:6px 10px 6px 30px;
-    border-radius:999px;border:1px solid #e5e7eb;
-    background:#fff
-      url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="%239aa1b2" viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001l3.85 3.85a1 1 0 0 0 1.415-1.415l-3.85-3.85zm-5.242.656a5 5 0 1 1 0-10 5 5 0 0 1 0 10z"/></svg>')
-      no-repeat 10px center;
-    outline:0;width:260px;
-  }
-  .search button{
-    height:34px;padding:6px 10px;
-    border-radius:999px;border:1px solid #e5e7eb;
-    background:#fff;cursor:pointer;
-  }
-
-  .filter-wrap{ display:flex; align-items:center; gap:8px; }
-  .multiselect { position: relative; min-width: 280px; }
-  .multiselect > button {
-    height:34px;width:100%;text-align:left;
-    border:1px solid #e5e7eb;background:#fff;
-    border-radius:10px;padding:6px 10px;cursor:pointer;
-  }
-  .multiselect .panel {
-    position:absolute; top:110%; left:0; right:0;
-    z-index:30;background:#fff;border:1px solid #e5e7eb;
-    border-radius:12px;box-shadow:0 10px 20px rgba(0,0,0,.06);
-    max-height:280px;overflow:auto;padding:6px;
-  }
-  .multiselect .opt {
-    display:flex;align-items:center;gap:8px;
-    padding:6px 8px;border-radius:8px;
-  }
-  .multiselect .opt:hover { background:#f8fafc; }
-
-  .toolbar {
-    position:absolute;left:80px;top:60px;z-index:5;
-    display:flex;gap:8px;flex-wrap:wrap;align-items:center;
-    background:rgba(255,255,255,.8);
-    backdrop-filter:saturate(1.2) blur(2px);
-    padding:6px 8px;border-radius:10px;
-    border:1px solid #e5e7eb;
-  }
-  .prest-chip{
-    padding:6px 10px;border-radius:999px;cursor:pointer;user-select:none;
-    background:#e3f2fd;font-weight:600;border:1px solid #dbeafe;
-  }
-  .prest-chip:hover{ background:#dbeafe }
-  .prest-chip.active{
-    background:#90caf9;border-color:#90caf9
-  }
-
-  #stage { position:relative }
-  svg{ display:block; width:100%; }
-  .link{fill:none;stroke:#cbd5e1;stroke-width:1.5px}
-  .link2{fill:none;stroke:#9ca3af;stroke-width:1.4px;opacity:.9}
-
-  .nodeCard{
-    stroke:#cbd5e1;stroke-width:1.2px;
-    filter: drop-shadow(0 1px 0 rgba(0,0,0,.02));
-    cursor:pointer;
-  }
-  .nodeCard.m1 { fill:#FFF8DB; }
-  .nodeCard.m2 { fill:#FFE9D6; }
-  .nodeCard.m3 { fill:#FFE1E1; }
-  .nodeCard.m0 { fill:#F3F4F6; }
-
-  .nodeTitle{
-    font-weight:800;fill:#111;font-size:13px;
-    pointer-events:none
-  }
-  .nodeLine{
-    fill:#6b7280;font-size:12px;
-    pointer-events:none
-  }
-  .nodeAmt{ fill:#111;font-weight:800;pointer-events:none }
-
-  .summaryCard{
-    fill:#EAF5FF;stroke:#cfe8ff;stroke-width:1.2px;
-  }
-  .summaryTitle{
-    font-weight:800;fill:#0b5ed7;font-size:14px
-  }
-  .summaryLine{
-    fill:#374151;font-size:13px
-  }
-  .summaryAmt{
-    fill:#0b5ed7;font-weight:800
-  }
-
-  .selector-wrap{padding:0 16px 20px}
-  .selector{
-    margin-top:10px;border-top:1px dashed #e5e7eb;
-    padding-top:10px
-  }
-  .selhead{
-    display:flex;justify-content:space-between;
-    align-items:center;margin-bottom:8px
-  }
-  .selgrid{
-    display:grid;
-    grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
-    gap:8px
-  }
-  .selitem{
-    display:flex;gap:8px;align-items:flex-start;
-    background:#fafbff;border:1px solid #eef2ff;
-    border-radius:12px;padding:8px
-  }
-  .selitem .meta{
-    font-size:12px;color:#555
-  }
-  .btn{
-    display:inline-flex;align-items:center;gap:8px;
-    padding:9px 12px;border-radius:12px;
-    background:#0b5ed7;color:#fff;font-weight:700;
-    border:0;cursor:pointer
-  }
-  .btn.small{padding:7px 10px;border-radius:10px}
-
-  /* ===== MODAL ===== */
-  .modal-backdrop{
-    position:fixed;inset:0;background:rgba(0,0,0,.4);
-    display:none;align-items:center;justify-content:center;
-    z-index:9999;
-  }
-  .modal-card{
-    background:#fff;border-radius:16px;border:1px solid #e5e7eb;
-    box-shadow:0 30px 60px rgba(0,0,0,.3);
-    width:90%;max-width:700px;max-height:80vh;
-    display:flex;flex-direction:column;
-    overflow:hidden;
-    animation:pop .18s cubic-bezier(.2,.8,.4,1) both;
-  }
-  @keyframes pop{
-    0%{transform:scale(.9) translateY(20px);opacity:0}
-    100%{transform:scale(1) translateY(0);opacity:1}
-  }
-  .modal-head{
-    padding:16px 20px;border-bottom:1px solid #eef2ff;
-    background:#f8fafc;
-    display:flex;justify-content:space-between;
-    align-items:flex-start;gap:12px
-  }
-  .modal-title{
-    font-size:15px;font-weight:700;color:#0b5ed7;line-height:1.3
-  }
-  .modal-sub{
-    font-size:13px;color:#4b5563;line-height:1.3;margin-top:2px
-  }
-  .close-btn{
-    background:#fff;border:1px solid #e5e7eb;
-    border-radius:10px;padding:6px 10px;
-    font-size:13px;font-weight:600;
-    color:#374151;cursor:pointer;
-  }
-  .close-btn:hover{background:#f3f4f6}
-  .modal-body{
-    padding:16px 20px;overflow:auto
-  }
-
-  /* leyenda de colores dentro del modal */
-  .modal-legend {
-    display:flex;
-    flex-wrap:wrap;
-    gap:8px 12px;
-    font-size:12px;
-    line-height:1.3;
-    color:#374151;
-    margin-bottom:12px;
-  }
-  .legend-item {
-    display:flex;
-    align-items:center;
-    gap:6px;
-  }
-  .legend-swatch {
-    width:14px;
-    height:14px;
-    border-radius:4px;
-    border:1px solid #9ca3af;
-  }
-  .swatch-m0 { background:#F3F4F6; }
-  .swatch-m1 { background:#FFF8DB; }
-  .swatch-m2 { background:#FFE9D6; }
-  .swatch-m3 { background:#FFE1E1; }
-
-  /* tabla del modal */
-  table.detalle-table{
-    width:100%;border-collapse:collapse;
-    font-size:13px;line-height:1.4;color:#1f2937;
-    min-width:620px
-  }
-  .detalle-table thead th{
-    position:sticky;top:0;background:#eaf5ff;color:#0b5ed7;
-    font-weight:700;text-align:left;
-    padding:8px;border-bottom:1px solid #cfe8ff;
-    font-size:12px;
-  }
-  .detalle-table tbody td{
-    padding:8px;border-bottom:1px solid #e5e7eb;
-    font-size:12px;vertical-align:top;
-    color:#1f2937;
-  }
-  .badge-ok{
-    background:#e8f7ee;color:#196a3b;
-    border:1px solid #bbf7d0;border-radius:8px;
-    padding:2px 6px;font-size:11px;
-    font-weight:600;display:inline-block;
-  }
-  .badge-pend{
-    background:#fff7ed;color:#b45309;
-    border:1px solid #fdba74;border-radius:8px;
-    padding:2px 6px;font-size:11px;
-    font-weight:600;display:inline-block;
-  }
-
-  /* colores de antigüedad por fila modal */
-  .age-m0 td { background:#F3F4F6; }
-  .age-m1 td { background:#FFF8DB; }
-  .age-m2 td { background:#FFE9D6; }
-  .age-m3 td { background:#FFE1E1; }
-  .detalle-table tbody tr.age-m0 td,
-  .detalle-table tbody tr.age-m1 td,
-  .detalle-table tbody tr.age-m2 td,
-  .detalle-table tbody tr.age-m3 td {
-    border-bottom:1px solid #d1d5db;
-    color:#1f2937;
-  }
-
-  /* fila total al final */
-  .detalle-total-row td {
-    background:#f8fafc !important;
-    font-weight:700;
-    border-top:2px solid #cfe8ff;
-    border-bottom:2px solid #cfe8ff;
-    color:#0b5ed7;
-  }
-  .detalle-total-row td.label-cell {
-    text-align:right;
-    color:#0b5ed7;
-  }
-</style>
-</head>
-<body>
-
-<div class="topbar">
-  <?php if ($msg): ?>
-    <div class="msg">
+    <!-- Leyenda con contadores y filtro -->
+    <div class='flex flex-wrap gap-2 text-xs' id="legendFilterBar">
       <?php
-        echo ($msg==='pagados') ? 'Marcados como pagados.' :
-             (($msg==='nada') ? 'No seleccionaste deudores.' : 'Operación realizada.');
+      foreach (['completo','medio','extra','siapana','carrotanque'] as $k) {
+        $l = $legend[$k];
+        $countVal = $counts[$k] ?? 0;
+        echo "<button
+                class='legend-pill inline-flex items-center gap-2 px-3 py-2 rounded-full {$l['badge']} hover:opacity-90 transition ring-0 outline-none border cursor-pointer select-none'
+                data-tipo='{$k}'
+              >
+                <span class='w-2.5 h-2.5 rounded-full ".str_replace(['bg-','/40'], ['bg-',''], $l['row'])." bg-opacity-100 border border-white/30 shadow-inner'></span>
+                <span class='font-semibold text-[13px]'>{$l['label']}</span>
+                <span class='text-[11px] font-semibold opacity-80'>({$countVal})</span>
+              </button>";
+      }
       ?>
     </div>
-  <?php endif; ?>
 
-  <div class="chips" id="chips"></div>
-
-  <!-- Filtro deudores (multiselección) -->
-  <div class="filter-wrap">
-    <div class="multiselect" id="ms-deudores">
-      <button type="button" id="ms-toggle">Filtrar deudores (0 seleccionados)</button>
-      <div class="panel" id="ms-panel" style="display:none">
-        <div class="opt" style="justify-content:space-between; padding:6px 8px; border-bottom:1px solid #eef2ff;">
-          <div style="font-weight:600">Deudores</div>
-          <div style="display:flex; gap:6px">
-            <button type="button" id="ms-all" class="btn small" style="background:#eef2ff;color:#0b5ed7;border:0">Todos</button>
-            <button type="button" id="ms-none" class="btn small" style="background:#fff;color:#374151;border:1px solid #e5e7eb">Ninguno</button>
-          </div>
-        </div>
-        <div id="ms-list"></div>
-      </div>
+    <!-- Tabla -->
+    <div class='overflow-x-auto'>
+      <table class='min-w-full text-sm text-left'>
+        <thead class='bg-blue-600 text-white'>
+          <tr>
+            <th class='px-3 py-2'>Fecha</th>
+            <th class='px-3 py-2'>Ruta</th>
+            <th class='px-3 py-2'>Empresa</th>
+            <th class='px-3 py-2'>Vehículo</th>
+          </tr>
+        </thead>
+        <tbody class='divide-y divide-gray-100 bg-white' id="viajesTableBody">
+          <?= $rowsHTML ?>
+        </tbody>
+      </table>
     </div>
   </div>
+  <?php
+  exit;
+}
 
-  <!-- Buscador -->
-  <div class="search">
-    <input id="searchInput" type="text" placeholder="Buscar..." autocomplete="off">
-    <button id="clearSearch" title="Limpiar">✕</button>
-  </div>
-</div>
-
-<div id="stage">
-  <div id="toolbar" class="toolbar"></div>
-  <svg id="chart" height="800"></svg>
-</div>
-
-<div class="selector-wrap">
-  <div id="selector-host"></div>
-</div>
-
-<!-- MODAL -->
-<div class="modal-backdrop" id="loanModal">
-  <div class="modal-card">
-    <div class="modal-head">
-      <div>
-        <div class="modal-title" id="modalTitle">Detalle de préstamos</div>
-        <div class="modal-sub" id="modalSub"></div>
+/* ================= Form si faltan fechas ================= */
+if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
+  $empresas = [];
+  $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
+  if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
+  ?>
+  <!DOCTYPE html>
+  <html lang="es"><head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Ajuste de Pago</title><script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-100 text-slate-800">
+    <div class="max-w-lg mx-auto p-6">
+      <div class="bg-white shadow-sm rounded-2xl p-6 border border-slate-200">
+        <h2 class="text-2xl font-bold text-center mb-2">📅 Ajuste de pago por rango</h2>
+        <form method="get" class="space-y-4">
+          <label class="block"><span class="block text-sm font-medium mb-1">Desde</span>
+            <input type="date" name="desde" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
+          </label>
+          <label class="block"><span class="block text-sm font-medium mb-1">Hasta</span>
+            <input type="date" name="hasta" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
+          </label>
+          <label class="block"><span class="block text-sm font-medium mb-1">Empresa</span>
+            <select name="empresa" class="w-full rounded-xl border border-slate-300 px-3 py-2">
+              <option value="">-- Todas --</option>
+              <?php foreach($empresas as $e): ?>
+                <option value="<?= htmlspecialchars($e) ?>"><?= htmlspecialchars($e) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </label>
+          <button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow">Continuar</button>
+        </form>
       </div>
-      <button class="close-btn" id="modalClose">Cerrar</button>
     </div>
-    <div class="modal-body">
-      <!-- Leyenda de colores -->
-      <div class="modal-legend">
-        <div class="legend-item">
-          <span class="legend-swatch swatch-m0"></span>
-          <span>0 meses (recién)</span>
-        </div>
-        <div class="legend-item">
-          <span class="legend-swatch swatch-m1"></span>
-          <span>1 mes</span>
-        </div>
-        <div class="legend-item">
-          <span class="legend-swatch swatch-m2"></span>
-          <span>2 meses</span>
-        </div>
-        <div class="legend-item">
-          <span class="legend-swatch swatch-m3"></span>
-          <span>3+ meses</span>
+  </body></html>
+  <?php exit;
+}
+
+/* ================= Parámetros ================= */
+$desde = $_GET['desde'];
+$hasta = $_GET['hasta'];
+$empresaFiltro = $_GET['empresa'] ?? "";
+
+/* ================= Viajes del rango (para totales) ================= */
+$sqlV = "SELECT nombre, ruta, empresa, tipo_vehiculo
+         FROM viajes
+         WHERE fecha BETWEEN '$desde' AND '$hasta'";
+if ($empresaFiltro !== "") {
+  $empresaFiltroEsc = $conn->real_escape_string($empresaFiltro);
+  $sqlV .= " AND empresa = '$empresaFiltroEsc'";
+}
+$resV = $conn->query($sqlV);
+
+$contadores = [];
+if ($resV) {
+  while ($row = $resV->fetch_assoc()) {
+    $nombre = $row['nombre'];
+    if (!isset($contadores[$nombre])) {
+      $contadores[$nombre] = [
+        'vehiculo' => $row['tipo_vehiculo'],
+        'completos'=>0, 'medios'=>0, 'extras'=>0, 'carrotanques'=>0, 'siapana'=>0
+      ];
+    }
+    $ruta = (string)$row['ruta'];
+    $guiones = substr_count($ruta, '-');
+    if ($row['tipo_vehiculo']==='Carrotanque' && $guiones==0) {
+      $contadores[$nombre]['carrotanques']++;
+    } elseif (stripos($ruta,'Siapana') !== false) {
+      $contadores[$nombre]['siapana']++;
+    } elseif (stripos($ruta,'Maicao') === false) {
+      $contadores[$nombre]['extras']++;
+    } elseif ($guiones==2) {
+      $contadores[$nombre]['completos']++;
+    } elseif ($guiones==1) {
+      $contadores[$nombre]['medios']++;
+    }
+  }
+}
+
+/* ================= Tarifas ================= */
+$tarifas = [];
+if ($empresaFiltro !== "") {
+  $resT = $conn->query("SELECT * FROM tarifas WHERE empresa='".$conn->real_escape_string($empresaFiltro)."'");
+  if ($resT) while($r=$resT->fetch_assoc()) $tarifas[$r['tipo_vehiculo']] = $r;
+}
+
+/* ================= Préstamos: listado multiselección ================= */
+$prestamosList = [];
+$i = 0;
+$qPrest = "
+  SELECT deudor,
+         SUM(monto + monto*0.10*CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS total
+  FROM prestamos
+  WHERE (pagado IS NULL OR pagado=0)
+  GROUP BY deudor
+";
+if ($rP = $conn->query($qPrest)) {
+  while($r = $rP->fetch_assoc()){
+    $name = $r['deudor'];
+    $key  = norm_person($name);
+    $total = (int)round($r['total']);
+    $prestamosList[] = ['id'=>$i++, 'name'=>$name, 'key'=>$key, 'total'=>$total];
+  }
+}
+
+/* ================= Filas base (viajes) ================= */
+$filas = []; $total_facturado = 0;
+foreach ($contadores as $nombre => $v) {
+  $veh = $v['vehiculo'];
+  $t = $tarifas[$veh] ?? ["completo"=>0,"medio"=>0,"extra"=>0,"carrotanque"=>0,"siapana"=>0];
+
+  $total = $v['completos']   * (int)($t['completo']    ?? 0)
+         + $v['medios']      * (int)($t['medio']       ?? 0)
+         + $v['extras']      * (int)($t['extra']       ?? 0)
+         + $v['carrotanques']* (int)($t['carrotanque'] ?? 0)
+         + $v['siapana']     * (int)($t['siapana']     ?? 0);
+
+  $filas[] = ['nombre'=>$nombre, 'total_bruto'=>(int)$total];
+  $total_facturado += (int)$total;
+}
+usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
+?>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Ajuste de Pago (con gestor de cuentas de cobro)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  .num { font-variant-numeric: tabular-nums; }
+  .table-sticky thead tr { position: sticky; top: 0; z-index: 30; }
+  .table-sticky thead th { position: sticky; top: 0; z-index: 31; background-color: #2563eb !important; color: #fff !important; }
+  .table-sticky thead { box-shadow: 0 2px 0 rgba(0,0,0,0.06); }
+
+  /* Modal Viajes */
+  .viajes-backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:10000; }
+  .viajes-backdrop.show{ display:flex; }
+  .viajes-card{ width:min(720px,94vw); max-height:90vh; overflow:hidden; border-radius:16px; background:#fff;
+                box-shadow:0 20px 60px rgba(0,0,0,.25); border:1px solid #e5e7eb; }
+  .viajes-header{padding:14px 16px;border-bottom:1px solid #eef2f7}
+  .viajes-body{padding:14px 16px;overflow:auto; max-height:70vh}
+  .viajes-close{padding:6px 10px; border-radius:10px; cursor:pointer;}
+  .viajes-close:hover{background:#f3f4f6}
+
+  .conductor-link{cursor:pointer; color:#0d6efd; text-decoration:underline;}
+</style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+  <header class="max-w-[1600px] mx-auto px-3 md:px-4 pt-6">
+    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm px-5 py-4">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <h2 class="text-xl md:text-2xl font-bold">🧾 Ajuste de Pago</h2>
+        <div class="flex items-center gap-2">
+          <button id="btnShowSaveCuenta" class="rounded-lg border border-amber-300 px-3 py-2 text-sm bg-amber-50 hover:bg-amber-100">⭐ Guardar como cuenta</button>
+          <button id="btnShowGestorCuentas" class="rounded-lg border border-blue-300 px-3 py-2 text-sm bg-blue-50 hover:bg-blue-100">📚 Cuentas guardadas</button>
         </div>
       </div>
 
-      <div style="overflow-x:auto;">
-        <table class="detalle-table">
-          <thead>
+      <!-- filtros -->
+      <form id="formFiltros" class="mt-3 grid grid-cols-1 md:grid-cols-6 gap-3" method="get">
+        <label class="block md:col-span-1">
+          <span class="block text-xs font-medium mb-1">Desde</span>
+          <input id="inp_desde" type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
+        </label>
+        <label class="block md:col-span-1">
+          <span class="block text-xs font-medium mb-1">Hasta</span>
+          <input id="inp_hasta" type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
+        </label>
+        <label class="block md:col-span-2">
+          <span class="block text-xs font-medium mb-1">Empresa</span>
+          <select id="sel_empresa" name="empresa" class="w-full rounded-xl border border-slate-300 px-3 py-2">
+            <option value="">-- Todas --</option>
+            <?php
+              $resEmp2 = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
+              if ($resEmp2) while ($e = $resEmp2->fetch_assoc()) {
+                $sel = ($empresaFiltro==$e['empresa'])?'selected':''; ?>
+                <option value="<?= htmlspecialchars($e['empresa']) ?>" <?= $sel ?>><?= htmlspecialchars($e['empresa']) ?></option>
+            <?php } ?>
+          </select>
+        </label>
+        <div class="md:col-span-2 flex md:items-end">
+          <button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow">Aplicar</button>
+        </div>
+      </form>
+    </div>
+  </header>
+
+  <main class="max-w-[1600px] mx-auto px-3 md:px-4 py-6 space-y-5">
+    <!-- Panel montos -->
+    <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+      <div class="grid grid-cols-1 md:grid-cols-6 gap-4">
+        <div>
+          <div class="text-xs text-slate-500 mb-1">Conductores en rango</div>
+          <div class="text-lg font-semibold"><?= count($filas) ?></div>
+        </div>
+        <label class="block md:col-span-2">
+          <span class="block text-xs font-medium mb-1">Cuenta de cobro (facturado)</span>
+          <input id="inp_facturado" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num"
+                 value="<?= number_format($total_facturado,0,',','.') ?>">
+        </label>
+        <label class="block md:col-span-2">
+          <span class="block text-xs font-medium mb-1">Valor recibido (llegó)</span>
+          <input id="inp_recibido" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num"
+                 value="<?= number_format($total_facturado,0,',','.') ?>">
+        </label>
+        <div>
+          <div class="text-xs text-slate-500 mb-1">Diferencia a repartir</div>
+          <div id="lbl_diferencia" class="text-lg font-semibold text-amber-600 num">0</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tabla principal -->
+    <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+      <div class="overflow-auto max-h-[70vh] rounded-xl border border-slate-200 table-sticky">
+        <table class="min-w-[1200px] w-full text-sm">
+          <thead class="bg-blue-600 text-white">
             <tr>
-              <th>ID</th>
-              <th>Fecha</th>
-              <th>Meses</th>
-              <th>Monto</th>
-              <th>Interés</th>
-              <th>Total</th>
-              <th>Estado</th>
+              <th class="px-3 py-2 text-left">Conductor</th>
+              <th class="px-3 py-2 text-right">Total viajes (base)</th>
+              <th class="px-3 py-2 text-right">Ajuste por diferencia</th>
+              <th class="px-3 py-2 text-right">Valor que llegó</th>
+              <th class="px-3 py-2 text-right">Retención 3.5%</th>
+              <th class="px-3 py-2 text-right">4×1000</th>
+              <th class="px-3 py-2 text-right">Aporte 10%</th>
+              <th class="px-3 py-2 text-right">Seg. social</th>
+              <th class="px-3 py-2 text-right">Préstamos (pend.)</th>
+              <th class="px-3 py-2 text-left">N° Cuenta</th>
+              <th class="px-3 py-2 text-right">A pagar</th>
             </tr>
           </thead>
-          <tbody id="modalRows"><!-- dinámico --></tbody>
+          <tbody id="tbody" class="divide-y divide-slate-100 bg-white">
+            <?php foreach ($filas as $f): ?>
+            <tr>
+              <td class="px-3 py-2">
+                <button type="button" class="conductor-link" title="Ver viajes"><?= htmlspecialchars($f['nombre']) ?></button>
+              </td>
+              <td class="px-3 py-2 text-right num base"><?= number_format($f['total_bruto'],0,',','.') ?></td>
+              <td class="px-3 py-2 text-right num ajuste">0</td>
+              <td class="px-3 py-2 text-right num llego">0</td>
+              <td class="px-3 py-2 text-right num ret">0</td>
+              <td class="px-3 py-2 text-right num mil4">0</td>
+              <td class="px-3 py-2 text-right num apor">0</td>
+              <td class="px-3 py-2 text-right">
+                <input type="text" class="ss w-full max-w-[120px] rounded-lg border border-slate-300 px-2 py-1 text-right num" value="">
+              </td>
+              <td class="px-3 py-2 text-right">
+                <div class="flex items-center justify-end gap-2">
+                  <span class="num prest">0</span>
+                  <button type="button" class="btn-prest text-xs px-2 py-1 rounded border border-slate-300 bg-slate-50 hover:bg-slate-100">
+                    Seleccionar
+                  </button>
+                </div>
+                <div class="text-[11px] text-slate-500 text-right selected-deudor"></div>
+              </td>
+              <td class="px-3 py-2">
+                <input type="text" class="cta w-full max-w-[180px] rounded-lg border border-slate-300 px-2 py-1" value="" placeholder="N° cuenta">
+              </td>
+              <td class="px-3 py-2 text-right num pagar">0</td>
+            </tr>
+            <?php endforeach; ?>
+          </tbody>
+          <tfoot class="bg-slate-50 font-semibold">
+            <tr>
+              <td class="px-3 py-2" colspan="3">Totales</td>
+              <td class="px-3 py-2 text-right num" id="tot_valor_llego">0</td>
+              <td class="px-3 py-2 text-right num" id="tot_retencion">0</td>
+              <td class="px-3 py-2 text-right num" id="tot_4x1000">0</td>
+              <td class="px-3 py-2 text-right num" id="tot_aporte">0</td>
+              <td class="px-3 py-2 text-right num" id="tot_ss">0</td>
+              <td class="px-3 py-2 text-right num" id="tot_prestamos">0</td>
+              <td class="px-3 py-2"></td>
+              <td class="px-3 py-2 text-right num" id="tot_pagar">0</td>
+            </tr>
+          </tfoot>
         </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===== Modal PRÉSTAMOS (multi) ===== -->
+  <div id="prestModal" class="hidden fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/30"></div>
+    <div class="relative mx-auto my-8 max-w-2xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+        <h3 class="text-lg font-semibold">Seleccionar deudores (puedes marcar varios)</h3>
+        <button id="btnCloseModal" class="p-2 rounded hover:bg-slate-100" title="Cerrar">✕</button>
+      </div>
+      <div class="p-4">
+        <div class="flex flex-col md:flex-row md:items-center gap-3 mb-3">
+          <input id="prestSearch" type="text" placeholder="Buscar deudor..." class="w-full rounded-xl border border-slate-300 px-3 py-2">
+          <div class="flex gap-2">
+            <button id="btnSelectAll" class="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 hover:bg-slate-100">Marcar visibles</button>
+            <button id="btnUnselectAll" class="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 hover:bg-slate-100">Desmarcar</button>
+            <button id="btnClearSel" class="rounded-lg border border-rose-300 text-rose-700 px-3 py-2 text-sm bg-rose-50 hover:bg-rose-100">Quitar selección</button>
+          </div>
+        </div>
+        <div id="prestList" class="max-h-[50vh] overflow-auto rounded-xl border border-slate-200"></div>
+      </div>
+      <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-between gap-2">
+        <div class="text-sm text-slate-600">Seleccionados: <span id="selCount" class="font-semibold">0</span></div>
+        <div class="flex items-center gap-2">
+          <div class="text-sm">Total seleccionado: <span id="selTotal" class="num font-semibold">0</span></div>
+          <button id="btnCancel" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
+          <button id="btnAssign" class="rounded-lg border border-blue-600 px-4 py-2 bg-blue-600 text-white hover:bg-blue-700">Asignar</button>
+        </div>
       </div>
     </div>
   </div>
-</div>
+
+  <!-- ===== Modal VIAJES ===== -->
+  <div id="viajesModal" class="viajes-backdrop">
+    <div class="viajes-card">
+      <div class="viajes-header">
+        <div class="flex flex-col gap-2 w-full md:flex-row md:items-center md:justify-between">
+          <div class="flex flex-col gap-1">
+            <h3 class="text-lg font-semibold flex items-center gap-2">
+              🧳 Viajes — <span id="viajesTitle" class="font-normal"></span>
+            </h3>
+            <div class="text-[11px] text-slate-500 leading-tight">
+              <span id="viajesRango"></span>
+              <span class="mx-1">•</span>
+              <span id="viajesEmpresa"></span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="text-xs text-slate-600 whitespace-nowrap">Conductor:</label>
+            <select id="viajesSelectConductor"
+              class="rounded-lg border border-slate-300 px-2 py-1 text-sm min-w-[200px] focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500">
+            </select>
+            <button class="viajes-close text-slate-600 hover:bg-slate-100 border border-slate-300 px-2 py-1 rounded-lg text-sm" id="viajesCloseBtn" title="Cerrar">
+              ✕
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="viajes-body" id="viajesContent"></div>
+    </div>
+  </div>
+
+  <!-- ===== Modal GUARDAR CUENTA ===== -->
+  <div id="saveCuentaModal" class="hidden fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/30"></div>
+    <div class="relative mx-auto my-10 w-full max-w-lg bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+        <h3 class="text-lg font-semibold">⭐ Guardar cuenta de cobro</h3>
+        <button id="btnCloseSaveCuenta" class="p-2 rounded hover:bg-slate-100" title="Cerrar">✕</button>
+      </div>
+      <div class="p-5 space-y-3">
+        <label class="block">
+          <span class="block text-xs font-medium mb-1">Nombre</span>
+          <input id="cuenta_nombre" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" placeholder="Ej: Hospital Sep 2025">
+        </label>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label class="block">
+            <span class="block text-xs font-medium mb-1">Empresa</span>
+            <input id="cuenta_empresa" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" readonly>
+          </label>
+          <label class="block">
+            <span class="block text-xs font-medium mb-1">Rango</span>
+            <input id="cuenta_rango" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" readonly>
+          </label>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label class="block">
+            <span class="block text-xs font-medium mb-1">Facturado</span>
+            <input id="cuenta_facturado" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
+          </label>
+          <label class="block">
+            <span class="block text-xs font-medium mb-1">Recibido</span>
+            <input id="cuenta_recibido" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
+          </label>
+        </div>
+      </div>
+      <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
+        <button id="btnCancelSaveCuenta" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
+        <button id="btnDoSaveCuenta" class="rounded-lg border border-amber-500 text-white px-4 py-2 bg-amber-500 hover:bg-amber-600">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Modal GESTOR DE CUENTAS ===== -->
+  <div id="gestorCuentasModal" class="hidden fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/30"></div>
+    <div class="relative mx-auto my-10 w-full max-w-3xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+        <h3 class="text-lg font-semibold">📚 Cuentas guardadas</h3>
+        <button id="btnCloseGestor" class="p-2 rounded hover:bg-slate-100" title="Cerrar">✕</button>
+      </div>
+      <div class="p-4 space-y-3">
+        <div class="flex flex-col md:flex-row md:items-center gap-3">
+          <div class="text-sm">Empresa actual: <strong id="lblEmpresaActual"></strong></div>
+          <input id="buscaCuenta" type="text" placeholder="Buscar por nombre…" class="w-full rounded-xl border border-slate-300 px-3 py-2">
+        </div>
+        <div class="overflow-auto max-h-[60vh] rounded-xl border border-slate-200">
+          <table class="min-w-full text-sm">
+            <thead class="bg-blue-600 text-white">
+              <tr>
+                <th class="px-3 py-2 text-left">Nombre</th>
+                <th class="px-3 py-2 text-left">Rango</th>
+                <th class="px-3 py-2 text-right">Facturado</th>
+                <th class="px-3 py-2 text-right">Recibido</th>
+                <th class="px-3 py-2 text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="tbodyCuentas" class="divide-y divide-slate-100 bg-white"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="px-5 py-4 border-t border-slate-200 text-right">
+        <button id="btnAddDesdeFiltro" class="rounded-lg border border-amber-300 px-3 py-2 text-sm bg-amber-50 hover:bg-amber-100">⭐ Guardar rango actual</button>
+      </div>
+    </div>
+  </div>
 
 <script>
-/* ===== Datos desde PHP ===== */
-const DATA = <?php echo json_encode($data, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
-const GANANCIA = <?php echo json_encode($ganPrest, JSON_NUMERIC_CHECK); ?>;
-const CAPITAL  = <?php echo json_encode($capPendPrest, JSON_NUMERIC_CHECK); ?>;
-const SELECTORS_HTML = <?php echo json_encode($selectors, JSON_UNESCAPED_UNICODE); ?>;
-const ALL_DEBTORS = <?php echo json_encode(array_values($allDebtors), JSON_UNESCAPED_UNICODE); ?>;
-const DETALLE = <?php echo json_encode($detalleMap, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
+  // ===== Claves de persistencia =====
+  const COMPANY_SCOPE = <?= json_encode(($empresaFiltro ?: '__todas__')) ?>;
+  const ACC_KEY   = 'cuentas:'+COMPANY_SCOPE;
+  const SS_KEY    = 'seg_social:'+COMPANY_SCOPE;
+  const PREST_SEL_KEY = 'prestamo_sel_multi:v2:'+COMPANY_SCOPE;
+  const PERIODOS_KEY  = 'cuentas_cobro_periodos:v1';
 
-/* ===== D3 setup ===== */
-const svg = d3.select("#chart");
-const ROOT_TX = 80, ROOT_TY = 120;
-const rootG = svg.append("g").attr("transform", `translate(${ROOT_TX},${ROOT_TY})`);
-const g = rootG.append("g");
-const chipsHost = document.getElementById("chips");
-const selectorHost = document.getElementById("selector-host");
+  const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 
-/* ===== Toolbar prestamistas ===== */
-const toolbar = document.getElementById("toolbar");
-const prestNombres = Object.keys(DATA);
-let currentPrest = prestNombres[0] || null;
+  const toInt = (s)=>{ if(typeof s==='number') return Math.round(s); s=(s||'').toString().replace(/\./g,'').replace(/,/g,'').replace(/[^\d\-]/g,''); return parseInt(s||'0',10)||0; };
+  const fmt = (n)=> (n||0).toLocaleString('es-CO');
+  const getLS=(k)=>{try{return JSON.parse(localStorage.getItem(k)||'{}')}catch{return{}}}
+  const setLS=(k,v)=> localStorage.setItem(k, JSON.stringify(v));
 
-function renderToolbar(active){
-  toolbar.innerHTML = "";
-  prestNombres.forEach((p)=>{
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "prest-chip" + (p===active ? " active" : "");
-    b.textContent = p;
-    b.onclick = ()=>{
-      currentPrest = p;
-      document.querySelectorAll(".prest-chip").forEach(x=>x.classList.remove("active"));
-      b.classList.add("active");
-      drawTree(p);
-    };
-    toolbar.appendChild(b);
+  let accMap = getLS(ACC_KEY);
+  let ssMap  = getLS(SS_KEY);
+  let prestSel = getLS(PREST_SEL_KEY); if(!prestSel || typeof prestSel!=='object') prestSel = {};
+
+  const tbody = document.getElementById('tbody');
+
+  function summarizeNames(arr){ if(!arr||arr.length===0)return''; const n=arr.map(x=>x.name); return n.length<=2?n.join(', '): n.slice(0,2).join(', ')+' +'+(n.length-2)+' más'; }
+  function sumTotals(arr){ return (arr||[]).reduce((a,b)=> a+(toInt(b.total)||0),0); }
+
+  [...tbody.querySelectorAll('tr')].forEach(tr=>{
+    const cta = tr.querySelector('input.cta');
+    const ss  = tr.querySelector('input.ss');
+    const baseName = tr.children[0].innerText.trim();
+    const prestSpan = tr.querySelector('.prest');
+    const selLabel  = tr.querySelector('.selected-deudor');
+
+    if (accMap[baseName]) cta.value = accMap[baseName];
+    if (ssMap[baseName])  ss.value  = fmt(toInt(ssMap[baseName]));
+
+    const chosen = prestSel[baseName] || [];
+    prestSpan.textContent = fmt(sumTotals(chosen));
+    selLabel.textContent  = summarizeNames(chosen);
+
+    cta.addEventListener('change', ()=>{ accMap[baseName] = cta.value.trim(); setLS(ACC_KEY, accMap); });
+    ss.addEventListener('input', ()=>{ ssMap[baseName] = toInt(ss.value); setLS(SS_KEY, ssMap); recalc(); });
   });
-}
-renderToolbar(currentPrest);
 
-/* ===== Chips resumen arriba ===== */
-function renderChips(prest, visibleRows=null){
-  chipsHost.innerHTML = "";
+  // ===== Modal préstamos =====
+  const prestModal   = document.getElementById('prestModal');
+  const btnAssign    = document.getElementById('btnAssign');
+  const btnCancel    = document.getElementById('btnCancel');
+  const btnClose     = document.getElementById('btnCloseModal');
+  const btnSelectAll = document.getElementById('btnSelectAll');
+  const btnUnselectAll = document.getElementById('btnUnselectAll');
+  const btnClearSel  = document.getElementById('btnClearSel');
+  const prestSearch  = document.getElementById('prestSearch');
+  const prestList    = document.getElementById('prestList');
+  const selCount     = document.getElementById('selCount');
+  const selTotal     = document.getElementById('selTotal');
 
-  let interes, capital;
-  if (isGlobalMode()) {
-    const all = visibleRows || collectRowsForSelected();
-    interes = all.reduce((a,r)=>a+Number(r.interes||0),0);
-    capital = all.reduce((a,r)=>a+Number(r.valor||0),0);
+  let currentRow=null, selectedIds=new Set(), filteredIdx=[];
 
-    const chipM = document.createElement("span");
-    chipM.className="chip";
-    chipM.textContent = "Modo global (todos los prestamistas)";
+  function renderPrestList(filter=''){
+    prestList.innerHTML='';
+    const nf=(filter||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+    filteredIdx=[];
+    const frag=document.createDocumentFragment();
+    PRESTAMOS_LIST.forEach((item,idx)=>{
+      if(nf && !item.key.includes(nf)) return;
+      filteredIdx.push(idx);
 
-    const chipF = document.createElement("span");
-    chipF.className="chip";
-    chipF.textContent = `Filtro: ${SELECTED_DEUDORES.size} deudor(es)`;
+      const row=document.createElement('label');
+      row.className='flex items-center justify-between gap-3 px-3 py-2 border-b border-slate-200';
+      const left=document.createElement('div'); left.className='flex items-center gap-3';
+      const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=selectedIds.has(item.id); cb.dataset.id=item.id;
+      const nm=document.createElement('span'); nm.className='truncate max-w-[360px]'; nm.textContent=item.name;
+      left.append(cb,nm);
+      const val=document.createElement('span'); val.className='num font-semibold'; val.textContent=(item.total||0).toLocaleString('es-CO');
+      row.append(left,val);
+      cb.addEventListener('change',()=>{ if(cb.checked)selectedIds.add(item.id); else selectedIds.delete(item.id); updateSelSummary(); });
+      frag.append(row);
+    });
+    prestList.append(frag);
+    updateSelSummary();
+  }
+  function updateSelSummary(){
+    const arr=PRESTAMOS_LIST.filter(it=>selectedIds.has(it.id));
+    selCount.textContent=arr.length;
+    selTotal.textContent=arr.reduce((a,b)=>a+(b.total||0),0).toLocaleString('es-CO');
+  }
+  function openPrestModalForRow(tr){
+    currentRow=tr; selectedIds=new Set();
+    const baseName=tr.children[0].innerText.trim();
+    (prestSel[baseName]||[]).forEach(x=> selectedIds.add(Number(x.id)));
+    prestSearch.value=''; renderPrestList('');
+    prestModal.classList.remove('hidden');
+    requestAnimationFrame(()=>{ prestSearch.focus(); prestSearch.select(); });
+  }
+  function closePrest(){ prestModal.classList.add('hidden'); currentRow=null; selectedIds=new Set(); filteredIdx=[]; }
+  btnCancel.addEventListener('click',closePrest); btnClose.addEventListener('click',closePrest);
+  btnSelectAll.addEventListener('click',()=>{ filteredIdx.forEach(i=>selectedIds.add(PRESTAMOS_LIST[i].id)); renderPrestList(prestSearch.value); });
+  btnUnselectAll.addEventListener('click',()=>{ filteredIdx.forEach(i=>selectedIds.delete(PRESTAMOS_LIST[i].id)); renderPrestList(prestSearch.value); });
+  btnClearSel.addEventListener('click',()=>{
+    if(!currentRow) return;
+    const baseName=currentRow.children[0].innerText.trim();
+    currentRow.querySelector('.prest').textContent='0';
+    currentRow.querySelector('.selected-deudor').textContent='';
+    delete prestSel[baseName]; setLS(PREST_SEL_KEY, prestSel); recalc();
+    selectedIds.clear(); renderPrestList(prestSearch.value);
+  });
+  btnAssign.addEventListener('click',()=>{
+    if(!currentRow) return;
+    const baseName=currentRow.children[0].innerText.trim();
+    const chosen=PRESTAMOS_LIST.filter(it=>selectedIds.has(it.id)).map(it=>({id:it.id,name:it.name,total:it.total}));
+    prestSel[baseName]=chosen; setLS(PREST_SEL_KEY, prestSel);
+    currentRow.querySelector('.prest').textContent = sumTotals(chosen).toLocaleString('es-CO');
+    currentRow.querySelector('.selected-deudor').textContent = summarizeNames(chosen);
+    recalc(); closePrest();
+  });
+  prestSearch.addEventListener('input',()=>renderPrestList(prestSearch.value));
+  tbody.querySelectorAll('.btn-prest').forEach(btn=> btn.addEventListener('click',()=>openPrestModalForRow(btn.closest('tr'))));
 
-    chipsHost.append(chipM, chipF);
-  } else {
-    interes = Number(GANANCIA[prest]||0);
-    capital = Number(CAPITAL[prest]||0);
-    if (Array.isArray(visibleRows)) {
-      interes = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
-      capital = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
-    }
+  // ===== Datos para el modal de viajes =====
+  const RANGO_DESDE = <?= json_encode($desde) ?>;
+  const RANGO_HASTA = <?= json_encode($hasta) ?>;
+  const RANGO_EMP   = <?= json_encode($empresaFiltro) ?>;
+  const CONDUCTORES_LIST = <?= json_encode(array_map(fn($f)=>$f['nombre'],$filas), JSON_UNESCAPED_UNICODE); ?>;
+
+  const viajesModal            = document.getElementById('viajesModal');
+  const viajesContent          = document.getElementById('viajesContent');
+  const viajesTitle            = document.getElementById('viajesTitle');
+  const viajesClose            = document.getElementById('viajesCloseBtn');
+  const viajesSelectConductor  = document.getElementById('viajesSelectConductor');
+  const viajesRango            = document.getElementById('viajesRango');
+  const viajesEmpresa          = document.getElementById('viajesEmpresa');
+
+  let viajesConductorActual = null;
+
+  function initViajesSelect(selectedName) {
+    viajesSelectConductor.innerHTML = "";
+    CONDUCTORES_LIST.forEach(nombre => {
+      const opt = document.createElement('option');
+      opt.value = nombre;
+      opt.textContent = nombre;
+      if (nombre === selectedName) opt.selected = true;
+      viajesSelectConductor.appendChild(opt);
+    });
   }
 
-  const chip1 = document.createElement("span");
-  chip1.className = "chip";
-  chip1.textContent = `Ganancia (interés): $ ${interes.toLocaleString()}`;
+  // Esta función SE LLAMA cada vez que cargamos viajes via fetch
+  function attachFiltroViajes(){
+    const pills = viajesContent.querySelectorAll('#legendFilterBar .legend-pill');
+    const rows  = viajesContent.querySelectorAll('#viajesTableBody .row-viaje');
+    if (!pills.length || !rows.length) return;
 
-  const chip2 = document.createElement("span");
-  chip2.className = "chip";
-  chip2.textContent = `Total prestado (pend.): $ ${capital.toLocaleString()}`;
+    let activeCat = null;
 
-  const chipL1 = document.createElement("span");
-  chipL1.className="chip";
-  chipL1.textContent="1 mes";
-  chipL1.style.background="#FFF8DB";
-
-  const chipL2 = document.createElement("span");
-  chipL2.className="chip";
-  chipL2.textContent="2 meses";
-  chipL2.style.background="#FFE9D6";
-
-  const chipL3 = document.createElement("span");
-  chipL3.className="chip";
-  chipL3.textContent="3+ meses";
-  chipL3.style.background="#FFE1E1";
-
-  chipsHost.append(chip1, chip2, chipL1, chipL2, chipL3);
-}
-
-/* ===== Selector "marcar pagados" abajo ===== */
-function renderSelector(prest){
-  selectorHost.innerHTML = "";
-  const wrap = document.createElement("div");
-  wrap.className = "selector";
-  wrap.innerHTML = SELECTORS_HTML[prest] || '<div class="chip">Sin deudores pendientes</div>';
-  selectorHost.appendChild(wrap);
-
-  const form = selectorHost.querySelector(".selector-form");
-  if (form) form.style.display = "block";
-}
-
-/* ===== Buscador ===== */
-const searchInput = document.getElementById('searchInput');
-const clearBtn = document.getElementById('clearSearch');
-let searchTerm = '';
-
-function norm(s){ return (s||'').toString().toLocaleLowerCase(); }
-
-function matches(row){
-  if (!searchTerm) return true;
-  const q = norm(searchTerm);
-  return norm(row.nombre).includes(q)
-    || norm(row.fecha).includes(q)
-    || norm(String(row.valor)).includes(q)
-    || norm(String(row.total)).includes(q)
-    || norm(String(row.__prest||'')).includes(q);
-}
-
-function debounce(fn, ms){
-  let t;
-  return (...a)=>{
-    clearTimeout(t);
-    t=setTimeout(()=>fn(...a), ms);
-  };
-}
-
-searchInput.addEventListener('input', debounce(e=>{
-  searchTerm = e.target.value || '';
-  if (currentPrest) drawTree(currentPrest);
-}, 160));
-
-clearBtn.addEventListener('click', ()=>{
-  searchTerm = '';
-  searchInput.value = '';
-  if (currentPrest) drawTree(currentPrest);
-});
-
-/* ===== Filtro multi-deudor (modo global) ===== */
-const ms = document.getElementById('ms-deudores');
-const msToggle = document.getElementById('ms-toggle');
-const msPanel  = document.getElementById('ms-panel');
-const msList   = document.getElementById('ms-list');
-const msAll    = document.getElementById('ms-all');
-const msNone   = document.getElementById('ms-none');
-
-const SELECTED_DEUDORES = new Set(); // nombres exactos
-
-function isGlobalMode(){ return SELECTED_DEUDORES.size > 0; }
-
-function updateMsLabel(){
-  msToggle.textContent = `Filtrar deudores (${SELECTED_DEUDORES.size} seleccionados)`;
-}
-
-function renderMsList(){
-  msList.innerHTML = '';
-  const frag = document.createDocumentFragment();
-  ALL_DEBTORS.forEach(name=>{
-    const row = document.createElement('label');
-    row.className = 'opt';
-
-    const cb = document.createElement('input');
-    cb.type='checkbox';
-    cb.checked = SELECTED_DEUDORES.has(name);
-
-    const sp = document.createElement('span');
-    sp.textContent = name;
-
-    row.appendChild(cb);
-    row.appendChild(sp);
-
-    cb.addEventListener('change', ()=>{
-      if(cb.checked) SELECTED_DEUDORES.add(name);
-      else SELECTED_DEUDORES.delete(name);
-      updateMsLabel();
-      drawTree(currentPrest);
-    });
-
-    frag.appendChild(row);
-  });
-  msList.appendChild(frag);
-}
-
-msToggle.addEventListener('click', ()=>{
-  msPanel.style.display = (msPanel.style.display==='none' || !msPanel.style.display) ? 'block':'none';
-});
-
-msAll.addEventListener('click', ()=>{
-  ALL_DEBTORS.forEach(n=>SELECTED_DEUDORES.add(n));
-  updateMsLabel();
-  renderMsList();
-  drawTree(currentPrest);
-});
-
-msNone.addEventListener('click', ()=>{
-  SELECTED_DEUDORES.clear();
-  updateMsLabel();
-  renderMsList();
-  drawTree(currentPrest);
-});
-
-document.addEventListener('click', (e)=>{
-  if (!ms.contains(e.target)) msPanel.style.display='none';
-});
-
-renderMsList();
-updateMsLabel();
-
-/* ===== wrapText para SVG ===== */
-function wrapText(textSel, width){
-  textSel.each(function(){
-    const text = d3.select(this);
-    const words = text.text().split(/\s+/).filter(Boolean);
-    let line = [];
-    let tspan = text.text(null)
-                    .append("tspan")
-                    .attr("x", text.attr("x"))
-                    .attr("dy", 0);
-    let lineNumber = 0;
-    const lineHeight = 14;
-    words.forEach((w)=>{
-      line.push(w);
-      tspan.text(line.join(" "));
-      if (tspan.node().getComputedTextLength() > width){
-        line.pop();
-        tspan.text(line.join(" "));
-        line = [w];
-        tspan = text.append("tspan")
-          .attr("x", text.attr("x"))
-          .attr("dy", ++lineNumber * lineHeight)
-          .text(w);
-      }
-    });
-  });
-}
-
-/* ===== helpers globales ===== */
-function collectRowsForSelected(){
-  const rows = [];
-  if (SELECTED_DEUDORES.size === 0) return rows;
-  for (const prest of Object.keys(DATA)) {
-    const list = DATA[prest] || [];
-    list.forEach(r => {
-      if (SELECTED_DEUDORES.has(r.nombre)) {
-        rows.push({ ...r, __prest: prest });
-      }
-    });
-  }
-  return rows;
-}
-
-/* ===== MODAL logic ===== */
-const loanModal  = document.getElementById('loanModal');
-const modalClose = document.getElementById('modalClose');
-const modalTitle = document.getElementById('modalTitle');
-const modalSub   = document.getElementById('modalSub');
-const modalRows  = document.getElementById('modalRows');
-
-modalClose.addEventListener('click', ()=>{
-  loanModal.style.display='none';
-});
-loanModal.addEventListener('click', (e)=>{
-  if (e.target === loanModal) loanModal.style.display='none';
-});
-
-// Capitaliza estilo título
-function mbTitleJs(str){
-  const s = (str||'').toString().toLowerCase();
-  return s.replace(/\b([a-záéíóúñ])/gi, (m) => m.toUpperCase());
-}
-
-/* Rellena y abre modal */
-function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
-  modalRows.innerHTML = '';
-
-  const lista = (DETALLE[prestKey] && DETALLE[prestKey][deudKey])
-    ? DETALLE[prestKey][deudKey]
-    : [];
-
-  if (!lista.length){
-    modalRows.innerHTML =
-      '<tr><td colspan="7" style="text-align:center;color:#6b7280;padding:16px;">No hay registros.</td></tr>';
-  } else {
-
-    let sumMonto = 0;
-    let sumInteres = 0;
-    let sumTotal = 0;
-
-    lista.forEach(item=>{
-      const tr = document.createElement('tr');
-
-      const mesesNum = Number(item.meses || 0);
-      let ageClass = 'age-m0';
-      if (mesesNum >= 3) {
-        ageClass = 'age-m3';
-      } else if (mesesNum === 2) {
-        ageClass = 'age-m2';
-      } else if (mesesNum === 1) {
-        ageClass = 'age-m1';
-      }
-      tr.className = ageClass;
-
-      const tdId = document.createElement('td');
-      tdId.textContent = item.id;
-
-      const tdFecha = document.createElement('td');
-      tdFecha.textContent = item.fecha;
-
-      const tdMeses = document.createElement('td');
-      tdMeses.textContent = mesesNum + " mes(es)";
-
-      const tdMonto = document.createElement('td');
-      tdMonto.textContent = "$ " + Number(item.monto||0).toLocaleString();
-
-      const tdInt = document.createElement('td');
-      tdInt.textContent = "$ " + Number(item.interes||0).toLocaleString();
-
-      const tdTot = document.createElement('td');
-      tdTot.textContent = "$ " + Number(item.total||0).toLocaleString();
-
-      const tdEstado = document.createElement('td');
-      const badge = document.createElement('span');
-      if (item.pagado && Number(item.pagado)===1){
-        badge.className = 'badge-ok';
-        badge.textContent = 'Pagado';
+    function applyFilter(cat){
+      if (cat === activeCat) {
+        activeCat = null;
       } else {
-        badge.className = 'badge-pend';
-        badge.textContent = 'Pendiente';
+        activeCat = cat;
       }
-      tdEstado.appendChild(badge);
 
-      tr.appendChild(tdId);
-      tr.appendChild(tdFecha);
-      tr.appendChild(tdMeses);
-      tr.appendChild(tdMonto);
-      tr.appendChild(tdInt);
-      tr.appendChild(tdTot);
-      tr.appendChild(tdEstado);
+      pills.forEach(p => {
+        const pcat = p.getAttribute('data-tipo');
+        if (activeCat && pcat === activeCat) {
+          p.classList.add('ring-2','ring-blue-500','ring-offset-1','ring-offset-white');
+        } else {
+          p.classList.remove('ring-2','ring-blue-500','ring-offset-1','ring-offset-white');
+        }
+      });
 
-      modalRows.appendChild(tr);
+      rows.forEach(r => {
+        if (!activeCat) {
+          r.style.display = '';
+        } else {
+          if (r.classList.contains('cat-' + activeCat)) {
+            r.style.display = '';
+          } else {
+            r.style.display = 'none';
+          }
+        }
+      });
+    }
 
-      sumMonto   += Number(item.monto||0);
-      sumInteres += Number(item.interes||0);
-      sumTotal   += Number(item.total||0);
+    pills.forEach(p => {
+      p.addEventListener('click', ()=>{
+        const cat = p.getAttribute('data-tipo');
+        applyFilter(cat);
+      });
+    });
+  }
+
+  function loadViajes(nombre) {
+    viajesContent.innerHTML = '<p class="text-center m-0 animate-pulse">Cargando…</p>';
+    viajesConductorActual = nombre;
+    viajesTitle.textContent = nombre;
+
+    const qs = new URLSearchParams({
+      viajes_conductor: nombre,
+      desde: RANGO_DESDE,
+      hasta: RANGO_HASTA,
+      empresa: RANGO_EMP
     });
 
-    const trTotal = document.createElement('tr');
-    trTotal.className = 'detalle-total-row';
-
-    const tdEmpty1 = document.createElement('td');
-    tdEmpty1.textContent = '';
-
-    const tdEmpty2 = document.createElement('td');
-    tdEmpty2.textContent = '';
-
-    const tdEmpty3 = document.createElement('td');
-    tdEmpty3.className = 'label-cell';
-    tdEmpty3.textContent = 'TOTAL:';
-
-    const tdMontoTotal = document.createElement('td');
-    tdMontoTotal.textContent = "$ " + sumMonto.toLocaleString();
-
-    const tdInteresTotal = document.createElement('td');
-    tdInteresTotal.textContent = "$ " + sumInteres.toLocaleString();
-
-    const tdGranTotal = document.createElement('td');
-    tdGranTotal.textContent = "$ " + sumTotal.toLocaleString();
-
-    const tdEstadoTotal = document.createElement('td');
-    tdEstadoTotal.textContent = '';
-
-    trTotal.appendChild(tdEmpty1);
-    trTotal.appendChild(tdEmpty2);
-    trTotal.appendChild(tdEmpty3);
-    trTotal.appendChild(tdMontoTotal);
-    trTotal.appendChild(tdInteresTotal);
-    trTotal.appendChild(tdGranTotal);
-    trTotal.appendChild(tdEstadoTotal);
-
-    modalRows.appendChild(trTotal);
+    fetch('<?= basename(__FILE__) ?>?' + qs.toString())
+      .then(r => r.text())
+      .then(html => {
+        viajesContent.innerHTML = html;
+        attachFiltroViajes(); // <-- importante
+      })
+      .catch(() => {
+        viajesContent.innerHTML = '<p class="text-center text-rose-600">Error cargando viajes.</p>';
+      });
   }
 
-  modalTitle.textContent = 'Detalle de préstamos';
-  modalSub.textContent   = mbTitleJs(deudName) + ' ↔ ' + mbTitleJs(prestName);
+  function abrirModalViajes(nombreInicial){
+    viajesRango.textContent   = RANGO_DESDE + " → " + RANGO_HASTA;
+    viajesEmpresa.textContent = (RANGO_EMP && RANGO_EMP !== "") ? RANGO_EMP : "Todas las empresas";
 
-  loanModal.style.display='flex';
-}
+    initViajesSelect(nombreInicial);
 
-/* ===== Dibujar árbol principal ===== */
-function drawTree(prestamista) {
-  g.selectAll("*").remove();
+    viajesModal.classList.add('show');
 
-  const global = isGlobalMode();
-
-  // 1) Filas base
-  let allRows;
-  if (global) {
-    allRows = collectRowsForSelected(); // multi prestamistass, solo deudores filtrados
-  } else {
-    allRows = DATA[prestamista] || [];
+    loadViajes(nombreInicial);
   }
 
-  // 2) Filtros cliente
-  const rows = allRows.filter(r => {
-    if (SELECTED_DEUDORES.size > 0 && !SELECTED_DEUDORES.has(r.nombre)) return false;
-    if (!matches(r)) return false;
-    return true;
+  function cerrarModalViajes(){
+    viajesModal.classList.remove('show');
+    viajesContent.innerHTML = '';
+    viajesConductorActual = null;
+  }
+
+  viajesClose.addEventListener('click', cerrarModalViajes);
+  viajesModal.addEventListener('click', (e)=>{
+    if(e.target===viajesModal) cerrarModalViajes();
   });
 
-  // 3) Layout
-  const cardW = 480, padX=12, padY=10, lineGap=18;
-  const svgWidth = document.getElementById("stage").clientWidth;
-  svg.attr("width", svgWidth);
-  const svgH = +svg.attr("height");
-
-  const extraLines = global ? 2 : 1;
-  const approxCardH = padY*2 + lineGap*(2 + extraLines);
-  const treeLayout = d3.tree()
-    .nodeSize([ approxCardH + 24, cardW + 240 ])
-    .separation((a,b)=> (a.parent===b.parent? 1.2 : 1.5));
-
-  const rootName = global ? "Todos los prestamistas" : prestamista;
-  const root = d3.hierarchy({ name: rootName, children: rows });
-
-  treeLayout.size([svgH - 200, 1]);
-  treeLayout(root);
-
-  const usableW = svgWidth - ROOT_TX - 40;
-  const centerX = Math.max(cardW/2 + 40, (usableW - cardW) / 2);
-
-  root.each(d => {
-    if (d.depth === 0) d.y = 0;
-    if (d.depth === 1) d.y = centerX;
+  viajesSelectConductor.addEventListener('change', ()=>{
+    const nuevo = viajesSelectConductor.value;
+    loadViajes(nuevo);
   });
 
-  // enlaces raíz → deudores
-  const linkPath = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
-  const links = g.selectAll(".link")
-    .data(root.links())
-    .join("path")
-    .attr("class", "link")
-    .attr("d", linkPath)
-    .attr("stroke-dasharray", function(){ return this.getTotalLength(); })
-    .attr("stroke-dashoffset", function(){ return this.getTotalLength(); });
+  document.querySelectorAll('#tbody .conductor-link').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      abrirModalViajes(btn.textContent.trim());
+    });
+  });
 
-  links.transition()
-    .delay((d,i)=>120+i*30)
-    .duration(700)
-    .ease(d3.easeCubicOut)
-    .attr("stroke-dashoffset",0);
+  // ===== Cálculos =====
+  function distribIgual(diff,n){
+    const arr=new Array(n).fill(0);
+    if(n<=0||diff===0)return arr;
+    const s=diff>=0?1:-1;
+    let a=Math.abs(diff);
+    const base=Math.floor(a/n);
+    let resto=a%n;
+    for(let i=0;i<n;i++){
+      arr[i]=s*base+(resto>0?s:0);
+      if(resto>0)resto--;
+    }
+    return arr;
+  }
 
-  // nodos
-  const nodes = g.selectAll(".node")
-    .data(root.descendants())
-    .join("g")
-    .attr("class","node")
-    .attr("transform", d => `translate(${d.y - 160},${d.x})`)
-    .style("opacity",0);
+  function recalc(){
+    const fact=toInt(document.getElementById('inp_facturado').value);
+    const rec =toInt(document.getElementById('inp_recibido').value);
+    const diff=fact-rec;
+    document.getElementById('lbl_diferencia').textContent=fmt(diff);
 
-  nodes.transition()
-    .delay((d,i)=> d.depth===0?0:150+i*40)
-    .duration(600)
-    .ease(d3.easeCubicOut)
-    .attr("transform", d => `translate(${d.y},${d.x})`)
-    .style("opacity",1);
+    const rows=[...tbody.querySelectorAll('tr')];
+    const ajustes=distribIgual(diff, rows.length);
 
-  nodes.each(function(d){
-    const sel = d3.select(this);
+    let sumLleg=0,sumRet=0,sumMil4=0,sumAp=0,sumSS=0,sumPrest=0,sumPagar=0;
+    rows.forEach((tr,i)=>{
+      const base=toInt(tr.querySelector('.base').textContent);
+      const prest=toInt(tr.querySelector('.prest').textContent);
+      const aj=ajustes[i]||0;
+      const llego=base-aj;
+      const ret=Math.round(llego*0.035);
+      const mil4=Math.round(llego*0.004);
+      const ap=Math.round(llego*0.10);
+      const ss=toInt(tr.querySelector('input.ss').value);
+      const pagar = llego - ret - mil4 - ap - ss - prest;
 
-    if (d.depth === 0) {
-      sel.append("circle")
-        .attr("r", 8)
-        .attr("fill", "#1976d2")
-        .attr("stroke","#fff")
-        .attr("stroke-width",2);
+      tr.querySelector('.ajuste').textContent=(aj===0?'0':(aj>0?'-'+fmt(aj):'+'+fmt(Math.abs(aj))));
+      tr.querySelector('.llego').textContent=fmt(llego);
+      tr.querySelector('.ret').textContent=fmt(ret);
+      tr.querySelector('.mil4').textContent=fmt(mil4);
+      tr.querySelector('.apor').textContent=fmt(ap);
+      tr.querySelector('.pagar').textContent=fmt(pagar);
 
-      sel.append("text")
-        .attr("dy","0.31em")
-        .attr("x",-14)
-        .attr("text-anchor","end")
-        .text(d.data.name);
+      sumLleg+=llego; sumRet+=ret; sumMil4+=mil4; sumAp+=ap; sumSS+=ss; sumPrest+=prest; sumPagar+=pagar;
+    });
+
+    document.getElementById('tot_valor_llego').textContent=fmt(sumLleg);
+    document.getElementById('tot_retencion').textContent=fmt(sumRet);
+    document.getElementById('tot_4x1000').textContent=fmt(sumMil4);
+    document.getElementById('tot_aporte').textContent=fmt(sumAp);
+    document.getElementById('tot_ss').textContent=fmt(sumSS);
+    document.getElementById('tot_prestamos').textContent=fmt(sumPrest);
+    document.getElementById('tot_pagar').textContent=fmt(sumPagar);
+  }
+
+  const fmtInput=(el)=> el.addEventListener('input',()=>{ const raw=toInt(el.value); el.value=fmt(raw); recalc(); });
+  fmtInput(document.getElementById('inp_facturado'));
+  fmtInput(document.getElementById('inp_recibido'));
+  recalc();
+
+  // ===== Gestor de cuentas =====
+  const formFiltros = document.getElementById('formFiltros');
+  const inpDesde = document.getElementById('inp_desde');
+  const inpHasta = document.getElementById('inp_hasta');
+  const selEmpresa = document.getElementById('sel_empresa');
+  const inpFact = document.getElementById('inp_facturado');
+  const inpRec = document.getElementById('inp_recibido');
+
+  const saveCuentaModal = document.getElementById('saveCuentaModal');
+  const btnShowSaveCuenta = document.getElementById('btnShowSaveCuenta');
+  const btnCloseSaveCuenta = document.getElementById('btnCloseSaveCuenta');
+  const btnCancelSaveCuenta = document.getElementById('btnCancelSaveCuenta');
+  const btnDoSaveCuenta = document.getElementById('btnDoSaveCuenta');
+
+  const iNombre = document.getElementById('cuenta_nombre');
+  const iEmpresa = document.getElementById('cuenta_empresa');
+  const iRango = document.getElementById('cuenta_rango');
+  const iCFact = document.getElementById('cuenta_facturado');
+  const iCRec  = document.getElementById('cuenta_recibido');
+
+  const PERIODOS = getLS(PERIODOS_KEY);
+
+  function openSaveCuenta(){
+    const emp = selEmpresa.value.trim();
+    if(!emp){ alert('Selecciona una EMPRESA antes de guardar la cuenta.'); return; }
+    const d = inpDesde.value; const h = inpHasta.value;
+
+    iEmpresa.value = emp;
+    iRango.value = `${d} → ${h}`;
+    iNombre.value = `${emp} ${d} a ${h}`;
+    iCFact.value = fmt(toInt(inpFact.value));
+    iCRec.value  = fmt(toInt(inpRec.value));
+
+    saveCuentaModal.classList.remove('hidden');
+    setTimeout(()=> iNombre.focus(), 0);
+  }
+  function closeSaveCuenta(){ saveCuentaModal.classList.add('hidden'); }
+
+  btnShowSaveCuenta.addEventListener('click', openSaveCuenta);
+  btnCloseSaveCuenta.addEventListener('click', closeSaveCuenta);
+  btnCancelSaveCuenta.addEventListener('click', closeSaveCuenta);
+
+  btnDoSaveCuenta.addEventListener('click', ()=>{
+    const emp = iEmpresa.value.trim();
+    const [d1, d2raw] = iRango.value.split('→');
+    const desde = (d1||'').trim();
+    const hasta = (d2raw||'').trim();
+    const nombre = iNombre.value.trim() || `${emp} ${desde} a ${hasta}`;
+    const facturado = toInt(iCFact.value);
+    const recibido  = toInt(iCRec.value);
+
+    const item = { id: Date.now(), nombre, desde, hasta, facturado, recibido };
+    if(!PERIODOS[emp]) PERIODOS[emp] = [];
+    PERIODOS[emp].push(item);
+    setLS(PERIODOS_KEY, PERIODOS);
+    closeSaveCuenta();
+    alert('Cuenta guardada ✔');
+  });
+
+  const gestorModal = document.getElementById('gestorCuentasModal');
+  const btnShowGestor = document.getElementById('btnShowGestorCuentas');
+  const btnCloseGestor = document.getElementById('btnCloseGestor');
+  const btnAddDesdeFiltro = document.getElementById('btnAddDesdeFiltro');
+  const lblEmpresaActual = document.getElementById('lblEmpresaActual');
+  const buscaCuenta = document.getElementById('buscaCuenta');
+  const tbodyCuentas = document.getElementById('tbodyCuentas');
+
+  function renderCuentas(){
+    const emp = selEmpresa.value.trim();
+    const filtro = (buscaCuenta.value||'').toLowerCase();
+    lblEmpresaActual.textContent = emp || '(todas)';
+
+    const arr = (PERIODOS[emp]||[]).slice().sort((a,b)=> (a.desde>b.desde? -1:1));
+    tbodyCuentas.innerHTML = '';
+    if(arr.length===0){
+      tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>No hay cuentas guardadas para esta empresa.</td></tr>";
       return;
     }
-
-    /* ===== calcular alto de tarjeta ===== */
-    const temp = sel.append("text")
-      .attr("class","nodeTitle")
-      .attr("x", padX)
-      .attr("y", 0)
-      .style("opacity",0)
-      .text(d.data.nombre);
-
-    wrapText(temp, cardW - padX*2);
-    const titleRows = temp.selectAll("tspan").nodes().length || 1;
-    temp.remove();
-
-    const rowsCount = titleRows + (global ? 2 : 1);
-    const cardH = padY*2 + lineGap*rowsCount;
-
-    const m = +d.data.meses || 0;
-    const mcls = (m >= 3) ? "m3" : (m === 2 ? "m2" : (m === 1 ? "m1" : "m0"));
-
-    // === NUEVO contador de préstamos:
-    const prestKeyForCount = (
-      global
-        ? (d.data.__prest || '').toLowerCase().trim()
-        : (prestamista || '').toLowerCase().trim()
-    );
-    const deudKeyForCount = (d.data.__dkey || '').toLowerCase().trim();
-
-    let loanCount = 0;
-    if (
-      DETALLE[prestKeyForCount] &&
-      DETALLE[prestKeyForCount][deudKeyForCount]
-    ) {
-      loanCount = DETALLE[prestKeyForCount][deudKeyForCount].length;
-    }
-
-    // tarjeta clickable
-    sel.append("rect")
-      .attr("class", `nodeCard ${mcls}`)
-      .attr("x", 0)
-      .attr("y", -cardH/2)
-      .attr("width", cardW)
-      .attr("height", cardH)
-      .attr("rx", 12)
-      .attr("ry", 12)
-      .attr("data-prest-key", prestKeyForCount)
-      .attr("data-deud-key",  deudKeyForCount)
-      .attr("data-prest-name", global ? (d.data.__prest||'') : prestamista)
-      .attr("data-deud-name",  d.data.nombre)
-      .attr("transform", "scale(0.98)")
-      .on("click", function(){
-        const pk = this.getAttribute('data-prest-key');
-        const dk = this.getAttribute('data-deud-key');
-        const pn = this.getAttribute('data-prest-name');
-        const dn = this.getAttribute('data-deud-name');
-        fillAndOpenModal(pk, dk, pn, dn);
-      })
-      .transition()
-      .delay(250)
-      .duration(400)
-      .ease(d3.easeCubicOut)
-      .attr("transform", "scale(1)");
-
-    let y = -cardH/2 + padY + 12;
-
-    // título con número de préstamos
-    const titleText =
-      loanCount === 1
-        ? `${d.data.nombre} (1 préstamo)`
-        : `${d.data.nombre} (${loanCount} préstamos)`;
-
-    const t = sel.append("text")
-      .attr("class","nodeTitle")
-      .attr("x", padX)
-      .attr("y", y)
-      .text(titleText);
-
-    wrapText(t, cardW - padX*2);
-
-    const titleBox = t.node().getBBox();
-    y = titleBox.y + titleBox.height + 2;
-
-    // en modo global mostramos prestamista
-    if (global) {
-      const l0 = sel.append("text")
-        .attr("class","nodeLine")
-        .attr("x", padX)
-        .attr("y", y + lineGap/1.2);
-
-      l0.text("Prestamista: ");
-      l0.append("tspan")
-        .attr("class","nodeAmt")
-        .text(d.data.__prest || "");
-      y += lineGap;
-    }
-
-    // línea montos/fecha
-    const l1 = sel.append("text")
-      .attr("class","nodeLine")
-      .attr("x", padX)
-      .attr("y", y + lineGap)
-      .style("opacity", 0)
-      .text("valor prestado: ");
-    l1.append("tspan")
-      .attr("class","nodeAmt")
-      .text(`$ ${Number(d.data.valor||0).toLocaleString()}`);
-    l1.append("tspan").text(" • interés: ");
-    l1.append("tspan")
-      .attr("class","nodeAmt")
-      .text(`$ ${Number(d.data.interes||0).toLocaleString()}`);
-    l1.append("tspan").text(" • total ");
-    l1.append("tspan")
-      .attr("class","nodeAmt")
-      .text(`$ ${Number(d.data.total||0).toLocaleString()}`);
-    l1.append("tspan").text(" • fecha: ");
-    l1.append("tspan")
-      .attr("class","nodeAmt")
-      .text(d.data.fecha || "");
-
-    wrapText(l1, cardW - padX*2);
-
-    l1.transition()
-      .delay(260)
-      .duration(400)
-      .style("opacity", 1);
-  });
-
-  // ===== Resumen lateral =====
-  const visibleRows = rows;
-  const totalInteres = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
-  const totalCapital = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
-
-  const deudores = root.descendants().filter(d=>d.depth===1);
-  const midY = d3.mean(deudores, d=>d.x) || 0;
-
-  const summaryX = centerX + cardW + 280;
-  const sumW = 380, sumH = 140, sumPadX = 14, sumLine = 24;
-
-  const summaryG = g.append("g")
-    .attr("class","summary")
-    .attr("transform", `translate(${summaryX - 220},${midY})`)
-    .style("opacity", 0);
-
-  summaryG.transition()
-    .delay(220)
-    .duration(600)
-    .ease(d3.easeCubicOut)
-    .attr("transform", `translate(${summaryX},${midY})`)
-    .style("opacity", 1);
-
-  summaryG.append("rect")
-    .attr("class","summaryCard")
-    .attr("x", 0)
-    .attr("y", -sumH/2)
-    .attr("width", sumW)
-    .attr("height", sumH)
-    .attr("rx", 14)
-    .attr("ry", 14);
-
-  summaryG.append("text")
-    .attr("class","summaryTitle")
-    .attr("x", sumPadX)
-    .attr("y", -sumH/2 + sumLine)
-    .text(global ? "Resumen (todos los prestamistas)" : "Resumen del prestamista");
-
-  let sy = -sumH/2 + sumLine + 20;
-  const s1 = summaryG.append("text")
-    .attr("class","summaryLine")
-    .attr("x", sumPadX)
-    .attr("y", sy)
-    .text("Ganancia (interés): ");
-  s1.append("tspan")
-    .attr("class","summaryAmt")
-    .text(`$ ${totalInteres.toLocaleString()}`);
-  sy += 22;
-  const s2 = summaryG.append("text")
-    .attr("class","summaryLine")
-    .attr("x", sumPadX)
-    .attr("y", sy)
-    .text("Total prestado (pend.): ");
-  s2.append("tspan")
-    .attr("class","summaryAmt")
-    .text(`$ ${totalCapital.toLocaleString()}`);
-
-  // enlaces deudor -> resumen global
-  const link2 = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
-  g.selectAll(".link2")
-    .data(
-      deudores.map(d => ({
-        source:{x:d.x, y:d.y + cardW},
-        target:{x:midY, y:summaryX}
-      }))
-    )
-    .join("path")
-    .attr("class","link2")
-    .attr("d", link2)
-    .attr("stroke-dasharray", function(){ return this.getTotalLength(); })
-    .attr("stroke-dashoffset", function(){ return this.getTotalLength(); })
-    .transition()
-    .delay((d,i)=>200+i*25)
-    .duration(650)
-    .ease(d3.easeCubicOut)
-    .attr("stroke-dashoffset", 0);
-
-  // ===== Resúmenes por prestamista en modo global =====
-  if (global) {
-    const perPrest = {};
-    visibleRows.forEach(r=>{
-      const p = r.__prest || 'Desconocido';
-      if (!perPrest[p]) perPrest[p] = { interes:0, capital:0 };
-      perPrest[p].interes += Number(r.interes||0);
-      perPrest[p].capital += Number(r.valor||0);
+    const frag = document.createDocumentFragment();
+    arr.forEach(item=>{
+      if(filtro && !item.nombre.toLowerCase().includes(filtro)) return;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="px-3 py-2">${item.nombre}</td>
+        <td class="px-3 py-2">${item.desde} &rarr; ${item.hasta}</td>
+        <td class="px-3 py-2 text-right num">${fmt(item.facturado||0)}</td>
+        <td class="px-3 py-2 text-right num">${fmt(item.recibido||0)}</td>
+        <td class="px-3 py-2 text-right">
+          <div class="inline-flex gap-2">
+            <button class="btnUsar border px-2 py-1 rounded bg-slate-50 hover:bg-slate-100 text-xs">Usar</button>
+            <button class="btnUsarAplicar border px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 text-xs">Usar y aplicar</button>
+            <button class="btnEditar border px-2 py-1 rounded bg-amber-50 hover:bg-amber-100 text-xs">Editar</button>
+            <button class="btnEliminar border px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-xs text-rose-700">Eliminar</button>
+          </div>
+        </td>`;
+      tr.querySelector('.btnUsar').addEventListener('click', ()=> usarCuenta(item,false));
+      tr.querySelector('.btnUsarAplicar').addEventListener('click', ()=> usarCuenta(item,true));
+      tr.querySelector('.btnEditar').addEventListener('click', ()=> editarCuenta(item));
+      tr.querySelector('.btnEliminar').addEventListener('click', ()=> eliminarCuenta(item));
+      frag.appendChild(tr);
     });
-
-    const names = Object.keys(perPrest).sort((a,b)=> a.localeCompare(b));
-    const cardHres = 92, gap = 10;
-    let startY = midY + sumH/2 + 24;
-
-    names.forEach((p,i)=>{
-      const gP = g.append("g")
-        .attr("class","summary")
-        .attr("transform", `translate(${summaryX},${startY + i*(cardHres+gap)})`)
-        .style("opacity", 0);
-
-      gP.transition()
-        .delay(250 + i*80)
-        .duration(500)
-        .style("opacity", 1);
-
-      gP.append("rect")
-        .attr("class","summaryCard")
-        .attr("x", 0)
-        .attr("y", -cardHres/2)
-        .attr("width", sumW)
-        .attr("height", cardHres)
-        .attr("rx", 12)
-        .attr("ry", 12);
-
-      gP.append("text")
-        .attr("class","summaryTitle")
-        .attr("x", sumPadX)
-        .attr("y", -cardHres/2 + 22)
-        .text(`Prestamista: ${p}`);
-
-      const sy1 = -cardHres/2 + 46;
-      const t1 = gP.append("text")
-        .attr("class","summaryLine")
-        .attr("x", sumPadX)
-        .attr("y", sy1)
-        .text("Interés: ");
-      t1.append("tspan")
-        .attr("class","summaryAmt")
-        .text(`$ ${perPrest[p].interes.toLocaleString()}`);
-
-      const t2 = gP.append("text")
-        .attr("class","summaryLine")
-        .attr("x", sumPadX)
-        .attr("y", sy1+20)
-        .text("Capital: ");
-      t2.append("tspan")
-        .attr("class","summaryAmt")
-        .text(`$ ${perPrest[p].capital.toLocaleString()}`);
-    });
+    tbodyCuentas.appendChild(frag);
   }
 
-  // chips arriba
-  renderChips(prestamista, visibleRows);
+  function usarCuenta(item, aplicar){
+    selEmpresa.value = selEmpresa.value;
+    inpDesde.value = item.desde;
+    inpHasta.value = item.hasta;
+    if(item.facturado) document.getElementById('inp_facturado').value = fmt(item.facturado);
+    if(item.recibido)  document.getElementById('inp_recibido').value  = fmt(item.recibido);
+    recalc();
+    if(aplicar) formFiltros.submit();
+  }
 
-  // selector abajo (solo modo prestamista)
-  if (!global) renderSelector(prestamista);
-}
+  function editarCuenta(item){
+    saveCuentaModal.classList.remove('hidden');
+    iEmpresa.value = selEmpresa.value;
+    iRango.value = `${item.desde} → ${item.hasta}`;
+    iNombre.value = item.nombre;
+    iCFact.value = fmt(item.facturado||0);
+    iCRec.value  = fmt(item.recibido||0);
+    btnDoSaveCuenta.onclick = ()=>{
+      const [d,h] = iRango.value.split('→').map(s=>s.trim());
+      item.nombre = iNombre.value.trim() || item.nombre;
+      item.desde  = d || item.desde;
+      item.hasta  = h || item.hasta;
+      item.facturado = toInt(iCFact.value);
+      item.recibido  = toInt(iCRec.value);
+      setLS(PERIODOS_KEY, PERIODOS);
+      closeSaveCuenta(); renderCuentas();
+    };
+  }
 
-/* ===== Resize ===== */
-window.addEventListener('resize', ()=>{
-  if (currentPrest) drawTree(currentPrest);
-});
+  function eliminarCuenta(item){
+    const emp = selEmpresa.value.trim();
+    if(!confirm('¿Eliminar esta cuenta?')) return;
+    PERIODOS[emp] = (PERIODOS[emp]||[]).filter(x=> x.id!==item.id);
+    setLS(PERIODOS_KEY, PERIODOS);
+    renderCuentas();
+  }
 
-/* ===== Inicio ===== */
-if (currentPrest){
-  drawTree(currentPrest);
-}
+  function openGestor(){
+    renderCuentas();
+    gestorModal.classList.remove('hidden');
+    setTimeout(()=> buscaCuenta.focus(), 0);
+  }
+  function closeGestor(){ gestorModal.classList.add('hidden'); }
+
+  btnShowGestor.addEventListener('click', openGestor);
+  btnCloseGestor.addEventListener('click', closeGestor);
+  buscaCuenta.addEventListener('input', renderCuentas);
+  btnAddDesdeFiltro.addEventListener('click', ()=>{ closeGestor(); openSaveCuenta(); });
+
+  const nf1 = el => el.addEventListener('input', ()=>{ el.value = fmt(toInt(el.value)); });
+  nf1(iCFact); nf1(iCRec);
 </script>
+
 </body>
 </html>
