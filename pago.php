@@ -1025,3 +1025,4 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
 </body>
 </html>
+ ya se mejor solo quita el modal en prestamo y pon para que yo pueda poner el valor manualmente y se siga calculando normal con la misma logica
