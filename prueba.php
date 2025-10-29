@@ -1,4 +1,5 @@
 <?php
+include("nav.php");
 /*********************************************************
  * prestamos_visual_interactivo.php
  * v4.6
