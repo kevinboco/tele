@@ -776,7 +776,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       .then(r => r.text())
       .then(html => {
         viajesContent.innerHTML = html;
-        attachFiltroViajes(); // <-- importante
+        attachFiltroViajes(); // 
       })
       .catch(() => {
         viajesContent.innerHTML = '<p class="text-center text-rose-600">Error cargando viajes.</p>';
