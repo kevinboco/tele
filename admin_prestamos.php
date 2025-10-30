@@ -10,7 +10,7 @@
  * - Filtro por Deudor + resumen de sumas del deudor
  * - Selección múltiple en Tarjetas + Edición en lote
  * - COMISIONES en tarjetas con color azul
- * - Interés 13% para préstamos desde hoy, 10% para anteriores
+ * - Interés 13% para préstamos desde 2025-10-29, 10% para anteriores
  *********************************************************/
 include("nav.php");
 
@@ -384,7 +384,7 @@ else:
              /* Interés del prestamista (dueño del capital) - TASA VARIABLE */
              (monto * 
               CASE 
-                WHEN fecha >= CURDATE() THEN COALESCE(comision_origen_porcentaje, 13)
+                WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
                 ELSE COALESCE(comision_origen_porcentaje, 10)
               END / 100 *
               CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes_prestamista,
@@ -396,7 +396,7 @@ else:
              /* Interés total (prestamista + gestor) */
              ((monto * 
                CASE 
-                 WHEN fecha >= CURDATE() THEN COALESCE(comision_origen_porcentaje, 13)
+                 WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
                  ELSE COALESCE(comision_origen_porcentaje, 10)
                END / 100) + 
               (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
@@ -406,7 +406,7 @@ else:
              (monto + 
               (((monto * 
                 CASE 
-                  WHEN fecha >= CURDATE() THEN COALESCE(comision_origen_porcentaje, 13)
+                  WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
                   ELSE COALESCE(comision_origen_porcentaje, 10)
                 END / 100) + 
                (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
@@ -439,7 +439,7 @@ else:
           <a class="btn gray" href="?view=cards">Quitar filtro</a>
         <?php endif; ?>
       </form>
-      <div class="subtitle">Interés variable: 13% desde hoy, 10% para préstamos anteriores.</div>
+      <div class="subtitle">Interés variable: 13% desde 2025-10-29, 10% para préstamos anteriores.</div>
     </div>
 
     <?php
@@ -451,7 +451,7 @@ else:
                  SUM(monto) AS capital,
                  SUM(((monto * 
                       CASE 
-                        WHEN fecha >= CURDATE() THEN COALESCE(comision_origen_porcentaje, 13)
+                        WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
                         ELSE COALESCE(comision_origen_porcentaje, 10)
                       END / 100) + 
                      (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
@@ -459,7 +459,7 @@ else:
                  SUM(monto + 
                      (((monto * 
                        CASE 
-                         WHEN fecha >= CURDATE() THEN COALESCE(comision_origen_porcentaje, 13)
+                         WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
                          ELSE COALESCE(comision_origen_porcentaje, 10)
                        END / 100) + 
                       (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
@@ -511,7 +511,7 @@ else:
             
             // Calcular porcentaje total
             $porcentajeTotal = (float)($r['comision_origen_porcentaje'] ?? 
-              (strtotime($r['fecha']) >= strtotime(date('Y-m-d')) ? 13 : 10)) + 
+              (strtotime($r['fecha']) >= strtotime('2025-10-29') ? 13 : 10)) + 
               (float)($r['comision_gestor_porcentaje'] ?? 0);
           ?>
             <div class="card <?= $cardClass ?>">
@@ -645,7 +645,7 @@ else:
              /* Interés total (prestamista + gestor) - TASA VARIABLE */
              SUM(((monto * 
                   CASE 
-                    WHEN fecha >= CURDATE() THEN COALESCE(comision_origen_porcentaje, 13)
+                    WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
                     ELSE COALESCE(comision_origen_porcentaje, 10)
                   END / 100) + 
                  (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
@@ -655,7 +655,7 @@ else:
              SUM(monto + 
                  (((monto * 
                    CASE 
-                     WHEN fecha >= CURDATE() THEN COALESCE(comision_origen_porcentaje, 13)
+                     WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
                      ELSE COALESCE(comision_origen_porcentaje, 10)
                    END / 100) + 
                   (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
@@ -706,7 +706,7 @@ else:
         Diagrama: <strong>Prestamista ➜ Deudores (valor, fecha, interés, total) ➜ Ganancia</strong>.
         Debajo hay un selector para marcar <strong>Préstamo pagado</strong>.
         El recuadro adicional muestra <strong>Total prestado (pendiente)</strong>.
-        Interés: <strong>13% desde hoy, 10% para préstamos anteriores</strong>.
+        Interés: <strong>13% desde 2025-10-29, 10% para préstamos anteriores</strong>.
       </div>
     </div>
 
