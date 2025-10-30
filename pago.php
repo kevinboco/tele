@@ -159,7 +159,7 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
   <body class="min-h-screen bg-slate-100 text-slate-800">
     <div class="max-w-lg mx-auto p-6">
       <div class="bg-white shadow-sm rounded-2xl p-6 border border-slate-200">
-        <h2 class="text-2xl font-bold text-center mb-2">📅 Ajuste de pago por rango</h2>
+        <h2 class="text-2xl font-bold text-center mb-2">📅 Ajuste de Pago por rango</h2>
         <form method="get" class="space-y-4">
           <label class="block"><span class="block text-sm font-medium mb-1">Desde</span>
             <input type="date" name="desde" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
@@ -235,14 +235,14 @@ if ($empresaFiltro !== "") {
 $prestamosList = [];
 $i = 0;
 
-// MODIFICADO: Consulta actualizada para aplicar 13% desde hoy, 10% para préstamos anteriores
+// CONSULTA ACTUALIZADA: 13% desde 29-oct-2025, 10% para préstamos anteriores
 $qPrest = "
   SELECT deudor,
          SUM(
            monto + 
            monto * 
            CASE 
-             WHEN fecha >= CURDATE() THEN 0.13
+             WHEN fecha >= '2025-10-29' THEN 0.13
              ELSE 0.10
            END *
            CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
@@ -776,7 +776,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       .then(r => r.text())
       .then(html => {
         viajesContent.innerHTML = html;
-        attachFiltroViajes(); // 
+        attachFiltroViajes(); // <-- importante
       })
       .catch(() => {
         viajesContent.innerHTML = '<p class="text-center text-rose-600">Error cargando viajes.</p>';
