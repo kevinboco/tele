@@ -2,7 +2,7 @@
 include("nav.php");
 /*********************************************************
  * prestamos_visual_interactivo.php
- * v4.7 (ajuste Celene)
+ * v4.8 (comisión Gladys Salinas)
  * - Visual D3 (vista por prestamista / global multi-deudor)
  * - Selector "marcar pagados"
  * - Modal con historial individual (click en el nodo)
@@ -14,7 +14,7 @@ include("nav.php");
  *      interés_base = 13%
  *      descuento_5  = 5% sobre capital (mismos meses)
  *      interés_real = 8% (13 - 5)
- *      total usa el interés_real
+ * - COMISIÓN: para prestamista = "Celene", 5% de comisión para Gladys Salinas
  *********************************************************/
 
 /* ===== Config ===== */
@@ -108,6 +108,7 @@ if ($q !== ''){
          interes_base_mes  = monto * 0.13
          descuento5_mes    = monto * 0.05
          interes_real_mes  = monto * 0.08
+   - COMISIÓN: para prestamista='celene', 5% de comisión para Gladys Salinas
    ========================================================= */
 
 /* ===== Agregado prestamista+deudor ===== */
@@ -150,6 +151,13 @@ $sql = "
              ELSE 0
            END
          ) AS interes_descuento,
+
+         -- comisión Gladys Salinas (5% sobre capital total de Celene)
+         CASE 
+           WHEN LOWER(TRIM(prestamista))='celene' 
+           THEN SUM(monto) * 0.05
+           ELSE 0
+         END AS comision_gladys,
 
          -- interés REAL = teórico - descuento (para Celene) / = teórico (para otros)
          SUM(
@@ -343,6 +351,7 @@ $st3->close();
 $data = [];            // DATA[prestamista] = [rows...]
 $ganPrest=[];          // total interés REAL por prestamista
 $capPendPrest=[];      // total capital pendiente por prestamista
+$comisionGladys=[];    // comisión Gladys Salinas por prestamista
 $allDebtors = [];      // listado global de deudores únicos
 
 while($r=$rs->fetch_assoc()){
@@ -357,6 +366,7 @@ while($r=$rs->fetch_assoc()){
     'interes'         => (float)$r['interes_real'],     // lo que se muestra por defecto
     'interes13'       => (float)$r['interes_teorico'],  // para Celene: 13%
     'descuento5'      => (float)$r['interes_descuento'],// para Celene: 5%
+    'comision_gladys' => (float)$r['comision_gladys'],  // comisión Gladys Salinas
     'total'           => (float)$r['total'],
     'meses'           => (int)$r['meses'],
     'ids_csv'         => $idsMap[$pkey][$dkey] ?? '',
@@ -367,6 +377,7 @@ while($r=$rs->fetch_assoc()){
   // totales por prestamista: usamos el REAL
   $ganPrest[$pdisp]     = ($ganPrest[$pdisp] ?? 0) + (float)$r['interes_real'];
   $capPendPrest[$pdisp] = ($capPendPrest[$pdisp] ?? 0) + (float)$r['capital'];
+  $comisionGladys[$pdisp] = ($comisionGladys[$pdisp] ?? 0) + (float)$r['comision_gladys'];
 
   $allDebtors[$ddis] = 1;
 }
@@ -810,6 +821,7 @@ $msg = $_GET['msg'] ?? '';
 const DATA = <?php echo json_encode($data, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 const GANANCIA = <?php echo json_encode($ganPrest, JSON_NUMERIC_CHECK); ?>;
 const CAPITAL  = <?php echo json_encode($capPendPrest, JSON_NUMERIC_CHECK); ?>;
+const COMISION_GLADYS = <?php echo json_encode($comisionGladys, JSON_NUMERIC_CHECK); ?>;
 const SELECTORS_HTML = <?php echo json_encode($selectors, JSON_UNESCAPED_UNICODE); ?>;
 const ALL_DEBTORS = <?php echo json_encode(array_values($allDebtors), JSON_UNESCAPED_UNICODE); ?>;
 const DETALLE = <?php echo json_encode($detalleMap, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
@@ -849,7 +861,7 @@ renderToolbar(currentPrest);
 function renderChips(prest, visibleRows=null){
   chipsHost.innerHTML = "";
 
-  let interesReal, capital;
+  let interesReal, capital, comisionGladys;
   let interesTeorico = 0;
   let desc5 = 0;
 
@@ -861,6 +873,7 @@ function renderChips(prest, visibleRows=null){
     capital     = all.reduce((a,r)=>a+Number(r.valor||0),0);
     interesTeorico = all.reduce((a,r)=>a+Number(r.interes13||0),0);
     desc5          = all.reduce((a,r)=>a+Number(r.descuento5||0),0);
+    comisionGladys = all.reduce((a,r)=>a+Number(r.comision_gladys||0),0);
 
     const chipM = document.createElement("span");
     chipM.className="chip";
@@ -874,12 +887,14 @@ function renderChips(prest, visibleRows=null){
   } else {
     interesReal = Number(GANANCIA[prest]||0);
     capital     = Number(CAPITAL[prest]||0);
+    comisionGladys = Number(COMISION_GLADYS[prest]||0);
 
     if (Array.isArray(visibleRows)) {
       interesReal = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
       capital     = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
       interesTeorico = visibleRows.reduce((a,r)=>a+Number(r.interes13||0),0);
       desc5          = visibleRows.reduce((a,r)=>a+Number(r.descuento5||0),0);
+      comisionGladys = visibleRows.reduce((a,r)=>a+Number(r.comision_gladys||0),0);
     } else {
       // si no vino visibleRows pero sí es Celene, sumamos de DATA
       if (isCelene) {
@@ -900,18 +915,27 @@ function renderChips(prest, visibleRows=null){
 
   chipsHost.append(chip1, chip2);
 
-  // si es Celene, mostramos las 2 cifras extra: 13% y 5%
+  // si es Celene, mostramos las cifras extra: 13%, 5% y comisión Gladys
   if (!isGlobalMode() && isCelene) {
     const chip3 = document.createElement("span");
     chip3.className = "chip";
     chip3.textContent = `Interés 13% (teórico): $ ${interesTeorico.toLocaleString()}`;
+    
     const chip4 = document.createElement("span");
     chip4.className = "chip";
     chip4.textContent = `Descuento 5%: $ ${desc5.toLocaleString()}`;
+    
     const chip5 = document.createElement("span");
     chip5.className = "chip";
     chip5.textContent = `Interés 8% (real): $ ${(interesTeorico - desc5).toLocaleString()}`;
-    chipsHost.append(chip3, chip4, chip5);
+    
+    // NUEVO: Comisión Gladys Salinas
+    const chip6 = document.createElement("span");
+    chip6.className = "chip";
+    chip6.style.background = "#FFE4E4";
+    chip6.textContent = `Comisión Gladys (5%): $ ${comisionGladys.toLocaleString()}`;
+    
+    chipsHost.append(chip3, chip4, chip5, chip6);
   }
 
   const chipL1 = document.createElement("span");
@@ -1488,6 +1512,7 @@ function drawTree(prestamista) {
   const visibleRows = rows;
   const totalInteresReal = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
   const totalCapital = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
+  const totalComisionGladys = visibleRows.reduce((a,r)=>a+Number(r.comision_gladys||0),0);
 
   const deudores = root.descendants().filter(d=>d.depth===1);
   const midY = d3.mean(deudores, d=>d.x) || 0;
@@ -1545,7 +1570,7 @@ function drawTree(prestamista) {
     .attr("class","summaryAmt")
     .text(`$ ${totalCapital.toLocaleString()}`);
 
-  // si es Celene, mostramos lado derecho sus otras 2 cifras
+  // si es Celene, mostramos lado derecho sus otras 2 cifras + comisión Gladys
   if (isCelene) {
     const totalTeorico = visibleRows.reduce((a,r)=>a+Number(r.interes13||0),0);
     const totalDesc5   = visibleRows.reduce((a,r)=>a+Number(r.descuento5||0),0);
@@ -1568,6 +1593,16 @@ function drawTree(prestamista) {
     s4.append("tspan")
       .attr("class","summaryAmt")
       .text(`$ ${totalDesc5.toLocaleString()}`);
+
+    // NUEVO: Comisión Gladys Salinas
+    const s5 = summaryG.append("text")
+      .attr("class","summaryLine")
+      .attr("x", sumW/2)
+      .attr("y", sy2 + 44)
+      .text("Comisión Gladys: ");
+    s5.append("tspan")
+      .attr("class","summaryAmt")
+      .text(`$ ${totalComisionGladys.toLocaleString()}`);
   }
 
   // enlaces deudor -> resumen global
@@ -1595,9 +1630,10 @@ function drawTree(prestamista) {
     const perPrest = {};
     visibleRows.forEach(r=>{
       const p = r.__prest || 'Desconocido';
-      if (!perPrest[p]) perPrest[p] = { interes:0, capital:0 };
+      if (!perPrest[p]) perPrest[p] = { interes:0, capital:0, comision:0 };
       perPrest[p].interes += Number(r.interes||0);
       perPrest[p].capital += Number(r.valor||0);
+      perPrest[p].comision += Number(r.comision_gladys||0);
     });
 
     const names = Object.keys(perPrest).sort((a,b)=> a.localeCompare(b));
@@ -1663,7 +1699,7 @@ window.addEventListener('resize', ()=>{
   if (currentPrest) drawTree(currentPrest);
 });
 
-
+/* ===== Inicio ===== */
 if (currentPrest){
   drawTree(currentPrest);
 }
