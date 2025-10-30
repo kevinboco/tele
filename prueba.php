@@ -9,7 +9,7 @@ include("nav.php");
  * - Fila TOTAL y leyenda de colores en el modal
  * - Colores por antigüedad (meses) en modal y nodos
  * - Contador de préstamos por deudor en cada nodo
- * - Interés 13% para préstamos desde hoy, 10% para anteriores
+ * - Interés 13% para préstamos desde 29-oct-2025, 10% para anteriores
  *********************************************************/
 
 /* ===== Config ===== */
@@ -109,7 +109,7 @@ $sql = "
          SUM(monto) AS capital,
          SUM(
            CASE 
-             WHEN fecha >= CURDATE() THEN monto * 0.13
+             WHEN fecha >= '2025-10-29' THEN monto * 0.13
              ELSE monto * 0.10
            END *
            CASE WHEN CURDATE() < fecha
@@ -120,7 +120,7 @@ $sql = "
          SUM(
            monto +
            CASE 
-             WHEN fecha >= CURDATE() THEN monto * 0.13
+             WHEN fecha >= '2025-10-29' THEN monto * 0.13
              ELSE monto * 0.10
            END *
            CASE WHEN CURDATE() < fecha
@@ -172,7 +172,7 @@ $sqlDet = "
     END AS meses,
     (monto *
      CASE 
-       WHEN fecha >= CURDATE() THEN 0.13
+       WHEN fecha >= '2025-10-29' THEN 0.13
        ELSE 0.10
      END *
      CASE WHEN CURDATE() < fecha
@@ -182,7 +182,7 @@ $sqlDet = "
     (monto +
      monto *
      CASE 
-       WHEN fecha >= CURDATE() THEN 0.13
+       WHEN fecha >= '2025-10-29' THEN 0.13
        ELSE 0.10
      END *
      CASE WHEN CURDATE() < fecha
@@ -1444,4 +1444,4 @@ if (currentPrest){
 }
 </script>
 </body>
-</html> 
+</html>
