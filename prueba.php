@@ -1779,7 +1779,7 @@ window.addEventListener('resize', ()=>{
   if (currentPrest) drawTree(currentPrest);
 });
 
-/* ===== Inicio ===== */
+
 if (currentPrest){
   drawTree(currentPrest);
 }
