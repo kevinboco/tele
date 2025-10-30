@@ -2,15 +2,14 @@
 include("nav.php");
 /*********************************************************
  * prestamos_visual_interactivo.php
- * v4.7
+ * v4.6
  * - Visual D3 (vista por prestamista / global multi-deudor)
  * - Selector "marcar pagados"
  * - Modal con historial individual (click en el nodo)
  * - Fila TOTAL y leyenda de colores en el modal
  * - Colores por antigüedad (meses) en modal y nodos
  * - Contador de préstamos por deudor en cada nodo
- * - Interés 13% para préstamos desde 2024-11-29, 10% para anteriores
- * - COMISIÓN GLADYS: Porcentaje personalizable sobre CAPITAL de prestamistas seleccionados
+ * - Interés 13% para préstamos desde hoy, 10% para anteriores
  *********************************************************/
 
 /* ===== Config ===== */
@@ -110,7 +109,7 @@ $sql = "
          SUM(monto) AS capital,
          SUM(
            CASE 
-             WHEN fecha >= '2024-11-29' THEN monto * 0.13
+             WHEN fecha >= CURDATE() THEN monto * 0.13
              ELSE monto * 0.10
            END *
            CASE WHEN CURDATE() < fecha
@@ -121,7 +120,7 @@ $sql = "
          SUM(
            monto +
            CASE 
-             WHEN fecha >= '2024-11-29' THEN monto * 0.13
+             WHEN fecha >= CURDATE() THEN monto * 0.13
              ELSE monto * 0.10
            END *
            CASE WHEN CURDATE() < fecha
@@ -173,7 +172,7 @@ $sqlDet = "
     END AS meses,
     (monto *
      CASE 
-       WHEN fecha >= '2024-11-29' THEN 0.13
+       WHEN fecha >= CURDATE() THEN 0.13
        ELSE 0.10
      END *
      CASE WHEN CURDATE() < fecha
@@ -183,7 +182,7 @@ $sqlDet = "
     (monto +
      monto *
      CASE 
-       WHEN fecha >= '2024-11-29' THEN 0.13
+       WHEN fecha >= CURDATE() THEN 0.13
        ELSE 0.10
      END *
      CASE WHEN CURDATE() < fecha
@@ -331,10 +330,6 @@ $msg = $_GET['msg'] ?? '';
     border-radius:999px;padding:4px 10px;
     font-size:12px
   }
-  .chip-comision{
-    background:#f0f9ff;border:1px solid #7dd3fc;
-    color:#0c4a6e;
-  }
 
   .search{
     margin-left:auto;display:flex;
@@ -372,16 +367,6 @@ $msg = $_GET['msg'] ?? '';
     padding:6px 8px;border-radius:8px;
   }
   .multiselect .opt:hover { background:#f8fafc; }
-
-  .porcentaje-input {
-    width: 60px;
-    height: 28px;
-    border: 1px solid #e5e7eb;
-    border-radius: 6px;
-    padding: 4px 8px;
-    text-align: center;
-    font-size: 12px;
-  }
 
   .toolbar {
     position:absolute;left:80px;top:60px;z-index:5;
@@ -623,30 +608,6 @@ $msg = $_GET['msg'] ?? '';
     </div>
   </div>
 
-  <!-- Selección prestamistas para comisión Gladys -->
-  <div class="filter-wrap">
-    <div class="multiselect" id="ms-prestamistas-comision">
-      <button type="button" id="ms-toggle-comision">Seleccionar prestamistas para comisión (0)</button>
-      <div class="panel" id="ms-panel-comision" style="display:none">
-        <div class="opt" style="justify-content:space-between; padding:6px 8px; border-bottom:1px solid #eef2ff;">
-          <div style="font-weight:600">Prestamistas para comisión Gladys</div>
-          <div style="display:flex; gap:6px">
-            <button type="button" id="ms-all-comision" class="btn small" style="background:#eef2ff;color:#0b5ed7;border:0">Todos</button>
-            <button type="button" id="ms-none-comision" class="btn small" style="background:#fff;color:#374151;border:1px solid #e5e7eb">Ninguno</button>
-          </div>
-        </div>
-        <div style="padding: 8px; border-bottom: 1px solid #eef2ff;">
-          <label style="display: flex; align-items: center; gap: 8px; font-size: 12px;">
-            <span>Porcentaje general:</span>
-            <input type="number" id="porcentaje-general" class="porcentaje-input" value="5" min="0" max="100" step="0.5">
-            <span>%</span>
-          </label>
-        </div>
-        <div id="ms-list-comision"></div>
-      </div>
-    </div>
-  </div>
-
   <!-- Buscador -->
   <div class="search">
     <input id="searchInput" type="text" placeholder="Buscar..." autocomplete="off">
@@ -763,43 +724,22 @@ function renderChips(prest, visibleRows=null){
     const all = visibleRows || collectRowsForSelected();
     interes = all.reduce((a,r)=>a+Number(r.interes||0),0);
     capital = all.reduce((a,r)=>a+Number(r.valor||0),0);
+
+    const chipM = document.createElement("span");
+    chipM.className="chip";
+    chipM.textContent = "Modo global (todos los prestamistas)";
+
+    const chipF = document.createElement("span");
+    chipF.className="chip";
+    chipF.textContent = `Filtro: ${SELECTED_DEUDORES.size} deudor(es)`;
+
+    chipsHost.append(chipM, chipF);
   } else {
     interes = Number(GANANCIA[prest]||0);
     capital = Number(CAPITAL[prest]||0);
     if (Array.isArray(visibleRows)) {
       interes = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
       capital = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
-    }
-  }
-
-  // CALCULAR COMISIÓN DE GLADYS (porcentaje personalizable sobre CAPITAL PRESTADO)
-  let comisionGladys = 0;
-  let porcentajeTotal = 0;
-  let prestamistasConComision = [];
-  
-  if (PRESTAMISTAS_SELECCIONADOS.size > 0) {
-    if (isGlobalMode()) {
-      // En modo global, calcular sobre el CAPITAL de los prestamistas seleccionados
-      const rowsForComision = (visibleRows || collectRowsForSelected())
-        .filter(r => PRESTAMISTAS_SELECCIONADOS.has(r.__prest));
-      
-      rowsForComision.forEach(r => {
-        const porcentaje = PRESTAMISTAS_PORCENTAJES[r.__prest] || PORCENTAJE_GENERAL;
-        const comisionPrestamista = Number(r.valor||0) * (porcentaje / 100);
-        comisionGladys += comisionPrestamista;
-        porcentajeTotal += porcentaje;
-        if (!prestamistasConComision.includes(r.__prest)) {
-          prestamistasConComision.push(r.__prest);
-        }
-      });
-    } else {
-      // En modo prestamista individual
-      if (PRESTAMISTAS_SELECCIONADOS.has(prest)) {
-        const porcentaje = PRESTAMISTAS_PORCENTAJES[prest] || PORCENTAJE_GENERAL;
-        comisionGladys = capital * (porcentaje / 100);
-        porcentajeTotal = porcentaje;
-        prestamistasConComision.push(prest);
-      }
     }
   }
 
@@ -810,28 +750,6 @@ function renderChips(prest, visibleRows=null){
   const chip2 = document.createElement("span");
   chip2.className = "chip";
   chip2.textContent = `Total prestado (pend.): $ ${capital.toLocaleString()}`;
-
-  // Chip de comisión Gladys (sobre capital)
-  if (comisionGladys > 0) {
-    const chipComision = document.createElement("span");
-    chipComision.className = "chip chip-comision";
-    
-    let comisionText = `Mi comisión: $ ${comisionGladys.toLocaleString()}`;
-    if (prestamistasConComision.length === 1) {
-      const porcentaje = PRESTAMISTAS_PORCENTAJES[prestamistasConComision[0]] || PORCENTAJE_GENERAL;
-      comisionText = `Mi comisión (${porcentaje}%): $ ${comisionGladys.toLocaleString()}`;
-    } else if (prestamistasConComision.length > 1) {
-      const porcentajesUnicos = [...new Set(prestamistasConComision.map(p => PRESTAMISTAS_PORCENTAJES[p] || PORCENTAJE_GENERAL))];
-      if (porcentajesUnicos.length === 1) {
-        comisionText = `Mi comisión (${porcentajesUnicos[0]}%): $ ${comisionGladys.toLocaleString()}`;
-      } else {
-        comisionText = `Mi comisión (varios %): $ ${comisionGladys.toLocaleString()}`;
-      }
-    }
-    
-    chipComision.textContent = comisionText;
-    chipsHost.appendChild(chipComision);
-  }
 
   const chipL1 = document.createElement("span");
   chipL1.className="chip";
@@ -966,150 +884,8 @@ document.addEventListener('click', (e)=>{
   if (!ms.contains(e.target)) msPanel.style.display='none';
 });
 
-/* ===== Selección de prestamistas para comisión Gladys ===== */
-const msComision = document.getElementById('ms-prestamistas-comision');
-const msToggleComision = document.getElementById('ms-toggle-comision');
-const msPanelComision  = document.getElementById('ms-panel-comision');
-const msListComision   = document.getElementById('ms-list-comision');
-const msAllComision    = document.getElementById('ms-all-comision');
-const msNoneComision   = document.getElementById('ms-none-comision');
-const porcentajeGeneralInput = document.getElementById('porcentaje-general');
-
-let PORCENTAJE_GENERAL = 5; // Porcentaje por defecto
-const PRESTAMISTAS_SELECCIONADOS = new Set();
-const PRESTAMISTAS_PORCENTAJES = {}; // Almacena porcentajes personalizados por prestamista
-
-function updateMsComisionLabel(){
-  msToggleComision.textContent = `Seleccionar prestamistas para comisión (${PRESTAMISTAS_SELECCIONADOS.size})`;
-}
-
-function renderMsComisionList(){
-  msListComision.innerHTML = '';
-  const frag = document.createDocumentFragment();
-  prestNombres.forEach(name=>{
-    const row = document.createElement('div');
-    row.className = 'opt';
-    row.style.justifyContent = 'space-between';
-
-    const leftSection = document.createElement('div');
-    leftSection.style.display = 'flex';
-    leftSection.style.alignItems = 'center';
-    leftSection.style.gap = '8px';
-
-    const cb = document.createElement('input');
-    cb.type='checkbox';
-    cb.checked = PRESTAMISTAS_SELECCIONADOS.has(name);
-
-    const sp = document.createElement('span');
-    sp.textContent = name;
-    sp.style.minWidth = '120px';
-
-    leftSection.appendChild(cb);
-    leftSection.appendChild(sp);
-
-    const rightSection = document.createElement('div');
-    rightSection.style.display = 'flex';
-    rightSection.style.alignItems = 'center';
-    rightSection.style.gap = '6px';
-
-    const porcentajeInput = document.createElement('input');
-    porcentajeInput.type = 'number';
-    porcentajeInput.className = 'porcentaje-input';
-    porcentajeInput.value = PRESTAMISTAS_PORCENTAJES[name] || PORCENTAJE_GENERAL;
-    porcentajeInput.min = 0;
-    porcentajeInput.max = 100;
-    porcentajeInput.step = 0.5;
-
-    const porcentajeLabel = document.createElement('span');
-    porcentajeLabel.textContent = '%';
-    porcentajeLabel.style.fontSize = '12px';
-
-    rightSection.appendChild(porcentajeInput);
-    rightSection.appendChild(porcentajeLabel);
-
-    row.appendChild(leftSection);
-    row.appendChild(rightSection);
-
-    // Eventos
-    cb.addEventListener('change', ()=>{
-      if(cb.checked) {
-        PRESTAMISTAS_SELECCIONADOS.add(name);
-        PRESTAMISTAS_PORCENTAJES[name] = parseFloat(porcentajeInput.value) || PORCENTAJE_GENERAL;
-      } else {
-        PRESTAMISTAS_SELECCIONADOS.delete(name);
-        delete PRESTAMISTAS_PORCENTAJES[name];
-      }
-      updateMsComisionLabel();
-      drawTree(currentPrest);
-    });
-
-    porcentajeInput.addEventListener('change', ()=>{
-      const valor = parseFloat(porcentajeInput.value);
-      if (!isNaN(valor) && valor >= 0 && valor <= 100) {
-        if (PRESTAMISTAS_SELECCIONADOS.has(name)) {
-          PRESTAMISTAS_PORCENTAJES[name] = valor;
-          drawTree(currentPrest);
-        }
-      } else {
-        porcentajeInput.value = PRESTAMISTAS_PORCENTAJES[name] || PORCENTAJE_GENERAL;
-      }
-    });
-
-    frag.appendChild(row);
-  });
-  msListComision.appendChild(frag);
-}
-
-// Actualizar porcentaje general
-porcentajeGeneralInput.addEventListener('change', ()=>{
-  const valor = parseFloat(porcentajeGeneralInput.value);
-  if (!isNaN(valor) && valor >= 0 && valor <= 100) {
-    PORCENTAJE_GENERAL = valor;
-    // Actualizar porcentajes de prestamistas que no tienen porcentaje personalizado
-    prestNombres.forEach(name => {
-      if (PRESTAMISTAS_SELECCIONADOS.has(name) && !PRESTAMISTAS_PORCENTAJES[name]) {
-        PRESTAMISTAS_PORCENTAJES[name] = PORCENTAJE_GENERAL;
-      }
-    });
-    drawTree(currentPrest);
-  } else {
-    porcentajeGeneralInput.value = PORCENTAJE_GENERAL;
-  }
-});
-
-msToggleComision.addEventListener('click', ()=>{
-  msPanelComision.style.display = (msPanelComision.style.display==='none' || !msPanelComision.style.display) ? 'block':'none';
-});
-
-msAllComision.addEventListener('click', ()=>{
-  prestNombres.forEach(n=>{
-    PRESTAMISTAS_SELECCIONADOS.add(n);
-    PRESTAMISTAS_PORCENTAJES[n] = PORCENTAJE_GENERAL;
-  });
-  updateMsComisionLabel();
-  renderMsComisionList();
-  drawTree(currentPrest);
-});
-
-msNoneComision.addEventListener('click', ()=>{
-  PRESTAMISTAS_SELECCIONADOS.clear();
-  // Limpiar objeto de porcentajes
-  for (const key in PRESTAMISTAS_PORCENTAJES) {
-    delete PRESTAMISTAS_PORCENTAJES[key];
-  }
-  updateMsComisionLabel();
-  renderMsComisionList();
-  drawTree(currentPrest);
-});
-
-document.addEventListener('click', (e)=>{
-  if (!msComision.contains(e.target)) msPanelComision.style.display='none';
-});
-
 renderMsList();
 updateMsLabel();
-renderMsComisionList();
-updateMsComisionLabel();
 
 /* ===== wrapText para SVG ===== */
 function wrapText(textSel, width){
@@ -1300,7 +1076,7 @@ function drawTree(prestamista) {
   // 1) Filas base
   let allRows;
   if (global) {
-    allRows = collectRowsForSelected(); // multi prestamistas, solo deudores filtrados
+    allRows = collectRowsForSelected(); // multi prestamistass, solo deudores filtrados
   } else {
     allRows = DATA[prestamista] || [];
   }
@@ -1405,7 +1181,7 @@ function drawTree(prestamista) {
     const m = +d.data.meses || 0;
     const mcls = (m >= 3) ? "m3" : (m === 2 ? "m2" : (m === 1 ? "m1" : "m0"));
 
-    // Contador de préstamos:
+    // === NUEVO contador de préstamos:
     const prestKeyForCount = (
       global
         ? (d.data.__prest || '').toLowerCase().trim()
@@ -1517,35 +1293,11 @@ function drawTree(prestamista) {
   const totalInteres = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
   const totalCapital = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
 
-  // Calcular comisión Gladys para el resumen (SOBRE CAPITAL)
-  let comisionGladysResumen = 0;
-  let prestamistasConComisionResumen = [];
-  
-  if (PRESTAMISTAS_SELECCIONADOS.size > 0) {
-    if (global) {
-      const rowsForComision = visibleRows.filter(r => PRESTAMISTAS_SELECCIONADOS.has(r.__prest));
-      rowsForComision.forEach(r => {
-        const porcentaje = PRESTAMISTAS_PORCENTAJES[r.__prest] || PORCENTAJE_GENERAL;
-        const comisionPrestamista = Number(r.valor||0) * (porcentaje / 100);
-        comisionGladysResumen += comisionPrestamista;
-        if (!prestamistasConComisionResumen.includes(r.__prest)) {
-          prestamistasConComisionResumen.push(r.__prest);
-        }
-      });
-    } else {
-      if (PRESTAMISTAS_SELECCIONADOS.has(prestamista)) {
-        const porcentaje = PRESTAMISTAS_PORCENTAJES[prestamista] || PORCENTAJE_GENERAL;
-        comisionGladysResumen = totalCapital * (porcentaje / 100);
-        prestamistasConComisionResumen.push(prestamista);
-      }
-    }
-  }
-
   const deudores = root.descendants().filter(d=>d.depth===1);
   const midY = d3.mean(deudores, d=>d.x) || 0;
 
   const summaryX = centerX + cardW + 280;
-  const sumW = 380, sumH = comisionGladysResumen > 0 ? 180 : 140, sumPadX = 14, sumLine = 24;
+  const sumW = 380, sumH = 140, sumPadX = 14, sumLine = 24;
 
   const summaryG = g.append("g")
     .attr("class","summary")
@@ -1592,42 +1344,6 @@ function drawTree(prestamista) {
   s2.append("tspan")
     .attr("class","summaryAmt")
     .text(`$ ${totalCapital.toLocaleString()}`);
-
-  // Mostrar comisión Gladys en el resumen si aplica
-  if (comisionGladysResumen > 0) {
-    sy += 22;
-    const s3 = summaryG.append("text")
-      .attr("class","summaryLine")
-      .attr("x", sumPadX)
-      .attr("y", sy)
-      .text("Comisión Gladys: ");
-    s3.append("tspan")
-      .attr("class","summaryAmt")
-      .style("fill", "#0c4a6e")
-      .text(`$ ${comisionGladysResumen.toLocaleString()}`);
-    
-    // Mostrar detalles de porcentajes si hay múltiples prestamistas
-    if (prestamistasConComisionResumen.length > 1) {
-      sy += 18;
-      const s4 = summaryG.append("text")
-        .attr("class","summaryLine")
-        .attr("x", sumPadX)
-        .attr("y", sy)
-        .style("font-size", "11px")
-        .style("fill", "#6b7280")
-        .text(`Aplicado a ${prestamistasConComisionResumen.length} prestamistas`);
-    } else if (prestamistasConComisionResumen.length === 1) {
-      const porcentaje = PRESTAMISTAS_PORCENTAJES[prestamistasConComisionResumen[0]] || PORCENTAJE_GENERAL;
-      sy += 18;
-      const s4 = summaryG.append("text")
-        .attr("class","summaryLine")
-        .attr("x", sumPadX)
-        .attr("y", sy)
-        .style("font-size", "11px")
-        .style("fill", "#6b7280")
-        .text(`(${porcentaje}% sobre capital)`);
-    }
-  }
 
   // enlaces deudor -> resumen global
   const link2 = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
@@ -1728,4 +1444,4 @@ if (currentPrest){
 }
 </script>
 </body>
-</html>
+</html> 
