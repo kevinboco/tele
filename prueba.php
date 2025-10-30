@@ -2,7 +2,7 @@
 include("nav.php");
 /*********************************************************
  * prestamos_visual_interactivo.php
- * v4.7
+ * v4.6
  * - Visual D3 (vista por prestamista / global multi-deudor)
  * - Selector "marcar pagados"
  * - Modal con historial individual (click en el nodo)
@@ -10,7 +10,6 @@ include("nav.php");
  * - Colores por antigüedad (meses) en modal y nodos
  * - Contador de préstamos por deudor en cada nodo
  * - Interés 13% para préstamos desde 29-oct-2025, 10% para anteriores
- * - CÁLCULO ESPECIAL para Celene: 5% comisión descontada de intereses
  *********************************************************/
 
 /* ===== Config ===== */
@@ -229,52 +228,21 @@ while($r=$rs->fetch_assoc()){
   $pkey=$r['prest_key']; $pdisp=$r['prest_display'];
   $dkey=$r['deud_key'];  $ddis=$r['deud_display'];
 
-  // ===== CÁLCULO ESPECIAL PARA CELENE =====
-  $capital = (float)$r['capital'];
-  $interes = (float)$r['interes'];
-  $total = (float)$r['total'];
-  
-  // Si es Celene, aplicar cálculo especial
-  if (mbnorm($ddis) === 'celene') {
-    $comision = $capital * 0.05; // 5% de comisión
-    $interes_real = $interes - $comision; // Interés verdadero
-    $total_real = $capital + $interes_real; // Total real
-    
-    // Guardar tanto los valores originales como los reales
-    $data[$pdisp][] = [
-      'nombre'  => $ddis,
-      'valor'   => $capital,
-      'fecha'   => $r['fecha_min'],
-      'interes' => $interes,
-      'total'   => $total,
-      'interes_real' => $interes_real,
-      'total_real' => $total_real,
-      'comision' => $comision,
-      'meses'   => (int)$r['meses'],
-      'ids_csv' => $idsMap[$pkey][$dkey] ?? '',
-      '__pkey'  => $pkey,
-      '__dkey'  => $dkey,
-      '__es_celene' => true
-    ];
-  } else {
-    // Para otros deudores, cálculo normal
-    $data[$pdisp][] = [
-      'nombre'  => $ddis,
-      'valor'   => $capital,
-      'fecha'   => $r['fecha_min'],
-      'interes' => $interes,
-      'total'   => $total,
-      'meses'   => (int)$r['meses'],
-      'ids_csv' => $idsMap[$pkey][$dkey] ?? '',
-      '__pkey'  => $pkey,
-      '__dkey'  => $dkey,
-      '__es_celene' => false
-    ];
-  }
+  if (!isset($data[$pdisp])) $data[$pdisp]=[];
+  $data[$pdisp][] = [
+    'nombre'  => $ddis,
+    'valor'   => (float)$r['capital'],
+    'fecha'   => $r['fecha_min'],
+    'interes' => (float)$r['interes'],
+    'total'   => (float)$r['total'],
+    'meses'   => (int)$r['meses'],
+    'ids_csv' => $idsMap[$pkey][$dkey] ?? '',
+    '__pkey'  => $pkey, // clave normalizada prestamista
+    '__dkey'  => $dkey  // clave normalizada deudor
+  ];
 
-  // Para los totales por prestamista, usar valores normales
-  $ganPrest[$pdisp] = ($ganPrest[$pdisp] ?? 0) + $interes;
-  $capPendPrest[$pdisp] = ($capPendPrest[$pdisp] ?? 0) + $capital;
+  $ganPrest[$pdisp]     = ($ganPrest[$pdisp] ?? 0) + (float)$r['interes'];
+  $capPendPrest[$pdisp] = ($capPendPrest[$pdisp] ?? 0) + (float)$r['capital'];
 
   $allDebtors[$ddis] = 1;
 }
@@ -304,9 +272,7 @@ foreach($data as $prest => $rows){
     </div>
     <div class="selgrid">
       <?php foreach($rows as $r):
-        if (($r['ids_csv'] ?? '') === '') continue; 
-        $esCelene = $r['__es_celene'] ?? false;
-        ?>
+        if (($r['ids_csv'] ?? '') === '') continue; ?>
         <label class="selitem">
           <input class="cb" type="checkbox" name="nodes[]" value="<?= h($r['ids_csv']) ?>">
           <div>
@@ -314,12 +280,7 @@ foreach($data as $prest => $rows){
             <div class="meta">
               prestado: $ <?= money($r['valor']) ?>
               • interés: $ <?= money($r['interes']) ?>
-              <?php if ($esCelene): ?>
-                • <span style="color:#dc2626">interés real: $ <?= money($r['interes_real']) ?></span>
-                • <span style="color:#dc2626">total real: $ <?= money($r['total_real']) ?></span>
-              <?php else: ?>
-                • total: $ <?= money($r['total']) ?>
-              <?php endif; ?>
+              • total: $ <?= money($r['total']) ?>
               • fecha: <?= h($r['fecha']) ?>
             </div>
           </div>
@@ -613,16 +574,6 @@ $msg = $_GET['msg'] ?? '';
   .detalle-total-row td.label-cell {
     text-align:right;
     color:#0b5ed7;
-  }
-
-  /* Estilos especiales para Celene */
-  .celene-special {
-    background:#fff7ed !important;
-    border-left:4px solid #f59e0b;
-  }
-  .celene-label {
-    color:#dc2626;
-    font-weight:700;
   }
 </style>
 </head>
@@ -1224,8 +1175,7 @@ function drawTree(prestamista) {
     const titleRows = temp.selectAll("tspan").nodes().length || 1;
     temp.remove();
 
-    const esCelene = d.data.__es_celene || false;
-    const rowsCount = titleRows + (global ? 2 : 1) + (esCelene ? 2 : 0);
+    const rowsCount = titleRows + (global ? 2 : 1);
     const cardH = padY*2 + lineGap*rowsCount;
 
     const m = +d.data.meses || 0;
@@ -1321,38 +1271,10 @@ function drawTree(prestamista) {
     l1.append("tspan")
       .attr("class","nodeAmt")
       .text(`$ ${Number(d.data.interes||0).toLocaleString()}`);
-    
-    // Si es Celene, mostrar información especial
-    if (esCelene) {
-      y += lineGap;
-      const l2 = sel.append("text")
-        .attr("class","nodeLine")
-        .attr("x", padX)
-        .attr("y", y + lineGap)
-        .style("opacity", 0)
-        .style("fill", "#dc2626")
-        .text("interés real: ");
-      l2.append("tspan")
-        .attr("class","nodeAmt")
-        .style("fill", "#dc2626")
-        .text(`$ ${Number(d.data.interes_real||0).toLocaleString()}`);
-      l2.append("tspan").text(" • total real: ");
-      l2.append("tspan")
-        .attr("class","nodeAmt")
-        .style("fill", "#dc2626")
-        .text(`$ ${Number(d.data.total_real||0).toLocaleString()}`);
-      
-      l2.transition()
-        .delay(260)
-        .duration(400)
-        .style("opacity", 1);
-    } else {
-      l1.append("tspan").text(" • total ");
-      l1.append("tspan")
-        .attr("class","nodeAmt")
-        .text(`$ ${Number(d.data.total||0).toLocaleString()}`);
-    }
-
+    l1.append("tspan").text(" • total ");
+    l1.append("tspan")
+      .attr("class","nodeAmt")
+      .text(`$ ${Number(d.data.total||0).toLocaleString()}`);
     l1.append("tspan").text(" • fecha: ");
     l1.append("tspan")
       .attr("class","nodeAmt")
