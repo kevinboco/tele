@@ -10,7 +10,7 @@ include("nav.php");
  * - Colores por antigüedad (meses) en modal y nodos
  * - Contador de préstamos por deudor en cada nodo
  * - Interés 13% para préstamos desde hoy, 10% para anteriores
- * - COMISIÓN GLADYS: Porcentaje personalizable sobre CAPITAL que se descuenta de los intereses
+ * - COMISIÓN GLADYS: Porcentaje personalizable sobre CAPITAL de prestamistas seleccionados
  *********************************************************/
 
 /* ===== Config ===== */
@@ -334,10 +334,6 @@ $msg = $_GET['msg'] ?? '';
   .chip-comision{
     background:#f0f9ff;border:1px solid #7dd3fc;
     color:#0c4a6e;
-  }
-  .chip-interes-neto{
-    background:#fff7ed;border:1px solid #fdba74;
-    color:#b45309;
   }
 
   .search{
@@ -778,7 +774,7 @@ function renderChips(prest, visibleRows=null){
 
   // CALCULAR COMISIÓN DE GLADYS (porcentaje personalizable sobre CAPITAL PRESTADO)
   let comisionGladys = 0;
-  let interesNeto = interes;
+  let porcentajeTotal = 0;
   let prestamistasConComision = [];
   
   if (PRESTAMISTAS_SELECCIONADOS.size > 0) {
@@ -791,19 +787,17 @@ function renderChips(prest, visibleRows=null){
         const porcentaje = PRESTAMISTAS_PORCENTAJES[r.__prest] || PORCENTAJE_GENERAL;
         const comisionPrestamista = Number(r.valor||0) * (porcentaje / 100);
         comisionGladys += comisionPrestamista;
+        porcentajeTotal += porcentaje;
         if (!prestamistasConComision.includes(r.__prest)) {
           prestamistasConComision.push(r.__prest);
         }
       });
-      
-      // Calcular interés neto (interés original - comisión)
-      interesNeto = interes - comisionGladys;
     } else {
       // En modo prestamista individual
       if (PRESTAMISTAS_SELECCIONADOS.has(prest)) {
         const porcentaje = PRESTAMISTAS_PORCENTAJES[prest] || PORCENTAJE_GENERAL;
         comisionGladys = capital * (porcentaje / 100);
-        interesNeto = interes - comisionGladys;
+        porcentajeTotal = porcentaje;
         prestamistasConComision.push(prest);
       }
     }
@@ -811,19 +805,11 @@ function renderChips(prest, visibleRows=null){
 
   const chip1 = document.createElement("span");
   chip1.className = "chip";
-  chip1.textContent = `Total prestado (pend.): $ ${capital.toLocaleString()}`;
+  chip1.textContent = `Ganancia (interés): $ ${interes.toLocaleString()}`;
 
   const chip2 = document.createElement("span");
   chip2.className = "chip";
-  chip2.textContent = `Interés bruto: $ ${interes.toLocaleString()}`;
-
-  // Chip de interés neto (después de comisión)
-  if (comisionGladys > 0) {
-    const chipInteresNeto = document.createElement("span");
-    chipInteresNeto.className = "chip chip-interes-neto";
-    chipInteresNeto.textContent = `Interés neto: $ ${interesNeto.toLocaleString()}`;
-    chipsHost.appendChild(chipInteresNeto);
-  }
+  chip2.textContent = `Total prestado (pend.): $ ${capital.toLocaleString()}`;
 
   // Chip de comisión Gladys (sobre capital)
   if (comisionGladys > 0) {
@@ -847,13 +833,6 @@ function renderChips(prest, visibleRows=null){
     chipsHost.appendChild(chipComision);
   }
 
-  // Chip de total (capital + interés neto)
-  const totalNeto = capital + interesNeto;
-  const chipTotal = document.createElement("span");
-  chipTotal.className = "chip";
-  chipTotal.textContent = `Total a pagar: $ ${totalNeto.toLocaleString()}`;
-  chipsHost.appendChild(chipTotal);
-
   const chipL1 = document.createElement("span");
   chipL1.className="chip";
   chipL1.textContent="1 mes";
@@ -869,7 +848,7 @@ function renderChips(prest, visibleRows=null){
   chipL3.textContent="3+ meses";
   chipL3.style.background="#FFE1E1";
 
-  chipsHost.append(chipL1, chipL2, chipL3);
+  chipsHost.append(chip1, chip2, chipL1, chipL2, chipL3);
 }
 
 /* ===== Selector "marcar pagados" abajo ===== */
@@ -1115,10 +1094,7 @@ msAllComision.addEventListener('click', ()=>{
 
 msNoneComision.addEventListener('click', ()=>{
   PRESTAMISTAS_SELECCIONADOS.clear();
-  // Limpiar solo los porcentajes personalizados, mantener el objeto
-  for (const key in PRESTAMISTAS_PORCENTAJES) {
-    delete PRESTAMISTAS_PORCENTAJES[key];
-  }
+  PRESTAMISTAS_PORCENTAJES = {};
   updateMsComisionLabel();
   renderMsComisionList();
   drawTree(currentPrest);
@@ -1443,21 +1419,6 @@ function drawTree(prestamista) {
       loanCount = DETALLE[prestKeyForCount][deudKeyForCount].length;
     }
 
-    // Calcular comisión e interés neto para esta fila
-    let interesNeto = Number(d.data.interes||0);
-    let comision = 0;
-    let mostrarComision = false;
-
-    if (PRESTAMISTAS_SELECCIONADOS.size > 0) {
-      const prestamistaActual = global ? d.data.__prest : prestamista;
-      if (PRESTAMISTAS_SELECCIONADOS.has(prestamistaActual)) {
-        const porcentaje = PRESTAMISTAS_PORCENTAJES[prestamistaActual] || PORCENTAJE_GENERAL;
-        comision = Number(d.data.valor||0) * (porcentaje / 100);
-        interesNeto = Number(d.data.interes||0) - comision;
-        mostrarComision = true;
-      }
-    }
-
     // tarjeta clickable
     sel.append("rect")
       .attr("class", `nodeCard ${mcls}`)
@@ -1528,27 +1489,14 @@ function drawTree(prestamista) {
     l1.append("tspan")
       .attr("class","nodeAmt")
       .text(`$ ${Number(d.data.valor||0).toLocaleString()}`);
-
-    // Mostrar interés neto si hay comisión
-    if (mostrarComision) {
-      l1.append("tspan").text(" • interés neto: ");
-      l1.append("tspan")
-        .attr("class","nodeAmt")
-        .text(`$ ${interesNeto.toLocaleString()}`);
-    } else {
-      l1.append("tspan").text(" • interés: ");
-      l1.append("tspan")
-        .attr("class","nodeAmt")
-        .text(`$ ${Number(d.data.interes||0).toLocaleString()}`);
-    }
-
-    // Calcular total (capital + interés neto)
-    const totalConComision = Number(d.data.valor||0) + interesNeto;
+    l1.append("tspan").text(" • interés: ");
+    l1.append("tspan")
+      .attr("class","nodeAmt")
+      .text(`$ ${Number(d.data.interes||0).toLocaleString()}`);
     l1.append("tspan").text(" • total ");
     l1.append("tspan")
       .attr("class","nodeAmt")
-      .text(`$ ${totalConComision.toLocaleString()}`);
-    
+      .text(`$ ${Number(d.data.total||0).toLocaleString()}`);
     l1.append("tspan").text(" • fecha: ");
     l1.append("tspan")
       .attr("class","nodeAmt")
@@ -1569,7 +1517,6 @@ function drawTree(prestamista) {
 
   // Calcular comisión Gladys para el resumen (SOBRE CAPITAL)
   let comisionGladysResumen = 0;
-  let interesNetoResumen = totalInteres;
   let prestamistasConComisionResumen = [];
   
   if (PRESTAMISTAS_SELECCIONADOS.size > 0) {
@@ -1583,24 +1530,20 @@ function drawTree(prestamista) {
           prestamistasConComisionResumen.push(r.__prest);
         }
       });
-      interesNetoResumen = totalInteres - comisionGladysResumen;
     } else {
       if (PRESTAMISTAS_SELECCIONADOS.has(prestamista)) {
         const porcentaje = PRESTAMISTAS_PORCENTAJES[prestamista] || PORCENTAJE_GENERAL;
         comisionGladysResumen = totalCapital * (porcentaje / 100);
-        interesNetoResumen = totalInteres - comisionGladysResumen;
         prestamistasConComisionResumen.push(prestamista);
       }
     }
   }
 
-  const totalNetoResumen = totalCapital + interesNetoResumen;
-
   const deudores = root.descendants().filter(d=>d.depth===1);
   const midY = d3.mean(deudores, d=>d.x) || 0;
 
   const summaryX = centerX + cardW + 280;
-  const sumW = 380, sumH = comisionGladysResumen > 0 ? 200 : 140, sumPadX = 14, sumLine = 24;
+  const sumW = 380, sumH = comisionGladysResumen > 0 ? 180 : 140, sumPadX = 14, sumLine = 24;
 
   const summaryG = g.append("g")
     .attr("class","summary")
@@ -1634,24 +1577,23 @@ function drawTree(prestamista) {
     .attr("class","summaryLine")
     .attr("x", sumPadX)
     .attr("y", sy)
-    .text("Total prestado: ");
+    .text("Ganancia (interés): ");
   s1.append("tspan")
     .attr("class","summaryAmt")
-    .text(`$ ${totalCapital.toLocaleString()}`);
+    .text(`$ ${totalInteres.toLocaleString()}`);
   sy += 22;
-  
   const s2 = summaryG.append("text")
     .attr("class","summaryLine")
     .attr("x", sumPadX)
     .attr("y", sy)
-    .text("Interés bruto: ");
+    .text("Total prestado (pend.): ");
   s2.append("tspan")
     .attr("class","summaryAmt")
-    .text(`$ ${totalInteres.toLocaleString()}`);
-  sy += 22;
+    .text(`$ ${totalCapital.toLocaleString()}`);
 
-  // Mostrar interés neto y comisión si aplica
+  // Mostrar comisión Gladys en el resumen si aplica
   if (comisionGladysResumen > 0) {
+    sy += 22;
     const s3 = summaryG.append("text")
       .attr("class","summaryLine")
       .attr("x", sumPadX)
@@ -1661,30 +1603,29 @@ function drawTree(prestamista) {
       .attr("class","summaryAmt")
       .style("fill", "#0c4a6e")
       .text(`$ ${comisionGladysResumen.toLocaleString()}`);
-    sy += 22;
-
-    const s4 = summaryG.append("text")
-      .attr("class","summaryLine")
-      .attr("x", sumPadX)
-      .attr("y", sy)
-      .text("Interés neto: ");
-    s4.append("tspan")
-      .attr("class","summaryAmt")
-      .style("fill", "#b45309")
-      .text(`$ ${interesNetoResumen.toLocaleString()}`);
-    sy += 22;
+    
+    // Mostrar detalles de porcentajes si hay múltiples prestamistas
+    if (prestamistasConComisionResumen.length > 1) {
+      sy += 18;
+      const s4 = summaryG.append("text")
+        .attr("class","summaryLine")
+        .attr("x", sumPadX)
+        .attr("y", sy)
+        .style("font-size", "11px")
+        .style("fill", "#6b7280")
+        .text(`Aplicado a ${prestamistasConComisionResumen.length} prestamistas`);
+    } else if (prestamistasConComisionResumen.length === 1) {
+      const porcentaje = PRESTAMISTAS_PORCENTAJES[prestamistasConComisionResumen[0]] || PORCENTAJE_GENERAL;
+      sy += 18;
+      const s4 = summaryG.append("text")
+        .attr("class","summaryLine")
+        .attr("x", sumPadX)
+        .attr("y", sy)
+        .style("font-size", "11px")
+        .style("fill", "#6b7280")
+        .text(`(${porcentaje}% sobre capital)`);
+    }
   }
-
-  // Total a pagar (capital + interés neto)
-  const s5 = summaryG.append("text")
-    .attr("class","summaryLine")
-    .attr("x", sumPadX)
-    .attr("y", sy)
-    .text("Total a pagar: ");
-  s5.append("tspan")
-    .attr("class","summaryAmt")
-    .style("fill", "#059669")
-    .text(`$ ${totalNetoResumen.toLocaleString()}`);
 
   // enlaces deudor -> resumen global
   const link2 = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
@@ -1779,7 +1720,7 @@ window.addEventListener('resize', ()=>{
   if (currentPrest) drawTree(currentPrest);
 });
 
-
+/* ===== Inicio ===== */
 if (currentPrest){
   drawTree(currentPrest);
 }
