@@ -1433,7 +1433,7 @@ function drawTree(prestamista) {
   if (!global) renderSelector(prestamista);
 }
 
-/* ===== Resize ===== */
+
 window.addEventListener('resize', ()=>{
   if (currentPrest) drawTree(currentPrest);
 });
