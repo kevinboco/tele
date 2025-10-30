@@ -354,6 +354,9 @@ $capPendPrest=[];      // total capital pendiente por prestamista
 $comisionGladys=[];    // comisión Gladys Salinas por prestamista
 $allDebtors = [];      // listado global de deudores únicos
 
+// NUEVO: Calcular comisión total que Celene debe a Gladys
+$comisionCeleneAGladys = 0;
+
 while($r=$rs->fetch_assoc()){
   $pkey=$r['prest_key']; $pdisp=$r['prest_display'];
   $dkey=$r['deud_key'];  $ddis=$r['deud_display'];
@@ -379,6 +382,11 @@ while($r=$rs->fetch_assoc()){
   $capPendPrest[$pdisp] = ($capPendPrest[$pdisp] ?? 0) + (float)$r['capital'];
   $comisionGladys[$pdisp] = ($comisionGladys[$pdisp] ?? 0) + (float)$r['comision_gladys'];
 
+  // NUEVO: Acumular comisión total de Celene para Gladys
+  if ($pkey === 'celene') {
+    $comisionCeleneAGladys += (float)$r['comision_gladys'];
+  }
+
   $allDebtors[$ddis] = 1;
 }
 $st->close();
@@ -390,8 +398,44 @@ natcasesort($allDebtors);
 /* ===== Formularios de marcar pagados por prestamista ===== */
 $selectors = [];
 foreach($data as $prest => $rows){
+  // Calcular totales para el resumen
+  $totalInteres = 0;
+  $totalCapital = 0;
+  $totalComisionGladys = 0;
+  
+  foreach($rows as $r){
+    $totalInteres += $r['interes'];
+    $totalCapital += $r['valor'];
+    $totalComisionGladys += $r['comision_gladys'];
+  }
+  
   ob_start(); ?>
   <form class="selector-form" method="post" action="?action=mark_paid" data-prest="<?= h($prest) ?>" style="display:none">
+    
+    <!-- RESUMEN DEL PRESTAMISTA -->
+    <div style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:12px; padding:16px; margin-bottom:16px;">
+      <h3 style="margin:0 0 12px 0; color:#0b5ed7; font-size:16px;">Resumen del prestamista</h3>
+      
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px;">
+        <div>
+          <strong>Ganancia (interés):</strong><br>
+          <span style="color:#0b5ed7; font-weight:bold; font-size:18px;">$ <?= money($totalInteres) ?></span>
+        </div>
+        <div>
+          <strong>Total prestado (pend.):</strong><br>
+          <span style="color:#0b5ed7; font-weight:bold; font-size:18px;">$ <?= money($totalCapital) ?></span>
+        </div>
+        
+        <?php if (mbnorm($prest) === 'celene' && $totalComisionGladys > 0): ?>
+          <div>
+            <strong>Comisión Gladys (5%):</strong><br>
+            <span style="color:#dc2626; font-weight:bold; font-size:18px;">$ <?= money($totalComisionGladys) ?></span>
+          </div>
+        <?php endif; ?>
+      </div>
+    </div>
+    <!-- FIN RESUMEN -->
+
     <div class="selhead">
       <div class="subtitle">
         Selecciona deudores de <strong><?= h(mbtitle($prest)) ?></strong> para marcarlos como pagados:
@@ -714,6 +758,29 @@ $msg = $_GET['msg'] ?? '';
     text-align:right;
     color:#0b5ed7;
   }
+
+  /* Estilos para el resumen del prestamista */
+  .resumen-prestamista {
+    background:#f8fafc;
+    border:1px solid #e5e7eb;
+    border-radius:12px;
+    padding:16px;
+    margin-bottom:16px;
+  }
+  .resumen-prestamista h3 {
+    margin:0 0 12px 0;
+    color:#0b5ed7;
+    font-size:16px;
+  }
+  .resumen-grid {
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));
+    gap:12px;
+  }
+  .comision-gladys {
+    color:#dc2626 !important;
+    font-weight:bold;
+  }
 </style>
 </head>
 <body>
@@ -822,6 +889,7 @@ const DATA = <?php echo json_encode($data, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_C
 const GANANCIA = <?php echo json_encode($ganPrest, JSON_NUMERIC_CHECK); ?>;
 const CAPITAL  = <?php echo json_encode($capPendPrest, JSON_NUMERIC_CHECK); ?>;
 const COMISION_GLADYS = <?php echo json_encode($comisionGladys, JSON_NUMERIC_CHECK); ?>;
+const COMISION_CELENE_A_GLADYS = <?php echo $comisionCeleneAGladys; ?>; // NUEVO
 const SELECTORS_HTML = <?php echo json_encode($selectors, JSON_UNESCAPED_UNICODE); ?>;
 const ALL_DEBTORS = <?php echo json_encode(array_values($allDebtors), JSON_UNESCAPED_UNICODE); ?>;
 const DETALLE = <?php echo json_encode($detalleMap, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
@@ -866,6 +934,8 @@ function renderChips(prest, visibleRows=null){
   let desc5 = 0;
 
   const isCelene = (prest || '').toLowerCase().trim() === 'celene';
+  const isGladysSalinas = (prest || '').toLowerCase().includes('gladys') || 
+                          (prest || '').toLowerCase().includes('salinas');
 
   if (isGlobalMode()) {
     const all = visibleRows || collectRowsForSelected();
@@ -907,7 +977,7 @@ function renderChips(prest, visibleRows=null){
 
   const chip1 = document.createElement("span");
   chip1.className = "chip";
-  chip1.textContent = `Ganancia (interés real): $ ${interesReal.toLocaleString()}`;
+  chip1.textContent = `Ganancia (interés): $ ${interesReal.toLocaleString()}`;
 
   const chip2 = document.createElement("span");
   chip2.className = "chip";
@@ -936,6 +1006,21 @@ function renderChips(prest, visibleRows=null){
     chip6.textContent = `Comisión Gladys (5%): $ ${comisionGladys.toLocaleString()}`;
     
     chipsHost.append(chip3, chip4, chip5, chip6);
+  }
+
+  // NUEVO: Si es Gladys Salinas, mostrar la comisión de Celene
+  if (!isGlobalMode() && isGladysSalinas) {
+    const chip7 = document.createElement("span");
+    chip7.className = "chip";
+    chip7.style.background = "#DCFCE7";
+    chip7.textContent = `Comisión Celene (5%): $ ${COMISION_CELENE_A_GLADYS.toLocaleString()}`;
+    
+    const chip8 = document.createElement("span");
+    chip8.className = "chip";
+    chip8.style.background = "#FEF3C7";
+    chip8.textContent = `Total + Comisión: $ ${(interesReal + COMISION_CELENE_A_GLADYS).toLocaleString()}`;
+    
+    chipsHost.append(chip7, chip8);
   }
 
   const chipL1 = document.createElement("span");
@@ -1512,7 +1597,15 @@ function drawTree(prestamista) {
   const visibleRows = rows;
   const totalInteresReal = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
   const totalCapital = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
-  const totalComisionGladys = visibleRows.reduce((a,r)=>a+Number(r.comision_gladys||0),0);
+  
+  // NUEVO: Para Gladys Salinas, mostrar la comisión de Celene
+  let totalComisionGladys = 0;
+  const isGladysSalinas = (prestamista || '').toLowerCase().includes('gladys') || 
+                          (prestamista || '').toLowerCase().includes('salinas');
+  
+  if (isGladysSalinas) {
+    totalComisionGladys = COMISION_CELENE_A_GLADYS;
+  }
 
   const deudores = root.descendants().filter(d=>d.depth===1);
   const midY = d3.mean(deudores, d=>d.x) || 0;
@@ -1544,18 +1637,26 @@ function drawTree(prestamista) {
 
   const isCelene = (!global && (prestamista||'').toLowerCase().trim()==='celene');
 
+  // NUEVO: Título diferente para Gladys
+  let tituloResumen = "Resumen del prestamista";
+  if (isCelene) {
+    tituloResumen = "Resumen de Celene";
+  } else if (isGladysSalinas) {
+    tituloResumen = "Resumen de Gladys Salinas";
+  }
+
   summaryG.append("text")
     .attr("class","summaryTitle")
     .attr("x", sumPadX)
     .attr("y", -sumH/2 + sumLine)
-    .text(global ? "Resumen (todos los prestamistas)" : (isCelene ? "Resumen de Celene" : "Resumen del prestamista"));
+    .text(tituloResumen);
 
   let sy = -sumH/2 + sumLine + 20;
   const s1 = summaryG.append("text")
     .attr("class","summaryLine")
     .attr("x", sumPadX)
     .attr("y", sy)
-    .text(isCelene ? "Interés real (8%): " : "Ganancia (interés): ");
+    .text("Ganancia (interés): ");
   s1.append("tspan")
     .attr("class","summaryAmt")
     .text(`$ ${totalInteresReal.toLocaleString()}`);
@@ -1570,7 +1671,31 @@ function drawTree(prestamista) {
     .attr("class","summaryAmt")
     .text(`$ ${totalCapital.toLocaleString()}`);
 
-  // si es Celene, mostramos lado derecho sus otras 2 cifras + comisión Gladys
+  // NUEVO: Para Gladys Salinas, mostrar la comisión de Celene
+  if (isGladysSalinas && totalComisionGladys > 0) {
+    sy += 22;
+    const s3 = summaryG.append("text")
+      .attr("class","summaryLine")
+      .attr("x", sumPadX)
+      .attr("y", sy)
+      .text("Comisión Celene (5%): ");
+    s3.append("tspan")
+      .attr("class","summaryAmt")
+      .text(`$ ${totalComisionGladys.toLocaleString()}`);
+
+    // Mostrar total con comisión
+    sy += 22;
+    const s4 = summaryG.append("text")
+      .attr("class","summaryLine")
+      .attr("x", sumPadX)
+      .attr("y", sy)
+      .text("Total + Comisión: ");
+    s4.append("tspan")
+      .attr("class","summaryAmt")
+      .text(`$ ${(totalInteresReal + totalComisionGladys).toLocaleString()}`);
+  }
+
+  // si es Celene, mostramos lado derecho sus otras 2 cifras
   if (isCelene) {
     const totalTeorico = visibleRows.reduce((a,r)=>a+Number(r.interes13||0),0);
     const totalDesc5   = visibleRows.reduce((a,r)=>a+Number(r.descuento5||0),0);
@@ -1594,7 +1719,8 @@ function drawTree(prestamista) {
       .attr("class","summaryAmt")
       .text(`$ ${totalDesc5.toLocaleString()}`);
 
-    // NUEVO: Comisión Gladys Salinas
+    // Comisión Gladys Salinas
+    const totalComision = visibleRows.reduce((a,r)=>a+Number(r.comision_gladys||0),0);
     const s5 = summaryG.append("text")
       .attr("class","summaryLine")
       .attr("x", sumW/2)
@@ -1602,7 +1728,7 @@ function drawTree(prestamista) {
       .text("Comisión Gladys: ");
     s5.append("tspan")
       .attr("class","summaryAmt")
-      .text(`$ ${totalComisionGladys.toLocaleString()}`);
+      .text(`$ ${totalComision.toLocaleString()}`);
   }
 
   // enlaces deudor -> resumen global
