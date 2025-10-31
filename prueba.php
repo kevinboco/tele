@@ -498,6 +498,7 @@ $msg = $_GET['msg'] ?? '';
 <head>
 <meta charset="utf-8">
 <title>Préstamos Interactivos</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <style>
   :root{ --line:#d1d5db; --primary:#1976d2; }
@@ -561,24 +562,26 @@ $msg = $_GET['msg'] ?? '';
   .multiselect .opt:hover { background:#f8fafc; }
 
   .toolbar {
-    position:absolute;left:80px;top:60px;z-index:5;
+    position:absolute;left:10px;top:60px;z-index:5;
     display:flex;gap:8px;flex-wrap:wrap;align-items:center;
     background:rgba(255,255,255,.8);
     backdrop-filter:saturate(1.2) blur(2px);
     padding:6px 8px;border-radius:10px;
     border:1px solid #e5e7eb;
+    max-width: calc(100vw - 20px);
   }
   .prest-chip{
     padding:6px 10px;border-radius:999px;cursor:pointer;user-select:none;
     background:#e3f2fd;font-weight:600;border:1px solid #dbeafe;
+    font-size: 14px;
   }
   .prest-chip:hover{ background:#dbeafe }
   .prest-chip.active{
     background:#90caf9;border-color:#90caf9
   }
 
-  #stage { position:relative }
-  svg{ display:block; width:100%; }
+  #stage { position:relative; width:100%; overflow:auto; }
+  svg{ display:block; width:100%; min-width: 800px; }
   .link{fill:none;stroke:#cbd5e1;stroke-width:1.5px}
   .link2{fill:none;stroke:#9ca3af;stroke-width:1.4px;opacity:.9}
 
@@ -622,7 +625,8 @@ $msg = $_GET['msg'] ?? '';
   }
   .selhead{
     display:flex;justify-content:space-between;
-    align-items:center;margin-bottom:8px
+    align-items:center;margin-bottom:8px;
+    flex-wrap: wrap;
   }
   .selgrid{
     display:grid;
@@ -654,7 +658,7 @@ $msg = $_GET['msg'] ?? '';
   .modal-card{
     background:#fff;border-radius:16px;border:1px solid #e5e7eb;
     box-shadow:0 30px 60px rgba(0,0,0,.3);
-    width:90%;max-width:700px;max-height:80vh;
+    width:95%;max-width:700px;max-height:80vh;
     display:flex;flex-direction:column;
     overflow:hidden;
     animation:pop .18s cubic-bezier(.2,.8,.4,1) both;
@@ -789,6 +793,51 @@ $msg = $_GET['msg'] ?? '';
   .comision-gladys {
     color:#dc2626 !important;
     font-weight:bold;
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .topbar {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .search {
+      margin-left: 0;
+      width: 100%;
+    }
+    .search input {
+      width: 100%;
+    }
+    .toolbar {
+      position: relative;
+      top: 0;
+      left: 0;
+      margin: 10px;
+    }
+    .prest-chip {
+      font-size: 12px;
+      padding: 4px 8px;
+    }
+    #stage {
+      overflow-x: auto;
+    }
+    svg {
+      min-width: 1000px;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .selgrid {
+      grid-template-columns: 1fr;
+    }
+    .selhead {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .multiselect {
+      min-width: 200px;
+    }
   }
 </style>
 </head>
@@ -1376,7 +1425,7 @@ function drawTree(prestamista) {
   // 1) Filas base
   let allRows;
   if (global) {
-    allRows = collectRowsForSelected(); // multi prestamistas, solo deudores filtrados
+    allRows = collectRowsForSelected();
   } else {
     allRows = DATA[prestamista] || [];
   }
@@ -1388,8 +1437,10 @@ function drawTree(prestamista) {
     return true;
   });
 
-  // 3) Layout
-  const cardW = 480, padX=12, padY=10, lineGap=18;
+  // 3) Layout responsive
+  const isMobile = window.innerWidth < 768;
+  const cardW = isMobile ? Math.min(350, window.innerWidth - 40) : 480;
+  const padX = 12, padY = 10, lineGap = 18;
   const svgWidth = document.getElementById("stage").clientWidth;
   svg.attr("width", svgWidth);
   const svgH = +svg.attr("height");
@@ -1397,7 +1448,7 @@ function drawTree(prestamista) {
   const extraLines = global ? 2 : 1;
   const approxCardH = padY*2 + lineGap*(2 + extraLines);
   const treeLayout = d3.tree()
-    .nodeSize([ approxCardH + 24, cardW + 240 ])
+    .nodeSize([ approxCardH + 24, cardW + (isMobile ? 80 : 240) ])
     .separation((a,b)=> (a.parent===b.parent? 1.2 : 1.5));
 
   const rootName = global ? "Todos los prestamistas" : prestamista;
@@ -1414,7 +1465,7 @@ function drawTree(prestamista) {
     if (d.depth === 1) d.y = centerX;
   });
 
-  // enlaces raíz → deudores
+  // Enlaces raíz → deudores
   const linkPath = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
   const links = g.selectAll(".link")
     .data(root.links())
@@ -1430,12 +1481,12 @@ function drawTree(prestamista) {
     .ease(d3.easeCubicOut)
     .attr("stroke-dashoffset",0);
 
-  // nodos
+  // Nodos
   const nodes = g.selectAll(".node")
     .data(root.descendants())
     .join("g")
     .attr("class","node")
-    .attr("transform", d => `translate(${d.y - 160},${d.x})`)
+    .attr("transform", d => `translate(${d.y - (isMobile ? 80 : 160)},${d.x})`)
     .style("opacity",0);
 
   nodes.transition()
@@ -1497,7 +1548,7 @@ function drawTree(prestamista) {
       loanCount = DETALLE[prestKeyForCount][deudKeyForCount].length;
     }
 
-    // tarjeta clickable
+    // Tarjeta clickable
     sel.append("rect")
       .attr("class", `nodeCard ${mcls}`)
       .attr("x", 0)
@@ -1526,7 +1577,7 @@ function drawTree(prestamista) {
 
     let y = -cardH/2 + padY + 12;
 
-    // título con número de préstamos
+    // Título con número de préstamos
     const titleText =
       loanCount === 1
         ? `${d.data.nombre} (1 préstamo)`
@@ -1543,7 +1594,7 @@ function drawTree(prestamista) {
     const titleBox = t.node().getBBox();
     y = titleBox.y + titleBox.height + 2;
 
-    // en modo global mostramos prestamista
+    // En modo global mostramos prestamista
     if (global) {
       const l0 = sel.append("text")
         .attr("class","nodeLine")
@@ -1557,7 +1608,7 @@ function drawTree(prestamista) {
       y += lineGap;
     }
 
-    // línea montos/fecha
+    // Línea montos/fecha
     const l1 = sel.append("text")
       .attr("class","nodeLine")
       .attr("x", padX)
@@ -1571,7 +1622,7 @@ function drawTree(prestamista) {
     l1.append("tspan")
       .attr("class","nodeAmt")
       .text(`$ ${Number(d.data.interes||0).toLocaleString()}`);
-    // si es Celene mostramos también el 13% y el descuento
+    // Si es Celene mostramos también el 13% y el descuento
     if (!global && (prestamista||'').toLowerCase().trim()==='celene') {
       l1.append("tspan").text(" • 13%: ");
       l1.append("tspan")
@@ -1599,13 +1650,13 @@ function drawTree(prestamista) {
       .style("opacity", 1);
   });
 
-  // ===== Resumen lateral =====
+  // ===== Resumen lateral RESPONSIVE =====
   const visibleRows = rows;
   const totalInteresReal = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
   const totalCapital = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
-  const totalGeneral = visibleRows.reduce((a,r)=>a+Number(r.total||0),0); // NUEVO: Total general
+  const totalGeneral = visibleRows.reduce((a,r)=>a+Number(r.total||0),0);
   
-  // NUEVO: Para Gladys Salinas, mostrar la comisión de Celene
+  // Para Gladys Salinas, mostrar la comisión de Celene
   let totalComisionGladys = 0;
   const isGladysSalinas = (prestamista || '').toLowerCase().includes('gladys') || 
                           (prestamista || '').toLowerCase().includes('salinas');
@@ -1617,12 +1668,19 @@ function drawTree(prestamista) {
   const deudores = root.descendants().filter(d=>d.depth===1);
   const midY = d3.mean(deudores, d=>d.x) || 0;
 
-  const summaryX = centerX + cardW + 280;
-  const sumW = 380, sumH = 140, sumPadX = 14, sumLine = 24;
+  // Posición responsive del resumen
+  const summaryX = isMobile ? 
+    centerX + cardW + 80 :  // Móvil: más cerca
+    centerX + cardW + 280;  // Desktop: posición original
+  
+  const sumW = isMobile ? 300 : 380;
+  const sumH = isMobile ? 160 : 140;
+  const sumPadX = 14;
+  const sumLine = 24;
 
   const summaryG = g.append("g")
     .attr("class","summary")
-    .attr("transform", `translate(${summaryX - 220},${midY})`)
+    .attr("transform", `translate(${summaryX - (isMobile ? 100 : 220)},${midY})`)
     .style("opacity", 0);
 
   summaryG.transition()
@@ -1632,7 +1690,7 @@ function drawTree(prestamista) {
     .attr("transform", `translate(${summaryX},${midY})`)
     .style("opacity", 1);
 
-  // caja
+  // Caja
   summaryG.append("rect")
     .attr("class","summaryCard")
     .attr("x", 0)
@@ -1644,7 +1702,7 @@ function drawTree(prestamista) {
 
   const isCelene = (!global && (prestamista||'').toLowerCase().trim()==='celene');
 
-  // NUEVO: Título diferente para Gladys
+  // Título diferente para Gladys
   let tituloResumen = "Resumen del prestamista";
   if (isCelene) {
     tituloResumen = "Resumen de Celene";
@@ -1725,7 +1783,7 @@ function drawTree(prestamista) {
       .text(`$ ${totalGeneral.toLocaleString()}`);
   }
 
-  // enlaces deudor -> resumen global
+  // Enlaces deudor -> resumen global
   const link2 = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
   g.selectAll(".link2")
     .data(
@@ -1753,7 +1811,7 @@ function drawTree(prestamista) {
       if (!perPrest[p]) perPrest[p] = { interes:0, capital:0, total:0, comision:0 };
       perPrest[p].interes += Number(r.interes||0);
       perPrest[p].capital += Number(r.valor||0);
-      perPrest[p].total += Number(r.total||0); // NUEVO: Total general
+      perPrest[p].total += Number(r.total||0);
       perPrest[p].comision += Number(r.comision_gladys||0);
     });
 
@@ -1806,7 +1864,7 @@ function drawTree(prestamista) {
         .attr("class","summaryAmt")
         .text(`$ ${perPrest[p].capital.toLocaleString()}`);
 
-      // NUEVO: Línea para el total general en modo global
+      // Línea para el total general en modo global
       const t3 = gP.append("text")
         .attr("class","summaryLine")
         .attr("x", sumPadX)
@@ -1818,18 +1876,17 @@ function drawTree(prestamista) {
     });
   }
 
-  // chips arriba
+  // Chips arriba
   renderChips(prestamista, visibleRows);
 
-  // selector abajo (solo modo prestamista
+  // Selector abajo (solo modo prestamista)
   if (!global) renderSelector(prestamista);
 }
 
-
+// Redimensionar responsivamente
 window.addEventListener('resize', ()=>{
   if (currentPrest) drawTree(currentPrest);
 });
-
 
 if (currentPrest){
   drawTree(currentPrest);
