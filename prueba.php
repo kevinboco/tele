@@ -268,7 +268,7 @@ $sqlDet = "
           CASE WHEN CURDATE() < fecha
                THEN 0
                ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
-      END
+          END
         ELSE 0
       END
     ) AS interes_descuento,
@@ -351,6 +351,7 @@ $st3->close();
 $data = [];            // DATA[prestamista] = [rows...]
 $ganPrest=[];          // total interés REAL por prestamista
 $capPendPrest=[];      // total capital pendiente por prestamista
+$totalPrest=[];        // NUEVO: total general por prestamista
 $comisionGladys=[];    // comisión Gladys Salinas por prestamista
 $allDebtors = [];      // listado global de deudores únicos
 
@@ -380,6 +381,7 @@ while($r=$rs->fetch_assoc()){
   // totales por prestamista: usamos el REAL
   $ganPrest[$pdisp]     = ($ganPrest[$pdisp] ?? 0) + (float)$r['interes_real'];
   $capPendPrest[$pdisp] = ($capPendPrest[$pdisp] ?? 0) + (float)$r['capital'];
+  $totalPrest[$pdisp]   = ($totalPrest[$pdisp] ?? 0) + (float)$r['total']; // NUEVO: Total general
   $comisionGladys[$pdisp] = ($comisionGladys[$pdisp] ?? 0) + (float)$r['comision_gladys'];
 
   // NUEVO: Acumular comisión total de Celene para Gladys
@@ -402,11 +404,13 @@ foreach($data as $prest => $rows){
   $totalInteres = 0;
   $totalCapital = 0;
   $totalComisionGladys = 0;
+  $totalGeneral = 0; // NUEVO: Total general
   
   foreach($rows as $r){
     $totalInteres += $r['interes'];
     $totalCapital += $r['valor'];
     $totalComisionGladys += $r['comision_gladys'];
+    $totalGeneral += $r['total']; // NUEVO: Sumar el total de cada préstamo
   }
   
   ob_start(); ?>
@@ -424,6 +428,11 @@ foreach($data as $prest => $rows){
         <div>
           <strong>Total prestado (pend.):</strong><br>
           <span style="color:#0b5ed7; font-weight:bold; font-size:18px;">$ <?= money($totalCapital) ?></span>
+        </div>
+        <!-- NUEVO: Total general -->
+        <div>
+          <strong>Total a recibir:</strong><br>
+          <span style="color:#16a34a; font-weight:bold; font-size:18px;">$ <?= money($totalGeneral) ?></span>
         </div>
         
         <?php if (mbnorm($prest) === 'celene' && $totalComisionGladys > 0): ?>
@@ -888,6 +897,7 @@ $msg = $_GET['msg'] ?? '';
 const DATA = <?php echo json_encode($data, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 const GANANCIA = <?php echo json_encode($ganPrest, JSON_NUMERIC_CHECK); ?>;
 const CAPITAL  = <?php echo json_encode($capPendPrest, JSON_NUMERIC_CHECK); ?>;
+const TOTAL_PREST = <?php echo json_encode($totalPrest, JSON_NUMERIC_CHECK); ?>; // NUEVO: Total general
 const COMISION_GLADYS = <?php echo json_encode($comisionGladys, JSON_NUMERIC_CHECK); ?>;
 const COMISION_CELENE_A_GLADYS = <?php echo $comisionCeleneAGladys; ?>; // NUEVO
 const SELECTORS_HTML = <?php echo json_encode($selectors, JSON_UNESCAPED_UNICODE); ?>;
@@ -929,7 +939,7 @@ renderToolbar(currentPrest);
 function renderChips(prest, visibleRows=null){
   chipsHost.innerHTML = "";
 
-  let interesReal, capital, comisionGladys;
+  let interesReal, capital, totalGeneral, comisionGladys;
   let interesTeorico = 0;
   let desc5 = 0;
 
@@ -941,6 +951,7 @@ function renderChips(prest, visibleRows=null){
     const all = visibleRows || collectRowsForSelected();
     interesReal = all.reduce((a,r)=>a+Number(r.interes||0),0);
     capital     = all.reduce((a,r)=>a+Number(r.valor||0),0);
+    totalGeneral = all.reduce((a,r)=>a+Number(r.total||0),0); // NUEVO: Total general
     interesTeorico = all.reduce((a,r)=>a+Number(r.interes13||0),0);
     desc5          = all.reduce((a,r)=>a+Number(r.descuento5||0),0);
     comisionGladys = all.reduce((a,r)=>a+Number(r.comision_gladys||0),0);
@@ -957,11 +968,13 @@ function renderChips(prest, visibleRows=null){
   } else {
     interesReal = Number(GANANCIA[prest]||0);
     capital     = Number(CAPITAL[prest]||0);
+    totalGeneral = Number(TOTAL_PREST[prest]||0); // NUEVO: Total general
     comisionGladys = Number(COMISION_GLADYS[prest]||0);
 
     if (Array.isArray(visibleRows)) {
       interesReal = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
       capital     = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
+      totalGeneral = visibleRows.reduce((a,r)=>a+Number(r.total||0),0); // NUEVO: Total general
       interesTeorico = visibleRows.reduce((a,r)=>a+Number(r.interes13||0),0);
       desc5          = visibleRows.reduce((a,r)=>a+Number(r.descuento5||0),0);
       comisionGladys = visibleRows.reduce((a,r)=>a+Number(r.comision_gladys||0),0);
@@ -983,10 +996,16 @@ function renderChips(prest, visibleRows=null){
   chip2.className = "chip";
   chip2.textContent = `Total prestado (pend.): $ ${capital.toLocaleString()}`;
 
-  chipsHost.append(chip1, chip2);
+  // NUEVO: Chip para el total general
+  const chip3 = document.createElement("span");
+  chip3.className = "chip";
+  chip3.style.background = "#DCFCE7";
+  chip3.style.color = "#166534";
+  chip3.textContent = `Total a recibir: $ ${totalGeneral.toLocaleString()}`;
 
-  // Para Celene, solo mostramos las 2 líneas principales en los chips
-  // (no agregamos chips adicionales)
+  chipsHost.append(chip1, chip2, chip3);
+
+  // Para Celene, solo mostramos las 3 líneas principales en los chips
 
   // NUEVO: Si es Gladys Salinas, mostrar la comisión de Celene
   if (!isGlobalMode() && isGladysSalinas) {
@@ -1577,6 +1596,7 @@ function drawTree(prestamista) {
   const visibleRows = rows;
   const totalInteresReal = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
   const totalCapital = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
+  const totalGeneral = visibleRows.reduce((a,r)=>a+Number(r.total||0),0); // NUEVO: Total general
   
   // NUEVO: Para Gladys Salinas, mostrar la comisión de Celene
   let totalComisionGladys = 0;
@@ -1651,31 +1671,42 @@ function drawTree(prestamista) {
     .attr("class","summaryAmt")
     .text(`$ ${totalCapital.toLocaleString()}`);
 
+  // NUEVO: Línea para el total general
+  sy += 22;
+  const s3 = summaryG.append("text")
+    .attr("class","summaryLine")
+    .attr("x", sumPadX)
+    .attr("y", sy)
+    .text("Total a recibir: ");
+  s3.append("tspan")
+    .attr("class","summaryAmt")
+    .text(`$ ${totalGeneral.toLocaleString()}`);
+
   // NUEVO: Para Gladys Salinas, mostrar la comisión de Celene
   if (isGladysSalinas && totalComisionGladys > 0) {
-    sy += 22;
-    const s3 = summaryG.append("text")
-      .attr("class","summaryLine")
-      .attr("x", sumPadX)
-      .attr("y", sy)
-      .text("Comisión Celene (5%): ");
-    s3.append("tspan")
-      .attr("class","summaryAmt")
-      .text(`$ ${totalComisionGladys.toLocaleString()}`);
-
-    // Mostrar total con comisión
     sy += 22;
     const s4 = summaryG.append("text")
       .attr("class","summaryLine")
       .attr("x", sumPadX)
       .attr("y", sy)
-      .text("Total + Comisión: ");
+      .text("Comisión Celene (5%): ");
     s4.append("tspan")
+      .attr("class","summaryAmt")
+      .text(`$ ${totalComisionGladys.toLocaleString()}`);
+
+    // Mostrar total con comisión
+    sy += 22;
+    const s5 = summaryG.append("text")
+      .attr("class","summaryLine")
+      .attr("x", sumPadX)
+      .attr("y", sy)
+      .text("Total + Comisión: ");
+    s5.append("tspan")
       .attr("class","summaryAmt")
       .text(`$ ${(totalInteresReal + totalComisionGladys).toLocaleString()}`);
   }
 
-  // Para Celene, solo mostramos las 2 líneas principales (eliminamos el bloque completo)
+  // Para Celene, solo mostramos las 3 líneas principales
 
   // enlaces deudor -> resumen global
   const link2 = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
@@ -1702,9 +1733,10 @@ function drawTree(prestamista) {
     const perPrest = {};
     visibleRows.forEach(r=>{
       const p = r.__prest || 'Desconocido';
-      if (!perPrest[p]) perPrest[p] = { interes:0, capital:0, comision:0 };
+      if (!perPrest[p]) perPrest[p] = { interes:0, capital:0, total:0, comision:0 };
       perPrest[p].interes += Number(r.interes||0);
       perPrest[p].capital += Number(r.valor||0);
+      perPrest[p].total += Number(r.total||0); // NUEVO: Total general
       perPrest[p].comision += Number(r.comision_gladys||0);
     });
 
@@ -1756,6 +1788,16 @@ function drawTree(prestamista) {
       t2.append("tspan")
         .attr("class","summaryAmt")
         .text(`$ ${perPrest[p].capital.toLocaleString()}`);
+
+      // NUEVO: Línea para el total general en modo global
+      const t3 = gP.append("text")
+        .attr("class","summaryLine")
+        .attr("x", sumPadX)
+        .attr("y", sy1+40)
+        .text("Total: ");
+      t3.append("tspan")
+        .attr("class","summaryAmt")
+        .text(`$ ${perPrest[p].total.toLocaleString()}`);
     });
   }
 
