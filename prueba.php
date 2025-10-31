@@ -1821,7 +1821,7 @@ function drawTree(prestamista) {
   // chips arriba
   renderChips(prestamista, visibleRows);
 
-  // selector abajo (solo modo prestamista)
+  // selector abajo (solo modo prestamista
   if (!global) renderSelector(prestamista);
 }
 
