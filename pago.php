@@ -19,6 +19,137 @@ function norm_person($s){
   return $s;
 }
 
+/* ================= Funciones para cuentas de cobro ================= */
+function guardarCuenta($conn, $datos) {
+    $stmt = $conn->prepare("INSERT INTO cuentas_cobro (nombre, empresa, desde, hasta, facturado, recibido) VALUES (?, ?, ?, ?, ?, ?)");
+    $stmt->bind_param("ssssdd", 
+        $datos['nombre'],
+        $datos['empresa'], 
+        $datos['desde'],
+        $datos['hasta'],
+        $datos['facturado'],
+        $datos['recibido']
+    );
+    return $stmt->execute();
+}
+
+function obtenerCuentas($conn, $empresa = '') {
+    $cuentas = [];
+    $sql = "SELECT * FROM cuentas_cobro";
+    if ($empresa !== '') {
+        $sql .= " WHERE empresa = ?";
+    }
+    $sql .= " ORDER BY desde DESC, fecha_creacion DESC";
+    
+    $stmt = $conn->prepare($sql);
+    if ($empresa !== '') {
+        $stmt->bind_param("s", $empresa);
+    }
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    while ($row = $result->fetch_assoc()) {
+        $cuentas[] = $row;
+    }
+    return $cuentas;
+}
+
+function actualizarCuenta($conn, $id, $datos) {
+    $stmt = $conn->prepare("UPDATE cuentas_cobro SET nombre = ?, empresa = ?, desde = ?, hasta = ?, facturado = ?, recibido = ? WHERE id = ?");
+    $stmt->bind_param("ssssddi", 
+        $datos['nombre'],
+        $datos['empresa'],
+        $datos['desde'],
+        $datos['hasta'],
+        $datos['facturado'],
+        $datos['recibido'],
+        $id
+    );
+    return $stmt->execute();
+}
+
+function eliminarCuenta($conn, $id) {
+    $stmt = $conn->prepare("DELETE FROM cuentas_cobro WHERE id = ?");
+    $stmt->bind_param("i", $id);
+    return $stmt->execute();
+}
+
+function obtenerCuentaPorId($conn, $id) {
+    $stmt = $conn->prepare("SELECT * FROM cuentas_cobro WHERE id = ?");
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    return $result->fetch_assoc();
+}
+
+/* ================= AJAX: Manejo de cuentas de cobro ================= */
+if (isset($_POST['accion_cuenta'])) {
+    header('Content-Type: application/json');
+    
+    switch ($_POST['accion_cuenta']) {
+        case 'guardar':
+            $datos = [
+                'nombre' => $_POST['nombre'],
+                'empresa' => $_POST['empresa'],
+                'desde' => $_POST['desde'],
+                'hasta' => $_POST['hasta'],
+                'facturado' => (float)str_replace(['.', ','], ['', '.'], $_POST['facturado']),
+                'recibido' => (float)str_replace(['.', ','], ['', '.'], $_POST['recibido'])
+            ];
+            
+            if (guardarCuenta($conn, $datos)) {
+                echo json_encode(['success' => true, 'message' => 'Cuenta guardada correctamente']);
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Error al guardar la cuenta']);
+            }
+            break;
+            
+        case 'listar':
+            $empresa = $_POST['empresa'] ?? '';
+            $cuentas = obtenerCuentas($conn, $empresa);
+            echo json_encode(['success' => true, 'cuentas' => $cuentas]);
+            break;
+            
+        case 'actualizar':
+            $datos = [
+                'nombre' => $_POST['nombre'],
+                'empresa' => $_POST['empresa'],
+                'desde' => $_POST['desde'],
+                'hasta' => $_POST['hasta'],
+                'facturado' => (float)str_replace(['.', ','], ['', '.'], $_POST['facturado']),
+                'recibido' => (float)str_replace(['.', ','], ['', '.'], $_POST['recibido'])
+            ];
+            $id = (int)$_POST['id'];
+            
+            if (actualizarCuenta($conn, $id, $datos)) {
+                echo json_encode(['success' => true, 'message' => 'Cuenta actualizada correctamente']);
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Error al actualizar la cuenta']);
+            }
+            break;
+            
+        case 'eliminar':
+            $id = (int)$_POST['id'];
+            if (eliminarCuenta($conn, $id)) {
+                echo json_encode(['success' => true, 'message' => 'Cuenta eliminada correctamente']);
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Error al eliminar la cuenta']);
+            }
+            break;
+            
+        case 'obtener':
+            $id = (int)$_POST['id'];
+            $cuenta = obtenerCuentaPorId($conn, $id);
+            if ($cuenta) {
+                echo json_encode(['success' => true, 'cuenta' => $cuenta]);
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Cuenta no encontrada']);
+            }
+            break;
+    }
+    exit;
+}
+
 /* ================= AJAX: Viajes por conductor (leyenda con contadores y soporte de filtro) ================= */
 if (isset($_GET['viajes_conductor'])) {
   $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
@@ -577,7 +708,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const ACC_KEY   = 'cuentas:'+COMPANY_SCOPE;
   const SS_KEY    = 'seg_social:'+COMPANY_SCOPE;
   const PREST_SEL_KEY = 'prestamo_sel_multi:v2:'+COMPANY_SCOPE;
-  const PERIODOS_KEY  = 'cuentas_cobro_periodos:v1';
 
   const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 
@@ -876,7 +1006,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   fmtInput(document.getElementById('inp_recibido'));
   recalc();
 
-  // ===== Gestor de cuentas =====
+  // ===== Gestor de cuentas (Base de Datos) =====
   const formFiltros = document.getElementById('formFiltros');
   const inpDesde = document.getElementById('inp_desde');
   const inpHasta = document.getElementById('inp_hasta');
@@ -896,29 +1026,100 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const iCFact = document.getElementById('cuenta_facturado');
   const iCRec  = document.getElementById('cuenta_recibido');
 
-  const PERIODOS = getLS(PERIODOS_KEY);
+  let cuentaEditando = null;
 
-  function openSaveCuenta(){
+  // Funciones para interactuar con la base de datos
+  async function apiCuentas(accion, datos = {}) {
+    const formData = new FormData();
+    formData.append('accion_cuenta', accion);
+    for (const [key, value] of Object.entries(datos)) {
+      formData.append(key, value);
+    }
+    
+    try {
+      const response = await fetch('<?= basename(__FILE__) ?>', {
+        method: 'POST',
+        body: formData
+      });
+      return await response.json();
+    } catch (error) {
+      console.error('Error en API cuentas:', error);
+      return { success: false, message: 'Error de conexión' };
+    }
+  }
+
+  async function guardarCuentaBD(datos) {
+    return await apiCuentas('guardar', datos);
+  }
+
+  async function listarCuentasBD(empresa = '') {
+    return await apiCuentas('listar', { empresa });
+  }
+
+  async function actualizarCuentaBD(id, datos) {
+    return await apiCuentas('actualizar', { id, ...datos });
+  }
+
+  async function eliminarCuentaBD(id) {
+    return await apiCuentas('eliminar', { id });
+  }
+
+  async function obtenerCuentaBD(id) {
+    return await apiCuentas('obtener', { id });
+  }
+
+  function openSaveCuenta(editarId = null){
     const emp = selEmpresa.value.trim();
     if(!emp){ alert('Selecciona una EMPRESA antes de guardar la cuenta.'); return; }
-    const d = inpDesde.value; const h = inpHasta.value;
+    const d = inpDesde.value; 
+    const h = inpHasta.value;
 
     iEmpresa.value = emp;
     iRango.value = `${d} → ${h}`;
-    iNombre.value = `${emp} ${d} a ${h}`;
-    iCFact.value = fmt(toInt(inpFact.value));
-    iCRec.value  = fmt(toInt(inpRec.value));
+    
+    if (editarId) {
+      // Modo edición
+      cuentaEditando = editarId;
+      btnDoSaveCuenta.textContent = 'Actualizar';
+      // Cargar datos de la cuenta
+      cargarCuentaParaEditar(editarId);
+    } else {
+      // Modo nuevo
+      cuentaEditando = null;
+      iNombre.value = `${emp} ${d} a ${h}`;
+      iCFact.value = fmt(toInt(inpFact.value));
+      iCRec.value  = fmt(toInt(inpRec.value));
+      btnDoSaveCuenta.textContent = 'Guardar';
+    }
 
     saveCuentaModal.classList.remove('hidden');
     setTimeout(()=> iNombre.focus(), 0);
   }
-  function closeSaveCuenta(){ saveCuentaModal.classList.add('hidden'); }
 
-  btnShowSaveCuenta.addEventListener('click', openSaveCuenta);
+  async function cargarCuentaParaEditar(id) {
+    const resultado = await obtenerCuentaBD(id);
+    if (resultado.success && resultado.cuenta) {
+      const cuenta = resultado.cuenta;
+      iNombre.value = cuenta.nombre;
+      iCFact.value = fmt(cuenta.facturado);
+      iCRec.value = fmt(cuenta.recibido);
+      // Nota: empresa y rango se mantienen como estaban
+    } else {
+      alert('Error al cargar la cuenta: ' + (resultado.message || 'Desconocido'));
+      closeSaveCuenta();
+    }
+  }
+
+  function closeSaveCuenta(){ 
+    saveCuentaModal.classList.add('hidden'); 
+    cuentaEditando = null;
+  }
+
+  btnShowSaveCuenta.addEventListener('click', () => openSaveCuenta());
   btnCloseSaveCuenta.addEventListener('click', closeSaveCuenta);
   btnCancelSaveCuenta.addEventListener('click', closeSaveCuenta);
 
-  btnDoSaveCuenta.addEventListener('click', ()=>{
+  btnDoSaveCuenta.addEventListener('click', async ()=>{
     const emp = iEmpresa.value.trim();
     const [d1, d2raw] = iRango.value.split('→');
     const desde = (d1||'').trim();
@@ -927,12 +1128,33 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const facturado = toInt(iCFact.value);
     const recibido  = toInt(iCRec.value);
 
-    const item = { id: Date.now(), nombre, desde, hasta, facturado, recibido };
-    if(!PERIODOS[emp]) PERIODOS[emp] = [];
-    PERIODOS[emp].push(item);
-    setLS(PERIODOS_KEY, PERIODOS);
-    closeSaveCuenta();
-    alert('Cuenta guardada ✔');
+    const datos = {
+      nombre, 
+      empresa: emp, 
+      desde, 
+      hasta, 
+      facturado: facturado.toString(),
+      recibido: recibido.toString()
+    };
+
+    let resultado;
+    if (cuentaEditando) {
+      // Actualizar cuenta existente
+      resultado = await actualizarCuentaBD(cuentaEditando, datos);
+    } else {
+      // Crear nueva cuenta
+      resultado = await guardarCuentaBD(datos);
+    }
+
+    if (resultado.success) {
+      alert(resultado.message);
+      closeSaveCuenta();
+      if (gestorModal && !gestorModal.classList.contains('hidden')) {
+        await renderCuentas();
+      }
+    } else {
+      alert('Error: ' + resultado.message);
+    }
   });
 
   const gestorModal = document.getElementById('gestorCuentasModal');
@@ -943,20 +1165,31 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const buscaCuenta = document.getElementById('buscaCuenta');
   const tbodyCuentas = document.getElementById('tbodyCuentas');
 
-  function renderCuentas(){
+  async function renderCuentas(){
     const emp = selEmpresa.value.trim();
     const filtro = (buscaCuenta.value||'').toLowerCase();
     lblEmpresaActual.textContent = emp || '(todas)';
 
-    const arr = (PERIODOS[emp]||[]).slice().sort((a,b)=> (a.desde>b.desde? -1:1));
+    const resultado = await listarCuentasBD(emp);
+    
     tbodyCuentas.innerHTML = '';
-    if(arr.length===0){
+    
+    if(!resultado.success || !resultado.cuentas || resultado.cuentas.length === 0){
       tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>No hay cuentas guardadas para esta empresa.</td></tr>";
       return;
     }
+    
+    const arr = resultado.cuentas.filter(item => 
+      !filtro || item.nombre.toLowerCase().includes(filtro)
+    );
+    
+    if(arr.length === 0){
+      tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>No hay cuentas que coincidan con la búsqueda.</td></tr>";
+      return;
+    }
+    
     const frag = document.createDocumentFragment();
     arr.forEach(item=>{
-      if(filtro && !item.nombre.toLowerCase().includes(filtro)) return;
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td class="px-3 py-2">${item.nombre}</td>
@@ -981,7 +1214,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   }
 
   function usarCuenta(item, aplicar){
-    selEmpresa.value = selEmpresa.value;
+    selEmpresa.value = item.empresa;
     inpDesde.value = item.desde;
     inpHasta.value = item.hasta;
     if(item.facturado) document.getElementById('inp_facturado').value = fmt(item.facturado);
@@ -991,30 +1224,18 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   }
 
   function editarCuenta(item){
-    saveCuentaModal.classList.remove('hidden');
-    iEmpresa.value = selEmpresa.value;
-    iRango.value = `${item.desde} → ${item.hasta}`;
-    iNombre.value = item.nombre;
-    iCFact.value = fmt(item.facturado||0);
-    iCRec.value  = fmt(item.recibido||0);
-    btnDoSaveCuenta.onclick = ()=>{
-      const [d,h] = iRango.value.split('→').map(s=>s.trim());
-      item.nombre = iNombre.value.trim() || item.nombre;
-      item.desde  = d || item.desde;
-      item.hasta  = h || item.hasta;
-      item.facturado = toInt(iCFact.value);
-      item.recibido  = toInt(iCRec.value);
-      setLS(PERIODOS_KEY, PERIODOS);
-      closeSaveCuenta(); renderCuentas();
-    };
+    openSaveCuenta(item.id);
   }
 
-  function eliminarCuenta(item){
-    const emp = selEmpresa.value.trim();
+  async function eliminarCuenta(item){
     if(!confirm('¿Eliminar esta cuenta?')) return;
-    PERIODOS[emp] = (PERIODOS[emp]||[]).filter(x=> x.id!==item.id);
-    setLS(PERIODOS_KEY, PERIODOS);
-    renderCuentas();
+    const resultado = await eliminarCuentaBD(item.id);
+    if (resultado.success) {
+      alert(resultado.message);
+      await renderCuentas();
+    } else {
+      alert('Error: ' + resultado.message);
+    }
   }
 
   function openGestor(){
