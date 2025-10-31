@@ -86,66 +86,83 @@ function obtenerCuentaPorId($conn, $id) {
 if (isset($_POST['accion_cuenta'])) {
     header('Content-Type: application/json');
     
-    switch ($_POST['accion_cuenta']) {
-        case 'guardar':
-            $datos = [
-                'nombre' => $_POST['nombre'],
-                'empresa' => $_POST['empresa'],
-                'desde' => $_POST['desde'],
-                'hasta' => $_POST['hasta'],
-                'facturado' => (float)str_replace(['.', ','], ['', '.'], $_POST['facturado']),
-                'recibido' => (float)str_replace(['.', ','], ['', '.'], $_POST['recibido'])
-            ];
-            
-            if (guardarCuenta($conn, $datos)) {
-                echo json_encode(['success' => true, 'message' => 'Cuenta guardada correctamente']);
-            } else {
-                echo json_encode(['success' => false, 'message' => 'Error al guardar la cuenta']);
-            }
-            break;
-            
-        case 'listar':
-            $empresa = $_POST['empresa'] ?? '';
-            $cuentas = obtenerCuentas($conn, $empresa);
-            echo json_encode(['success' => true, 'cuentas' => $cuentas]);
-            break;
-            
-        case 'actualizar':
-            $datos = [
-                'nombre' => $_POST['nombre'],
-                'empresa' => $_POST['empresa'],
-                'desde' => $_POST['desde'],
-                'hasta' => $_POST['hasta'],
-                'facturado' => (float)str_replace(['.', ','], ['', '.'], $_POST['facturado']),
-                'recibido' => (float)str_replace(['.', ','], ['', '.'], $_POST['recibido'])
-            ];
-            $id = (int)$_POST['id'];
-            
-            if (actualizarCuenta($conn, $id, $datos)) {
-                echo json_encode(['success' => true, 'message' => 'Cuenta actualizada correctamente']);
-            } else {
-                echo json_encode(['success' => false, 'message' => 'Error al actualizar la cuenta']);
-            }
-            break;
-            
-        case 'eliminar':
-            $id = (int)$_POST['id'];
-            if (eliminarCuenta($conn, $id)) {
-                echo json_encode(['success' => true, 'message' => 'Cuenta eliminada correctamente']);
-            } else {
-                echo json_encode(['success' => false, 'message' => 'Error al eliminar la cuenta']);
-            }
-            break;
-            
-        case 'obtener':
-            $id = (int)$_POST['id'];
-            $cuenta = obtenerCuentaPorId($conn, $id);
-            if ($cuenta) {
-                echo json_encode(['success' => true, 'cuenta' => $cuenta]);
-            } else {
-                echo json_encode(['success' => false, 'message' => 'Cuenta no encontrada']);
-            }
-            break;
+    try {
+        switch ($_POST['accion_cuenta']) {
+            case 'guardar':
+                $datos = [
+                    'nombre' => trim($_POST['nombre']),
+                    'empresa' => trim($_POST['empresa']),
+                    'desde' => $_POST['desde'],
+                    'hasta' => $_POST['hasta'],
+                    'facturado' => (float)str_replace(['.', ','], ['', '.'], $_POST['facturado']),
+                    'recibido' => (float)str_replace(['.', ','], ['', '.'], $_POST['recibido'])
+                ];
+                
+                if (empty($datos['nombre']) || empty($datos['empresa']) || empty($datos['desde']) || empty($datos['hasta'])) {
+                    echo json_encode(['success' => false, 'message' => 'Todos los campos son requeridos']);
+                    exit;
+                }
+                
+                if (guardarCuenta($conn, $datos)) {
+                    echo json_encode(['success' => true, 'message' => 'Cuenta guardada correctamente']);
+                } else {
+                    echo json_encode(['success' => false, 'message' => 'Error al guardar la cuenta: ' . $conn->error]);
+                }
+                break;
+                
+            case 'listar':
+                $empresa = $_POST['empresa'] ?? '';
+                $cuentas = obtenerCuentas($conn, $empresa);
+                echo json_encode(['success' => true, 'cuentas' => $cuentas]);
+                break;
+                
+            case 'actualizar':
+                $datos = [
+                    'nombre' => trim($_POST['nombre']),
+                    'empresa' => trim($_POST['empresa']),
+                    'desde' => $_POST['desde'],
+                    'hasta' => $_POST['hasta'],
+                    'facturado' => (float)str_replace(['.', ','], ['', '.'], $_POST['facturado']),
+                    'recibido' => (float)str_replace(['.', ','], ['', '.'], $_POST['recibido'])
+                ];
+                $id = (int)$_POST['id'];
+                
+                if (empty($datos['nombre']) || empty($datos['empresa']) || empty($datos['desde']) || empty($datos['hasta'])) {
+                    echo json_encode(['success' => false, 'message' => 'Todos los campos son requeridos']);
+                    exit;
+                }
+                
+                if (actualizarCuenta($conn, $id, $datos)) {
+                    echo json_encode(['success' => true, 'message' => 'Cuenta actualizada correctamente']);
+                } else {
+                    echo json_encode(['success' => false, 'message' => 'Error al actualizar la cuenta: ' . $conn->error]);
+                }
+                break;
+                
+            case 'eliminar':
+                $id = (int)$_POST['id'];
+                if (eliminarCuenta($conn, $id)) {
+                    echo json_encode(['success' => true, 'message' => 'Cuenta eliminada correctamente']);
+                } else {
+                    echo json_encode(['success' => false, 'message' => 'Error al eliminar la cuenta: ' . $conn->error]);
+                }
+                break;
+                
+            case 'obtener':
+                $id = (int)$_POST['id'];
+                $cuenta = obtenerCuentaPorId($conn, $id);
+                if ($cuenta) {
+                    echo json_encode(['success' => true, 'cuenta' => $cuenta]);
+                } else {
+                    echo json_encode(['success' => false, 'message' => 'Cuenta no encontrada']);
+                }
+                break;
+                
+            default:
+                echo json_encode(['success' => false, 'message' => 'Acción no válida']);
+        }
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'message' => 'Error: ' . $e->getMessage()]);
     }
     exit;
 }
