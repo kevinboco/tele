@@ -996,30 +996,37 @@ function renderChips(prest, visibleRows=null){
   chip2.className = "chip";
   chip2.textContent = `Total prestado (pend.): $ ${capital.toLocaleString()}`;
 
-  // NUEVO: Chip para el total general
-  const chip3 = document.createElement("span");
-  chip3.className = "chip";
-  chip3.style.background = "#DCFCE7";
-  chip3.style.color = "#166534";
-  chip3.textContent = `Total a recibir: $ ${totalGeneral.toLocaleString()}`;
-
-  chipsHost.append(chip1, chip2, chip3);
-
-  // Para Celene, solo mostramos las 3 líneas principales en los chips
-
-  // NUEVO: Si es Gladys Salinas, mostrar la comisión de Celene
+  // Para Gladys Salinas: cálculo especial
   if (!isGlobalMode() && isGladysSalinas) {
-    const chip7 = document.createElement("span");
-    chip7.className = "chip";
-    chip7.style.background = "#DCFCE7";
-    chip7.textContent = `Comisión Celene (5%): $ ${COMISION_CELENE_A_GLADYS.toLocaleString()}`;
+    const totalRecibir = interesReal + capital + COMISION_CELENE_A_GLADYS;
+    const totalConComision = interesReal + COMISION_CELENE_A_GLADYS;
     
-    const chip8 = document.createElement("span");
-    chip8.className = "chip";
-    chip8.style.background = "#FEF3C7";
-    chip8.textContent = `Total + Comisión: $ ${(interesReal + COMISION_CELENE_A_GLADYS).toLocaleString()}`;
-    
-    chipsHost.append(chip7, chip8);
+    const chip3 = document.createElement("span");
+    chip3.className = "chip";
+    chip3.style.background = "#DCFCE7";
+    chip3.style.color = "#166534";
+    chip3.textContent = `Total a recibir: $ ${totalRecibir.toLocaleString()}`;
+
+    const chip4 = document.createElement("span");
+    chip4.className = "chip";
+    chip4.style.background = "#FEF3C7";
+    chip4.textContent = `Total + Comisión: $ ${totalConComision.toLocaleString()}`;
+
+    const chip5 = document.createElement("span");
+    chip5.className = "chip";
+    chip5.style.background = "#FFE4E4";
+    chip5.textContent = `Comisión Celene (5%): $ ${COMISION_CELENE_A_GLADYS.toLocaleString()}`;
+
+    chipsHost.append(chip1, chip2, chip5, chip3, chip4);
+  } else {
+    // Para otros prestamistas: total normal (interés + capital)
+    const chip3 = document.createElement("span");
+    chip3.className = "chip";
+    chip3.style.background = "#DCFCE7";
+    chip3.style.color = "#166534";
+    chip3.textContent = `Total a recibir: $ ${totalGeneral.toLocaleString()}`;
+
+    chipsHost.append(chip1, chip2, chip3);
   }
 
   const chipL1 = document.createElement("span");
@@ -1671,30 +1678,31 @@ function drawTree(prestamista) {
     .attr("class","summaryAmt")
     .text(`$ ${totalCapital.toLocaleString()}`);
 
-  // NUEVO: Línea para el total general
-  sy += 22;
-  const s3 = summaryG.append("text")
-    .attr("class","summaryLine")
-    .attr("x", sumPadX)
-    .attr("y", sy)
-    .text("Total a recibir: ");
-  s3.append("tspan")
-    .attr("class","summaryAmt")
-    .text(`$ ${totalGeneral.toLocaleString()}`);
+  // Para Gladys Salinas: cálculo especial
+  if (isGladysSalinas) {
+    const totalRecibir = totalInteresReal + totalCapital + totalComisionGladys;
+    const totalConComision = totalInteresReal + totalComisionGladys;
+    
+    sy += 22;
+    const s3 = summaryG.append("text")
+      .attr("class","summaryLine")
+      .attr("x", sumPadX)
+      .attr("y", sy)
+      .text("Comisión Celene (5%): ");
+    s3.append("tspan")
+      .attr("class","summaryAmt")
+      .text(`$ ${totalComisionGladys.toLocaleString()}`);
 
-  // NUEVO: Para Gladys Salinas, mostrar la comisión de Celene
-  if (isGladysSalinas && totalComisionGladys > 0) {
     sy += 22;
     const s4 = summaryG.append("text")
       .attr("class","summaryLine")
       .attr("x", sumPadX)
       .attr("y", sy)
-      .text("Comisión Celene (5%): ");
+      .text("Total a recibir: ");
     s4.append("tspan")
       .attr("class","summaryAmt")
-      .text(`$ ${totalComisionGladys.toLocaleString()}`);
+      .text(`$ ${totalRecibir.toLocaleString()}`);
 
-    // Mostrar total con comisión
     sy += 22;
     const s5 = summaryG.append("text")
       .attr("class","summaryLine")
@@ -1703,10 +1711,19 @@ function drawTree(prestamista) {
       .text("Total + Comisión: ");
     s5.append("tspan")
       .attr("class","summaryAmt")
-      .text(`$ ${(totalInteresReal + totalComisionGladys).toLocaleString()}`);
+      .text(`$ ${totalConComision.toLocaleString()}`);
+  } else {
+    // Para otros prestamistas: total normal
+    sy += 22;
+    const s3 = summaryG.append("text")
+      .attr("class","summaryLine")
+      .attr("x", sumPadX)
+      .attr("y", sy)
+      .text("Total a recibir: ");
+    s3.append("tspan")
+      .attr("class","summaryAmt")
+      .text(`$ ${totalGeneral.toLocaleString()}`);
   }
-
-  // Para Celene, solo mostramos las 3 líneas principales
 
   // enlaces deudor -> resumen global
   const link2 = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
