@@ -268,7 +268,7 @@ $sqlDet = "
           CASE WHEN CURDATE() < fecha
                THEN 0
                ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
-          END
+      END
         ELSE 0
       END
     ) AS interes_descuento,
@@ -985,28 +985,8 @@ function renderChips(prest, visibleRows=null){
 
   chipsHost.append(chip1, chip2);
 
-  // si es Celene, mostramos las cifras extra: 13%, 5% y comisión Gladys
-  if (!isGlobalMode() && isCelene) {
-    const chip3 = document.createElement("span");
-    chip3.className = "chip";
-    chip3.textContent = `Interés 13% (teórico): $ ${interesTeorico.toLocaleString()}`;
-    
-    const chip4 = document.createElement("span");
-    chip4.className = "chip";
-    chip4.textContent = `Descuento 5%: $ ${desc5.toLocaleString()}`;
-    
-    const chip5 = document.createElement("span");
-    chip5.className = "chip";
-    chip5.textContent = `Interés 8% (real): $ ${(interesTeorico - desc5).toLocaleString()}`;
-    
-    // NUEVO: Comisión Gladys Salinas
-    const chip6 = document.createElement("span");
-    chip6.className = "chip";
-    chip6.style.background = "#FFE4E4";
-    chip6.textContent = `Comisión Gladys (5%): $ ${comisionGladys.toLocaleString()}`;
-    
-    chipsHost.append(chip3, chip4, chip5, chip6);
-  }
+  // Para Celene, solo mostramos las 2 líneas principales en los chips
+  // (no agregamos chips adicionales)
 
   // NUEVO: Si es Gladys Salinas, mostrar la comisión de Celene
   if (!isGlobalMode() && isGladysSalinas) {
@@ -1695,41 +1675,7 @@ function drawTree(prestamista) {
       .text(`$ ${(totalInteresReal + totalComisionGladys).toLocaleString()}`);
   }
 
-  // si es Celene, mostramos lado derecho sus otras 2 cifras
-  if (isCelene) {
-    const totalTeorico = visibleRows.reduce((a,r)=>a+Number(r.interes13||0),0);
-    const totalDesc5   = visibleRows.reduce((a,r)=>a+Number(r.descuento5||0),0);
-
-    const sy2 = -sumH/2 + sumLine + 20;
-    const s3 = summaryG.append("text")
-      .attr("class","summaryLine")
-      .attr("x", sumW/2)
-      .attr("y", sy2)
-      .text("Interés 13%: ");
-    s3.append("tspan")
-      .attr("class","summaryAmt")
-      .text(`$ ${totalTeorico.toLocaleString()}`);
-
-    const s4 = summaryG.append("text")
-      .attr("class","summaryLine")
-      .attr("x", sumW/2)
-      .attr("y", sy2 + 22)
-      .text("Descuento 5%: ");
-    s4.append("tspan")
-      .attr("class","summaryAmt")
-      .text(`$ ${totalDesc5.toLocaleString()}`);
-
-    // Comisión Gladys Salinas
-    const totalComision = visibleRows.reduce((a,r)=>a+Number(r.comision_gladys||0),0);
-    const s5 = summaryG.append("text")
-      .attr("class","summaryLine")
-      .attr("x", sumW/2)
-      .attr("y", sy2 + 44)
-      .text("Comisión Gladys: ");
-    s5.append("tspan")
-      .attr("class","summaryAmt")
-      .text(`$ ${totalComision.toLocaleString()}`);
-  }
+  // Para Celene, solo mostramos las 2 líneas principales (eliminamos el bloque completo)
 
   // enlaces deudor -> resumen global
   const link2 = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
