@@ -1,3 +1,282 @@
+<?php
+include("nav.php");
+$conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
+if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); }
+$conn->set_charset('utf8mb4');
+
+/* ================= Helpers ================= */
+function strip_accents($s){
+  $t = @iconv('UTF-8','ASCII//TRANSLIT//IGNORE',$s);
+  if ($t !== false) return $t;
+  $repl = ['á'=>'a','é'=>'e','í'=>'i','ó'=>'o','ú'=>'u','ñ'=>'n','Á'=>'A','É'=>'E','Í'=>'I','Ó'=>'O','Ú'=>'U','Ñ'=>'N'];
+  return strtr($s,$repl);
+}
+function norm_person($s){
+  $s = strip_accents((string)$s);
+  $s = mb_strtolower($s,'UTF-8');
+  $s = preg_replace('/[^a-z0-9\s]/',' ', $s);
+  $s = preg_replace('/\s+/',' ', trim($s));
+  return $s;
+}
+
+/* ================= AJAX: Viajes por conductor (leyenda con contadores y soporte de filtro) ================= */
+if (isset($_GET['viajes_conductor'])) {
+  $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
+  $desde   = $conn->real_escape_string($_GET['desde'] ?? '');
+  $hasta   = $conn->real_escape_string($_GET['hasta'] ?? '');
+  $empresa = $conn->real_escape_string($_GET['empresa'] ?? '');
+
+  $sql = "SELECT fecha, ruta, empresa, tipo_vehiculo
+          FROM viajes
+          WHERE nombre = '$nombre'
+            AND fecha BETWEEN '$desde' AND '$hasta'";
+  if ($empresa !== '') {
+    $sql .= " AND empresa = '$empresa'";
+  }
+  $sql .= " ORDER BY fecha ASC";
+
+  $legend = [
+    'completo'     => ['label'=>'Completo',     'badge'=>'bg-emerald-100 text-emerald-700 border border-emerald-200', 'row'=>'bg-emerald-50/40'],
+    'medio'        => ['label'=>'Medio',        'badge'=>'bg-amber-100 text-amber-800 border border-amber-200',       'row'=>'bg-amber-50/40'],
+    'extra'        => ['label'=>'Extra',        'badge'=>'bg-slate-200 text-slate-800 border border-slate-300',       'row'=>'bg-slate-50'],
+    'siapana'      => ['label'=>'Siapana',      'badge'=>'bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-200', 'row'=>'bg-fuchsia-50/40'],
+    'carrotanque'  => ['label'=>'Carrotanque',  'badge'=>'bg-cyan-100 text-cyan-800 border border-cyan-200',          'row'=>'bg-cyan-50/40'],
+    'otro'         => ['label'=>'Otro',         'badge'=>'bg-gray-100 text-gray-700 border border-gray-200',          'row'=>'']
+  ];
+
+  $res = $conn->query($sql);
+
+  $rowsHTML = "";
+  $counts = [
+    'completo'=>0,
+    'medio'=>0,
+    'extra'=>0,
+    'siapana'=>0,
+    'carrotanque'=>0,
+    'otro'=>0
+  ];
+
+  if ($res && $res->num_rows > 0) {
+    while ($r = $res->fetch_assoc()) {
+      $ruta = (string)$r['ruta'];
+      $guiones = substr_count($ruta,'-');
+
+      // Clasificación
+      if ($r['tipo_vehiculo']==='Carrotanque' && $guiones==0) {
+        $cat = 'carrotanque';
+      } elseif (stripos($ruta,'Siapana') !== false) {
+        $cat = 'siapana';
+      } elseif (stripos($ruta,'Maicao') === false) {
+        $cat = 'extra';
+      } elseif ($guiones==2) {
+        $cat = 'completo';
+      } elseif ($guiones==1) {
+        $cat = 'medio';
+      } else {
+        $cat = 'otro';
+      }
+
+      if (isset($counts[$cat])) {
+        $counts[$cat]++;
+      } else {
+        $counts[$cat] = 1;
+      }
+
+      $l = $legend[$cat];
+      $badge = "<span class='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold {$l['badge']}'>".$l['label']."</span>";
+      $rowCls = trim("row-viaje hover:bg-blue-50 transition-colors {$l['row']} cat-$cat");
+
+      $rowsHTML .= "<tr class='{$rowCls}'>
+              <td class='px-3 py-2'>".htmlspecialchars($r['fecha'])."</td>
+              <td class='px-3 py-2'>
+                <div class='flex items-center gap-2'>
+                  {$badge}
+                  <span>".htmlspecialchars($ruta)."</span>
+                </div>
+              </td>
+              <td class='px-3 py-2'>".htmlspecialchars($r['empresa'])."</td>
+              <td class='px-3 py-2'>".htmlspecialchars($r['tipo_vehiculo'])."</td>
+            </tr>";
+    }
+  } else {
+    $rowsHTML .= "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresa.</td></tr>";
+  }
+
+  // lo que devolvemos al fetch (sin <script>, el JS global hará el filtro)
+  ?>
+  <div class='space-y-3'>
+
+    <!-- Leyenda con contadores y filtro -->
+    <div class='flex flex-wrap gap-2 text-xs' id="legendFilterBar">
+      <?php
+      foreach (['completo','medio','extra','siapana','carrotanque'] as $k) {
+        $l = $legend[$k];
+        $countVal = $counts[$k] ?? 0;
+        echo "<button
+                class='legend-pill inline-flex items-center gap-2 px-3 py-2 rounded-full {$l['badge']} hover:opacity-90 transition ring-0 outline-none border cursor-pointer select-none'
+                data-tipo='{$k}'
+              >
+                <span class='w-2.5 h-2.5 rounded-full ".str_replace(['bg-','/40'], ['bg-',''], $l['row'])." bg-opacity-100 border border-white/30 shadow-inner'></span>
+                <span class='font-semibold text-[13px]'>{$l['label']}</span>
+                <span class='text-[11px] font-semibold opacity-80'>({$countVal})</span>
+              </button>";
+      }
+      ?>
+    </div>
+
+    <!-- Tabla -->
+    <div class='overflow-x-auto'>
+      <table class='min-w-full text-sm text-left'>
+        <thead class='bg-blue-600 text-white'>
+          <tr>
+            <th class='px-3 py-2'>Fecha</th>
+            <th class='px-3 py-2'>Ruta</th>
+            <th class='px-3 py-2'>Empresa</th>
+            <th class='px-3 py-2'>Vehículo</th>
+          </tr>
+        </thead>
+        <tbody class='divide-y divide-gray-100 bg-white' id="viajesTableBody">
+          <?= $rowsHTML ?>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <?php
+  exit;
+}
+
+/* ================= Form si faltan fechas ================= */
+if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
+  $empresas = [];
+  $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
+  if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
+  ?>
+  <!DOCTYPE html>
+  <html lang="es"><head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Ajuste de Pago</title><script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="min-h-screen bg-slate-100 text-slate-800">
+    <div class="max-w-lg mx-auto p-6">
+      <div class="bg-white shadow-sm rounded-2xl p-6 border border-slate-200">
+        <h2 class="text-2xl font-bold text-center mb-2">📅 Ajuste de Pago por rango</h2>
+        <form method="get" class="space-y-4">
+          <label class="block"><span class="block text-sm font-medium mb-1">Desde</span>
+            <input type="date" name="desde" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
+          </label>
+          <label class="block"><span class="block text-sm font-medium mb-1">Hasta</span>
+            <input type="date" name="hasta" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
+          </label>
+          <label class="block"><span class="block text-sm font-medium mb-1">Empresa</span>
+            <select name="empresa" class="w-full rounded-xl border border-slate-300 px-3 py-2">
+              <option value="">-- Todas --</option>
+              <?php foreach($empresas as $e): ?>
+                <option value="<?= htmlspecialchars($e) ?>"><?= htmlspecialchars($e) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </label>
+          <button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow">Continuar</button>
+        </form>
+      </div>
+    </div>
+  </body></html>
+  <?php exit;
+}
+
+/* ================= Parámetros ================= */
+$desde = $_GET['desde'];
+$hasta = $_GET['hasta'];
+$empresaFiltro = $_GET['empresa'] ?? "";
+
+/* ================= Viajes del rango (para totales) ================= */
+$sqlV = "SELECT nombre, ruta, empresa, tipo_vehiculo
+         FROM viajes
+         WHERE fecha BETWEEN '$desde' AND '$hasta'";
+if ($empresaFiltro !== "") {
+  $empresaFiltroEsc = $conn->real_escape_string($empresaFiltro);
+  $sqlV .= " AND empresa = '$empresaFiltroEsc'";
+}
+$resV = $conn->query($sqlV);
+
+$contadores = [];
+if ($resV) {
+  while ($row = $resV->fetch_assoc()) {
+    $nombre = $row['nombre'];
+    if (!isset($contadores[$nombre])) {
+      $contadores[$nombre] = [
+        'vehiculo' => $row['tipo_vehiculo'],
+        'completos'=>0, 'medios'=>0, 'extras'=>0, 'carrotanques'=>0, 'siapana'=>0
+      ];
+    }
+    $ruta = (string)$row['ruta'];
+    $guiones = substr_count($ruta, '-');
+    if ($row['tipo_vehiculo']==='Carrotanque' && $guiones==0) {
+      $contadores[$nombre]['carrotanques']++;
+    } elseif (stripos($ruta,'Siapana') !== false) {
+      $contadores[$nombre]['siapana']++;
+    } elseif (stripos($ruta,'Maicao') === false) {
+      $contadores[$nombre]['extras']++;
+    } elseif ($guiones==2) {
+      $contadores[$nombre]['completos']++;
+    } elseif ($guiones==1) {
+      $contadores[$nombre]['medios']++;
+    }
+  }
+}
+
+/* ================= Tarifas ================= */
+$tarifas = [];
+if ($empresaFiltro !== "") {
+  $resT = $conn->query("SELECT * FROM tarifas WHERE empresa='".$conn->real_escape_string($empresaFiltro)."'");
+  if ($resT) while($r=$resT->fetch_assoc()) $tarifas[$r['tipo_vehiculo']] = $r;
+}
+
+/* ================= Préstamos: listado multiselección ================= */
+$prestamosList = [];
+$i = 0;
+
+// CONSULTA ACTUALIZADA: 13% desde 29-oct-2025, 10% para préstamos anteriores
+$qPrest = "
+  SELECT deudor,
+         SUM(
+           monto + 
+           monto * 
+           CASE 
+             WHEN fecha >= '2025-10-29' THEN 0.13
+             ELSE 0.10
+           END *
+           CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
+         ) AS total
+  FROM prestamos
+  WHERE (pagado IS NULL OR pagado=0)
+  GROUP BY deudor
+";
+if ($rP = $conn->query($qPrest)) {
+  while($r = $rP->fetch_assoc()){
+    $name = $r['deudor'];
+    $key  = norm_person($name);
+    $total = (int)round($r['total']);
+    $prestamosList[] = ['id'=>$i++, 'name'=>$name, 'key'=>$key, 'total'=>$total];
+  }
+}
+
+/* ================= Filas base (viajes) ================= */
+$filas = []; $total_facturado = 0;
+foreach ($contadores as $nombre => $v) {
+  $veh = $v['vehiculo'];
+  $t = $tarifas[$veh] ?? ["completo"=>0,"medio"=>0,"extra"=>0,"carrotanque"=>0,"siapana"=>0];
+
+  $total = $v['completos']   * (int)($t['completo']    ?? 0)
+         + $v['medios']      * (int)($t['medio']       ?? 0)
+         + $v['extras']      * (int)($t['extra']       ?? 0)
+         + $v['carrotanques']* (int)($t['carrotanque'] ?? 0)
+         + $v['siapana']     * (int)($t['siapana']     ?? 0);
+
+  $filas[] = ['nombre'=>$nombre, 'total_bruto'=>(int)$total];
+  $total_facturado += (int)$total;
+}
+usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
+?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -21,16 +300,6 @@
   .viajes-close:hover{background:#f3f4f6}
 
   .conductor-link{cursor:pointer; color:#0d6efd; text-decoration:underline;}
-
-  /* Optimizaciones para la tabla principal - QUITAR SCROLL VERTICAL */
-  .table-responsive {
-    font-size: 0.875rem; /* text-sm */
-  }
-  .table-responsive th,
-  .table-responsive td {
-    padding: 0.5rem 0.75rem; /* px-3 py-2 */
-    white-space: nowrap;
-  }
 </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
@@ -98,10 +367,10 @@
       </div>
     </section>
 
-    <!-- Tabla principal - MODIFICADA: sin max-height -->
+    <!-- Tabla principal -->
     <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-      <div class="overflow-auto rounded-xl border border-slate-200 table-sticky">
-        <table class="w-full text-sm table-responsive">
+      <div class="overflow-auto max-h-[70vh] rounded-xl border border-slate-200 table-sticky">
+        <table class="min-w-[1200px] w-full text-sm">
           <thead class="bg-blue-600 text-white">
             <tr>
               <th class="px-3 py-2 text-left">Conductor</th>
@@ -166,29 +435,143 @@
     </section>
   </main>
 
-  <!-- El resto del código permanece igual -->
   <!-- ===== Modal PRÉSTAMOS (multi) ===== -->
   <div id="prestModal" class="hidden fixed inset-0 z-50">
-    <!-- ... contenido del modal préstamos ... -->
+    <div class="absolute inset-0 bg-black/30"></div>
+    <div class="relative mx-auto my-8 max-w-2xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+        <h3 class="text-lg font-semibold">Seleccionar deudores (puedes marcar varios)</h3>
+        <button id="btnCloseModal" class="p-2 rounded hover:bg-slate-100" title="Cerrar">✕</button>
+      </div>
+      <div class="p-4">
+        <div class="flex flex-col md:flex-row md:items-center gap-3 mb-3">
+          <input id="prestSearch" type="text" placeholder="Buscar deudor..." class="w-full rounded-xl border border-slate-300 px-3 py-2">
+          <div class="flex gap-2">
+            <button id="btnSelectAll" class="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 hover:bg-slate-100">Marcar visibles</button>
+            <button id="btnUnselectAll" class="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 hover:bg-slate-100">Desmarcar</button>
+            <button id="btnClearSel" class="rounded-lg border border-rose-300 text-rose-700 px-3 py-2 text-sm bg-rose-50 hover:bg-rose-100">Quitar selección</button>
+          </div>
+        </div>
+        <div id="prestList" class="max-h-[50vh] overflow-auto rounded-xl border border-slate-200"></div>
+      </div>
+      <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-between gap-2">
+        <div class="text-sm text-slate-600">Seleccionados: <span id="selCount" class="font-semibold">0</span></div>
+        <div class="flex items-center gap-2">
+          <div class="text-sm">Total seleccionado: <span id="selTotal" class="num font-semibold">0</span></div>
+          <button id="btnCancel" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
+          <button id="btnAssign" class="rounded-lg border border-blue-600 px-4 py-2 bg-blue-600 text-white hover:bg-blue-700">Asignar</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ===== Modal VIAJES ===== -->
   <div id="viajesModal" class="viajes-backdrop">
-    <!-- ... contenido del modal viajes ... -->
+    <div class="viajes-card">
+      <div class="viajes-header">
+        <div class="flex flex-col gap-2 w-full md:flex-row md:items-center md:justify-between">
+          <div class="flex flex-col gap-1">
+            <h3 class="text-lg font-semibold flex items-center gap-2">
+              🧳 Viajes — <span id="viajesTitle" class="font-normal"></span>
+            </h3>
+            <div class="text-[11px] text-slate-500 leading-tight">
+              <span id="viajesRango"></span>
+              <span class="mx-1">•</span>
+              <span id="viajesEmpresa"></span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="text-xs text-slate-600 whitespace-nowrap">Conductor:</label>
+            <select id="viajesSelectConductor"
+              class="rounded-lg border border-slate-300 px-2 py-1 text-sm min-w-[200px] focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500">
+            </select>
+            <button class="viajes-close text-slate-600 hover:bg-slate-100 border border-slate-300 px-2 py-1 rounded-lg text-sm" id="viajesCloseBtn" title="Cerrar">
+              ✕
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="viajes-body" id="viajesContent"></div>
+    </div>
   </div>
 
   <!-- ===== Modal GUARDAR CUENTA ===== -->
   <div id="saveCuentaModal" class="hidden fixed inset-0 z-50">
-    <!-- ... contenido del modal guardar cuenta ... -->
+    <div class="absolute inset-0 bg-black/30"></div>
+    <div class="relative mx-auto my-10 w-full max-w-lg bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+        <h3 class="text-lg font-semibold">⭐ Guardar cuenta de cobro</h3>
+        <button id="btnCloseSaveCuenta" class="p-2 rounded hover:bg-slate-100" title="Cerrar">✕</button>
+      </div>
+      <div class="p-5 space-y-3">
+        <label class="block">
+          <span class="block text-xs font-medium mb-1">Nombre</span>
+          <input id="cuenta_nombre" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" placeholder="Ej: Hospital Sep 2025">
+        </label>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label class="block">
+            <span class="block text-xs font-medium mb-1">Empresa</span>
+            <input id="cuenta_empresa" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" readonly>
+          </label>
+          <label class="block">
+            <span class="block text-xs font-medium mb-1">Rango</span>
+            <input id="cuenta_rango" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" readonly>
+          </label>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label class="block">
+            <span class="block text-xs font-medium mb-1">Facturado</span>
+            <input id="cuenta_facturado" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
+          </label>
+          <label class="block">
+            <span class="block text-xs font-medium mb-1">Recibido</span>
+            <input id="cuenta_recibido" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
+          </label>
+        </div>
+      </div>
+      <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
+        <button id="btnCancelSaveCuenta" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
+        <button id="btnDoSaveCuenta" class="rounded-lg border border-amber-500 text-white px-4 py-2 bg-amber-500 hover:bg-amber-600">Guardar</button>
+      </div>
+    </div>
   </div>
 
   <!-- ===== Modal GESTOR DE CUENTAS ===== -->
   <div id="gestorCuentasModal" class="hidden fixed inset-0 z-50">
-    <!-- ... contenido del modal gestor de cuentas ... -->
+    <div class="absolute inset-0 bg-black/30"></div>
+    <div class="relative mx-auto my-10 w-full max-w-3xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+        <h3 class="text-lg font-semibold">📚 Cuentas guardadas</h3>
+        <button id="btnCloseGestor" class="p-2 rounded hover:bg-slate-100" title="Cerrar">✕</button>
+      </div>
+      <div class="p-4 space-y-3">
+        <div class="flex flex-col md:flex-row md:items-center gap-3">
+          <div class="text-sm">Empresa actual: <strong id="lblEmpresaActual"></strong></div>
+          <input id="buscaCuenta" type="text" placeholder="Buscar por nombre…" class="w-full rounded-xl border border-slate-300 px-3 py-2">
+        </div>
+        <div class="overflow-auto max-h-[60vh] rounded-xl border border-slate-200">
+          <table class="min-w-full text-sm">
+            <thead class="bg-blue-600 text-white">
+              <tr>
+                <th class="px-3 py-2 text-left">Nombre</th>
+                <th class="px-3 py-2 text-left">Rango</th>
+                <th class="px-3 py-2 text-right">Facturado</th>
+                <th class="px-3 py-2 text-right">Recibido</th>
+                <th class="px-3 py-2 text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="tbodyCuentas" class="divide-y divide-slate-100 bg-white"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="px-5 py-4 border-t border-slate-200 text-right">
+        <button id="btnAddDesdeFiltro" class="rounded-lg border border-amber-300 px-3 py-2 text-sm bg-amber-50 hover:bg-amber-100">⭐ Guardar rango actual</button>
+      </div>
+    </div>
   </div>
 
 <script>
-  // El código JavaScript permanece igual
   // ===== Claves de persistencia =====
   const COMPANY_SCOPE = <?= json_encode(($empresaFiltro ?: '__todas__')) ?>;
   const ACC_KEY   = 'cuentas:'+COMPANY_SCOPE;
