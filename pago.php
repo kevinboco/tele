@@ -1035,3 +1035,4 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
 </body>
 </html>
+funciona perfecto
