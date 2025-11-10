@@ -1,5 +1,5 @@
 <?php
-include("nav.php");
+
 /*********************************************************
  * prestamos_visual_celene.php
  * Vista exclusiva y simplificada para Celene
