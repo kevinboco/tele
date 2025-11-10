@@ -4,122 +4,6 @@ $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011
 if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); }
 $conn->set_charset('utf8mb4');
 
-/* ================= Crear tabla cuentas_cobro si no existe ================= */
-function crearTablaCuentasCobro($conn) {
-    $sql = "CREATE TABLE IF NOT EXISTS cuentas_cobro (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        nombre VARCHAR(255) NOT NULL,
-        empresa VARCHAR(255) NOT NULL,
-        desde DATE NOT NULL,
-        hasta DATE NOT NULL,
-        facturado DECIMAL(15,2) NOT NULL,
-        recibido DECIMAL(15,2) NOT NULL,
-        fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_empresa (empresa),
-        INDEX idx_fechas (desde, hasta)
-    )";
-    
-    if (!$conn->query($sql)) {
-        die("Error creando tabla cuentas_cobro: " . $conn->error);
-    }
-}
-
-// Crear la tabla al cargar el script
-crearTablaCuentasCobro($conn);
-
-/* ================= AJAX: Guardar cuenta de cobro ================= */
-if (isset($_POST['guardar_cuenta'])) {
-    $nombre = $conn->real_escape_string($_POST['nombre']);
-    $empresa = $conn->real_escape_string($_POST['empresa']);
-    $desde = $conn->real_escape_string($_POST['desde']);
-    $hasta = $conn->real_escape_string($_POST['hasta']);
-    $facturado = (float)$_POST['facturado'];
-    $recibido = (float)$_POST['recibido'];
-    
-    $sql = "INSERT INTO cuentas_cobro (nombre, empresa, desde, hasta, facturado, recibido) 
-            VALUES ('$nombre', '$empresa', '$desde', '$hasta', $facturado, $recibido)";
-    
-    if ($conn->query($sql)) {
-        echo json_encode(['success' => true, 'id' => $conn->insert_id]);
-    } else {
-        echo json_encode(['success' => false, 'error' => $conn->error]);
-    }
-    exit;
-}
-
-/* ================= AJAX: Obtener cuentas de cobro ================= */
-if (isset($_GET['obtener_cuentas'])) {
-    $empresa = $conn->real_escape_string($_GET['empresa'] ?? '');
-    
-    $sql = "SELECT * FROM cuentas_cobro";
-    if ($empresa !== '') {
-        $sql .= " WHERE empresa = '$empresa'";
-    }
-    $sql .= " ORDER BY desde DESC, hasta DESC";
-    
-    $result = $conn->query($sql);
-    $cuentas = [];
-    
-    if ($result && $result->num_rows > 0) {
-        while ($row = $result->fetch_assoc()) {
-            $cuentas[] = [
-                'id' => $row['id'],
-                'nombre' => $row['nombre'],
-                'empresa' => $row['empresa'],
-                'desde' => $row['desde'],
-                'hasta' => $row['hasta'],
-                'facturado' => (float)$row['facturado'],
-                'recibido' => (float)$row['recibido'],
-                'fecha_creacion' => $row['fecha_creacion']
-            ];
-        }
-    }
-    
-    echo json_encode($cuentas);
-    exit;
-}
-
-/* ================= AJAX: Eliminar cuenta de cobro ================= */
-if (isset($_POST['eliminar_cuenta'])) {
-    $id = (int)$_POST['id'];
-    
-    $sql = "DELETE FROM cuentas_cobro WHERE id = $id";
-    
-    if ($conn->query($sql)) {
-        echo json_encode(['success' => true]);
-    } else {
-        echo json_encode(['success' => false, 'error' => $conn->error]);
-    }
-    exit;
-}
-
-/* ================= AJAX: Actualizar cuenta de cobro ================= */
-if (isset($_POST['actualizar_cuenta'])) {
-    $id = (int)$_POST['id'];
-    $nombre = $conn->real_escape_string($_POST['nombre']);
-    $empresa = $conn->real_escape_string($_POST['empresa']);
-    $desde = $conn->real_escape_string($_POST['desde']);
-    $hasta = $conn->real_escape_string($_POST['hasta']);
-    $facturado = (float)$_POST['facturado'];
-    $recibido = (float)$_POST['recibido'];
-    
-    $sql = "UPDATE cuentas_cobro SET 
-            nombre = '$nombre', 
-            empresa = '$empresa', 
-            desde = '$desde', 
-            hasta = '$hasta', 
-            facturado = $facturado, 
-            recibido = $recibido 
-            WHERE id = $id";
-    
-    if ($conn->query($sql)) {
-        echo json_encode(['success' => true]);
-    } else {
-        echo json_encode(['success' => false, 'error' => $conn->error]);
-    }
-    exit;
-}
-
 /* ================= Helpers ================= */
 function strip_accents($s){
   $t = @iconv('UTF-8','ASCII//TRANSLIT//IGNORE',$s);
@@ -693,6 +577,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const ACC_KEY   = 'cuentas:'+COMPANY_SCOPE;
   const SS_KEY    = 'seg_social:'+COMPANY_SCOPE;
   const PREST_SEL_KEY = 'prestamo_sel_multi:v2:'+COMPANY_SCOPE;
+  const PERIODOS_KEY  = 'cuentas_cobro_periodos:v1';
 
   const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 
@@ -991,7 +876,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   fmtInput(document.getElementById('inp_recibido'));
   recalc();
 
-  // ===== Gestor de cuentas (Base de Datos) =====
+  // ===== Gestor de cuentas =====
   const formFiltros = document.getElementById('formFiltros');
   const inpDesde = document.getElementById('inp_desde');
   const inpHasta = document.getElementById('inp_hasta');
@@ -1011,146 +896,29 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const iCFact = document.getElementById('cuenta_facturado');
   const iCRec  = document.getElementById('cuenta_recibido');
 
-  const gestorModal = document.getElementById('gestorCuentasModal');
-  const btnShowGestor = document.getElementById('btnShowGestorCuentas');
-  const btnCloseGestor = document.getElementById('btnCloseGestor');
-  const btnAddDesdeFiltro = document.getElementById('btnAddDesdeFiltro');
-  const lblEmpresaActual = document.getElementById('lblEmpresaActual');
-  const buscaCuenta = document.getElementById('buscaCuenta');
-  const tbodyCuentas = document.getElementById('tbodyCuentas');
+  const PERIODOS = getLS(PERIODOS_KEY);
 
-  let cuentaEditando = null;
-
-  // Función para guardar cuenta en BD
-  async function guardarCuentaBD(datos) {
-    try {
-        const formData = new FormData();
-        formData.append('guardar_cuenta', '1');
-        formData.append('nombre', datos.nombre);
-        formData.append('empresa', datos.empresa);
-        formData.append('desde', datos.desde);
-        formData.append('hasta', datos.hasta);
-        formData.append('facturado', datos.facturado);
-        formData.append('recibido', datos.recibido);
-
-        const response = await fetch('<?= basename(__FILE__) ?>', {
-            method: 'POST',
-            body: formData
-        });
-        
-        const result = await response.json();
-        return result;
-    } catch (error) {
-        console.error('Error guardando cuenta:', error);
-        return { success: false, error: error.message };
-    }
-  }
-
-  // Función para obtener cuentas de BD
-  async function obtenerCuentasBD(empresa = '') {
-    try {
-        const params = new URLSearchParams({ obtener_cuentas: '1' });
-        if (empresa) params.append('empresa', empresa);
-        
-        const response = await fetch('<?= basename(__FILE__) ?>?' + params.toString());
-        const cuentas = await response.json();
-        return cuentas;
-    } catch (error) {
-        console.error('Error obteniendo cuentas:', error);
-        return [];
-    }
-  }
-
-  // Función para eliminar cuenta de BD
-  async function eliminarCuentaBD(id) {
-    try {
-        const formData = new FormData();
-        formData.append('eliminar_cuenta', '1');
-        formData.append('id', id);
-
-        const response = await fetch('<?= basename(__FILE__) ?>', {
-            method: 'POST',
-            body: formData
-        });
-        
-        const result = await response.json();
-        return result;
-    } catch (error) {
-        console.error('Error eliminando cuenta:', error);
-        return { success: false, error: error.message };
-    }
-  }
-
-  // Función para actualizar cuenta en BD
-  async function actualizarCuentaBD(datos) {
-    try {
-        const formData = new FormData();
-        formData.append('actualizar_cuenta', '1');
-        formData.append('id', datos.id);
-        formData.append('nombre', datos.nombre);
-        formData.append('empresa', datos.empresa);
-        formData.append('desde', datos.desde);
-        formData.append('hasta', datos.hasta);
-        formData.append('facturado', datos.facturado);
-        formData.append('recibido', datos.recibido);
-
-        const response = await fetch('<?= basename(__FILE__) ?>', {
-            method: 'POST',
-            body: formData
-        });
-        
-        const result = await response.json();
-        return result;
-    } catch (error) {
-        console.error('Error actualizando cuenta:', error);
-        return { success: false, error: error.message };
-    }
-  }
-
-  function openSaveCuenta(editar = false, cuenta = null){
+  function openSaveCuenta(){
     const emp = selEmpresa.value.trim();
-    if(!emp && !editar){ 
-        alert('Selecciona una EMPRESA antes de guardar la cuenta.'); 
-        return; 
-    }
-    
-    const d = inpDesde.value; 
-    const h = inpHasta.value;
+    if(!emp){ alert('Selecciona una EMPRESA antes de guardar la cuenta.'); return; }
+    const d = inpDesde.value; const h = inpHasta.value;
 
-    if (editar && cuenta) {
-        // Modo edición
-        cuentaEditando = cuenta;
-        iEmpresa.value = cuenta.empresa;
-        iRango.value = `${cuenta.desde} → ${cuenta.hasta}`;
-        iNombre.value = cuenta.nombre;
-        iCFact.value = fmt(cuenta.facturado);
-        iCRec.value  = fmt(cuenta.recibido);
-        btnDoSaveCuenta.textContent = 'Actualizar';
-    } else {
-        // Modo nuevo
-        cuentaEditando = null;
-        iEmpresa.value = emp;
-        iRango.value = `${d} → ${h}`;
-        iNombre.value = `${emp} ${d} a ${h}`;
-        iCFact.value = fmt(toInt(inpFact.value));
-        iCRec.value  = fmt(toInt(inpRec.value));
-        btnDoSaveCuenta.textContent = 'Guardar';
-    }
+    iEmpresa.value = emp;
+    iRango.value = `${d} → ${h}`;
+    iNombre.value = `${emp} ${d} a ${h}`;
+    iCFact.value = fmt(toInt(inpFact.value));
+    iCRec.value  = fmt(toInt(inpRec.value));
 
     saveCuentaModal.classList.remove('hidden');
     setTimeout(()=> iNombre.focus(), 0);
   }
+  function closeSaveCuenta(){ saveCuentaModal.classList.add('hidden'); }
 
-  function closeSaveCuenta(){ 
-    saveCuentaModal.classList.add('hidden'); 
-    cuentaEditando = null;
-  }
-
-  btnShowSaveCuenta.addEventListener('click', () => openSaveCuenta(false));
+  btnShowSaveCuenta.addEventListener('click', openSaveCuenta);
   btnCloseSaveCuenta.addEventListener('click', closeSaveCuenta);
   btnCancelSaveCuenta.addEventListener('click', closeSaveCuenta);
 
-  btnDoSaveCuenta.addEventListener('click', async ()=>{
+  btnDoSaveCuenta.addEventListener('click', ()=>{
     const emp = iEmpresa.value.trim();
     const [d1, d2raw] = iRango.value.split('→');
     const desde = (d1||'').trim();
@@ -1159,85 +927,61 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const facturado = toInt(iCFact.value);
     const recibido  = toInt(iCRec.value);
 
-    if (!nombre || !emp || !desde || !hasta) {
-        alert('Por favor complete todos los campos obligatorios.');
-        return;
-    }
-
-    const datos = {
-        nombre,
-        empresa: emp,
-        desde,
-        hasta,
-        facturado,
-        recibido
-    };
-
-    let result;
-    if (cuentaEditando) {
-        // Actualizar cuenta existente
-        datos.id = cuentaEditando.id;
-        result = await actualizarCuentaBD(datos);
-    } else {
-        // Crear nueva cuenta
-        result = await guardarCuentaBD(datos);
-    }
-
-    if (result.success) {
-        closeSaveCuenta();
-        alert(cuentaEditando ? 'Cuenta actualizada ✔' : 'Cuenta guardada ✔');
-        if (gestorModal.classList.contains('hidden') === false) {
-            renderCuentas();
-        }
-    } else {
-        alert('Error: ' + (result.error || 'No se pudo guardar la cuenta'));
-    }
+    const item = { id: Date.now(), nombre, desde, hasta, facturado, recibido };
+    if(!PERIODOS[emp]) PERIODOS[emp] = [];
+    PERIODOS[emp].push(item);
+    setLS(PERIODOS_KEY, PERIODOS);
+    closeSaveCuenta();
+    alert('Cuenta guardada ✔');
   });
 
-  async function renderCuentas(){
+  const gestorModal = document.getElementById('gestorCuentasModal');
+  const btnShowGestor = document.getElementById('btnShowGestorCuentas');
+  const btnCloseGestor = document.getElementById('btnCloseGestor');
+  const btnAddDesdeFiltro = document.getElementById('btnAddDesdeFiltro');
+  const lblEmpresaActual = document.getElementById('lblEmpresaActual');
+  const buscaCuenta = document.getElementById('buscaCuenta');
+  const tbodyCuentas = document.getElementById('tbodyCuentas');
+
+  function renderCuentas(){
     const emp = selEmpresa.value.trim();
     const filtro = (buscaCuenta.value||'').toLowerCase();
     lblEmpresaActual.textContent = emp || '(todas)';
 
-    const cuentas = await obtenerCuentasBD(emp);
-    const cuentasFiltradas = cuentas.filter(item => 
-        !filtro || item.nombre.toLowerCase().includes(filtro)
-    );
-
+    const arr = (PERIODOS[emp]||[]).slice().sort((a,b)=> (a.desde>b.desde? -1:1));
     tbodyCuentas.innerHTML = '';
-    
-    if(cuentasFiltradas.length === 0){
-        tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>No hay cuentas guardadas para esta empresa.</td></tr>";
-        return;
+    if(arr.length===0){
+      tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>No hay cuentas guardadas para esta empresa.</td></tr>";
+      return;
     }
-    
     const frag = document.createDocumentFragment();
-    cuentasFiltradas.forEach(item=>{
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td class="px-3 py-2">${item.nombre}</td>
-            <td class="px-3 py-2">${item.desde} &rarr; ${item.hasta}</td>
-            <td class="px-3 py-2 text-right num">${fmt(item.facturado||0)}</td>
-            <td class="px-3 py-2 text-right num">${fmt(item.recibido||0)}</td>
-            <td class="px-3 py-2 text-right">
-                <div class="inline-flex gap-2">
-                    <button class="btnUsar border px-2 py-1 rounded bg-slate-50 hover:bg-slate-100 text-xs">Usar</button>
-                    <button class="btnUsarAplicar border px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 text-xs">Usar y aplicar</button>
-                    <button class="btnEditar border px-2 py-1 rounded bg-amber-50 hover:bg-amber-100 text-xs">Editar</button>
-                    <button class="btnEliminar border px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-xs text-rose-700">Eliminar</button>
-                </div>
-            </td>`;
-        tr.querySelector('.btnUsar').addEventListener('click', ()=> usarCuenta(item,false));
-        tr.querySelector('.btnUsarAplicar').addEventListener('click', ()=> usarCuenta(item,true));
-        tr.querySelector('.btnEditar').addEventListener('click', ()=> editarCuenta(item));
-        tr.querySelector('.btnEliminar').addEventListener('click', ()=> eliminarCuenta(item));
-        frag.appendChild(tr);
+    arr.forEach(item=>{
+      if(filtro && !item.nombre.toLowerCase().includes(filtro)) return;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="px-3 py-2">${item.nombre}</td>
+        <td class="px-3 py-2">${item.desde} &rarr; ${item.hasta}</td>
+        <td class="px-3 py-2 text-right num">${fmt(item.facturado||0)}</td>
+        <td class="px-3 py-2 text-right num">${fmt(item.recibido||0)}</td>
+        <td class="px-3 py-2 text-right">
+          <div class="inline-flex gap-2">
+            <button class="btnUsar border px-2 py-1 rounded bg-slate-50 hover:bg-slate-100 text-xs">Usar</button>
+            <button class="btnUsarAplicar border px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 text-xs">Usar y aplicar</button>
+            <button class="btnEditar border px-2 py-1 rounded bg-amber-50 hover:bg-amber-100 text-xs">Editar</button>
+            <button class="btnEliminar border px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-xs text-rose-700">Eliminar</button>
+          </div>
+        </td>`;
+      tr.querySelector('.btnUsar').addEventListener('click', ()=> usarCuenta(item,false));
+      tr.querySelector('.btnUsarAplicar').addEventListener('click', ()=> usarCuenta(item,true));
+      tr.querySelector('.btnEditar').addEventListener('click', ()=> editarCuenta(item));
+      tr.querySelector('.btnEliminar').addEventListener('click', ()=> eliminarCuenta(item));
+      frag.appendChild(tr);
     });
     tbodyCuentas.appendChild(frag);
   }
 
   function usarCuenta(item, aplicar){
-    selEmpresa.value = item.empresa;
+    selEmpresa.value = selEmpresa.value;
     inpDesde.value = item.desde;
     inpHasta.value = item.hasta;
     if(item.facturado) document.getElementById('inp_facturado').value = fmt(item.facturado);
@@ -1247,30 +991,38 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   }
 
   function editarCuenta(item){
-    openSaveCuenta(true, item);
+    saveCuentaModal.classList.remove('hidden');
+    iEmpresa.value = selEmpresa.value;
+    iRango.value = `${item.desde} → ${item.hasta}`;
+    iNombre.value = item.nombre;
+    iCFact.value = fmt(item.facturado||0);
+    iCRec.value  = fmt(item.recibido||0);
+    btnDoSaveCuenta.onclick = ()=>{
+      const [d,h] = iRango.value.split('→').map(s=>s.trim());
+      item.nombre = iNombre.value.trim() || item.nombre;
+      item.desde  = d || item.desde;
+      item.hasta  = h || item.hasta;
+      item.facturado = toInt(iCFact.value);
+      item.recibido  = toInt(iCRec.value);
+      setLS(PERIODOS_KEY, PERIODOS);
+      closeSaveCuenta(); renderCuentas();
+    };
   }
 
-  async function eliminarCuenta(item){
-    if(!confirm('¿Está seguro de eliminar esta cuenta?')) return;
-    
-    const result = await eliminarCuentaBD(item.id);
-    if (result.success) {
-        renderCuentas();
-        alert('Cuenta eliminada ✔');
-    } else {
-        alert('Error: ' + (result.error || 'No se pudo eliminar la cuenta'));
-    }
+  function eliminarCuenta(item){
+    const emp = selEmpresa.value.trim();
+    if(!confirm('¿Eliminar esta cuenta?')) return;
+    PERIODOS[emp] = (PERIODOS[emp]||[]).filter(x=> x.id!==item.id);
+    setLS(PERIODOS_KEY, PERIODOS);
+    renderCuentas();
   }
 
-  async function openGestor(){
-    await renderCuentas();
+  function openGestor(){
+    renderCuentas();
     gestorModal.classList.remove('hidden');
     setTimeout(()=> buscaCuenta.focus(), 0);
   }
-
-  function closeGestor(){ 
-    gestorModal.classList.add('hidden'); 
-  }
+  function closeGestor(){ gestorModal.classList.add('hidden'); }
 
   btnShowGestor.addEventListener('click', openGestor);
   btnCloseGestor.addEventListener('click', closeGestor);
