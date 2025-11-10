@@ -4,6 +4,76 @@ $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011
 if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); }
 $conn->set_charset('utf8mb4');
 
+/* ================= NUEVO SISTEMA SIMPLIFICADO - Cuentas de Cobro ================= */
+function initCuentasSystem($conn) {
+    // Crear tabla si no existe
+    $sql = "CREATE TABLE IF NOT EXISTS app_cuentas_cobro (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        nombre_cuenta VARCHAR(255) NOT NULL,
+        empresa VARCHAR(100) NOT NULL,
+        fecha_desde DATE NOT NULL,
+        fecha_hasta DATE NOT NULL,
+        total_facturado DECIMAL(12,0) NOT NULL,
+        total_recibido DECIMAL(12,0) NOT NULL,
+        fecha_guardado TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )";
+    $conn->query($sql);
+}
+
+// Inicializar el sistema
+initCuentasSystem($conn);
+
+/* ================= AJAX: Operaciones de Cuentas ================= */
+if (isset($_POST['accion_cuentas'])) {
+    $accion = $_POST['accion_cuentas'];
+    
+    switch($accion) {
+        case 'guardar':
+            $nombre = $conn->real_escape_string($_POST['nombre'] ?? '');
+            $empresa = $conn->real_escape_string($_POST['empresa'] ?? '');
+            $desde = $conn->real_escape_string($_POST['desde'] ?? '');
+            $hasta = $conn->real_escape_string($_POST['hasta'] ?? '');
+            $facturado = (int)str_replace(['.', ','], '', $_POST['facturado'] ?? '0');
+            $recibido = (int)str_replace(['.', ','], '', $_POST['recibido'] ?? '0');
+            
+            $sql = "INSERT INTO app_cuentas_cobro (nombre_cuenta, empresa, fecha_desde, fecha_hasta, total_facturado, total_recibido) 
+                    VALUES ('$nombre', '$empresa', '$desde', '$hasta', $facturado, $recibido)";
+            
+            if ($conn->query($sql)) {
+                echo "OK:" . $conn->insert_id;
+            } else {
+                echo "ERROR:No se pudo guardar";
+            }
+            exit;
+            
+        case 'listar':
+            $empresa = $conn->real_escape_string($_POST['empresa'] ?? '');
+            $sql = "SELECT * FROM app_cuentas_cobro";
+            if ($empresa) {
+                $sql .= " WHERE empresa = '$empresa'";
+            }
+            $sql .= " ORDER BY fecha_guardado DESC";
+            
+            $result = $conn->query($sql);
+            $cuentas = [];
+            while($row = $result->fetch_assoc()) {
+                $cuentas[] = $row;
+            }
+            echo json_encode($cuentas);
+            exit;
+            
+        case 'eliminar':
+            $id = (int)$_POST['id'];
+            $sql = "DELETE FROM app_cuentas_cobro WHERE id = $id";
+            if ($conn->query($sql)) {
+                echo "OK";
+            } else {
+                echo "ERROR";
+            }
+            exit;
+    }
+}
+
 /* ================= Helpers ================= */
 function strip_accents($s){
   $t = @iconv('UTF-8','ASCII//TRANSLIT//IGNORE',$s);
@@ -308,8 +378,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <h2 class="text-xl md:text-2xl font-bold">🧾 Ajuste de Pago</h2>
         <div class="flex items-center gap-2">
-          <button id="btnShowSaveCuenta" class="rounded-lg border border-amber-300 px-3 py-2 text-sm bg-amber-50 hover:bg-amber-100">⭐ Guardar como cuenta</button>
-          <button id="btnShowGestorCuentas" class="rounded-lg border border-blue-300 px-3 py-2 text-sm bg-blue-50 hover:bg-blue-100">📚 Cuentas guardadas</button>
+          <button id="btnShowSaveCuenta" class="rounded-lg border border-amber-300 px-3 py-2 text-sm bg-amber-50 hover:bg-amber-100">⭐ Guardar cuenta</button>
+          <button id="btnShowGestorCuentas" class="rounded-lg border border-blue-300 px-3 py-2 text-sm bg-blue-50 hover:bg-blue-100">📚 Ver cuentas</button>
         </div>
       </div>
 
@@ -496,77 +566,85 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
   </div>
 
-  <!-- ===== Modal GUARDAR CUENTA ===== -->
+  <!-- ===== NUEVO MODAL SIMPLIFICADO - GUARDAR CUENTA ===== -->
   <div id="saveCuentaModal" class="hidden fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
-    <div class="relative mx-auto my-10 w-full max-w-lg bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+    <div class="relative mx-auto my-10 w-full max-w-md bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
       <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-        <h3 class="text-lg font-semibold">⭐ Guardar cuenta de cobro</h3>
+        <h3 class="text-lg font-semibold">💾 Guardar Cuenta</h3>
         <button id="btnCloseSaveCuenta" class="p-2 rounded hover:bg-slate-100" title="Cerrar">✕</button>
       </div>
-      <div class="p-5 space-y-3">
-        <label class="block">
-          <span class="block text-xs font-medium mb-1">Nombre</span>
-          <input id="cuenta_nombre" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" placeholder="Ej: Hospital Sep 2025">
-        </label>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <label class="block">
-            <span class="block text-xs font-medium mb-1">Empresa</span>
-            <input id="cuenta_empresa" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" readonly>
-          </label>
-          <label class="block">
-            <span class="block text-xs font-medium mb-1">Rango</span>
-            <input id="cuenta_rango" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" readonly>
-          </label>
+      <div class="p-5 space-y-4">
+        <div>
+          <label class="block text-sm font-medium mb-1">Nombre de la cuenta</label>
+          <input id="cuenta_nombre" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" 
+                 placeholder="Ej: Cuenta Septiembre 2024" value="">
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <label class="block">
-            <span class="block text-xs font-medium mb-1">Facturado</span>
-            <input id="cuenta_facturado" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
-          </label>
-          <label class="block">
-            <span class="block text-xs font-medium mb-1">Recibido</span>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-medium mb-1">Empresa</label>
+            <input id="cuenta_empresa" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50" readonly>
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">Período</label>
+            <input id="cuenta_periodo" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50" readonly>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-medium mb-1">Total Facturado</label>
+            <input id="cuenta_facturado" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num" readonly>
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1">Total Recibido</label>
             <input id="cuenta_recibido" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
-          </label>
+          </div>
         </div>
       </div>
       <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
         <button id="btnCancelSaveCuenta" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
-        <button id="btnDoSaveCuenta" class="rounded-lg border border-amber-500 text-white px-4 py-2 bg-amber-500 hover:bg-amber-600">Guardar</button>
+        <button id="btnDoSaveCuenta" class="rounded-lg border border-green-600 px-4 py-2 bg-green-600 text-white hover:bg-green-700">Guardar Cuenta</button>
       </div>
     </div>
   </div>
 
-  <!-- ===== Modal GESTOR DE CUENTAS ===== -->
+  <!-- ===== NUEVO MODAL SIMPLIFICADO - GESTOR DE CUENTAS ===== -->
   <div id="gestorCuentasModal" class="hidden fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
-    <div class="relative mx-auto my-10 w-full max-w-3xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+    <div class="relative mx-auto my-10 w-full max-w-4xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
       <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-        <h3 class="text-lg font-semibold">📚 Cuentas guardadas</h3>
+        <h3 class="text-lg font-semibold">📋 Cuentas Guardadas</h3>
         <button id="btnCloseGestor" class="p-2 rounded hover:bg-slate-100" title="Cerrar">✕</button>
       </div>
-      <div class="p-4 space-y-3">
-        <div class="flex flex-col md:flex-row md:items-center gap-3">
-          <div class="text-sm">Empresa actual: <strong id="lblEmpresaActual"></strong></div>
-          <input id="buscaCuenta" type="text" placeholder="Buscar por nombre…" class="w-full rounded-xl border border-slate-300 px-3 py-2">
+      <div class="p-4">
+        <div class="flex items-center justify-between mb-4">
+          <div class="text-sm">
+            Empresa: <strong id="lblEmpresaActual"><?= htmlspecialchars($empresaFiltro ?: 'Todas') ?></strong>
+          </div>
+          <input id="buscaCuenta" type="text" placeholder="Buscar cuenta..." class="w-64 rounded-xl border border-slate-300 px-3 py-2">
         </div>
         <div class="overflow-auto max-h-[60vh] rounded-xl border border-slate-200">
           <table class="min-w-full text-sm">
             <thead class="bg-blue-600 text-white">
               <tr>
                 <th class="px-3 py-2 text-left">Nombre</th>
-                <th class="px-3 py-2 text-left">Rango</th>
+                <th class="px-3 py-2 text-left">Período</th>
                 <th class="px-3 py-2 text-right">Facturado</th>
                 <th class="px-3 py-2 text-right">Recibido</th>
-                <th class="px-3 py-2 text-right">Acciones</th>
+                <th class="px-3 py-2 text-right">Fecha</th>
+                <th class="px-3 py-2 text-center">Acciones</th>
               </tr>
             </thead>
-            <tbody id="tbodyCuentas" class="divide-y divide-slate-100 bg-white"></tbody>
+            <tbody id="tbodyCuentas" class="divide-y divide-slate-100 bg-white">
+              <tr><td colspan="6" class="px-3 py-4 text-center text-slate-500">Cargando cuentas...</td></tr>
+            </tbody>
           </table>
         </div>
       </div>
       <div class="px-5 py-4 border-t border-slate-200 text-right">
-        <button id="btnAddDesdeFiltro" class="rounded-lg border border-amber-300 px-3 py-2 text-sm bg-amber-50 hover:bg-amber-100">⭐ Guardar rango actual</button>
+        <button id="btnAddDesdeFiltro" class="rounded-lg border border-amber-300 px-3 py-2 text-sm bg-amber-50 hover:bg-amber-100">
+          💾 Guardar configuración actual
+        </button>
       </div>
     </div>
   </div>
@@ -577,7 +655,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const ACC_KEY   = 'cuentas:'+COMPANY_SCOPE;
   const SS_KEY    = 'seg_social:'+COMPANY_SCOPE;
   const PREST_SEL_KEY = 'prestamo_sel_multi:v2:'+COMPANY_SCOPE;
-  const PERIODOS_KEY  = 'cuentas_cobro_periodos:v1';
 
   const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 
@@ -876,161 +953,234 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   fmtInput(document.getElementById('inp_recibido'));
   recalc();
 
-  // ===== Gestor de cuentas =====
-  const formFiltros = document.getElementById('formFiltros');
-  const inpDesde = document.getElementById('inp_desde');
-  const inpHasta = document.getElementById('inp_hasta');
-  const selEmpresa = document.getElementById('sel_empresa');
-  const inpFact = document.getElementById('inp_facturado');
-  const inpRec = document.getElementById('inp_recibido');
-
+  // ===== NUEVO SISTEMA SIMPLIFICADO - Gestor de Cuentas =====
   const saveCuentaModal = document.getElementById('saveCuentaModal');
   const btnShowSaveCuenta = document.getElementById('btnShowSaveCuenta');
   const btnCloseSaveCuenta = document.getElementById('btnCloseSaveCuenta');
   const btnCancelSaveCuenta = document.getElementById('btnCancelSaveCuenta');
   const btnDoSaveCuenta = document.getElementById('btnDoSaveCuenta');
 
-  const iNombre = document.getElementById('cuenta_nombre');
-  const iEmpresa = document.getElementById('cuenta_empresa');
-  const iRango = document.getElementById('cuenta_rango');
-  const iCFact = document.getElementById('cuenta_facturado');
-  const iCRec  = document.getElementById('cuenta_recibido');
-
-  const PERIODOS = getLS(PERIODOS_KEY);
-
-  function openSaveCuenta(){
-    const emp = selEmpresa.value.trim();
-    if(!emp){ alert('Selecciona una EMPRESA antes de guardar la cuenta.'); return; }
-    const d = inpDesde.value; const h = inpHasta.value;
-
-    iEmpresa.value = emp;
-    iRango.value = `${d} → ${h}`;
-    iNombre.value = `${emp} ${d} a ${h}`;
-    iCFact.value = fmt(toInt(inpFact.value));
-    iCRec.value  = fmt(toInt(inpRec.value));
-
-    saveCuentaModal.classList.remove('hidden');
-    setTimeout(()=> iNombre.focus(), 0);
-  }
-  function closeSaveCuenta(){ saveCuentaModal.classList.add('hidden'); }
-
-  btnShowSaveCuenta.addEventListener('click', openSaveCuenta);
-  btnCloseSaveCuenta.addEventListener('click', closeSaveCuenta);
-  btnCancelSaveCuenta.addEventListener('click', closeSaveCuenta);
-
-  btnDoSaveCuenta.addEventListener('click', ()=>{
-    const emp = iEmpresa.value.trim();
-    const [d1, d2raw] = iRango.value.split('→');
-    const desde = (d1||'').trim();
-    const hasta = (d2raw||'').trim();
-    const nombre = iNombre.value.trim() || `${emp} ${desde} a ${hasta}`;
-    const facturado = toInt(iCFact.value);
-    const recibido  = toInt(iCRec.value);
-
-    const item = { id: Date.now(), nombre, desde, hasta, facturado, recibido };
-    if(!PERIODOS[emp]) PERIODOS[emp] = [];
-    PERIODOS[emp].push(item);
-    setLS(PERIODOS_KEY, PERIODOS);
-    closeSaveCuenta();
-    alert('Cuenta guardada ✔');
-  });
-
   const gestorModal = document.getElementById('gestorCuentasModal');
   const btnShowGestor = document.getElementById('btnShowGestorCuentas');
   const btnCloseGestor = document.getElementById('btnCloseGestor');
   const btnAddDesdeFiltro = document.getElementById('btnAddDesdeFiltro');
-  const lblEmpresaActual = document.getElementById('lblEmpresaActual');
   const buscaCuenta = document.getElementById('buscaCuenta');
   const tbodyCuentas = document.getElementById('tbodyCuentas');
 
-  function renderCuentas(){
-    const emp = selEmpresa.value.trim();
-    const filtro = (buscaCuenta.value||'').toLowerCase();
-    lblEmpresaActual.textContent = emp || '(todas)';
+  // Función para guardar cuenta
+  async function guardarCuenta(nombre, empresa, desde, hasta, facturado, recibido) {
+    const formData = new FormData();
+    formData.append('accion_cuentas', 'guardar');
+    formData.append('nombre', nombre);
+    formData.append('empresa', empresa);
+    formData.append('desde', desde);
+    formData.append('hasta', hasta);
+    formData.append('facturado', facturado);
+    formData.append('recibido', recibido);
 
-    const arr = (PERIODOS[emp]||[]).slice().sort((a,b)=> (a.desde>b.desde? -1:1));
-    tbodyCuentas.innerHTML = '';
-    if(arr.length===0){
-      tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>No hay cuentas guardadas para esta empresa.</td></tr>";
-      return;
+    try {
+        const response = await fetch('<?= basename(__FILE__) ?>', {
+            method: 'POST',
+            body: formData
+        });
+        const result = await response.text();
+        return result.startsWith('OK:');
+    } catch (error) {
+        console.error('Error guardando cuenta:', error);
+        return false;
     }
-    const frag = document.createDocumentFragment();
-    arr.forEach(item=>{
-      if(filtro && !item.nombre.toLowerCase().includes(filtro)) return;
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td class="px-3 py-2">${item.nombre}</td>
-        <td class="px-3 py-2">${item.desde} &rarr; ${item.hasta}</td>
-        <td class="px-3 py-2 text-right num">${fmt(item.facturado||0)}</td>
-        <td class="px-3 py-2 text-right num">${fmt(item.recibido||0)}</td>
-        <td class="px-3 py-2 text-right">
-          <div class="inline-flex gap-2">
-            <button class="btnUsar border px-2 py-1 rounded bg-slate-50 hover:bg-slate-100 text-xs">Usar</button>
-            <button class="btnUsarAplicar border px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 text-xs">Usar y aplicar</button>
-            <button class="btnEditar border px-2 py-1 rounded bg-amber-50 hover:bg-amber-100 text-xs">Editar</button>
-            <button class="btnEliminar border px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-xs text-rose-700">Eliminar</button>
-          </div>
-        </td>`;
-      tr.querySelector('.btnUsar').addEventListener('click', ()=> usarCuenta(item,false));
-      tr.querySelector('.btnUsarAplicar').addEventListener('click', ()=> usarCuenta(item,true));
-      tr.querySelector('.btnEditar').addEventListener('click', ()=> editarCuenta(item));
-      tr.querySelector('.btnEliminar').addEventListener('click', ()=> eliminarCuenta(item));
-      frag.appendChild(tr);
-    });
-    tbodyCuentas.appendChild(frag);
   }
 
-  function usarCuenta(item, aplicar){
-    selEmpresa.value = selEmpresa.value;
-    inpDesde.value = item.desde;
-    inpHasta.value = item.hasta;
-    if(item.facturado) document.getElementById('inp_facturado').value = fmt(item.facturado);
-    if(item.recibido)  document.getElementById('inp_recibido').value  = fmt(item.recibido);
-    recalc();
-    if(aplicar) formFiltros.submit();
+  // Función para cargar cuentas
+  async function cargarCuentas() {
+    const formData = new FormData();
+    formData.append('accion_cuentas', 'listar');
+    formData.append('empresa', document.getElementById('sel_empresa').value);
+
+    try {
+        const response = await fetch('<?= basename(__FILE__) ?>', {
+            method: 'POST',
+            body: formData
+        });
+        const cuentas = await response.json();
+        return Array.isArray(cuentas) ? cuentas : [];
+    } catch (error) {
+        console.error('Error cargando cuentas:', error);
+        return [];
+    }
   }
 
-  function editarCuenta(item){
+  // Función para eliminar cuenta
+  async function eliminarCuenta(id) {
+    const formData = new FormData();
+    formData.append('accion_cuentas', 'eliminar');
+    formData.append('id', id);
+
+    try {
+        const response = await fetch('<?= basename(__FILE__) ?>', {
+            method: 'POST',
+            body: formData
+        });
+        const result = await response.text();
+        return result === 'OK';
+    } catch (error) {
+        console.error('Error eliminando cuenta:', error);
+        return false;
+    }
+  }
+
+  // Mostrar modal para guardar cuenta
+  btnShowSaveCuenta.addEventListener('click', () => {
+    const empresa = document.getElementById('sel_empresa').value;
+    const desde = document.getElementById('inp_desde').value;
+    const hasta = document.getElementById('inp_hasta').value;
+    const facturado = toInt(document.getElementById('inp_facturado').value);
+    const recibido = toInt(document.getElementById('inp_recibido').value);
+
+    if (!empresa) {
+        alert('Por favor selecciona una empresa primero.');
+        return;
+    }
+
+    document.getElementById('cuenta_empresa').value = empresa;
+    document.getElementById('cuenta_periodo').value = `${desde} a ${hasta}`;
+    document.getElementById('cuenta_facturado').value = fmt(facturado);
+    document.getElementById('cuenta_recibido').value = fmt(recibido);
+    document.getElementById('cuenta_nombre').value = `${empresa} ${desde} a ${hasta}`;
+
     saveCuentaModal.classList.remove('hidden');
-    iEmpresa.value = selEmpresa.value;
-    iRango.value = `${item.desde} → ${item.hasta}`;
-    iNombre.value = item.nombre;
-    iCFact.value = fmt(item.facturado||0);
-    iCRec.value  = fmt(item.recibido||0);
-    btnDoSaveCuenta.onclick = ()=>{
-      const [d,h] = iRango.value.split('→').map(s=>s.trim());
-      item.nombre = iNombre.value.trim() || item.nombre;
-      item.desde  = d || item.desde;
-      item.hasta  = h || item.hasta;
-      item.facturado = toInt(iCFact.value);
-      item.recibido  = toInt(iCRec.value);
-      setLS(PERIODOS_KEY, PERIODOS);
-      closeSaveCuenta(); renderCuentas();
-    };
-  }
+  });
 
-  function eliminarCuenta(item){
-    const emp = selEmpresa.value.trim();
-    if(!confirm('¿Eliminar esta cuenta?')) return;
-    PERIODOS[emp] = (PERIODOS[emp]||[]).filter(x=> x.id!==item.id);
-    setLS(PERIODOS_KEY, PERIODOS);
-    renderCuentas();
-  }
+  // Cerrar modal guardar cuenta
+  btnCloseSaveCuenta.addEventListener('click', () => saveCuentaModal.classList.add('hidden'));
+  btnCancelSaveCuenta.addEventListener('click', () => saveCuentaModal.classList.add('hidden'));
 
-  function openGestor(){
-    renderCuentas();
+  // Guardar cuenta
+  btnDoSaveCuenta.addEventListener('click', async () => {
+    const nombre = document.getElementById('cuenta_nombre').value.trim();
+    const empresa = document.getElementById('cuenta_empresa').value;
+    const [desde, hasta] = document.getElementById('cuenta_periodo').value.split(' a ');
+    const facturado = toInt(document.getElementById('cuenta_facturado').value);
+    const recibido = toInt(document.getElementById('cuenta_recibido').value);
+
+    if (!nombre) {
+        alert('Por favor ingresa un nombre para la cuenta.');
+        return;
+    }
+
+    const success = await guardarCuenta(nombre, empresa, desde, hasta, facturado, recibido);
+    
+    if (success) {
+        alert('✅ Cuenta guardada correctamente');
+        saveCuentaModal.classList.add('hidden');
+        if (!gestorModal.classList.contains('hidden')) {
+            mostrarCuentas();
+        }
+    } else {
+        alert('❌ Error al guardar la cuenta');
+    }
+  });
+
+  // Mostrar gestor de cuentas
+  btnShowGestor.addEventListener('click', async () => {
+    document.getElementById('lblEmpresaActual').textContent = document.getElementById('sel_empresa').value || 'Todas';
     gestorModal.classList.remove('hidden');
-    setTimeout(()=> buscaCuenta.focus(), 0);
+    await mostrarCuentas();
+  });
+
+  // Cerrar gestor de cuentas
+  btnCloseGestor.addEventListener('click', () => gestorModal.classList.add('hidden'));
+
+  // Guardar desde filtro actual
+  btnAddDesdeFiltro.addEventListener('click', () => {
+    gestorModal.classList.add('hidden');
+    setTimeout(() => btnShowSaveCuenta.click(), 300);
+  });
+
+  // Buscar cuentas
+  buscaCuenta.addEventListener('input', mostrarCuentas);
+
+  // Función para mostrar cuentas en la tabla
+  async function mostrarCuentas() {
+    const cuentas = await cargarCuentas();
+    const filtro = buscaCuenta.value.toLowerCase();
+    
+    tbodyCuentas.innerHTML = '';
+
+    if (cuentas.length === 0) {
+        tbodyCuentas.innerHTML = '<tr><td colspan="6" class="px-3 py-4 text-center text-slate-500">No hay cuentas guardadas</td></tr>';
+        return;
+    }
+
+    const cuentasFiltradas = cuentas.filter(cuenta => 
+        cuenta.nombre_cuenta.toLowerCase().includes(filtro)
+    );
+
+    if (cuentasFiltradas.length === 0) {
+        tbodyCuentas.innerHTML = '<tr><td colspan="6" class="px-3 py-4 text-center text-slate-500">No se encontraron cuentas</td></tr>';
+        return;
+    }
+
+    cuentasFiltradas.forEach(cuenta => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-50';
+        tr.innerHTML = `
+            <td class="px-3 py-2">${cuenta.nombre_cuenta}</td>
+            <td class="px-3 py-2">${cuenta.fecha_desde} a ${cuenta.fecha_hasta}</td>
+            <td class="px-3 py-2 text-right num">${fmt(cuenta.total_facturado)}</td>
+            <td class="px-3 py-2 text-right num">${fmt(cuenta.total_recibido)}</td>
+            <td class="px-3 py-2 text-right text-xs text-slate-500">${cuenta.fecha_guardado.split(' ')[0]}</td>
+            <td class="px-3 py-2 text-center">
+                <div class="flex justify-center gap-1">
+                    <button class="btnUsarCuenta px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200" 
+                            data-id="${cuenta.id}">Usar</button>
+                    <button class="btnEliminarCuenta px-2 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200" 
+                            data-id="${cuenta.id}">Eliminar</button>
+                </div>
+            </td>
+        `;
+        tbodyCuentas.appendChild(tr);
+    });
+
+    // Agregar event listeners a los botones
+    document.querySelectorAll('.btnUsarCuenta').forEach(btn => {
+        btn.addEventListener('click', () => usarCuenta(btn.dataset.id, cuentas));
+    });
+
+    document.querySelectorAll('.btnEliminarCuenta').forEach(btn => {
+        btn.addEventListener('click', () => eliminarCuentaConfirm(btn.dataset.id));
+    });
   }
-  function closeGestor(){ gestorModal.classList.add('hidden'); }
 
-  btnShowGestor.addEventListener('click', openGestor);
-  btnCloseGestor.addEventListener('click', closeGestor);
-  buscaCuenta.addEventListener('input', renderCuentas);
-  btnAddDesdeFiltro.addEventListener('click', ()=>{ closeGestor(); openSaveCuenta(); });
+  // Usar cuenta
+  function usarCuenta(id, cuentas) {
+    const cuenta = cuentas.find(c => c.id == id);
+    if (cuenta) {
+        document.getElementById('sel_empresa').value = cuenta.empresa;
+        document.getElementById('inp_desde').value = cuenta.fecha_desde;
+        document.getElementById('inp_hasta').value = cuenta.fecha_hasta;
+        document.getElementById('inp_facturado').value = fmt(cuenta.total_facturado);
+        document.getElementById('inp_recibido').value = fmt(cuenta.total_recibido);
+        
+        alert('✅ Configuración aplicada. Haz clic en "Aplicar" para cargar los datos.');
+        gestorModal.classList.add('hidden');
+    }
+  }
 
-  const nf1 = el => el.addEventListener('input', ()=>{ el.value = fmt(toInt(el.value)); });
-  nf1(iCFact); nf1(iCRec);
+  // Eliminar cuenta con confirmación
+  async function eliminarCuentaConfirm(id) {
+    if (!confirm('¿Estás seguro de que quieres eliminar esta cuenta? Esta acción no se puede deshacer.')) {
+        return;
+    }
+
+    const success = await eliminarCuenta(id);
+    if (success) {
+        alert('✅ Cuenta eliminada correctamente');
+        await mostrarCuentas();
+    } else {
+        alert('❌ Error al eliminar la cuenta');
+    }
+  }
 </script>
 
 </body>
