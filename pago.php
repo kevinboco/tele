@@ -1,3 +1,5 @@
+[file name]: ajuste_pago.php
+[file content begin]
 <?php
 include("nav.php");
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
@@ -235,7 +237,7 @@ if ($empresaFiltro !== "") {
 $prestamosList = [];
 $i = 0;
 
-// CONSULTA ACTUALIZADA: 13% desde 29-oct-2025, 10% para préstamos anteriores
+// CONSULTA ACTUALIZADA: 13% desde 29-oct-2025, 10% para préstamos anteriores Y SOLO PRÉSTAMOS NO PAGADOS
 $qPrest = "
   SELECT deudor,
          SUM(
@@ -248,7 +250,7 @@ $qPrest = "
            CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
          ) AS total
   FROM prestamos
-  WHERE (pagado IS NULL OR pagado=0)
+  WHERE (pagado IS NULL OR pagado = 0)  -- SOLO PRÉSTAMOS NO PAGADOS
   GROUP BY deudor
 ";
 if ($rP = $conn->query($qPrest)) {
