@@ -1,3 +1,5 @@
+[file name]: admin_prestamos.php
+[file content begin]
 <?php
 /*********************************************************
  * admin_prestamos.php — CRUD + Tarjetas + Visual 3-nodos
@@ -11,6 +13,7 @@
  * - Selección múltiple en Tarjetas + Edición en lote
  * - COMISIONES en tarjetas con color azul
  * - Interés 13% para préstamos desde 2025-10-29, 10% para anteriores
+ * - FILTRO: No mostrar préstamos con pagado=1
  *********************************************************/
 include("nav.php");
 
@@ -343,11 +346,14 @@ else:
 
   $conn=db();
 
+  // MODIFICADO: Filtrar por pagado=0 en todas las consultas
+  $whereBase = "pagado = 0";
+
   // Combo prestamistas
   $prestMap = [];
   $resPL = ($view==='graph')
-    ? $conn->query("SELECT prestamista FROM prestamos WHERE (pagado IS NULL OR pagado=0)")
-    : $conn->query("SELECT prestamista FROM prestamos");
+    ? $conn->query("SELECT prestamista FROM prestamos WHERE $whereBase")
+    : $conn->query("SELECT prestamista FROM prestamos WHERE $whereBase");
   while($rowPL=$resPL->fetch_row()){
     $norm = mbnorm($rowPL[0]);
     if ($norm==='') continue;
@@ -358,8 +364,8 @@ else:
   // Combo deudores
   $deudMap = [];
   $resDL = ($view==='graph')
-    ? $conn->query("SELECT deudor FROM prestamos WHERE (pagado IS NULL OR pagado=0)")
-    : $conn->query("SELECT deudor FROM prestamos");
+    ? $conn->query("SELECT deudor FROM prestamos WHERE $whereBase")
+    : $conn->query("SELECT deudor FROM prestamos WHERE $whereBase");
   while($rowDL=$resDL->fetch_row()){
     $norm = mbnorm($rowDL[0]);
     if ($norm==='') continue;
@@ -369,7 +375,7 @@ else:
 
   if ($view==='cards'){
     // -------- TARJETAS --------
-    $where = "1"; $types=""; $params=[];
+    $where = $whereBase; $types=""; $params=[];
     if ($q!==''){ $where.=" AND (LOWER(deudor) LIKE CONCAT('%',?,'%') OR LOWER(prestamista) LIKE CONCAT('%',?,'%'))"; $types.="ss"; $params[]=$qNorm; $params[]=$qNorm; }
     if ($fpNorm!==''){ $where.=" AND LOWER(TRIM(prestamista)) = ?"; $types.="s"; $params[]=$fpNorm; }
     if ($fdNorm!==''){ $where.=" AND LOWER(TRIM(deudor)) = ?"; $types.="s"; $params[]=$fdNorm; }
@@ -465,7 +471,7 @@ else:
                       (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
                       CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
           FROM prestamos
-          WHERE LOWER(TRIM(deudor)) = ?";
+          WHERE LOWER(TRIM(deudor)) = ? AND $whereBase";
         $stAgg=$conn->prepare($sqlAgg); $stAgg->bind_param($typesAgg, ...$paramsAgg); $stAgg->execute(); $sum=$stAgg->get_result()->fetch_assoc();
         $stAgg->close();
         $deudorLabel = isset($deudMap[$fdNorm]) ? mbtitle($deudMap[$fdNorm]) : '(deudor)';
@@ -625,7 +631,7 @@ else:
 
   } else {
     // -------- VISUAL 3-NODOS (SOLO NO PAGADOS) --------
-    $where = "(pagado IS NULL OR pagado=0)"; $types=""; $params=[];
+    $where = $whereBase; $types=""; $params=[];
     $qNorm = mbnorm($_GET['q'] ?? '');
     $fpNorm = mbnorm($_GET['fp'] ?? '');
     if ($qNorm!==''){ $where.=" AND (LOWER(deudor) LIKE CONCAT('%',?,'%') OR LOWER(prestamista) LIKE CONCAT('%',?,'%'))"; $types.="ss"; $params[]=$qNorm; $params[]=$qNorm; }
@@ -704,9 +710,10 @@ else:
       </form>
       <div class="subtitle">
         Diagrama: <strong>Prestamista ➜ Deudores (valor, fecha, interés, total) ➜ Ganancia</strong>.
-        Debajo hay un selector para marcar <strong>Préstamo pagado</strong>.
+        Debajo hay un selector para marcarlos como <strong>Préstamo pagado</strong>.
         El recuadro adicional muestra <strong>Total prestado (pendiente)</strong>.
         Interés: <strong>13% desde 2025-10-29, 10% para préstamos anteriores</strong>.
+        <strong>NOTA: Solo se muestran préstamos NO pagados (pagado=0)</strong>.
       </div>
     </div>
 
