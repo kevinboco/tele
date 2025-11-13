@@ -1,5 +1,4 @@
-[file name]: admin_prestamos.php
-[file content begin]
+
 <?php
 /*********************************************************
  * admin_prestamos.php — CRUD + Tarjetas + Visual 3-nodos
