@@ -21,8 +21,11 @@ function norm_person($s){
   return $s;
 }
 
+/* ================= ENDPOINTS AJAX - DEBEN IR PRIMERO ================= */
+
 /* ================= AJAX: Guardar cuenta en BD ================= */
 if (isset($_POST['guardar_cuenta'])) {
+    header('Content-Type: application/json');
     $nombre = $conn->real_escape_string($_POST['nombre']);
     $empresa = $conn->real_escape_string($_POST['empresa']);
     $desde = $conn->real_escape_string($_POST['desde']);
@@ -43,6 +46,7 @@ if (isset($_POST['guardar_cuenta'])) {
 
 /* ================= AJAX: Obtener cuentas ================= */
 if (isset($_GET['obtener_cuentas'])) {
+    header('Content-Type: application/json');
     $empresa = $conn->real_escape_string($_GET['empresa'] ?? '');
     
     $sql = "SELECT * FROM cuentas_cobro";
@@ -66,6 +70,7 @@ if (isset($_GET['obtener_cuentas'])) {
 
 /* ================= AJAX: Eliminar cuenta ================= */
 if (isset($_POST['eliminar_cuenta'])) {
+    header('Content-Type: application/json');
     $id = (int)$_POST['id'];
     
     $sql = "DELETE FROM cuentas_cobro WHERE id = $id";
@@ -80,6 +85,7 @@ if (isset($_POST['eliminar_cuenta'])) {
 
 /* ================= AJAX: Actualizar cuenta ================= */
 if (isset($_POST['actualizar_cuenta'])) {
+    header('Content-Type: application/json');
     $id = (int)$_POST['id'];
     $nombre = $conn->real_escape_string($_POST['nombre']);
     $empresa = $conn->real_escape_string($_POST['empresa']);
@@ -105,7 +111,7 @@ if (isset($_POST['actualizar_cuenta'])) {
     exit;
 }
 
-/* ================= AJAX: Viajes por conductor (leyenda con contadores y soporte de filtro) ================= */
+/* ================= AJAX: Viajes por conductor ================= */
 if (isset($_GET['viajes_conductor'])) {
   $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
   $desde   = $conn->real_escape_string($_GET['desde'] ?? '');
@@ -187,11 +193,8 @@ if (isset($_GET['viajes_conductor'])) {
   } else {
     $rowsHTML .= "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresa.</td></tr>";
   }
-
-  // lo que devolvemos al fetch (sin <script>, el JS global hará el filtro)
   ?>
   <div class='space-y-3'>
-
     <!-- Leyenda con contadores y filtro -->
     <div class='flex flex-wrap gap-2 text-xs' id="legendFilterBar">
       <?php
@@ -209,7 +212,6 @@ if (isset($_GET['viajes_conductor'])) {
       }
       ?>
     </div>
-
     <!-- Tabla -->
     <div class='overflow-x-auto'>
       <table class='min-w-full text-sm text-left'>
@@ -269,7 +271,7 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
   <?php exit;
 }
 
-/* ================= Parámetros ================= */
+/* ================= PÁGINA PRINCIPAL ================= */
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
 $empresaFiltro = $_GET['empresa'] ?? "";
@@ -1029,8 +1031,19 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const url = `<?= basename(__FILE__) ?>?obtener_cuentas=1&empresa=${encodeURIComponent(empresa)}`;
     
     return fetch(url)
-      .then(response => response.json())
-      .then(data => data || []);
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('Error en la respuesta del servidor');
+        }
+        return response.json();
+      })
+      .then(data => {
+        if (Array.isArray(data)) {
+          return data;
+        } else {
+          throw new Error('Formato de respuesta inválido');
+        }
+      });
   }
 
   // Función para eliminar cuenta de BD
@@ -1162,6 +1175,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         tbodyCuentas.appendChild(frag);
       })
       .catch(error => {
+        console.error('Error cargando cuentas:', error);
         tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-rose-600'>Error cargando cuentas: " + error.message + "</td></tr>";
       });
   }
