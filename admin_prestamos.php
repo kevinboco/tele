@@ -378,25 +378,21 @@ if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!
 // ====== LIST ======
 else:
 
-    $conn=db();
+  // ==== filtros ====
+  $q   = trim($_GET['q']  ?? '');
+  $fp  = trim($_GET['fp'] ?? ''); // prestamista (normalizado)
+  $fd  = trim($_GET['fd'] ?? ''); // deudor (normalizado)
+  $fecha_desde = trim($_GET['fecha_desde'] ?? '');
+  $fecha_hasta = trim($_GET['fecha_hasta'] ?? '');
 
-  // FILTRO BASE POR ESTADO (solo afecta a TARJETAS)
-  $pagado = $_GET['pagado'] ?? '0'; // '0' = pendientes, '1' = pagados
+  $qNorm  = mbnorm($q);
+  $fpNorm = mbnorm($fp);
+  $fdNorm = mbnorm($fd);
 
-  if ($view === 'cards') {
-      if ($pagado === '1') {
-          // Ver préstamos pagados
-          $whereBase = "pagado = 1";
-      } else {
-          // Ver préstamos pendientes (por defecto)
-          $whereBase = "(pagado IS NULL OR pagado = 0)";
-          $pagado = '0';
-      }
-  } else {
-      // En la vista VISUAL solo se muestran NO pagados
-      $whereBase = "(pagado IS NULL OR pagado = 0)";
-  }
+  $conn=db();
 
+  // MODIFICADO: Filtrar por pagado=0 en todas las consultas
+  $whereBase = "pagado = 0";
 
   // Combo prestamistas
   $prestMap = [];
@@ -519,15 +515,6 @@ else:
             <option value="<?= h($norm) ?>" <?= $fdNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
           <?php endforeach; ?>
         </select>
-        <!-- 👉 SWITCH PENDIENTES / PAGADOS -->
-        <div class="field" style="min-width:170px">
-          <label>Mostrar</label>
-          <select name="pagado">
-            <option value="0" <?= $pagado==='0'?'selected':'' ?>>Solo pendientes</option>
-            <option value="1" <?= $pagado==='1'?'selected':'' ?>>Solo pagados</option>
-          </select>
-        </div>
-        <!-- 👆 FIN SWITCH -->
         <div class="field" style="min-width:150px">
           <label>Desde</label>
           <input name="fecha_desde" type="date" value="<?= h($fecha_desde) ?>">
