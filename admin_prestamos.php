@@ -1,4 +1,3 @@
-
 <?php
 /*********************************************************
  * admin_prestamos.php — CRUD + Tarjetas + Visual 3-nodos
@@ -271,6 +270,13 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  .comision-badge { background: #0b5ed7 !important; color: white !important; }
  .comision-info { background: #EAF5FF !important; border: 1px solid #BAE6FD !important; }
  .comision-text { color: #0369A1 !important; font-weight: 600; }
+
+ /* NUEVO: Estilos para resumen de filtros */
+ .resumen-filtro { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+ .resumen-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 12px; }
+ .resumen-item { background: white; border-radius: 8px; padding: 12px; text-align: center; }
+ .resumen-valor { font-size: 18px; font-weight: 800; color: #0369a1; }
+ .resumen-label { font-size: 12px; color: #6b7280; margin-top: 4px; }
 </style>
 </head><body>
 
@@ -341,6 +347,8 @@ else:
   $q   = trim($_GET['q']  ?? '');
   $fp  = trim($_GET['fp'] ?? ''); // prestamista (normalizado)
   $fd  = trim($_GET['fd'] ?? ''); // deudor (normalizado)
+  $fecha_desde = trim($_GET['fecha_desde'] ?? '');
+  $fecha_hasta = trim($_GET['fecha_hasta'] ?? '');
 
   $qNorm  = mbnorm($q);
   $fpNorm = mbnorm($fp);
@@ -381,6 +389,8 @@ else:
     if ($q!==''){ $where.=" AND (LOWER(deudor) LIKE CONCAT('%',?,'%') OR LOWER(prestamista) LIKE CONCAT('%',?,'%'))"; $types.="ss"; $params[]=$qNorm; $params[]=$qNorm; }
     if ($fpNorm!==''){ $where.=" AND LOWER(TRIM(prestamista)) = ?"; $types.="s"; $params[]=$fpNorm; }
     if ($fdNorm!==''){ $where.=" AND LOWER(TRIM(deudor)) = ?"; $types.="s"; $params[]=$fdNorm; }
+    if ($fecha_desde!==''){ $where.=" AND fecha >= ?"; $types.="s"; $params[]=$fecha_desde; }
+    if ($fecha_hasta!==''){ $where.=" AND fecha <= ?"; $types.="s"; $params[]=$fecha_hasta; }
 
     // MODIFICADO: Incluir campos de comisión y calcular interés correctamente con tasa variable
     $sql = "
@@ -424,6 +434,34 @@ else:
       WHERE $where
       ORDER BY id DESC";
     $st=$conn->prepare($sql); if($types) $st->bind_param($types, ...$params); $st->execute(); $rs=$st->get_result();
+
+    // NUEVO: Calcular sumas para el rango de fechas seleccionado
+    $sumas = ['capital' => 0, 'interes' => 0, 'total' => 0, 'count' => 0];
+    if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '') {
+      $sqlSumas = "
+        SELECT COUNT(*) AS n,
+               SUM(monto) AS capital,
+               SUM(((monto * 
+                    CASE 
+                      WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
+                      ELSE COALESCE(comision_origen_porcentaje, 10)
+                    END / 100) + 
+                   (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
+                   CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes,
+               SUM(monto + 
+                   (((monto * 
+                     CASE 
+                       WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
+                       ELSE COALESCE(comision_origen_porcentaje, 10)
+                     END / 100) + 
+                    (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
+                    CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
+        FROM prestamos
+        WHERE $where";
+      $stSumas=$conn->prepare($sqlSumas); if($types) $stSumas->bind_param($types, ...$params); $stSumas->execute(); 
+      $sumas = $stSumas->get_result()->fetch_assoc() ?: $sumas;
+      $stSumas->close();
+    }
 ?>
     <!-- Toolbar de filtros -->
     <div class="card" style="margin-bottom:16px">
@@ -442,54 +480,56 @@ else:
             <option value="<?= h($norm) ?>" <?= $fdNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
           <?php endforeach; ?>
         </select>
+        <div class="field" style="min-width:150px">
+          <label>Desde</label>
+          <input name="fecha_desde" type="date" value="<?= h($fecha_desde) ?>">
+        </div>
+        <div class="field" style="min-width:150px">
+          <label>Hasta</label>
+          <input name="fecha_hasta" type="date" value="<?= h($fecha_hasta) ?>">
+        </div>
         <button class="btn" type="submit">Filtrar</button>
-        <?php if ($q!=='' || $fpNorm!=='' || $fdNorm!==''): ?>
+        <?php if ($q!=='' || $fpNorm!=='' || $fdNorm!=='' || $fecha_desde!=='' || $fecha_hasta!==''): ?>
           <a class="btn gray" href="?view=cards">Quitar filtro</a>
         <?php endif; ?>
       </form>
       <div class="subtitle">Interés variable: 13% desde 2025-10-29, 10% para préstamos anteriores.</div>
     </div>
 
-    <?php
-      // Resumen de deudor si aplica
-      if ($fdNorm!=='') {
-        $typesAgg = "s"; $paramsAgg = [$fdNorm];
-        $sqlAgg = "
-          SELECT COUNT(*) AS n,
-                 SUM(monto) AS capital,
-                 SUM(((monto * 
-                      CASE 
-                        WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
-                        ELSE COALESCE(comision_origen_porcentaje, 10)
-                      END / 100) + 
-                     (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
-                     CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes,
-                 SUM(monto + 
-                     (((monto * 
-                       CASE 
-                         WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
-                         ELSE COALESCE(comision_origen_porcentaje, 10)
-                       END / 100) + 
-                      (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
-                      CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
-          FROM prestamos
-          WHERE LOWER(TRIM(deudor)) = ? AND $whereBase";
-        $stAgg=$conn->prepare($sqlAgg); $stAgg->bind_param($typesAgg, ...$paramsAgg); $stAgg->execute(); $sum=$stAgg->get_result()->fetch_assoc();
-        $stAgg->close();
-        $deudorLabel = isset($deudMap[$fdNorm]) ? mbtitle($deudMap[$fdNorm]) : '(deudor)';
-    ?>
-      <div class="card" style="margin-bottom:16px">
-        <div class="row">
-          <div class="title">Resumen de <?= h($deudorLabel) ?></div>
-          <span class="chip"><?= (int)($sum['n']??0) ?> préstamo(s)</span>
+    <!-- NUEVO: Mostrar resumen cuando hay filtros de fecha o persona -->
+    <?php if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== ''): ?>
+      <div class="resumen-filtro">
+        <div class="title">Resumen del Filtro</div>
+        <div class="subtitle">
+          <?php
+            $filtros = [];
+            if ($fecha_desde !== '') $filtros[] = "Desde: " . h($fecha_desde);
+            if ($fecha_hasta !== '') $filtros[] = "Hasta: " . h($fecha_hasta);
+            if ($fdNorm !== '') $filtros[] = "Deudor: " . h(mbtitle($deudMap[$fdNorm] ?? $fdNorm));
+            if ($fpNorm !== '') $filtros[] = "Prestamista: " . h(mbtitle($prestMap[$fpNorm] ?? $fpNorm));
+            echo implode(' • ', $filtros);
+          ?>
         </div>
-        <div class="pairs" style="margin-top:10px">
-          <div class="item"><div class="k">Capital</div><div class="v">$ <?= money($sum['capital']??0) ?></div></div>
-          <div class="item"><div class="k">Interés</div><div class="v">$ <?= money($sum['interes']??0) ?></div></div>
-          <div class="item"><div class="k">Total</div><div class="v">$ <?= money($sum['total']??0) ?></div></div>
+        <div class="resumen-grid">
+          <div class="resumen-item">
+            <div class="resumen-valor"><?= (int)($sumas['count'] ?? 0) ?></div>
+            <div class="resumen-label">Préstamos</div>
+          </div>
+          <div class="resumen-item">
+            <div class="resumen-valor">$ <?= money($sumas['capital'] ?? 0) ?></div>
+            <div class="resumen-label">Capital</div>
+          </div>
+          <div class="resumen-item">
+            <div class="resumen-valor">$ <?= money($sumas['interes'] ?? 0) ?></div>
+            <div class="resumen-label">Interés</div>
+          </div>
+          <div class="resumen-item">
+            <div class="resumen-valor">$ <?= money($sumas['total'] ?? 0) ?></div>
+            <div class="resumen-label">Total</div>
+          </div>
         </div>
       </div>
-    <?php } ?>
+    <?php endif; ?>
 
     <?php if ($rs->num_rows === 0): ?>
       <div class="card"><span class="subtitle">(sin registros)</span></div>
