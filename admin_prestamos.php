@@ -10,6 +10,9 @@
  * - Colorear nodo 2 según meses (1, 2, 3+)
  * - Filtro por Deudor + resumen de sumas del deudor
  * - Selección múltiple en Tarjetas + Edición en lote
+ * 
+ * 
+ * 
  * - COMISIONES en tarjetas con color azul
  * - Interés 13% para préstamos desde 2025-10-29, 10% para anteriores
  * - FILTRO: No mostrar préstamos con pagado=1
