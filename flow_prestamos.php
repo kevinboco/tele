@@ -78,36 +78,38 @@ function upsert_empresa_admin(int $chat_id, string $nombre): void {
 function kbNombreLista(array $opts, string $tipoPaso): array {
     // $tipoPaso: 'p_deudor' | 'p_prestamista' | 'p_empresa'
     $kb = ["inline_keyboard" => []];
+    $row = [];
+
     foreach ($opts as $i => $name) {
-        $kb["inline_keyboard"][] = [
-            ["text"=>$name, "callback_data"=>"pick_{$tipoPaso}_$i"]
+        // agregamos el botón a la fila actual
+        $row[] = [
+            "text" => $name,
+            "callback_data" => "pick_{$tipoPaso}_$i"
         ];
+
+        // cuando haya 2 por fila, empujamos la fila y arrancamos otra
+        if (count($row) === 2) {
+            $kb["inline_keyboard"][] = $row;
+            $row = [];
+        }
     }
+
+    // si queda una fila incompleta (1 botón), también la agregamos
+    if (!empty($row)) {
+        $kb["inline_keyboard"][] = $row;
+    }
+
+    // última fila: opción para escribir otro
     $kb["inline_keyboard"][] = [
-        ["text"=>"✍️ Escribir otro", "callback_data"=>"pick_{$tipoPaso}_otro"]
+        [
+            "text" => "✍️ Escribir otro",
+            "callback_data" => "pick_{$tipoPaso}_otro"
+        ]
     ];
+
     return $kb;
 }
 
-function kbPrestamoFecha() {
-    return [
-        "inline_keyboard" => [
-            [["text"=>"📅 Hoy","callback_data"=>"pfecha_hoy"]],
-            [["text"=>"📆 Otra fecha","callback_data"=>"pfecha_otro"]],
-        ]
-    ];
-}
-function kbPrestamoMeses($anio) {
-    $labels=[1=>"Enero",2=>"Febrero",3=>"Marzo",4=>"Abril",5=>"Mayo",6=>"Junio",7=>"Julio",8=>"Agosto",9=>"Septiembre",10=>"Octubre",11=>"Noviembre",12=>"Diciembre"];
-    $kb=["inline_keyboard"=>[]];
-    for ($i=1;$i<=12;$i+=2) {
-        $row=[];
-        $row[]=["text"=>$labels[$i]." $anio","callback_data"=>"pmes_".$anio."_".str_pad($i,2,"0",STR_PAD_LEFT)];
-        if ($i+1<=12) $row[]=["text"=>$labels[$i+1]." $anio","callback_data"=>"pmes_".$anio."_".str_pad($i+1,2,"0",STR_PAD_LEFT)];
-        $kb["inline_keyboard"][]=$row;
-    }
-    return $kb;
-}
 
 /* ========= entry ========= */
 function prestamos_entrypoint($chat_id, $estado): void
