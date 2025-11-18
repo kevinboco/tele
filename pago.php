@@ -1,4 +1,3 @@
-
 <?php
 include("nav.php");
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
@@ -394,7 +393,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 <button type="button" class="conductor-link" title="Ver viajes"><?= htmlspecialchars($f['nombre']) ?></button>
               </td>
               <td class="px-3 py-2 text-right num base"><?= number_format($f['total_bruto'],0,',','.') ?></td>
-              <td class="px-3 py-2 text-right num ajuste">0</td>
+              <td class="px-3 py-2 text-right">
+                <input type="text" class="ajuste w-full max-w-[120px] rounded-lg border border-slate-300 px-2 py-1 text-right num" value="0">
+              </td>
               <td class="px-3 py-2 text-right num llego">0</td>
               <td class="px-3 py-2 text-right num ret">0</td>
               <td class="px-3 py-2 text-right num mil4">0</td>
@@ -577,6 +578,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const COMPANY_SCOPE = <?= json_encode(($empresaFiltro ?: '__todas__')) ?>;
   const ACC_KEY   = 'cuentas:'+COMPANY_SCOPE;
   const SS_KEY    = 'seg_social:'+COMPANY_SCOPE;
+  const AJUSTE_KEY = 'ajuste_dif:'+COMPANY_SCOPE; // Nueva clave para ajustes
   const PREST_SEL_KEY = 'prestamo_sel_multi:v2:'+COMPANY_SCOPE;
   const PERIODOS_KEY  = 'cuentas_cobro_periodos:v1';
 
@@ -589,6 +591,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
   let accMap = getLS(ACC_KEY);
   let ssMap  = getLS(SS_KEY);
+  let ajusteMap = getLS(AJUSTE_KEY); // Nuevo mapa para ajustes
   let prestSel = getLS(PREST_SEL_KEY); if(!prestSel || typeof prestSel!=='object') prestSel = {};
 
   const tbody = document.getElementById('tbody');
@@ -599,12 +602,14 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   [...tbody.querySelectorAll('tr')].forEach(tr=>{
     const cta = tr.querySelector('input.cta');
     const ss  = tr.querySelector('input.ss');
+    const ajuste = tr.querySelector('input.ajuste'); // Nuevo: campo de ajuste
     const baseName = tr.children[0].innerText.trim();
     const prestSpan = tr.querySelector('.prest');
     const selLabel  = tr.querySelector('.selected-deudor');
 
     if (accMap[baseName]) cta.value = accMap[baseName];
     if (ssMap[baseName])  ss.value  = fmt(toInt(ssMap[baseName]));
+    if (ajusteMap[baseName]) ajuste.value = fmt(toInt(ajusteMap[baseName])); // Cargar ajuste guardado
 
     const chosen = prestSel[baseName] || [];
     prestSpan.textContent = fmt(sumTotals(chosen));
@@ -612,6 +617,13 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     cta.addEventListener('change', ()=>{ accMap[baseName] = cta.value.trim(); setLS(ACC_KEY, accMap); });
     ss.addEventListener('input', ()=>{ ssMap[baseName] = toInt(ss.value); setLS(SS_KEY, ssMap); recalc(); });
+    
+    // Nuevo: Event listener para ajustes editados
+    ajuste.addEventListener('input', ()=>{ 
+      ajusteMap[baseName] = toInt(ajuste.value); 
+      setLS(AJUSTE_KEY, ajusteMap); 
+      recalc(); 
+    });
   });
 
   // ===== Modal préstamos =====
@@ -839,13 +851,38 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     document.getElementById('lbl_diferencia').textContent=fmt(diff);
 
     const rows=[...tbody.querySelectorAll('tr')];
-    const ajustes=distribIgual(diff, rows.length);
+    
+    // Verificar si hay ajustes editados manualmente
+    let tieneAjustesEditados = false;
+    let sumaAjustesEditados = 0;
+    
+    rows.forEach(tr => {
+      const ajusteEditado = toInt(tr.querySelector('input.ajuste').value);
+      if (ajusteEditado !== 0) {
+        tieneAjustesEditados = true;
+        sumaAjustesEditados += ajusteEditado;
+      }
+    });
 
     let sumLleg=0,sumRet=0,sumMil4=0,sumAp=0,sumSS=0,sumPrest=0,sumPagar=0;
+    
     rows.forEach((tr,i)=>{
       const base=toInt(tr.querySelector('.base').textContent);
       const prest=toInt(tr.querySelector('.prest').textContent);
-      const aj=ajustes[i]||0;
+      const ajusteEditado = toInt(tr.querySelector('input.ajuste').value);
+      
+      let aj;
+      if (tieneAjustesEditados) {
+        // Usar el ajuste editado manualmente
+        aj = ajusteEditado;
+      } else {
+        // Distribución automática
+        const ajustes = distribIgual(diff, rows.length);
+        aj = ajustes[i] || 0;
+        // Actualizar el input con el valor calculado
+        tr.querySelector('input.ajuste').value = (aj===0?'0':(aj>0?'-'+fmt(aj):'+'+fmt(Math.abs(aj))));
+      }
+      
       const llego=base-aj;
       const ret=Math.round(llego*0.035);
       const mil4=Math.round(llego*0.004);
@@ -853,7 +890,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       const ss=toInt(tr.querySelector('input.ss').value);
       const pagar = llego - ret - mil4 - ap - ss - prest;
 
-      tr.querySelector('.ajuste').textContent=(aj===0?'0':(aj>0?'-'+fmt(aj):'+'+fmt(Math.abs(aj))));
       tr.querySelector('.llego').textContent=fmt(llego);
       tr.querySelector('.ret').textContent=fmt(ret);
       tr.querySelector('.mil4').textContent=fmt(mil4);
