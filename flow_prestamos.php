@@ -45,9 +45,38 @@ function upsert_name_admin(int $chat_id, string $which, string $nombre): void {
     $conn->close();
 }
 
+/* ========= NUEVOS HELPERS EMPRESAS ========= */
+function fetch_empresas_admin(int $chat_id): array {
+    $conn = db(); if (!$conn) return [];
+    $stmt = $conn->prepare("SELECT nombre FROM empresas_admin WHERE owner_chat_id=? ORDER BY nombre ASC");
+    if (!$stmt) { $conn->close(); return []; }
+    $stmt->bind_param("i", $chat_id);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    $out = [];
+    while ($row = $res->fetch_assoc()) {
+        $n = norm_spaces($row['nombre']);
+        if ($n !== '') $out[] = $n;
+    }
+    $stmt->close(); $conn->close();
+    return $out;
+}
+
+function upsert_empresa_admin(int $chat_id, string $nombre): void {
+    $bonito = nicecase(norm_spaces($nombre));
+    $conn = db(); if (!$conn) return;
+    $stmt = $conn->prepare("INSERT IGNORE INTO empresas_admin (owner_chat_id, nombre) VALUES (?, ?)");
+    if ($stmt) {
+        $stmt->bind_param("is", $chat_id, $bonito);
+        $stmt->execute();
+        $stmt->close();
+    }
+    $conn->close();
+}
+
 /* ========= keyboards ========= */
 function kbNombreLista(array $opts, string $tipoPaso): array {
-    // $tipoPaso: 'p_deudor' | 'p_prestamista'
+    // $tipoPaso: 'p_deudor' | 'p_prestamista' | 'p_empresa'
     $kb = ["inline_keyboard" => []];
     foreach ($opts as $i => $name) {
         $kb["inline_keyboard"][] = [
@@ -129,6 +158,23 @@ function prestamos_resend_current_step($chat_id, $estado): void
             sendMessage($chat_id, "✍️ *Escribe el nombre* de quien presta:");
             break;
 
+        /* ======== NUEVO: PASO EMPRESA ======== */
+        case 'p_empresa':
+            if (empty($estado['empresa_opts'])) {
+                $estado['empresa_opts'] = fetch_empresas_admin((int)$chat_id);
+                saveState($chat_id, $estado);
+            }
+            if (!empty($estado['empresa_opts'])) {
+                sendMessage($chat_id, "🏢 *¿Con qué empresa es el préstamo?* (elige o escribe)", kbNombreLista($estado['empresa_opts'], 'p_empresa'));
+            } else {
+                sendMessage($chat_id, "🏢 *¿Con qué empresa es el préstamo?* (nombre)");
+            }
+            break;
+        case 'p_empresa_manual':
+            sendMessage($chat_id, "✍️ *Escribe el nombre* de la empresa:");
+            break;
+        /* ===================================== */
+
         case 'p_monto':
             sendMessage($chat_id, "💵 *¿Cuánto se prestó?* (solo número, ej.: 1500000)");
             break;
@@ -165,7 +211,7 @@ function prestamos_handle_callback($chat_id, &$estado, string $cb_data, ?string 
     if (($estado['flujo'] ?? '') !== 'prestamos') return;
 
     // Picks
-    if (preg_match('/^pick_(p_deudor|p_prestamista)_(\d+|otro)$/', $cb_data, $m)) {
+    if (preg_match('/^pick_(p_deudor|p_prestamista|p_empresa)_(\d+|otro)$/', $cb_data, $m)) {
         $tipo = $m[1]; $idx = $m[2];
 
         if ($tipo === 'p_deudor') {
@@ -192,7 +238,8 @@ function prestamos_handle_callback($chat_id, &$estado, string $cb_data, ?string 
                     sendMessage($chat_id, "⚠️ Opción inválida. Escribe el nombre del deudor:");
                 }
             }
-        } else { // p_prestamista
+
+        } elseif ($tipo === 'p_prestamista') {
             if ($idx === 'otro') {
                 $estado['paso'] = 'p_prestamista_manual';
                 saveState($chat_id, $estado);
@@ -202,15 +249,42 @@ function prestamos_handle_callback($chat_id, &$estado, string $cb_data, ?string 
                 $opts = $estado['prestamista_opts'] ?? [];
                 if (isset($opts[$i])) {
                     $estado['p_prestamista'] = $opts[$i];
-                    $estado['paso'] = 'p_monto';
+
+                    // NUEVO: ahora vamos a empresa
+                    $estado['paso'] = 'p_empresa';
+                    $estado['empresa_opts'] = fetch_empresas_admin((int)$chat_id);
                     saveState($chat_id, $estado);
-                    sendMessage($chat_id, "💵 *¿Cuánto se prestó?* (solo número, ej.: 1500000)");
+                    if (!empty($estado['empresa_opts'])) {
+                        sendMessage($chat_id, "🏢 *¿Con qué empresa es el préstamo?* (elige o escribe)", kbNombreLista($estado['empresa_opts'], 'p_empresa'));
+                    } else {
+                        sendMessage($chat_id, "🏢 *¿Con qué empresa es el préstamo?* (nombre)");
+                    }
                 } else {
                     $estado['paso']='p_prestamista_manual'; saveState($chat_id,$estado);
                     sendMessage($chat_id, "⚠️ Opción inválida. Escribe el nombre de quien presta:");
                 }
             }
+
+        } else { // p_empresa
+            if ($idx === 'otro') {
+                $estado['paso'] = 'p_empresa_manual';
+                saveState($chat_id, $estado);
+                sendMessage($chat_id, "✍️ *Escribe el nombre* de la empresa:");
+            } else {
+                $i = (int)$idx;
+                $opts = $estado['empresa_opts'] ?? [];
+                if (isset($opts[$i])) {
+                    $estado['p_empresa'] = $opts[$i];
+                    $estado['paso'] = 'p_monto';
+                    saveState($chat_id, $estado);
+                    sendMessage($chat_id, "💵 *¿Cuánto se prestó?* (solo número, ej.: 1500000)");
+                } else {
+                    $estado['paso']='p_empresa_manual'; saveState($chat_id,$estado);
+                    sendMessage($chat_id, "⚠️ Opción inválida. Escribe el nombre de la empresa:");
+                }
+            }
         }
+
         if ($cb_id) answerCallbackQuery($cb_id);
         return;
     }
@@ -280,11 +354,33 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
             $estado['p_prestamista'] = $bonito;
             upsert_name_admin((int)$chat_id, 'prestamista', $bonito);
 
+            // NUEVO: ahora pasamos a empresa
+            $estado['paso'] = 'p_empresa';
+            $estado['empresa_opts'] = fetch_empresas_admin((int)$chat_id);
+            saveState($chat_id, $estado);
+            if (!empty($estado['empresa_opts'])) {
+                sendMessage($chat_id, "🏢 *¿Con qué empresa es el préstamo?* (elige o escribe)", kbNombreLista($estado['empresa_opts'], 'p_empresa'));
+            } else {
+                sendMessage($chat_id, "🏢 *¿Con qué empresa es el préstamo?* (nombre)");
+            }
+            return;
+        }
+
+        /* ======== NUEVO: TEXTO EMPRESA ======== */
+        case 'p_empresa':
+        case 'p_empresa_manual': {
+            $txt = norm_spaces($text ?? '');
+            if ($txt==='') { sendMessage($chat_id, "⚠️ Escribe el *nombre* de la empresa."); return; }
+            $bonito = nicecase($txt);
+            $estado['p_empresa'] = $bonito;
+            upsert_empresa_admin((int)$chat_id, $bonito);
+
             $estado['paso'] = 'p_monto';
             saveState($chat_id, $estado);
             sendMessage($chat_id, "💵 *¿Cuánto se prestó?* (solo número, ej.: 1500000)");
             return;
         }
+        /* ===================================== */
 
         case 'p_monto':
             $raw = preg_replace('/[^\d]/','', (string)$text);
@@ -359,23 +455,34 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
 
             $deudor = nicecase(norm_spaces($estado['p_deudor'] ?? ''));
             $prestamista = nicecase(norm_spaces($estado['p_prestamista'] ?? ''));
+            $empresa = nicecase(norm_spaces($estado['p_empresa'] ?? ''));
 
-            // (opcional) asegurar que queden en catálogo, por si vinieron por teclad
+            if ($empresa === '') {
+                $empresa = 'Sin especificar';
+            }
+
+            // asegurar que queden en catálogo
             upsert_name_admin((int)$chat_id, 'deudor', $deudor);
             upsert_name_admin((int)$chat_id, 'prestamista', $prestamista);
+            upsert_empresa_admin((int)$chat_id, $empresa);
 
-            $stmt = $conn->prepare("INSERT INTO prestamos (chat_id, deudor, prestamista, monto, fecha, imagen, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())");
+            $stmt = $conn->prepare("INSERT INTO prestamos (chat_id, deudor, prestamista, empresa, monto, fecha, imagen, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())");
             if (!$stmt) { sendMessage($chat_id, "❌ Error preparando la inserción."); $conn->close(); return; }
-            $stmt->bind_param("ississ", $chat_id, $deudor, $prestamista, $estado['p_monto'], $estado['p_fecha'], $nombreArchivo);
+
+            $monto = (int)($estado['p_monto'] ?? 0);
+            $fecha = $estado['p_fecha'] ?? date('Y-m-d');
+
+            $stmt->bind_param("isssiss", $chat_id, $deudor, $prestamista, $empresa, $monto, $fecha, $nombreArchivo);
 
             if ($stmt->execute()) {
-                $montoFmt = number_format($estado['p_monto'], 0, ',', '.');
+                $montoFmt = number_format($monto, 0, ',', '.');
                 sendMessage($chat_id,
                     "✅ *Préstamo registrado*\n".
                     "👤 Deudor: {$deudor}\n".
                     "🧾 Prestamista: {$prestamista}\n".
+                    "🏢 Empresa: {$empresa}\n".
                     "💵 Monto: $ $montoFmt\n".
-                    "📅 Fecha: {$estado['p_fecha']}"
+                    "📅 Fecha: {$fecha}"
                 );
             } else {
                 sendMessage($chat_id, "❌ Error al guardar: ".$conn->error);
