@@ -360,7 +360,7 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
             $deudor = nicecase(norm_spaces($estado['p_deudor'] ?? ''));
             $prestamista = nicecase(norm_spaces($estado['p_prestamista'] ?? ''));
 
-            // (opcional) asegurar que queden en catálogo, por si vinieron por teclado
+            // (opcional) asegurar que queden en catálogo, por si vinieron por teclad
             upsert_name_admin((int)$chat_id, 'deudor', $deudor);
             upsert_name_admin((int)$chat_id, 'prestamista', $prestamista);
 
