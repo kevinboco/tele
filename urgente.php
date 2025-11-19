@@ -30,7 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $porcentaje_interes = floatval($_POST['porcentaje_interes']) ?? 10;
     
     if (!empty($deudores_seleccionados) && !empty($prestamista_seleccionado)) {
-        // Consulta para obtener los préstamos con cálculo de meses
+        // Consulta para obtener los préstamos
         $placeholders = str_repeat('?,', count($deudores_seleccionados) - 1) . '?';
         
         $sql = "SELECT 
@@ -89,7 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'meses' => $meses,
                 'interes' => $interes_prestamo,
                 'total' => $total_prestamo,
-                'incluido' => true // Por defecto todos incluidos
+                'incluido' => true
             ];
         }
         
@@ -127,7 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .meses { text-align: center; }
         .header-deudor { background-color: #e9ecef; }
         .excluido { background-color: #ffe6e6; text-decoration: line-through; color: #999; }
-        .interes-input { width: 80px; padding: 4px; text-align: center; }
+        .interes-input, .meses-input { width: 70px; padding: 4px; text-align: center; }
         .checkbox-excluir { transform: scale(1.2); }
         .acciones { text-align: center; }
     </style>
@@ -184,7 +184,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php if (isset($prestamos_por_deudor)): ?>
         <div class="resultados">
             <h2>Resultados para: <?= htmlspecialchars($prestamista_seleccionado) ?> (Interés: <?= $porcentaje_interes ?>% mensual)</h2>
-            <p><small>Puedes modificar el interés individual y excluir préstamos</small></p>
+            <p><small>Puedes modificar el interés, los meses y excluir préstamos</small></p>
             
             <table id="tablaReporte">
                 <thead>
@@ -192,7 +192,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <th>Deudor</th>
                         <th>Préstamos</th>
                         <th>Capital</th>
-                        <th>Interés (<?= $porcentaje_interes ?>% mensual)</th>
+                        <th>Interés</th>
                         <th>Total a Pagar</th>
                     </tr>
                 </thead>
@@ -235,16 +235,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     <tr class="fila-prestamo" data-deudor="<?= md5($deudor) ?>" data-id="<?= $detalle['id'] ?>">
                                         <td class="acciones">
                                             <input type="checkbox" class="checkbox-excluir" checked 
-                                                   onchange="togglePrestamo(this)" data-monto="<?= $detalle['monto'] ?>">
+                                                   onchange="togglePrestamo(this)">
                                         </td>
                                         <td><?= $detalle['fecha'] ?></td>
                                         <td class="moneda monto-prestamo">$ <?= number_format($detalle['monto'], 0, ',', '.') ?></td>
-                                        <td class="meses"><?= $detalle['meses'] ?></td>
+                                        <td class="acciones">
+                                            <input type="number" class="meses-input" value="<?= $detalle['meses'] ?>" 
+                                                   min="1" max="36" onchange="recalcularPrestamo(this)"
+                                                   data-monto="<?= $detalle['monto'] ?>">
+                                        </td>
                                         <td class="acciones">
                                             <input type="number" class="interes-input" value="<?= $porcentaje_interes ?>" 
                                                    step="0.1" min="0" max="100" 
-                                                   onchange="recalcularInteres(this)" 
-                                                   data-meses="<?= $detalle['meses'] ?>"
+                                                   onchange="recalcularPrestamo(this)" 
                                                    data-monto="<?= $detalle['monto'] ?>">
                                         </td>
                                         <td class="moneda interes-prestamo">$ <?= number_format($detalle['interes'], 0, ',', '.') ?></td>
@@ -287,28 +290,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Función para excluir/incluir préstamos
         function togglePrestamo(checkbox) {
             const fila = checkbox.closest('.fila-prestamo');
-            const monto = parseFloat(checkbox.dataset.monto);
-            const deudorId = fila.dataset.deudor;
             
             if (!checkbox.checked) {
                 fila.classList.add('excluido');
-                // Restar del total del deudor
-                restarDelTotal(deudorId, monto, 0, 0);
             } else {
                 fila.classList.remove('excluido');
-                // Recalcular este préstamo y sumar al total
-                recalcularPrestamo(fila);
             }
+            
+            // Recalcular totales del deudor
+            const deudorId = fila.dataset.deudor;
+            actualizarTotalesDeudor(deudorId);
         }
         
-        // Función para recalcular interés cuando se modifica el porcentaje
-        function recalcularInteres(input) {
+        // Función para recalcular cuando se modifican meses o interés
+        function recalcularPrestamo(input) {
             const fila = input.closest('.fila-prestamo');
-            const monto = parseFloat(input.dataset.monto);
-            const meses = parseInt(input.dataset.meses);
-            const porcentaje = parseFloat(input.value);
+            const monto = parseFloat(fila.querySelector('.monto-prestamo').textContent.replace(/[^\d]/g, ''));
+            const inputMeses = fila.querySelector('.meses-input');
+            const inputInteres = fila.querySelector('.interes-input');
             
-            // Calcular nuevo interés y total
+            const meses = parseInt(inputMeses.value);
+            const porcentaje = parseFloat(inputInteres.value);
+            
+            // Calcular: Interés = Capital × % × Meses
             const interes = monto * (porcentaje / 100) * meses;
             const total = monto + interes;
             
@@ -325,26 +329,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 const deudorId = fila.dataset.deudor;
                 actualizarTotalesDeudor(deudorId);
             }
-        }
-        
-        // Función para recalcular un préstamo completo
-        function recalcularPrestamo(fila) {
-            const inputInteres = fila.querySelector('.interes-input');
-            const monto = parseFloat(inputInteres.dataset.monto);
-            const meses = parseInt(inputInteres.dataset.meses);
-            const porcentaje = parseFloat(inputInteres.value);
-            
-            const interes = monto * (porcentaje / 100) * meses;
-            const total = monto + interes;
-            
-            const celdaInteres = fila.querySelector('.interes-prestamo');
-            const celdaTotal = fila.querySelector('.total-prestamo');
-            
-            celdaInteres.textContent = '$ ' + formatNumber(interes);
-            celdaTotal.textContent = '$ ' + formatNumber(total);
-            
-            const deudorId = fila.dataset.deudor;
-            actualizarTotalesDeudor(deudorId);
         }
         
         // Función para actualizar totales por deudor
@@ -377,22 +361,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             filaDeudor.querySelector('td:nth-child(2)').textContent = prestamosIncluidos;
             
             // Actualizar totales generales
-            actualizarTotalesGenerales();
-        }
-        
-        // Función para restar de los totales cuando se excluye
-        function restarDelTotal(deudorId, capital, interes, total) {
-            const filaDeudor = document.getElementById('fila-' + deudorId);
-            const capitalActual = parseFloat(filaDeudor.querySelector('.capital-deudor').textContent.replace(/[^\d]/g, ''));
-            const interesActual = parseFloat(filaDeudor.querySelector('.interes-deudor').textContent.replace(/[^\d]/g, ''));
-            const totalActual = parseFloat(filaDeudor.querySelector('.total-deudor').textContent.replace(/[^\d]/g, ''));
-            const prestamosActual = parseInt(filaDeudor.querySelector('td:nth-child(2)').textContent);
-            
-            filaDeudor.querySelector('.capital-deudor').textContent = '$ ' + formatNumber(capitalActual - capital);
-            filaDeudor.querySelector('.interes-deudor').textContent = '$ ' + formatNumber(interesActual - interes);
-            filaDeudor.querySelector('.total-deudor').textContent = '$ ' + formatNumber(totalActual - total);
-            filaDeudor.querySelector('td:nth-child(2)').textContent = prestamosActual - 1;
-            
             actualizarTotalesGenerales();
         }
         
