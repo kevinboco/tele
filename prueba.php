@@ -1479,16 +1479,28 @@ function wrapText(textSel, width){
 }
 
 /* ===== helpers globales ===== */
-function collectRowsForSelected(){
+function collectRowsForSelected(prestamista = null){
   const rows = [];
   if (SELECTED_DEUDORES.size === 0) return rows;
-  for (const prest of Object.keys(DATA)) {
-    const list = DATA[prest] || [];
+  
+  // Si hay un prestamista específico, solo buscar en ese prestamista
+  if (prestamista) {
+    const list = DATA[prestamista] || [];
     list.forEach(r => {
       if (SELECTED_DEUDORES.has(r.nombre)) {
-        rows.push({ ...r, __prest: prest });
+        rows.push({ ...r, __prest: prestamista });
       }
     });
+  } else {
+    // Modo global: buscar en todos los prestamistas
+    for (const prest of Object.keys(DATA)) {
+      const list = DATA[prest] || [];
+      list.forEach(r => {
+        if (SELECTED_DEUDORES.has(r.nombre)) {
+          rows.push({ ...r, __prest: prest });
+        }
+      });
+    }
   }
   return rows;
 }
@@ -1756,16 +1768,18 @@ function drawTree(prestamista) {
 
   const global = isGlobalMode();
 
-  // 1) Filas base
+  // 1) Filas base - CORREGIDO: usar prestamista actual en el filtro
   let allRows;
   if (global) {
-    allRows = collectRowsForSelected();
+    // Pasar el prestamista actual al filtro para que solo muestre los deudores seleccionados de ESE prestamista
+    allRows = collectRowsForSelected(prestamista);
   } else {
     allRows = DATA[prestamista] || [];
   }
 
   // 2) Filtros cliente
   const rows = allRows.filter(r => {
+    // Si hay deudores seleccionados, solo mostrar esos
     if (SELECTED_DEUDORES.size > 0 && !SELECTED_DEUDORES.has(r.nombre)) return false;
     if (!matches(r)) return false;
     return true;
