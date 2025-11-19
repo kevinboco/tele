@@ -15,7 +15,7 @@ include("nav.php");
  *      descuento_5  = 5% sobre capital (mismos meses)
  *      interés_real = 8% (13 - 5)
  * - COMISIÓN: para prestamista = "Celene", 5% de comisión para Gladys Salinas
- * - FILTRO: Rango de fechas para filtrar préstamos
+ * - FILTRO: Rango de fechas para filtrar DEUDORES (no préstamos individuales)
  *********************************************************/
 
 /* ===== Config ===== */
@@ -107,18 +107,39 @@ if ($q !== ''){
   $params[]=$qNorm;
 }
 
-// Filtro de fecha desde
-if ($fecha_desde !== '') {
-  $where .= " AND fecha >= ?";
-  $types .= "s";
-  $params[] = $fecha_desde;
-}
-
-// Filtro de fecha hasta
-if ($fecha_hasta !== '') {
-  $where .= " AND fecha <= ?";
-  $types .= "s";
-  $params[] = $fecha_hasta;
+// ===== NUEVA LÓGICA: Filtrar DEUDORES que tengan préstamos en el rango =====
+$deudoresEnRango = [];
+if ($fecha_desde !== '' || $fecha_hasta !== '') {
+  $sqlDeudores = "SELECT DISTINCT LOWER(TRIM(deudor)) as deud_key
+                  FROM prestamos 
+                  WHERE (pagado IS NULL OR pagado=0)";
+  
+  $typesDeud = "";
+  $paramsDeud = [];
+  
+  if ($fecha_desde !== '') {
+    $sqlDeudores .= " AND fecha >= ?";
+    $typesDeud .= "s";
+    $paramsDeud[] = $fecha_desde;
+  }
+  
+  if ($fecha_hasta !== '') {
+    $sqlDeudores .= " AND fecha <= ?";
+    $typesDeud .= "s";
+    $paramsDeud[] = $fecha_hasta;
+  }
+  
+  $stDeud = $conn->prepare($sqlDeudores);
+  if ($typesDeud) {
+    $stDeud->bind_param($typesDeud, ...$paramsDeud);
+  }
+  $stDeud->execute();
+  $rsDeud = $stDeud->get_result();
+  
+  while ($row = $rsDeud->fetch_assoc()) {
+    $deudoresEnRango[$row['deud_key']] = true;
+  }
+  $stDeud->close();
 }
 
 /* =========================================================
@@ -224,9 +245,20 @@ $sql = "
            END
          ) AS total
   FROM prestamos
-  WHERE $where
-  GROUP BY prest_key, deud_key
-  ORDER BY prest_key ASC, deud_display ASC";
+  WHERE $where";
+
+// ===== APLICAR FILTRO DE DEUDORES EN RANGO =====
+if (!empty($deudoresEnRango)) {
+  $sql .= " AND LOWER(TRIM(deudor)) IN (";
+  $placeholders = implode(',', array_fill(0, count($deudoresEnRango), '?'));
+  $sql .= $placeholders . ")";
+  $types .= str_repeat('s', count($deudoresEnRango));
+  $params = array_merge($params, array_keys($deudoresEnRango));
+}
+
+$sql .= " GROUP BY prest_key, deud_key
+          ORDER BY prest_key ASC, deud_display ASC";
+
 $st=$conn->prepare($sql);
 if($types) $st->bind_param($types, ...$params);
 $st->execute();
@@ -238,8 +270,17 @@ $sqlIds = "
          LOWER(TRIM(deudor))     AS deud_key,
          GROUP_CONCAT(id)        AS ids
   FROM prestamos
-  WHERE $where
-  GROUP BY prest_key, deud_key";
+  WHERE $where";
+
+// Aplicar mismo filtro de deudores en rango para los IDs
+if (!empty($deudoresEnRango)) {
+  $sqlIds .= " AND LOWER(TRIM(deudor)) IN (";
+  $placeholders = implode(',', array_fill(0, count($deudoresEnRango), '?'));
+  $sqlIds .= $placeholders . ")";
+}
+
+$sqlIds .= " GROUP BY prest_key, deud_key";
+
 $st2=$conn->prepare($sqlIds);
 if($types) $st2->bind_param($types, ...$params);
 $st2->execute();
@@ -339,8 +380,17 @@ $sqlDet = "
 
     IFNULL(pagado,0) AS pagado
   FROM prestamos
-  WHERE $where
-  ORDER BY prestamista, deudor, fecha ASC, id ASC";
+  WHERE $where";
+
+// Aplicar mismo filtro de deudores en rango para el detalle
+if (!empty($deudoresEnRango)) {
+  $sqlDet .= " AND LOWER(TRIM(deudor)) IN (";
+  $placeholders = implode(',', array_fill(0, count($deudoresEnRango), '?'));
+  $sqlDet .= $placeholders . ")";
+}
+
+$sqlDet .= " ORDER BY prestamista, deudor, fecha ASC, id ASC";
+
 $st3=$conn->prepare($sqlDet);
 if($types) $st3->bind_param($types, ...$params);
 $st3->execute();
