@@ -15,6 +15,7 @@ include("nav.php");
  *      descuento_5  = 5% sobre capital (mismos meses)
  *      interés_real = 8% (13 - 5)
  * - COMISIÓN: para prestamista = "Celene", 5% de comisión para Gladys Salinas
+ * - FILTRO: Rango de fechas para filtrar préstamos
  *********************************************************/
 
 /* ===== Config ===== */
@@ -71,9 +72,13 @@ if (($_GET['action'] ?? '') === 'mark_paid' && $_SERVER['REQUEST_METHOD']==='POS
   }
 }
 
-/* ===== Filtro texto ===== */
+/* ===== Filtros ===== */
 $q  = trim($_GET['q'] ?? '');
 $qNorm = mbnorm($q);
+
+// Nuevos filtros de fecha
+$fecha_desde = $_GET['fecha_desde'] ?? '';
+$fecha_hasta = $_GET['fecha_hasta'] ?? '';
 
 $conn = db();
 
@@ -92,12 +97,28 @@ ksort($prestMap, SORT_NATURAL);
 /* ===== WHERE base ===== */
 $where = "(pagado IS NULL OR pagado=0)";
 $types=""; $params=[];
+
+// Filtro de texto
 if ($q !== ''){
   $where .= " AND (LOWER(deudor) LIKE CONCAT('%',?,'%')
                OR  LOWER(prestamista) LIKE CONCAT('%',?,'%'))";
   $types .= "ss";
   $params[]=$qNorm;
   $params[]=$qNorm;
+}
+
+// Filtro de fecha desde
+if ($fecha_desde !== '') {
+  $where .= " AND fecha >= ?";
+  $types .= "s";
+  $params[] = $fecha_desde;
+}
+
+// Filtro de fecha hasta
+if ($fecha_hasta !== '') {
+  $where .= " AND fecha <= ?";
+  $types .= "s";
+  $params[] = $fecha_hasta;
 }
 
 /* =========================================================
@@ -542,7 +563,7 @@ $msg = $_GET['msg'] ?? '';
     background:#fff;cursor:pointer;
   }
 
-  .filter-wrap{ display:flex; align-items:center; gap:8px; }
+  .filter-wrap{ display:flex; align-items:center; gap:8px; flex-wrap: wrap; }
   .multiselect { position: relative; min-width: 280px; }
   .multiselect > button {
     height:34px;width:100%;text-align:left;
@@ -560,6 +581,41 @@ $msg = $_GET['msg'] ?? '';
     padding:6px 8px;border-radius:8px;
   }
   .multiselect .opt:hover { background:#f8fafc; }
+
+  /* Nuevos estilos para filtros de fecha */
+  .date-filter {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .date-filter label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #374151;
+  }
+  .date-filter input {
+    height: 34px;
+    padding: 6px 10px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #fff;
+    font-size: 13px;
+  }
+  .date-filter button {
+    height: 34px;
+    padding: 6px 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #0b5ed7;
+    color: white;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .date-filter button:hover {
+    background: #0a58ca;
+  }
 
   .toolbar {
     position:absolute;left:10px;top:60px;z-index:5;
@@ -808,6 +864,21 @@ $msg = $_GET['msg'] ?? '';
     .search input {
       width: 100%;
     }
+    .filter-wrap {
+      flex-direction: column;
+      align-items: flex-start;
+      width: 100%;
+    }
+    .multiselect {
+      min-width: 100%;
+    }
+    .date-filter {
+      width: 100%;
+      justify-content: space-between;
+    }
+    .date-filter input {
+      flex: 1;
+    }
     .toolbar {
       position: relative;
       top: 0;
@@ -837,6 +908,13 @@ $msg = $_GET['msg'] ?? '';
     }
     .multiselect {
       min-width: 200px;
+    }
+    .date-filter {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .date-filter input {
+      width: 100%;
     }
   }
 </style>
@@ -870,11 +948,39 @@ $msg = $_GET['msg'] ?? '';
         <div id="ms-list"></div>
       </div>
     </div>
+
+    <!-- Nuevo filtro de fechas -->
+    <div class="date-filter">
+      <form method="get" action="" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+        <!-- Mantener otros parámetros GET -->
+        <?php if ($q !== ''): ?>
+          <input type="hidden" name="q" value="<?= h($q) ?>">
+        <?php endif; ?>
+        
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <label for="fecha_desde">Desde:</label>
+          <input type="date" id="fecha_desde" name="fecha_desde" value="<?= h($fecha_desde) ?>">
+        </div>
+        
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <label for="fecha_hasta">Hasta:</label>
+          <input type="date" id="fecha_hasta" name="fecha_hasta" value="<?= h($fecha_hasta) ?>">
+        </div>
+        
+        <button type="submit">Filtrar</button>
+        
+        <?php if ($fecha_desde !== '' || $fecha_hasta !== ''): ?>
+          <a href="?" style="padding: 6px 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #f8f9fa; color: #374151; text-decoration: none; font-size: 13px;">
+            Limpiar fechas
+          </a>
+        <?php endif; ?>
+      </form>
+    </div>
   </div>
 
   <!-- Buscador -->
   <div class="search">
-    <input id="searchInput" type="text" placeholder="Buscar..." autocomplete="off">
+    <input id="searchInput" type="text" placeholder="Buscar..." autocomplete="off" value="<?= h($q) ?>">
     <button id="clearSearch" title="Limpiar">✕</button>
   </div>
 </div>
@@ -1111,7 +1217,7 @@ function renderSelector(prest){
 /* ===== Buscador ===== */
 const searchInput = document.getElementById('searchInput');
 const clearBtn = document.getElementById('clearSearch');
-let searchTerm = '';
+let searchTerm = '<?= h($q) ?>';
 
 function norm(s){ return (s||'').toString().toLocaleLowerCase(); }
 
