@@ -16,6 +16,7 @@ include("nav.php");
  *      interés_real = 8% (13 - 5)
  * - COMISIÓN: para prestamista = "Celene", 5% de comisión para Gladys Salinas
  * - FILTRO: Rango de fechas para filtrar DEUDORES (no préstamos individuales)
+ * - EXCLUSIONES TEMPORALES: Para cálculos actuales sin afectar BD
  *********************************************************/
 
 /* ===== Config ===== */
@@ -764,7 +765,7 @@ $msg = $_GET['msg'] ?? '';
   .modal-card{
     background:#fff;border-radius:16px;border:1px solid #e5e7eb;
     box-shadow:0 30px 60px rgba(0,0,0,.3);
-    width:95%;max-width:700px;max-height:80vh;
+    width:95%;max-width:900px;max-height:85vh;
     display:flex;flex-direction:column;
     overflow:hidden;
     animation:pop .18s cubic-bezier(.2,.8,.4,1) both;
@@ -826,7 +827,7 @@ $msg = $_GET['msg'] ?? '';
   table.detalle-table{
     width:100%;border-collapse:collapse;
     font-size:13px;line-height:1.4;color:#1f2937;
-    min-width:620px
+    min-width:720px
   }
   .detalle-table thead th{
     position:sticky;top:0;background:#eaf5ff;color:#0b5ed7;
@@ -899,6 +900,34 @@ $msg = $_GET['msg'] ?? '';
   .comision-gladys {
     color:#dc2626 !important;
     font-weight:bold;
+  }
+
+  /* Nuevos estilos para exclusiones */
+  .exclusion-header {
+    background:#fff7ed;
+    border:1px solid #fed7aa;
+    border-radius:8px;
+    padding:12px;
+    margin-bottom:12px;
+  }
+  .exclusion-totals {
+    background:#f0f9ff;
+    border:1px solid #bae6fd;
+    border-radius:8px;
+    padding:12px;
+    margin-top:12px;
+    font-weight:600;
+  }
+  .exclusion-checkbox {
+    transform:scale(1.2);
+    margin-right:8px;
+  }
+  .excluded-row {
+    opacity:0.6;
+    background:#f8fafc !important;
+  }
+  .excluded-row td {
+    color:#9ca3af !important;
   }
 
   /* Responsive */
@@ -1055,6 +1084,17 @@ $msg = $_GET['msg'] ?? '';
       <button class="close-btn" id="modalClose">Cerrar</button>
     </div>
     <div class="modal-body">
+      <!-- Cabecera de exclusiones -->
+      <div class="exclusion-header" id="exclusionHeader" style="display:none">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+          <input type="checkbox" id="toggleExclusions" class="exclusion-checkbox">
+          <strong>Excluir préstamos del cálculo actual (solo para esta sesión)</strong>
+        </label>
+        <div style="font-size:12px; color:#6b7280; margin-top:4px;">
+          Los préstamos excluidos no se incluirán en los totales de ganancia, capital y total a recibir
+        </div>
+      </div>
+
       <!-- Leyenda de colores -->
       <div class="modal-legend">
         <div class="legend-item">
@@ -1079,6 +1119,7 @@ $msg = $_GET['msg'] ?? '';
         <table class="detalle-table">
           <thead>
             <tr>
+              <th style="width:30px;">Excluir</th>
               <th>ID</th>
               <th>Fecha</th>
               <th>Meses</th>
@@ -1092,6 +1133,20 @@ $msg = $_GET['msg'] ?? '';
           </thead>
           <tbody id="modalRows"><!-- dinámico --></tbody>
         </table>
+      </div>
+
+      <!-- Totales de exclusión -->
+      <div class="exclusion-totals" id="exclusionTotals" style="display:none">
+        <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px;">
+          <div>
+            <strong>Total incluido:</strong><br>
+            <span id="totalIncluido">$ 0</span> (<span id="countIncluido">0</span> préstamos)
+          </div>
+          <div>
+            <strong>Total excluido:</strong><br>
+            <span id="totalExcluido" style="color:#dc2626;">$ 0</span> (<span id="countExcluido">0</span> préstamos)
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -1108,6 +1163,9 @@ const COMISION_CELENE_A_GLADYS = <?php echo $comisionCeleneAGladys; ?>; // NUEVO
 const SELECTORS_HTML = <?php echo json_encode($selectors, JSON_UNESCAPED_UNICODE); ?>;
 const ALL_DEBTORS = <?php echo json_encode(array_values($allDebtors), JSON_UNESCAPED_UNICODE); ?>;
 const DETALLE = <?php echo json_encode($detalleMap, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
+
+/* ===== Sistema de Exclusiones Temporales ===== */
+const EXCLUDED_LOANS = new Set(); // IDs de préstamos excluidos temporalmente
 
 /* ===== D3 setup ===== */
 const svg = d3.select("#chart");
@@ -1154,12 +1212,24 @@ function renderChips(prest, visibleRows=null){
 
   if (isGlobalMode()) {
     const all = visibleRows || collectRowsForSelected();
-    interesReal = all.reduce((a,r)=>a+Number(r.interes||0),0);
-    capital     = all.reduce((a,r)=>a+Number(r.valor||0),0);
-    totalGeneral = all.reduce((a,r)=>a+Number(r.total||0),0); // NUEVO: Total general
-    interesTeorico = all.reduce((a,r)=>a+Number(r.interes13||0),0);
-    desc5          = all.reduce((a,r)=>a+Number(r.descuento5||0),0);
-    comisionGladys = all.reduce((a,r)=>a+Number(r.comision_gladys||0),0);
+    // Aplicar exclusiones a los cálculos
+    const filteredRows = all.filter(row => {
+      const prestKey = row.__pkey;
+      const deudKey = row.__dkey;
+      const detalle = DETALLE[prestKey] && DETALLE[prestKey][deudKey];
+      if (!detalle) return true;
+      
+      // Verificar si algún préstamo de este deudor está excluido
+      const hasExcluded = detalle.some(item => EXCLUDED_LOANS.has(item.id));
+      return !hasExcluded;
+    });
+
+    interesReal = filteredRows.reduce((a,r)=>a+Number(r.interes||0),0);
+    capital     = filteredRows.reduce((a,r)=>a+Number(r.valor||0),0);
+    totalGeneral = filteredRows.reduce((a,r)=>a+Number(r.total||0),0);
+    interesTeorico = filteredRows.reduce((a,r)=>a+Number(r.interes13||0),0);
+    desc5          = filteredRows.reduce((a,r)=>a+Number(r.descuento5||0),0);
+    comisionGladys = filteredRows.reduce((a,r)=>a+Number(r.comision_gladys||0),0);
 
     const chipM = document.createElement("span");
     chipM.className="chip";
@@ -1171,26 +1241,34 @@ function renderChips(prest, visibleRows=null){
 
     chipsHost.append(chipM, chipF);
   } else {
-    interesReal = Number(GANANCIA[prest]||0);
-    capital     = Number(CAPITAL[prest]||0);
-    totalGeneral = Number(TOTAL_PREST[prest]||0); // NUEVO: Total general
-    comisionGladys = Number(COMISION_GLADYS[prest]||0);
+    // Aplicar exclusiones a los cálculos por prestamista
+    const rows = DATA[prest] || [];
+    const filteredRows = rows.filter(row => {
+      const prestKey = row.__pkey;
+      const deudKey = row.__dkey;
+      const detalle = DETALLE[prestKey] && DETALLE[prestKey][deudKey];
+      if (!detalle) return true;
+      
+      const hasExcluded = detalle.some(item => EXCLUDED_LOANS.has(item.id));
+      return !hasExcluded;
+    });
 
-    if (Array.isArray(visibleRows)) {
-      interesReal = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
-      capital     = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
-      totalGeneral = visibleRows.reduce((a,r)=>a+Number(r.total||0),0); // NUEVO: Total general
-      interesTeorico = visibleRows.reduce((a,r)=>a+Number(r.interes13||0),0);
-      desc5          = visibleRows.reduce((a,r)=>a+Number(r.descuento5||0),0);
-      comisionGladys = visibleRows.reduce((a,r)=>a+Number(r.comision_gladys||0),0);
-    } else {
-      // si no vino visibleRows pero sí es Celene, sumamos de DATA
-      if (isCelene) {
-        const rows = DATA[prest] || [];
-        interesTeorico = rows.reduce((a,r)=>a+Number(r.interes13||0),0);
-        desc5          = rows.reduce((a,r)=>a+Number(r.descuento5||0),0);
-      }
-    }
+    interesReal = filteredRows.reduce((a,r)=>a+Number(r.interes||0),0);
+    capital     = filteredRows.reduce((a,r)=>a+Number(r.valor||0),0);
+    totalGeneral = filteredRows.reduce((a,r)=>a+Number(r.total||0),0);
+    interesTeorico = filteredRows.reduce((a,r)=>a+Number(r.interes13||0),0);
+    desc5          = filteredRows.reduce((a,r)=>a+Number(r.descuento5||0),0);
+    comisionGladys = filteredRows.reduce((a,r)=>a+Number(r.comision_gladys||0),0);
+  }
+
+  // Mostrar advertencia si hay exclusiones activas
+  if (EXCLUDED_LOANS.size > 0) {
+    const exclusionChip = document.createElement("span");
+    exclusionChip.className = "chip";
+    exclusionChip.style.background = "#fef3c7";
+    exclusionChip.style.color = "#92400e";
+    exclusionChip.textContent = `⚠️ ${EXCLUDED_LOANS.size} préstamo(s) excluido(s)`;
+    chipsHost.appendChild(exclusionChip);
   }
 
   const chip1 = document.createElement("span");
@@ -1419,6 +1497,11 @@ const modalClose = document.getElementById('modalClose');
 const modalTitle = document.getElementById('modalTitle');
 const modalSub   = document.getElementById('modalSub');
 const modalRows  = document.getElementById('modalRows');
+const exclusionHeader = document.getElementById('exclusionHeader');
+const exclusionTotals = document.getElementById('exclusionTotals');
+const toggleExclusions = document.getElementById('toggleExclusions');
+
+let currentModalData = { prestKey: '', deudKey: '', prestName: '', deudName: '' };
 
 modalClose.addEventListener('click', ()=>{
   loanModal.style.display='none';
@@ -1427,14 +1510,62 @@ loanModal.addEventListener('click', (e)=>{
   if (e.target === loanModal) loanModal.style.display='none';
 });
 
+// Toggle para activar/desactivar exclusiones
+toggleExclusions.addEventListener('change', function() {
+  const isActive = this.checked;
+  document.querySelectorAll('.exclusion-cb').forEach(cb => {
+    cb.disabled = !isActive;
+    if (!isActive) {
+      cb.checked = false;
+      EXCLUDED_LOANS.delete(parseInt(cb.value));
+    }
+  });
+  updateExclusionTotals();
+  drawTree(currentPrest);
+});
+
 // Capitaliza estilo título
 function mbTitleJs(str){
   const s = (str||'').toString().toLowerCase();
   return s.replace(/\b([a-záéíóúñ])/gi, (m) => m.toUpperCase());
 }
 
+// Actualizar totales de exclusión
+function updateExclusionTotals() {
+  const { prestKey, deudKey } = currentModalData;
+  const lista = (DETALLE[prestKey] && DETALLE[prestKey][deudKey]) || [];
+  
+  let totalIncluido = 0;
+  let totalExcluido = 0;
+  let countIncluido = 0;
+  let countExcluido = 0;
+
+  lista.forEach(item => {
+    if (EXCLUDED_LOANS.has(item.id)) {
+      totalExcluido += item.total;
+      countExcluido++;
+    } else {
+      totalIncluido += item.total;
+      countIncluido++;
+    }
+  });
+
+  document.getElementById('totalIncluido').textContent = `$ ${totalIncluido.toLocaleString()}`;
+  document.getElementById('totalExcluido').textContent = `$ ${totalExcluido.toLocaleString()}`;
+  document.getElementById('countIncluido').textContent = countIncluido;
+  document.getElementById('countExcluido').textContent = countExcluido;
+
+  // Mostrar/ocultar sección de totales
+  if (countExcluido > 0) {
+    exclusionTotals.style.display = 'block';
+  } else {
+    exclusionTotals.style.display = 'none';
+  }
+}
+
 /* Rellena y abre modal */
-function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
+function fillAndOpenModal(prestKey, deudKey, prestName, deudName){
+  currentModalData = { prestKey, deudKey, prestName, deudName };
   modalRows.innerHTML = '';
 
   const lista = (DETALLE[prestKey] && DETALLE[prestKey][deudKey])
@@ -1443,8 +1574,11 @@ function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
 
   if (!lista.length){
     modalRows.innerHTML =
-      '<tr><td colspan="9" style="text-align:center;color:#6b7280;padding:16px;">No hay registros.</td></tr>';
+      '<tr><td colspan="10" style="text-align:center;color:#6b7280;padding:16px;">No hay registros.</td></tr>';
+    exclusionHeader.style.display = 'none';
+    exclusionTotals.style.display = 'none';
   } else {
+    exclusionHeader.style.display = 'block';
 
     let sumMonto = 0;
     let sumInteresTeorico = 0;
@@ -1452,19 +1586,55 @@ function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
     let sumInteresReal = 0;
     let sumTotal = 0;
 
-    lista.forEach(item=>{
+    lista.forEach(item => {
       const tr = document.createElement('tr');
-
-      const mesesNum = Number(item.meses || 0);
-      let ageClass = 'age-m0';
-      if (mesesNum >= 3) {
-        ageClass = 'age-m3';
-      } else if (mesesNum === 2) {
-        ageClass = 'age-m2';
-      } else if (mesesNum === 1) {
-        ageClass = 'age-m1';
+      const isExcluded = EXCLUDED_LOANS.has(item.id);
+      
+      if (isExcluded) {
+        tr.className = 'excluded-row';
+      } else {
+        const mesesNum = Number(item.meses || 0);
+        let ageClass = 'age-m0';
+        if (mesesNum >= 3) {
+          ageClass = 'age-m3';
+        } else if (mesesNum === 2) {
+          ageClass = 'age-m2';
+        } else if (mesesNum === 1) {
+          ageClass = 'age-m1';
+        }
+        tr.className = ageClass;
       }
-      tr.className = ageClass;
+
+      // Checkbox de exclusión
+      const tdExcl = document.createElement('td');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'exclusion-cb';
+      cb.value = item.id;
+      cb.checked = isExcluded;
+      cb.disabled = !toggleExclusions.checked;
+      cb.addEventListener('change', function() {
+        if (this.checked) {
+          EXCLUDED_LOANS.add(parseInt(this.value));
+        } else {
+          EXCLUDED_LOANS.delete(parseInt(this.value));
+        }
+        updateExclusionTotals();
+        drawTree(currentPrest);
+        
+        // Actualizar apariencia de la fila
+        if (this.checked) {
+          tr.className = 'excluded-row';
+        } else {
+          const mesesNum = Number(item.meses || 0);
+          let ageClass = 'age-m0';
+          if (mesesNum >= 3) ageClass = 'age-m3';
+          else if (mesesNum === 2) ageClass = 'age-m2';
+          else if (mesesNum === 1) ageClass = 'age-m1';
+          tr.className = ageClass;
+        }
+      });
+      tdExcl.appendChild(cb);
 
       const tdId = document.createElement('td');
       tdId.textContent = item.id;
@@ -1473,7 +1643,7 @@ function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
       tdFecha.textContent = item.fecha;
 
       const tdMeses = document.createElement('td');
-      tdMeses.textContent = mesesNum + " mes(es)";
+      tdMeses.textContent = item.meses + " mes(es)";
 
       const tdMonto = document.createElement('td');
       tdMonto.textContent = "$ " + Number(item.monto||0).toLocaleString();
@@ -1503,6 +1673,7 @@ function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
       }
       tdEstado.appendChild(badge);
 
+      tr.appendChild(tdExcl);
       tr.appendChild(tdId);
       tr.appendChild(tdFecha);
       tr.appendChild(tdMeses);
@@ -1515,11 +1686,13 @@ function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
 
       modalRows.appendChild(tr);
 
-      sumMonto          += Number(item.monto||0);
-      sumInteresTeorico += Number(item.interes_teorico||0);
-      sumDesc           += Number(item.interes_desc||0);
-      sumInteresReal    += Number(item.interes||0);
-      sumTotal          += Number(item.total||0);
+      if (!isExcluded) {
+        sumMonto          += Number(item.monto||0);
+        sumInteresTeorico += Number(item.interes_teorico||0);
+        sumDesc           += Number(item.interes_desc||0);
+        sumInteresReal    += Number(item.interes||0);
+        sumTotal          += Number(item.total||0);
+      }
     });
 
     const trTotal = document.createElement('tr');
@@ -1533,7 +1706,7 @@ function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
 
     const tdEmpty3 = document.createElement('td');
     tdEmpty3.className = 'label-cell';
-    tdEmpty3.textContent = 'TOTAL:';
+    tdEmpty3.textContent = 'TOTAL INCLUIDO:';
 
     const tdMontoTotal = document.createElement('td');
     tdMontoTotal.textContent = "$ " + sumMonto.toLocaleString();
@@ -1568,6 +1741,9 @@ function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
 
   modalTitle.textContent = 'Detalle de préstamos';
   modalSub.textContent   = mbTitleJs(deudName) + ' ↔ ' + mbTitleJs(prestName);
+
+  // Actualizar totales de exclusión
+  updateExclusionTotals();
 
   loanModal.style.display='flex';
 }
