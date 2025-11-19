@@ -1202,68 +1202,24 @@ renderToolbar(currentPrest);
 function renderChips(prest, visibleRows=null){
   chipsHost.innerHTML = "";
 
-  let interesReal, capital, totalGeneral, comisionGladys;
-  let interesTeorico = 0;
-  let desc5 = 0;
+  let interesReal = 0;
+  let capital = 0;
+  let totalGeneral = 0;
 
-  const isCelene = (prest || '').toLowerCase().trim() === 'celene';
   const isGladysSalinas = (prest || '').toLowerCase().includes('gladys') || 
                           (prest || '').toLowerCase().includes('salinas');
 
-  if (isGlobalMode()) {
-    const all = visibleRows || collectRowsForSelected();
-    
-    // Filtrar filas que tengan préstamos excluidos
-    const filteredRows = all.filter(row => {
-      const prestKey = row.__pkey;
-      const deudKey = row.__dkey;
-      const detalle = DETALLE[prestKey] && DETALLE[prestKey][deudKey];
-      if (!detalle) return true;
-      
-      // Verificar si algún préstamo de este deudor está excluido
-      const hasExcluded = detalle.some(item => EXCLUDED_LOANS.has(item.id));
-      return !hasExcluded;
-    });
+  // USAR EXACTAMENTE LAS MISMAS FILAS QUE SE MUESTRAN EN LAS TARJETAS
+  const rowsToUse = visibleRows || (DATA[prest] || []);
 
-    // CALCULAR CORRECTAMENTE - USAR LOS TOTALES DE CADA DEUDOR
-    interesReal = filteredRows.reduce((a,r)=>a+Number(r.interes||0),0);
-    capital     = filteredRows.reduce((a,r)=>a+Number(r.valor||0),0);
-    totalGeneral = filteredRows.reduce((a,r)=>a+Number(r.total||0),0); // Sumar los totales individuales
-    interesTeorico = filteredRows.reduce((a,r)=>a+Number(r.interes13||0),0);
-    desc5          = filteredRows.reduce((a,r)=>a+Number(r.descuento5||0),0);
-    comisionGladys = filteredRows.reduce((a,r)=>a+Number(r.comision_gladys||0),0);
+  // CALCULAR DIRECTAMENTE DE LOS VALORES QUE SE MUESTRAN EN LAS TARJETAS
+  rowsToUse.forEach(row => {
+    capital += Number(row.valor || 0);           // El capital que aparece en la tarjeta
+    interesReal += Number(row.interes || 0);     // El interés que aparece en la tarjeta
+  });
 
-    const chipM = document.createElement("span");
-    chipM.className="chip";
-    chipM.textContent = "Modo global (todos los prestamistas)";
-
-    const chipF = document.createElement("span");
-    chipF.className="chip";
-    chipF.textContent = `Filtro: ${SELECTED_DEUDORES.size} deudor(es)`;
-
-    chipsHost.append(chipM, chipF);
-  } else {
-    // Filtrar filas que tengan préstamos excluidos
-    const rows = DATA[prest] || [];
-    const filteredRows = rows.filter(row => {
-      const prestKey = row.__pkey;
-      const deudKey = row.__dkey;
-      const detalle = DETALLE[prestKey] && DETALLE[prestKey][deudKey];
-      if (!detalle) return true;
-      
-      // Verificar si algún préstamo de este deudor está excluido
-      const hasExcluded = detalle.some(item => EXCLUDED_LOANS.has(item.id));
-      return !hasExcluded;
-    });
-
-    // CALCULAR CORRECTAMENTE para modo prestamista específico
-    interesReal = filteredRows.reduce((a,r)=>a+Number(r.interes||0),0);
-    capital     = filteredRows.reduce((a,r)=>a+Number(r.valor||0),0);
-    totalGeneral = filteredRows.reduce((a,r)=>a+Number(r.total||0),0); // CORREGIDO: Sumar los totales individuales
-    interesTeorico = filteredRows.reduce((a,r)=>a+Number(r.interes13||0),0);
-    desc5          = filteredRows.reduce((a,r)=>a+Number(r.descuento5||0),0);
-    comisionGladys = filteredRows.reduce((a,r)=>a+Number(r.comision_gladys||0),0);
-  }
+  // El total es simplemente capital + interés
+  totalGeneral = capital + interesReal;
 
   // Mostrar advertencia si hay exclusiones activas
   if (EXCLUDED_LOANS.size > 0) {
@@ -1285,7 +1241,7 @@ function renderChips(prest, visibleRows=null){
 
   // Para Gladys Salinas: cálculo especial
   if (!isGlobalMode() && isGladysSalinas) {
-    const totalRecibir = interesReal + capital + COMISION_CELENE_A_GLADYS;
+    const totalRecibir = totalGeneral + COMISION_CELENE_A_GLADYS;
     const totalConComision = interesReal + COMISION_CELENE_A_GLADYS;
     
     const chip3 = document.createElement("span");
@@ -2001,23 +1957,11 @@ function drawTree(prestamista) {
 
   // ===== Resumen lateral RESPONSIVE =====
   const visibleRows = rows;
-  
-  // Filtrar filas que tengan préstamos excluidos para el resumen
-  const filteredRowsForSummary = visibleRows.filter(row => {
-    const prestKey = row.__pkey;
-    const deudKey = row.__dkey;
-    const detalle = DETALLE[prestKey] && DETALLE[prestKey][deudKey];
-    if (!detalle) return true;
-    
-    // Verificar si algún préstamo de este deudor está excluido
-    const hasExcluded = detalle.some(item => EXCLUDED_LOANS.has(item.id));
-    return !hasExcluded;
-  });
 
-  // CALCULAR CORRECTAMENTE - USAR LOS TOTALES INDIVIDUALES
-  const totalInteresReal = filteredRowsForSummary.reduce((a,r)=>a+Number(r.interes||0),0);
-  const totalCapital = filteredRowsForSummary.reduce((a,r)=>a+Number(r.valor||0),0);
-  const totalGeneral = filteredRowsForSummary.reduce((a,r)=>a+Number(r.total||0),0); // CORREGIDO: Sumar totales individuales
+  // CALCULAR DIRECTAMENTE DE LAS FILAS VISIBLES (LAS MISMAS QUE EN LAS TARJETAS)
+  const totalInteresReal = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
+  const totalCapital = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
+  const totalGeneral = totalCapital + totalInteresReal; // Simple suma
   
   // Para Gladys Salinas, mostrar la comisión de Celene
   let totalComisionGladys = 0;
@@ -2174,7 +2118,7 @@ function drawTree(prestamista) {
       if (!perPrest[p]) perPrest[p] = { interes:0, capital:0, total:0, comision:0 };
       perPrest[p].interes += Number(r.interes||0);
       perPrest[p].capital += Number(r.valor||0);
-      perPrest[p].total += Number(r.total||0); // CORREGIDO: Usar total individual
+      perPrest[p].total = perPrest[p].capital + perPrest[p].interes; // CORREGIDO: Calcular total como capital + interés
       perPrest[p].comision += Number(r.comision_gladys||0);
     });
 
