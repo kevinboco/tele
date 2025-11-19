@@ -1157,9 +1157,9 @@ $msg = $_GET['msg'] ?? '';
 const DATA = <?php echo json_encode($data, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 const GANANCIA = <?php echo json_encode($ganPrest, JSON_NUMERIC_CHECK); ?>;
 const CAPITAL  = <?php echo json_encode($capPendPrest, JSON_NUMERIC_CHECK); ?>;
-const TOTAL_PREST = <?php echo json_encode($totalPrest, JSON_NUMERIC_CHECK); ?>; // NUEVO: Total general
+const TOTAL_PREST = <?php echo json_encode($totalPrest, JSON_NUMERIC_CHECK); ?>;
 const COMISION_GLADYS = <?php echo json_encode($comisionGladys, JSON_NUMERIC_CHECK); ?>;
-const COMISION_CELENE_A_GLADYS = <?php echo $comisionCeleneAGladys; ?>; // NUEVO
+const COMISION_CELENE_A_GLADYS = <?php echo $comisionCeleneAGladys; ?>;
 const SELECTORS_HTML = <?php echo json_encode($selectors, JSON_UNESCAPED_UNICODE); ?>;
 const ALL_DEBTORS = <?php echo json_encode(array_values($allDebtors), JSON_UNESCAPED_UNICODE); ?>;
 const DETALLE = <?php echo json_encode($detalleMap, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
@@ -1212,7 +1212,8 @@ function renderChips(prest, visibleRows=null){
 
   if (isGlobalMode()) {
     const all = visibleRows || collectRowsForSelected();
-    // Aplicar exclusiones a los cálculos
+    
+    // Filtrar filas que tengan préstamos excluidos
     const filteredRows = all.filter(row => {
       const prestKey = row.__pkey;
       const deudKey = row.__dkey;
@@ -1241,7 +1242,7 @@ function renderChips(prest, visibleRows=null){
 
     chipsHost.append(chipM, chipF);
   } else {
-    // Aplicar exclusiones a los cálculos por prestamista
+    // Filtrar filas que tengan préstamos excluidos
     const rows = DATA[prest] || [];
     const filteredRows = rows.filter(row => {
       const prestKey = row.__pkey;
@@ -1249,6 +1250,7 @@ function renderChips(prest, visibleRows=null){
       const detalle = DETALLE[prestKey] && DETALLE[prestKey][deudKey];
       if (!detalle) return true;
       
+      // Verificar si algún préstamo de este deudor está excluido
       const hasExcluded = detalle.some(item => EXCLUDED_LOANS.has(item.id));
       return !hasExcluded;
     });
@@ -1984,9 +1986,22 @@ function drawTree(prestamista) {
 
   // ===== Resumen lateral RESPONSIVE =====
   const visibleRows = rows;
-  const totalInteresReal = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
-  const totalCapital = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
-  const totalGeneral = visibleRows.reduce((a,r)=>a+Number(r.total||0),0);
+  
+  // Filtrar filas que tengan préstamos excluidos para el resumen
+  const filteredRowsForSummary = visibleRows.filter(row => {
+    const prestKey = row.__pkey;
+    const deudKey = row.__dkey;
+    const detalle = DETALLE[prestKey] && DETALLE[prestKey][deudKey];
+    if (!detalle) return true;
+    
+    // Verificar si algún préstamo de este deudor está excluido
+    const hasExcluded = detalle.some(item => EXCLUDED_LOANS.has(item.id));
+    return !hasExcluded;
+  });
+
+  const totalInteresReal = filteredRowsForSummary.reduce((a,r)=>a+Number(r.interes||0),0);
+  const totalCapital = filteredRowsForSummary.reduce((a,r)=>a+Number(r.valor||0),0);
+  const totalGeneral = filteredRowsForSummary.reduce((a,r)=>a+Number(r.total||0),0);
   
   // Para Gladys Salinas, mostrar la comisión de Celene
   let totalComisionGladys = 0;
