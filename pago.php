@@ -356,13 +356,13 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                  value="<?= number_format($total_facturado,0,',','.') ?>">
         </label>
         <label class="block md:col-span-2">
-          <span class="block text-xs font-medium mb-1">Valor recibido (llegó)</span>
-          <input id="inp_recibido" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num"
-                 value="<?= number_format($total_facturado,0,',','.') ?>">
+          <span class="block text-xs font-medium mb-1">Porcentaje de ajuste (%)</span>
+          <input id="inp_porcentaje_ajuste" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num"
+                 value="5" placeholder="Ej: 5">
         </label>
         <div>
-          <div class="text-xs text-slate-500 mb-1">Diferencia a repartir</div>
-          <div id="lbl_diferencia" class="text-lg font-semibold text-amber-600 num">0</div>
+          <div class="text-xs text-slate-500 mb-1">Total ajuste</div>
+          <div id="lbl_total_ajuste" class="text-lg font-semibold text-amber-600 num">0</div>
         </div>
       </div>
     </section>
@@ -393,9 +393,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 <button type="button" class="conductor-link" title="Ver viajes"><?= htmlspecialchars($f['nombre']) ?></button>
               </td>
               <td class="px-3 py-2 text-right num base"><?= number_format($f['total_bruto'],0,',','.') ?></td>
-              <td class="px-3 py-2 text-right">
-                <input type="text" class="ajuste w-full max-w-[120px] rounded-lg border border-slate-300 px-2 py-1 text-right num" value="0">
-              </td>
+              <td class="px-3 py-2 text-right num ajuste">0</td>
               <td class="px-3 py-2 text-right num llego">0</td>
               <td class="px-3 py-2 text-right num ret">0</td>
               <td class="px-3 py-2 text-right num mil4">0</td>
@@ -527,8 +525,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             <input id="cuenta_facturado" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
           </label>
           <label class="block">
-            <span class="block text-xs font-medium mb-1">Recibido</span>
-            <input id="cuenta_recibido" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
+            <span class="block text-xs font-medium mb-1">Porcentaje ajuste</span>
+            <input id="cuenta_porcentaje" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
           </label>
         </div>
       </div>
@@ -559,7 +557,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 <th class="px-3 py-2 text-left">Nombre</th>
                 <th class="px-3 py-2 text-left">Rango</th>
                 <th class="px-3 py-2 text-right">Facturado</th>
-                <th class="px-3 py-2 text-right">Recibido</th>
+                <th class="px-3 py-2 text-right">% Ajuste</th>
                 <th class="px-3 py-2 text-right">Acciones</th>
               </tr>
             </thead>
@@ -578,7 +576,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const COMPANY_SCOPE = <?= json_encode(($empresaFiltro ?: '__todas__')) ?>;
   const ACC_KEY   = 'cuentas:'+COMPANY_SCOPE;
   const SS_KEY    = 'seg_social:'+COMPANY_SCOPE;
-  const AJUSTE_KEY = 'ajuste_dif:'+COMPANY_SCOPE; // Nueva clave para ajustes
   const PREST_SEL_KEY = 'prestamo_sel_multi:v2:'+COMPANY_SCOPE;
   const PERIODOS_KEY  = 'cuentas_cobro_periodos:v1';
 
@@ -591,7 +588,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
   let accMap = getLS(ACC_KEY);
   let ssMap  = getLS(SS_KEY);
-  let ajusteMap = getLS(AJUSTE_KEY); // Nuevo mapa para ajustes
   let prestSel = getLS(PREST_SEL_KEY); if(!prestSel || typeof prestSel!=='object') prestSel = {};
 
   const tbody = document.getElementById('tbody');
@@ -602,14 +598,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   [...tbody.querySelectorAll('tr')].forEach(tr=>{
     const cta = tr.querySelector('input.cta');
     const ss  = tr.querySelector('input.ss');
-    const ajuste = tr.querySelector('input.ajuste'); // Nuevo: campo de ajuste
     const baseName = tr.children[0].innerText.trim();
     const prestSpan = tr.querySelector('.prest');
     const selLabel  = tr.querySelector('.selected-deudor');
 
     if (accMap[baseName]) cta.value = accMap[baseName];
     if (ssMap[baseName])  ss.value  = fmt(toInt(ssMap[baseName]));
-    if (ajusteMap[baseName]) ajuste.value = fmt(toInt(ajusteMap[baseName])); // Cargar ajuste guardado
 
     const chosen = prestSel[baseName] || [];
     prestSpan.textContent = fmt(sumTotals(chosen));
@@ -617,13 +611,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     cta.addEventListener('change', ()=>{ accMap[baseName] = cta.value.trim(); setLS(ACC_KEY, accMap); });
     ss.addEventListener('input', ()=>{ ssMap[baseName] = toInt(ss.value); setLS(SS_KEY, ssMap); recalc(); });
-    
-    // Nuevo: Event listener para ajustes editados
-    ajuste.addEventListener('input', ()=>{ 
-      ajusteMap[baseName] = toInt(ajuste.value); 
-      setLS(AJUSTE_KEY, ajusteMap); 
-      recalc(); 
-    });
   });
 
   // ===== Modal préstamos =====
@@ -830,75 +817,37 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   });
 
   // ===== Cálculos =====
-  function distribIgual(diff,n){
-    const arr=new Array(n).fill(0);
-    if(n<=0||diff===0)return arr;
-    const s=diff>=0?1:-1;
-    let a=Math.abs(diff);
-    const base=Math.floor(a/n);
-    let resto=a%n;
-    for(let i=0;i<n;i++){
-      arr[i]=s*base+(resto>0?s:0);
-      if(resto>0)resto--;
-    }
-    return arr;
-  }
-
   function recalc(){
-    const fact=toInt(document.getElementById('inp_facturado').value);
-    const rec =toInt(document.getElementById('inp_recibido').value);
-    const diff=fact-rec;
-    document.getElementById('lbl_diferencia').textContent=fmt(diff);
-
+    const porcentaje = parseFloat(document.getElementById('inp_porcentaje_ajuste').value) || 0;
     const rows=[...tbody.querySelectorAll('tr')];
-    
-    // Verificar si hay ajustes editados manualmente
-    let tieneAjustesEditados = false;
-    let sumaAjustesEditados = 0;
-    
-    rows.forEach(tr => {
-      const ajusteEditado = toInt(tr.querySelector('input.ajuste').value);
-      if (ajusteEditado !== 0) {
-        tieneAjustesEditados = true;
-        sumaAjustesEditados += ajusteEditado;
-      }
-    });
 
-    let sumLleg=0,sumRet=0,sumMil4=0,sumAp=0,sumSS=0,sumPrest=0,sumPagar=0;
+    let sumAjuste=0, sumLleg=0, sumRet=0, sumMil4=0, sumAp=0, sumSS=0, sumPrest=0, sumPagar=0;
     
     rows.forEach((tr,i)=>{
       const base=toInt(tr.querySelector('.base').textContent);
       const prest=toInt(tr.querySelector('.prest').textContent);
-      const ajusteEditado = toInt(tr.querySelector('input.ajuste').value);
       
-      let aj;
-      if (tieneAjustesEditados) {
-        // Usar el ajuste editado manualmente
-        aj = ajusteEditado;
-      } else {
-        // Distribución automática
-        const ajustes = distribIgual(diff, rows.length);
-        aj = ajustes[i] || 0;
-        // Actualizar el input con el valor calculado
-        tr.querySelector('input.ajuste').value = (aj===0?'0':(aj>0?'-'+fmt(aj):'+'+fmt(Math.abs(aj))));
-      }
-      
-      const llego=base-aj;
+      // Calcular ajuste como porcentaje del base
+      const ajuste = Math.round(base * (porcentaje / 100));
+      const llego = base - ajuste;
       const ret=Math.round(llego*0.035);
       const mil4=Math.round(llego*0.004);
       const ap=Math.round(llego*0.10);
       const ss=toInt(tr.querySelector('input.ss').value);
       const pagar = llego - ret - mil4 - ap - ss - prest;
 
+      tr.querySelector('.ajuste').textContent=fmt(ajuste);
       tr.querySelector('.llego').textContent=fmt(llego);
       tr.querySelector('.ret').textContent=fmt(ret);
       tr.querySelector('.mil4').textContent=fmt(mil4);
       tr.querySelector('.apor').textContent=fmt(ap);
       tr.querySelector('.pagar').textContent=fmt(pagar);
 
+      sumAjuste += ajuste;
       sumLleg+=llego; sumRet+=ret; sumMil4+=mil4; sumAp+=ap; sumSS+=ss; sumPrest+=prest; sumPagar+=pagar;
     });
 
+    document.getElementById('lbl_total_ajuste').textContent=fmt(sumAjuste);
     document.getElementById('tot_valor_llego').textContent=fmt(sumLleg);
     document.getElementById('tot_retencion').textContent=fmt(sumRet);
     document.getElementById('tot_4x1000').textContent=fmt(sumMil4);
@@ -908,9 +857,14 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     document.getElementById('tot_pagar').textContent=fmt(sumPagar);
   }
 
-  const fmtInput=(el)=> el.addEventListener('input',()=>{ const raw=toInt(el.value); el.value=fmt(raw); recalc(); });
+  const fmtInput=(el)=> el.addEventListener('input',()=>{ 
+    const raw=parseFloat(el.value) || 0; 
+    el.value = raw; 
+    recalc(); 
+  });
+  
   fmtInput(document.getElementById('inp_facturado'));
-  fmtInput(document.getElementById('inp_recibido'));
+  fmtInput(document.getElementById('inp_porcentaje_ajuste'));
   recalc();
 
   // ===== Gestor de cuentas =====
@@ -919,7 +873,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const inpHasta = document.getElementById('inp_hasta');
   const selEmpresa = document.getElementById('sel_empresa');
   const inpFact = document.getElementById('inp_facturado');
-  const inpRec = document.getElementById('inp_recibido');
+  const inpPorcentaje = document.getElementById('inp_porcentaje_ajuste');
 
   const saveCuentaModal = document.getElementById('saveCuentaModal');
   const btnShowSaveCuenta = document.getElementById('btnShowSaveCuenta');
@@ -931,7 +885,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const iEmpresa = document.getElementById('cuenta_empresa');
   const iRango = document.getElementById('cuenta_rango');
   const iCFact = document.getElementById('cuenta_facturado');
-  const iCRec  = document.getElementById('cuenta_recibido');
+  const iCPorcentaje  = document.getElementById('cuenta_porcentaje');
 
   const PERIODOS = getLS(PERIODOS_KEY);
 
@@ -944,7 +898,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     iRango.value = `${d} → ${h}`;
     iNombre.value = `${emp} ${d} a ${h}`;
     iCFact.value = fmt(toInt(inpFact.value));
-    iCRec.value  = fmt(toInt(inpRec.value));
+    iCPorcentaje.value = parseFloat(inpPorcentaje.value) || 0;
 
     saveCuentaModal.classList.remove('hidden');
     setTimeout(()=> iNombre.focus(), 0);
@@ -962,9 +916,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const hasta = (d2raw||'').trim();
     const nombre = iNombre.value.trim() || `${emp} ${desde} a ${hasta}`;
     const facturado = toInt(iCFact.value);
-    const recibido  = toInt(iCRec.value);
+    const porcentaje  = parseFloat(iCPorcentaje.value) || 0;
 
-    const item = { id: Date.now(), nombre, desde, hasta, facturado, recibido };
+    const item = { id: Date.now(), nombre, desde, hasta, facturado, porcentaje };
     if(!PERIODOS[emp]) PERIODOS[emp] = [];
     PERIODOS[emp].push(item);
     setLS(PERIODOS_KEY, PERIODOS);
@@ -999,7 +953,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         <td class="px-3 py-2">${item.nombre}</td>
         <td class="px-3 py-2">${item.desde} &rarr; ${item.hasta}</td>
         <td class="px-3 py-2 text-right num">${fmt(item.facturado||0)}</td>
-        <td class="px-3 py-2 text-right num">${fmt(item.recibido||0)}</td>
+        <td class="px-3 py-2 text-right num">${item.porcentaje||0}%</td>
         <td class="px-3 py-2 text-right">
           <div class="inline-flex gap-2">
             <button class="btnUsar border px-2 py-1 rounded bg-slate-50 hover:bg-slate-100 text-xs">Usar</button>
@@ -1022,7 +976,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     inpDesde.value = item.desde;
     inpHasta.value = item.hasta;
     if(item.facturado) document.getElementById('inp_facturado').value = fmt(item.facturado);
-    if(item.recibido)  document.getElementById('inp_recibido').value  = fmt(item.recibido);
+    if(item.porcentaje)  document.getElementById('inp_porcentaje_ajuste').value  = item.porcentaje;
     recalc();
     if(aplicar) formFiltros.submit();
   }
@@ -1033,14 +987,14 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     iRango.value = `${item.desde} → ${item.hasta}`;
     iNombre.value = item.nombre;
     iCFact.value = fmt(item.facturado||0);
-    iCRec.value  = fmt(item.recibido||0);
+    iCPorcentaje.value  = item.porcentaje || 0;
     btnDoSaveCuenta.onclick = ()=>{
       const [d,h] = iRango.value.split('→').map(s=>s.trim());
       item.nombre = iNombre.value.trim() || item.nombre;
       item.desde  = d || item.desde;
       item.hasta  = h || item.hasta;
       item.facturado = toInt(iCFact.value);
-      item.recibido  = toInt(iCRec.value);
+      item.porcentaje  = parseFloat(iCPorcentaje.value) || 0;
       setLS(PERIODOS_KEY, PERIODOS);
       closeSaveCuenta(); renderCuentas();
     };
@@ -1067,7 +1021,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   btnAddDesdeFiltro.addEventListener('click', ()=>{ closeGestor(); openSaveCuenta(); });
 
   const nf1 = el => el.addEventListener('input', ()=>{ el.value = fmt(toInt(el.value)); });
-  nf1(iCFact); nf1(iCRec);
+  nf1(iCFact);
 </script>
 
 </body>
