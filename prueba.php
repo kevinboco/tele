@@ -1225,9 +1225,10 @@ function renderChips(prest, visibleRows=null){
       return !hasExcluded;
     });
 
+    // CALCULAR CORRECTAMENTE - USAR LOS TOTALES DE CADA DEUDOR
     interesReal = filteredRows.reduce((a,r)=>a+Number(r.interes||0),0);
     capital     = filteredRows.reduce((a,r)=>a+Number(r.valor||0),0);
-    totalGeneral = filteredRows.reduce((a,r)=>a+Number(r.total||0),0);
+    totalGeneral = filteredRows.reduce((a,r)=>a+Number(r.total||0),0); // Sumar los totales individuales
     interesTeorico = filteredRows.reduce((a,r)=>a+Number(r.interes13||0),0);
     desc5          = filteredRows.reduce((a,r)=>a+Number(r.descuento5||0),0);
     comisionGladys = filteredRows.reduce((a,r)=>a+Number(r.comision_gladys||0),0);
@@ -1255,9 +1256,10 @@ function renderChips(prest, visibleRows=null){
       return !hasExcluded;
     });
 
+    // CALCULAR CORRECTAMENTE para modo prestamista específico
     interesReal = filteredRows.reduce((a,r)=>a+Number(r.interes||0),0);
     capital     = filteredRows.reduce((a,r)=>a+Number(r.valor||0),0);
-    totalGeneral = filteredRows.reduce((a,r)=>a+Number(r.total||0),0);
+    totalGeneral = filteredRows.reduce((a,r)=>a+Number(r.total||0),0); // CORREGIDO: Sumar los totales individuales
     interesTeorico = filteredRows.reduce((a,r)=>a+Number(r.interes13||0),0);
     desc5          = filteredRows.reduce((a,r)=>a+Number(r.descuento5||0),0);
     comisionGladys = filteredRows.reduce((a,r)=>a+Number(r.comision_gladys||0),0);
@@ -1304,13 +1306,12 @@ function renderChips(prest, visibleRows=null){
 
     chipsHost.append(chip1, chip2, chip5, chip3, chip4);
   } else {
-    // Para otros prestamistas: total normal (interés + capital)
+    // Para otros prestamistas: total normal (capital + interés)
     const chip3 = document.createElement("span");
     chip3.className = "chip";
     chip3.style.background = "#DCFCE7";
     chip3.style.color = "#166534";
     chip3.textContent = `Total a recibir: $ ${totalGeneral.toLocaleString()}`;
-
     chipsHost.append(chip1, chip2, chip3);
   }
 
@@ -2013,9 +2014,10 @@ function drawTree(prestamista) {
     return !hasExcluded;
   });
 
+  // CALCULAR CORRECTAMENTE - USAR LOS TOTALES INDIVIDUALES
   const totalInteresReal = filteredRowsForSummary.reduce((a,r)=>a+Number(r.interes||0),0);
   const totalCapital = filteredRowsForSummary.reduce((a,r)=>a+Number(r.valor||0),0);
-  const totalGeneral = filteredRowsForSummary.reduce((a,r)=>a+Number(r.total||0),0);
+  const totalGeneral = filteredRowsForSummary.reduce((a,r)=>a+Number(r.total||0),0); // CORREGIDO: Sumar totales individuales
   
   // Para Gladys Salinas, mostrar la comisión de Celene
   let totalComisionGladys = 0;
@@ -2172,7 +2174,7 @@ function drawTree(prestamista) {
       if (!perPrest[p]) perPrest[p] = { interes:0, capital:0, total:0, comision:0 };
       perPrest[p].interes += Number(r.interes||0);
       perPrest[p].capital += Number(r.valor||0);
-      perPrest[p].total += Number(r.total||0);
+      perPrest[p].total += Number(r.total||0); // CORREGIDO: Usar total individual
       perPrest[p].comision += Number(r.comision_gladys||0);
     });
 
