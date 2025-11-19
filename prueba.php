@@ -15,7 +15,6 @@ include("nav.php");
  *      descuento_5  = 5% sobre capital (mismos meses)
  *      interés_real = 8% (13 - 5)
  * - COMISIÓN: para prestamista = "Celene", 5% de comisión para Gladys Salinas
- * - FILTRO CUENTA COBRO: filtrar conductores por rango de fechas de trabajo
  *********************************************************/
 
 /* ===== Config ===== */
@@ -37,36 +36,6 @@ function mbtitle($s){
   return function_exists('mb_convert_case')
     ? mb_convert_case((string)$s, MB_CASE_TITLE, 'UTF-8')
     : ucwords(strtolower((string)$s));
-}
-
-/* ===== FILTRO CUENTA DE COBRO ===== */
-$filtro_cuenta_cobro = isset($_GET['filtro_cuenta']) && $_GET['filtro_cuenta'] === '1';
-$fecha_inicio_cobro = $_GET['fecha_inicio'] ?? '';
-$fecha_fin_cobro = $_GET['fecha_fin'] ?? '';
-$conductores_cuenta_cobro = [];
-
-// Aplicar filtro de cuenta de cobro si está activo
-if ($filtro_cuenta_cobro && $fecha_inicio_cobro && $fecha_fin_cobro) {
-    $conn_temp = db();
-    
-    // CONFIGURA ESTA TABLA con el nombre real de tu tabla de viajes
-    $sql_conductores = "SELECT DISTINCT LOWER(TRIM(conductor)) as conductor_norm
-                        FROM viajes 
-                        WHERE fecha BETWEEN ? AND ?
-                        AND conductor IS NOT NULL 
-                        AND conductor != ''";
-    
-    $st_temp = $conn_temp->prepare($sql_conductores);
-    $st_temp->bind_param("ss", $fecha_inicio_cobro, $fecha_fin_cobro);
-    $st_temp->execute();
-    $res = $st_temp->get_result();
-    
-    while ($row = $res->fetch_assoc()) {
-        $conductores_cuenta_cobro[] = $row['conductor_norm'];
-    }
-    
-    $st_temp->close();
-    $conn_temp->close();
 }
 
 /* ===== Acción: marcar pagados ===== */
@@ -129,14 +98,6 @@ if ($q !== ''){
   $types .= "ss";
   $params[]=$qNorm;
   $params[]=$qNorm;
-}
-
-// Aplicar filtro de cuenta de cobro al WHERE
-if ($filtro_cuenta_cobro && !empty($conductores_cuenta_cobro)) {
-    $placeholders = implode(',', array_fill(0, count($conductores_cuenta_cobro), '?'));
-    $where .= " AND LOWER(TRIM(deudor)) IN ($placeholders)";
-    $types .= str_repeat('s', count($conductores_cuenta_cobro));
-    $params = array_merge($params, $conductores_cuenta_cobro);
 }
 
 /* =========================================================
@@ -600,49 +561,6 @@ $msg = $_GET['msg'] ?? '';
   }
   .multiselect .opt:hover { background:#f8fafc; }
 
-  /* FILTRO CUENTA COBRO */
-  .filtro-cuenta-cobro {
-    background:#fff3cd;
-    border:1px solid #ffeaa7;
-    border-radius:10px;
-    padding:12px;
-    margin:10px 16px;
-  }
-  .filtro-cuenta-cobro h3 {
-    margin:0 0 8px 0;
-    color:#856404;
-    font-size:14px;
-  }
-  .filtro-form {
-    display:flex;
-    gap:10px;
-    align-items:center;
-    flex-wrap:wrap;
-  }
-  .filtro-form input[type="date"] {
-    height:34px;
-    padding:6px 10px;
-    border:1px solid #e5e7eb;
-    border-radius:8px;
-  }
-  .filtro-form button {
-    height:34px;
-    padding:6px 12px;
-    border:1px solid #e5e7eb;
-    border-radius:8px;
-    background:#0b5ed7;
-    color:white;
-    cursor:pointer;
-  }
-  .filtro-form button[type="button"] {
-    background:#6c757d;
-  }
-  .filtro-activo {
-    background:#d4edda !important;
-    border-color:#c3e6cb !important;
-    color:#155724 !important;
-  }
-
   .toolbar {
     position:absolute;left:10px;top:60px;z-index:5;
     display:flex;gap:8px;flex-wrap:wrap;align-items:center;
@@ -906,10 +824,6 @@ $msg = $_GET['msg'] ?? '';
     svg {
       min-width: 1000px;
     }
-    .filtro-form {
-      flex-direction: column;
-      align-items: flex-start;
-    }
   }
 
   @media (max-width: 480px) {
@@ -928,39 +842,6 @@ $msg = $_GET['msg'] ?? '';
 </style>
 </head>
 <body>
-
-<!-- FILTRO CUENTA DE COBRO -->
-<?php if ($filtro_cuenta_cobro && !empty($conductores_cuenta_cobro)): ?>
-<div class="filtro-cuenta-cobro">
-  <h3>📋 FILTRO ACTIVO - CUENTA DE COBRO</h3>
-  <div class="filtro-form">
-    <span><strong>Periodo:</strong> <?= h($fecha_inicio_cobro) ?> al <?= h($fecha_fin_cobro) ?></span>
-    <span><strong>Conductores encontrados:</strong> <?= count($conductores_cuenta_cobro) ?></span>
-    <button type="button" onclick="window.location.href='<?= $_SERVER['PHP_SELF'] ?>'">
-      ✕ Quitar Filtro
-    </button>
-  </div>
-</div>
-<?php else: ?>
-<div class="filtro-cuenta-cobro">
-  <h3>🔍 FILTRO PARA CUENTA DE COBRO</h3>
-  <form class="filtro-form" method="get">
-    <input type="hidden" name="filtro_cuenta" value="1">
-    <div>
-      <label>Fecha inicio:</label>
-      <input type="date" name="fecha_inicio" value="<?= h($fecha_inicio_cobro) ?>" required>
-    </div>
-    <div>
-      <label>Fecha fin:</label>
-      <input type="date" name="fecha_fin" value="<?= h($fecha_fin_cobro) ?>" required>
-    </div>
-    <button type="submit">Aplicar Filtro</button>
-    <?php if ($q): ?>
-      <input type="hidden" name="q" value="<?= h($q) ?>">
-    <?php endif; ?>
-  </form>
-</div>
-<?php endif; ?>
 
 <div class="topbar">
   <?php if ($msg): ?>
@@ -993,7 +874,7 @@ $msg = $_GET['msg'] ?? '';
 
   <!-- Buscador -->
   <div class="search">
-    <input id="searchInput" type="text" placeholder="Buscar..." autocomplete="off" value="<?= h($q) ?>">
+    <input id="searchInput" type="text" placeholder="Buscar..." autocomplete="off">
     <button id="clearSearch" title="Limpiar">✕</button>
   </div>
 </div>
@@ -1065,16 +946,12 @@ $msg = $_GET['msg'] ?? '';
 const DATA = <?php echo json_encode($data, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 const GANANCIA = <?php echo json_encode($ganPrest, JSON_NUMERIC_CHECK); ?>;
 const CAPITAL  = <?php echo json_encode($capPendPrest, JSON_NUMERIC_CHECK); ?>;
-const TOTAL_PREST = <?php echo json_encode($totalPrest, JSON_NUMERIC_CHECK); ?>;
+const TOTAL_PREST = <?php echo json_encode($totalPrest, JSON_NUMERIC_CHECK); ?>; // NUEVO: Total general
 const COMISION_GLADYS = <?php echo json_encode($comisionGladys, JSON_NUMERIC_CHECK); ?>;
-const COMISION_CELENE_A_GLADYS = <?php echo $comisionCeleneAGladys; ?>;
+const COMISION_CELENE_A_GLADYS = <?php echo $comisionCeleneAGladys; ?>; // NUEVO
 const SELECTORS_HTML = <?php echo json_encode($selectors, JSON_UNESCAPED_UNICODE); ?>;
 const ALL_DEBTORS = <?php echo json_encode(array_values($allDebtors), JSON_UNESCAPED_UNICODE); ?>;
 const DETALLE = <?php echo json_encode($detalleMap, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
-
-// Variables para el filtro de cuenta de cobro
-const FILTRO_CUENTA_COBRO_ACTIVO = <?php echo $filtro_cuenta_cobro ? 'true' : 'false'; ?>;
-const CONDUCTORES_CUENTA_COBRO = <?php echo json_encode($conductores_cuenta_cobro, JSON_UNESCAPED_UNICODE); ?>;
 
 /* ===== D3 setup ===== */
 const svg = d3.select("#chart");
@@ -1123,7 +1000,7 @@ function renderChips(prest, visibleRows=null){
     const all = visibleRows || collectRowsForSelected();
     interesReal = all.reduce((a,r)=>a+Number(r.interes||0),0);
     capital     = all.reduce((a,r)=>a+Number(r.valor||0),0);
-    totalGeneral = all.reduce((a,r)=>a+Number(r.total||0),0);
+    totalGeneral = all.reduce((a,r)=>a+Number(r.total||0),0); // NUEVO: Total general
     interesTeorico = all.reduce((a,r)=>a+Number(r.interes13||0),0);
     desc5          = all.reduce((a,r)=>a+Number(r.descuento5||0),0);
     comisionGladys = all.reduce((a,r)=>a+Number(r.comision_gladys||0),0);
@@ -1140,17 +1017,18 @@ function renderChips(prest, visibleRows=null){
   } else {
     interesReal = Number(GANANCIA[prest]||0);
     capital     = Number(CAPITAL[prest]||0);
-    totalGeneral = Number(TOTAL_PREST[prest]||0);
+    totalGeneral = Number(TOTAL_PREST[prest]||0); // NUEVO: Total general
     comisionGladys = Number(COMISION_GLADYS[prest]||0);
 
     if (Array.isArray(visibleRows)) {
       interesReal = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
       capital     = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
-      totalGeneral = visibleRows.reduce((a,r)=>a+Number(r.total||0),0);
+      totalGeneral = visibleRows.reduce((a,r)=>a+Number(r.total||0),0); // NUEVO: Total general
       interesTeorico = visibleRows.reduce((a,r)=>a+Number(r.interes13||0),0);
       desc5          = visibleRows.reduce((a,r)=>a+Number(r.descuento5||0),0);
       comisionGladys = visibleRows.reduce((a,r)=>a+Number(r.comision_gladys||0),0);
     } else {
+      // si no vino visibleRows pero sí es Celene, sumamos de DATA
       if (isCelene) {
         const rows = DATA[prest] || [];
         interesTeorico = rows.reduce((a,r)=>a+Number(r.interes13||0),0);
@@ -1190,6 +1068,7 @@ function renderChips(prest, visibleRows=null){
 
     chipsHost.append(chip1, chip2, chip5, chip3, chip4);
   } else {
+    // Para otros prestamistas: total normal (interés + capital)
     const chip3 = document.createElement("span");
     chip3.className = "chip";
     chip3.style.background = "#DCFCE7";
@@ -1197,16 +1076,6 @@ function renderChips(prest, visibleRows=null){
     chip3.textContent = `Total a recibir: $ ${totalGeneral.toLocaleString()}`;
 
     chipsHost.append(chip1, chip2, chip3);
-  }
-
-  // Mostrar info del filtro de cuenta de cobro si está activo
-  if (FILTRO_CUENTA_COBRO_ACTIVO) {
-    const chipFiltro = document.createElement("span");
-    chipFiltro.className = "chip";
-    chipFiltro.style.background = "#fff3cd";
-    chipFiltro.style.color = "#856404";
-    chipFiltro.textContent = `Cuenta Cobro: ${CONDUCTORES_CUENTA_COBRO.length} conductores`;
-    chipsHost.appendChild(chipFiltro);
   }
 
   const chipL1 = document.createElement("span");
@@ -1242,7 +1111,7 @@ function renderSelector(prest){
 /* ===== Buscador ===== */
 const searchInput = document.getElementById('searchInput');
 const clearBtn = document.getElementById('clearSearch');
-let searchTerm = '<?= h($q) ?>';
+let searchTerm = '';
 
 function norm(s){ return (s||'').toString().toLocaleLowerCase(); }
 
@@ -1839,11 +1708,6 @@ function drawTree(prestamista) {
     tituloResumen = "Resumen de Celene";
   } else if (isGladysSalinas) {
     tituloResumen = "Resumen de Gladys Salinas";
-  }
-
-  // Mostrar info del filtro de cuenta de cobro en el resumen
-  if (FILTRO_CUENTA_COBRO_ACTIVO) {
-    tituloResumen += " (Cuenta Cobro)";
   }
 
   summaryG.append("text")
