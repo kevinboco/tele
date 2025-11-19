@@ -30,32 +30,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $porcentaje_interes = floatval($_POST['porcentaje_interes']) ?? 10;
     
     if (!empty($deudores_seleccionados) && !empty($prestamista_seleccionado)) {
-        // Calcular factor de interés
-        $factor_interes = $porcentaje_interes / 100;
+        // Calcular factor de interés mensual
+        $factor_interes_mensual = $porcentaje_interes / 100;
         
-        // Consulta para obtener los préstamos
+        // Consulta para obtener los préstamos con cálculo de meses
         $placeholders = str_repeat('?,', count($deudores_seleccionados) - 1) . '?';
         
         $sql = "SELECT 
                     deudor,
                     prestamista,
-                    SUM(monto) as total_capital,
-                    SUM(monto) * ? as total_interes,
-                    SUM(monto) * (1 + ?) as total_general,
-                    COUNT(*) as cantidad_prestamos
+                    monto,
+                    fecha,
+                    DATEDIFF(CURDATE(), fecha) as dias_transcurridos,
+                    FLOOR(DATEDIFF(CURDATE(), fecha) / 30) as meses_transcurridos,
+                    CASE 
+                        WHEN FLOOR(DATEDIFF(CURDATE(), fecha) / 30) < 1 THEN 1
+                        ELSE FLOOR(DATEDIFF(CURDATE(), fecha) / 30)
+                    END as meses_a_cobrar
                 FROM prestamos 
                 WHERE deudor IN ($placeholders) 
                 AND prestamista = ?
                 AND pagado = 0
-                GROUP BY deudor, prestamista
-                ORDER BY deudor";
+                ORDER BY deudor, fecha";
         
         $stmt = $conn->prepare($sql);
-        $types = 'd' . 'd' . str_repeat('s', count($deudores_seleccionados)) . 's';
-        $params = array_merge([$factor_interes, $factor_interes], $deudores_seleccionados, [$prestamista_seleccionado]);
+        $types = str_repeat('s', count($deudores_seleccionados)) . 's';
+        $params = array_merge($deudores_seleccionados, [$prestamista_seleccionado]);
         $stmt->bind_param($types, ...$params);
         $stmt->execute();
-        $resultado = $stmt->get_result();
+        $result_detalle = $stmt->get_result();
+        
+        // Procesar los datos para agrupar por deudor
+        $prestamos_por_deudor = [];
+        
+        while($fila = $result_detalle->fetch_assoc()) {
+            $deudor = $fila['deudor'];
+            $meses = $fila['meses_a_cobrar'];
+            $interes_prestamo = $fila['monto'] * $factor_interes_mensual * $meses;
+            $total_prestamo = $fila['monto'] + $interes_prestamo;
+            
+            if (!isset($prestamos_por_deudor[$deudor])) {
+                $prestamos_por_deudor[$deudor] = [
+                    'total_capital' => 0,
+                    'total_interes' => 0,
+                    'total_general' => 0,
+                    'cantidad_prestamos' => 0,
+                    'prestamos_detalle' => []
+                ];
+            }
+            
+            $prestamos_por_deudor[$deudor]['total_capital'] += $fila['monto'];
+            $prestamos_por_deudor[$deudor]['total_interes'] += $interes_prestamo;
+            $prestamos_por_deudor[$deudor]['total_general'] += $total_prestamo;
+            $prestamos_por_deudor[$deudor]['cantidad_prestamos']++;
+            
+            $prestamos_por_deudor[$deudor]['prestamos_detalle'][] = [
+                'monto' => $fila['monto'],
+                'fecha' => $fila['fecha'],
+                'meses' => $meses,
+                'interes' => $interes_prestamo,
+                'total' => $total_prestamo
+            ];
+        }
         
         // Calcular totales generales
         $total_capital_general = 0;
@@ -72,20 +108,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Reporte de Préstamos</title>
     <style>
-        .container { max-width: 1200px; margin: 20px auto; padding: 20px; }
+        .container { max-width: 1400px; margin: 20px auto; padding: 20px; }
         .form-group { margin-bottom: 20px; }
         label { display: block; margin-bottom: 5px; font-weight: bold; }
         select, button, input { width: 100%; padding: 10px; margin: 5px 0; }
         select[multiple] { height: 200px; }
         .resultados { margin-top: 30px; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
         th { background-color: #f2f2f2; }
         .totales { background-color: #e8f4fd; font-weight: bold; }
         .moneda { text-align: right; }
-        .porcentaje-input { width: 100px; display: inline-block; }
         .form-row { display: flex; gap: 20px; }
         .form-col { flex: 1; }
+        .detalle-toggle { cursor: pointer; color: #007bff; }
+        .detalle-prestamo { display: none; background-color: #f9f9f9; }
+        .detalle-prestamo td { padding: 5px 8px; font-size: 0.9em; }
+        .meses { text-align: center; }
+        .header-deudor { background-color: #e9ecef; }
     </style>
 </head>
 <body>
@@ -115,7 +155,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <select name="prestamista" id="prestamista" required>
                             <option value="">-- Seleccionar Prestamista --</option>
                             <?php 
-                            $result_prestamistas->data_seek(0); // Resetear el puntero
+                            $result_prestamistas->data_seek(0);
                             while($prestamista = $result_prestamistas->fetch_assoc()): ?>
                                 <option value="<?= htmlspecialchars($prestamista['prestamista']) ?>" 
                                     <?= $prestamista_seleccionado == $prestamista['prestamista'] ? 'selected' : '' ?>>
@@ -126,10 +166,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                     
                     <div class="form-group">
-                        <label for="porcentaje_interes">Porcentaje de Interés (%):</label>
+                        <label for="porcentaje_interes">Interés Mensual (%):</label>
                         <input type="number" name="porcentaje_interes" id="porcentaje_interes" 
                                value="<?= $porcentaje_interes ?>" step="0.1" min="0" max="100" required>
-                        <small>Ej: 10, 13, 15.5</small>
+                        <small>Interés mensual (10%, 13%, etc.)</small>
                     </div>
                     
                     <button type="submit">Generar Reporte</button>
@@ -137,9 +177,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         </form>
 
-        <?php if (isset($resultado)): ?>
+        <?php if (isset($prestamos_por_deudor)): ?>
         <div class="resultados">
-            <h2>Resultados para: <?= htmlspecialchars($prestamista_seleccionado) ?> (Interés: <?= $porcentaje_interes ?>%)</h2>
+            <h2>Resultados para: <?= htmlspecialchars($prestamista_seleccionado) ?> (Interés: <?= $porcentaje_interes ?>% mensual)</h2>
             
             <table>
                 <thead>
@@ -147,25 +187,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <th>Deudor</th>
                         <th>Préstamos</th>
                         <th>Capital</th>
-                        <th>Interés (<?= $porcentaje_interes ?>%)</th>
+                        <th>Interés (<?= $porcentaje_interes ?>% mensual)</th>
                         <th>Total a Pagar</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php while($fila = $resultado->fetch_assoc()): ?>
+                    <?php foreach($prestamos_por_deudor as $deudor => $datos): ?>
                     <?php 
-                        $total_capital_general += $fila['total_capital'];
-                        $total_interes_general += $fila['total_interes'];
-                        $total_general += $fila['total_general'];
+                        $total_capital_general += $datos['total_capital'];
+                        $total_interes_general += $datos['total_interes'];
+                        $total_general += $datos['total_general'];
                     ?>
-                    <tr>
-                        <td><?= htmlspecialchars($fila['deudor']) ?></td>
-                        <td><?= $fila['cantidad_prestamos'] ?></td>
-                        <td class="moneda">$ <?= number_format($fila['total_capital'], 0, ',', '.') ?></td>
-                        <td class="moneda">$ <?= number_format($fila['total_interes'], 0, ',', '.') ?></td>
-                        <td class="moneda">$ <?= number_format($fila['total_general'], 0, ',', '.') ?></td>
+                    <tr class="header-deudor">
+                        <td>
+                            <span class="detalle-toggle" onclick="toggleDetalle('<?= md5($deudor) ?>')">
+                                📊 <?= htmlspecialchars($deudor) ?>
+                            </span>
+                        </td>
+                        <td><?= $datos['cantidad_prestamos'] ?></td>
+                        <td class="moneda">$ <?= number_format($datos['total_capital'], 0, ',', '.') ?></td>
+                        <td class="moneda">$ <?= number_format($datos['total_interes'], 0, ',', '.') ?></td>
+                        <td class="moneda">$ <?= number_format($datos['total_general'], 0, ',', '.') ?></td>
                     </tr>
-                    <?php endwhile; ?>
+                    
+                    <!-- Detalle de cada préstamo -->
+                    <tr class="detalle-prestamo" id="detalle-<?= md5($deudor) ?>">
+                        <td colspan="5">
+                            <table style="width: 100%; background-color: white;">
+                                <thead>
+                                    <tr>
+                                        <th>Fecha</th>
+                                        <th>Monto</th>
+                                        <th>Meses</th>
+                                        <th>Interés</th>
+                                        <th>Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach($datos['prestamos_detalle'] as $detalle): ?>
+                                    <tr>
+                                        <td><?= $detalle['fecha'] ?></td>
+                                        <td class="moneda">$ <?= number_format($detalle['monto'], 0, ',', '.') ?></td>
+                                        <td class="meses"><?= $detalle['meses'] ?></td>
+                                        <td class="moneda">$ <?= number_format($detalle['interes'], 0, ',', '.') ?></td>
+                                        <td class="moneda">$ <?= number_format($detalle['total'], 0, ',', '.') ?></td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
                     
                     <!-- Totales generales -->
                     <tr class="totales">
@@ -188,7 +260,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         });
         
-        // Seleccionar todos los deudores con doble click en el label (opcional)
+        // Función para mostrar/ocultar detalle
+        function toggleDetalle(id) {
+            const detalle = document.getElementById('detalle-' + id);
+            detalle.style.display = detalle.style.display === 'none' ? 'table-row' : 'none';
+        }
+        
+        // Seleccionar todos los deudores con doble click en el label
         document.querySelector('label[for="deudores"]').addEventListener('dblclick', function() {
             const select = document.getElementById('deudores');
             for (let option of select.options) {
