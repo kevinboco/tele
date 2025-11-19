@@ -15,8 +15,6 @@ include("nav.php");
  *      descuento_5  = 5% sobre capital (mismos meses)
  *      interés_real = 8% (13 - 5)
  * - COMISIÓN: para prestamista = "Celene", 5% de comisión para Gladys Salinas
- * - FILTRO: Rango de fechas para filtrar DEUDORES (no préstamos individuales)
- * - EXCLUSIONES TEMPORALES: Para cálculos actuales sin afectar BD
  *********************************************************/
 
 /* ===== Config ===== */
@@ -73,13 +71,9 @@ if (($_GET['action'] ?? '') === 'mark_paid' && $_SERVER['REQUEST_METHOD']==='POS
   }
 }
 
-/* ===== Filtros ===== */
+/* ===== Filtro texto ===== */
 $q  = trim($_GET['q'] ?? '');
 $qNorm = mbnorm($q);
-
-// Nuevos filtros de fecha
-$fecha_desde = $_GET['fecha_desde'] ?? '';
-$fecha_hasta = $_GET['fecha_hasta'] ?? '';
 
 $conn = db();
 
@@ -98,49 +92,12 @@ ksort($prestMap, SORT_NATURAL);
 /* ===== WHERE base ===== */
 $where = "(pagado IS NULL OR pagado=0)";
 $types=""; $params=[];
-
-// Filtro de texto
 if ($q !== ''){
   $where .= " AND (LOWER(deudor) LIKE CONCAT('%',?,'%')
                OR  LOWER(prestamista) LIKE CONCAT('%',?,'%'))";
   $types .= "ss";
   $params[]=$qNorm;
   $params[]=$qNorm;
-}
-
-// ===== NUEVA LÓGICA: Filtrar DEUDORES que tengan préstamos en el rango =====
-$deudoresEnRango = [];
-if ($fecha_desde !== '' || $fecha_hasta !== '') {
-  $sqlDeudores = "SELECT DISTINCT LOWER(TRIM(deudor)) as deud_key
-                  FROM prestamos 
-                  WHERE (pagado IS NULL OR pagado=0)";
-  
-  $typesDeud = "";
-  $paramsDeud = [];
-  
-  if ($fecha_desde !== '') {
-    $sqlDeudores .= " AND fecha >= ?";
-    $typesDeud .= "s";
-    $paramsDeud[] = $fecha_desde;
-  }
-  
-  if ($fecha_hasta !== '') {
-    $sqlDeudores .= " AND fecha <= ?";
-    $typesDeud .= "s";
-    $paramsDeud[] = $fecha_hasta;
-  }
-  
-  $stDeud = $conn->prepare($sqlDeudores);
-  if ($typesDeud) {
-    $stDeud->bind_param($typesDeud, ...$paramsDeud);
-  }
-  $stDeud->execute();
-  $rsDeud = $stDeud->get_result();
-  
-  while ($row = $rsDeud->fetch_assoc()) {
-    $deudoresEnRango[$row['deud_key']] = true;
-  }
-  $stDeud->close();
 }
 
 /* =========================================================
@@ -246,20 +203,9 @@ $sql = "
            END
          ) AS total
   FROM prestamos
-  WHERE $where";
-
-// ===== APLICAR FILTRO DE DEUDORES EN RANGO =====
-if (!empty($deudoresEnRango)) {
-  $sql .= " AND LOWER(TRIM(deudor)) IN (";
-  $placeholders = implode(',', array_fill(0, count($deudoresEnRango), '?'));
-  $sql .= $placeholders . ")";
-  $types .= str_repeat('s', count($deudoresEnRango));
-  $params = array_merge($params, array_keys($deudoresEnRango));
-}
-
-$sql .= " GROUP BY prest_key, deud_key
-          ORDER BY prest_key ASC, deud_display ASC";
-
+  WHERE $where
+  GROUP BY prest_key, deud_key
+  ORDER BY prest_key ASC, deud_display ASC";
 $st=$conn->prepare($sql);
 if($types) $st->bind_param($types, ...$params);
 $st->execute();
@@ -271,17 +217,8 @@ $sqlIds = "
          LOWER(TRIM(deudor))     AS deud_key,
          GROUP_CONCAT(id)        AS ids
   FROM prestamos
-  WHERE $where";
-
-// Aplicar mismo filtro de deudores en rango para los IDs
-if (!empty($deudoresEnRango)) {
-  $sqlIds .= " AND LOWER(TRIM(deudor)) IN (";
-  $placeholders = implode(',', array_fill(0, count($deudoresEnRango), '?'));
-  $sqlIds .= $placeholders . ")";
-}
-
-$sqlIds .= " GROUP BY prest_key, deud_key";
-
+  WHERE $where
+  GROUP BY prest_key, deud_key";
 $st2=$conn->prepare($sqlIds);
 if($types) $st2->bind_param($types, ...$params);
 $st2->execute();
@@ -381,17 +318,8 @@ $sqlDet = "
 
     IFNULL(pagado,0) AS pagado
   FROM prestamos
-  WHERE $where";
-
-// Aplicar mismo filtro de deudores en rango para el detalle
-if (!empty($deudoresEnRango)) {
-  $sqlDet .= " AND LOWER(TRIM(deudor)) IN (";
-  $placeholders = implode(',', array_fill(0, count($deudoresEnRango), '?'));
-  $sqlDet .= $placeholders . ")";
-}
-
-$sqlDet .= " ORDER BY prestamista, deudor, fecha ASC, id ASC";
-
+  WHERE $where
+  ORDER BY prestamista, deudor, fecha ASC, id ASC";
 $st3=$conn->prepare($sqlDet);
 if($types) $st3->bind_param($types, ...$params);
 $st3->execute();
@@ -423,7 +351,6 @@ $st3->close();
 $data = [];            // DATA[prestamista] = [rows...]
 $ganPrest=[];          // total interés REAL por prestamista
 $capPendPrest=[];      // total capital pendiente por prestamista
-$totalPrest=[];        // NUEVO: total general por prestamista
 $comisionGladys=[];    // comisión Gladys Salinas por prestamista
 $allDebtors = [];      // listado global de deudores únicos
 
@@ -453,7 +380,6 @@ while($r=$rs->fetch_assoc()){
   // totales por prestamista: usamos el REAL
   $ganPrest[$pdisp]     = ($ganPrest[$pdisp] ?? 0) + (float)$r['interes_real'];
   $capPendPrest[$pdisp] = ($capPendPrest[$pdisp] ?? 0) + (float)$r['capital'];
-  $totalPrest[$pdisp]   = ($totalPrest[$pdisp] ?? 0) + (float)$r['total']; // NUEVO: Total general
   $comisionGladys[$pdisp] = ($comisionGladys[$pdisp] ?? 0) + (float)$r['comision_gladys'];
 
   // NUEVO: Acumular comisión total de Celene para Gladys
@@ -476,13 +402,11 @@ foreach($data as $prest => $rows){
   $totalInteres = 0;
   $totalCapital = 0;
   $totalComisionGladys = 0;
-  $totalGeneral = 0; // NUEVO: Total general
   
   foreach($rows as $r){
     $totalInteres += $r['interes'];
     $totalCapital += $r['valor'];
     $totalComisionGladys += $r['comision_gladys'];
-    $totalGeneral += $r['total']; // NUEVO: Sumar el total de cada préstamo
   }
   
   ob_start(); ?>
@@ -500,11 +424,6 @@ foreach($data as $prest => $rows){
         <div>
           <strong>Total prestado (pend.):</strong><br>
           <span style="color:#0b5ed7; font-weight:bold; font-size:18px;">$ <?= money($totalCapital) ?></span>
-        </div>
-        <!-- NUEVO: Total general -->
-        <div>
-          <strong>Total a recibir:</strong><br>
-          <span style="color:#16a34a; font-weight:bold; font-size:18px;">$ <?= money($totalGeneral) ?></span>
         </div>
         
         <?php if (mbnorm($prest) === 'celene' && $totalComisionGladys > 0): ?>
@@ -570,7 +489,6 @@ $msg = $_GET['msg'] ?? '';
 <head>
 <meta charset="utf-8">
 <title>Préstamos Interactivos</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <style>
   :root{ --line:#d1d5db; --primary:#1976d2; }
@@ -614,7 +532,7 @@ $msg = $_GET['msg'] ?? '';
     background:#fff;cursor:pointer;
   }
 
-  .filter-wrap{ display:flex; align-items:center; gap:8px; flex-wrap: wrap; }
+  .filter-wrap{ display:flex; align-items:center; gap:8px; }
   .multiselect { position: relative; min-width: 280px; }
   .multiselect > button {
     height:34px;width:100%;text-align:left;
@@ -633,62 +551,25 @@ $msg = $_GET['msg'] ?? '';
   }
   .multiselect .opt:hover { background:#f8fafc; }
 
-  /* Nuevos estilos para filtros de fecha */
-  .date-filter {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    flex-wrap: wrap;
-  }
-  .date-filter label {
-    font-size: 12px;
-    font-weight: 600;
-    color: #374151;
-  }
-  .date-filter input {
-    height: 34px;
-    padding: 6px 10px;
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
-    background: #fff;
-    font-size: 13px;
-  }
-  .date-filter button {
-    height: 34px;
-    padding: 6px 12px;
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
-    background: #0b5ed7;
-    color: white;
-    cursor: pointer;
-    font-size: 13px;
-    font-weight: 600;
-  }
-  .date-filter button:hover {
-    background: #0a58ca;
-  }
-
   .toolbar {
-    position:absolute;left:10px;top:60px;z-index:5;
+    position:absolute;left:80px;top:60px;z-index:5;
     display:flex;gap:8px;flex-wrap:wrap;align-items:center;
     background:rgba(255,255,255,.8);
     backdrop-filter:saturate(1.2) blur(2px);
     padding:6px 8px;border-radius:10px;
     border:1px solid #e5e7eb;
-    max-width: calc(100vw - 20px);
   }
   .prest-chip{
     padding:6px 10px;border-radius:999px;cursor:pointer;user-select:none;
     background:#e3f2fd;font-weight:600;border:1px solid #dbeafe;
-    font-size: 14px;
   }
   .prest-chip:hover{ background:#dbeafe }
   .prest-chip.active{
     background:#90caf9;border-color:#90caf9
   }
 
-  #stage { position:relative; width:100%; overflow:auto; }
-  svg{ display:block; width:100%; min-width: 800px; }
+  #stage { position:relative }
+  svg{ display:block; width:100%; }
   .link{fill:none;stroke:#cbd5e1;stroke-width:1.5px}
   .link2{fill:none;stroke:#9ca3af;stroke-width:1.4px;opacity:.9}
 
@@ -732,8 +613,7 @@ $msg = $_GET['msg'] ?? '';
   }
   .selhead{
     display:flex;justify-content:space-between;
-    align-items:center;margin-bottom:8px;
-    flex-wrap: wrap;
+    align-items:center;margin-bottom:8px
   }
   .selgrid{
     display:grid;
@@ -765,7 +645,7 @@ $msg = $_GET['msg'] ?? '';
   .modal-card{
     background:#fff;border-radius:16px;border:1px solid #e5e7eb;
     box-shadow:0 30px 60px rgba(0,0,0,.3);
-    width:95%;max-width:900px;max-height:85vh;
+    width:90%;max-width:700px;max-height:80vh;
     display:flex;flex-direction:column;
     overflow:hidden;
     animation:pop .18s cubic-bezier(.2,.8,.4,1) both;
@@ -827,7 +707,7 @@ $msg = $_GET['msg'] ?? '';
   table.detalle-table{
     width:100%;border-collapse:collapse;
     font-size:13px;line-height:1.4;color:#1f2937;
-    min-width:720px
+    min-width:620px
   }
   .detalle-table thead th{
     position:sticky;top:0;background:#eaf5ff;color:#0b5ed7;
@@ -901,101 +781,6 @@ $msg = $_GET['msg'] ?? '';
     color:#dc2626 !important;
     font-weight:bold;
   }
-
-  /* Nuevos estilos para exclusiones */
-  .exclusion-header {
-    background:#fff7ed;
-    border:1px solid #fed7aa;
-    border-radius:8px;
-    padding:12px;
-    margin-bottom:12px;
-  }
-  .exclusion-totals {
-    background:#f0f9ff;
-    border:1px solid #bae6fd;
-    border-radius:8px;
-    padding:12px;
-    margin-top:12px;
-    font-weight:600;
-  }
-  .exclusion-checkbox {
-    transform:scale(1.2);
-    margin-right:8px;
-  }
-  .excluded-row {
-    opacity:0.6;
-    background:#f8fafc !important;
-  }
-  .excluded-row td {
-    color:#9ca3af !important;
-  }
-
-  /* Responsive */
-  @media (max-width: 768px) {
-    .topbar {
-      flex-direction: column;
-      align-items: flex-start;
-    }
-    .search {
-      margin-left: 0;
-      width: 100%;
-    }
-    .search input {
-      width: 100%;
-    }
-    .filter-wrap {
-      flex-direction: column;
-      align-items: flex-start;
-      width: 100%;
-    }
-    .multiselect {
-      min-width: 100%;
-    }
-    .date-filter {
-      width: 100%;
-      justify-content: space-between;
-    }
-    .date-filter input {
-      flex: 1;
-    }
-    .toolbar {
-      position: relative;
-      top: 0;
-      left: 0;
-      margin: 10px;
-    }
-    .prest-chip {
-      font-size: 12px;
-      padding: 4px 8px;
-    }
-    #stage {
-      overflow-x: auto;
-    }
-    svg {
-      min-width: 1000px;
-    }
-  }
-
-  @media (max-width: 480px) {
-    .selgrid {
-      grid-template-columns: 1fr;
-    }
-    .selhead {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 8px;
-    }
-    .multiselect {
-      min-width: 200px;
-    }
-    .date-filter {
-      flex-direction: column;
-      align-items: flex-start;
-    }
-    .date-filter input {
-      width: 100%;
-    }
-  }
 </style>
 </head>
 <body>
@@ -1027,39 +812,11 @@ $msg = $_GET['msg'] ?? '';
         <div id="ms-list"></div>
       </div>
     </div>
-
-    <!-- Nuevo filtro de fechas -->
-    <div class="date-filter">
-      <form method="get" action="" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-        <!-- Mantener otros parámetros GET -->
-        <?php if ($q !== ''): ?>
-          <input type="hidden" name="q" value="<?= h($q) ?>">
-        <?php endif; ?>
-        
-        <div style="display: flex; gap: 8px; align-items: center;">
-          <label for="fecha_desde">Desde:</label>
-          <input type="date" id="fecha_desde" name="fecha_desde" value="<?= h($fecha_desde) ?>">
-        </div>
-        
-        <div style="display: flex; gap: 8px; align-items: center;">
-          <label for="fecha_hasta">Hasta:</label>
-          <input type="date" id="fecha_hasta" name="fecha_hasta" value="<?= h($fecha_hasta) ?>">
-        </div>
-        
-        <button type="submit">Filtrar</button>
-        
-        <?php if ($fecha_desde !== '' || $fecha_hasta !== ''): ?>
-          <a href="?" style="padding: 6px 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #f8f9fa; color: #374151; text-decoration: none; font-size: 13px;">
-            Limpiar fechas
-          </a>
-        <?php endif; ?>
-      </form>
-    </div>
   </div>
 
   <!-- Buscador -->
   <div class="search">
-    <input id="searchInput" type="text" placeholder="Buscar..." autocomplete="off" value="<?= h($q) ?>">
+    <input id="searchInput" type="text" placeholder="Buscar..." autocomplete="off">
     <button id="clearSearch" title="Limpiar">✕</button>
   </div>
 </div>
@@ -1084,17 +841,6 @@ $msg = $_GET['msg'] ?? '';
       <button class="close-btn" id="modalClose">Cerrar</button>
     </div>
     <div class="modal-body">
-      <!-- Cabecera de exclusiones -->
-      <div class="exclusion-header" id="exclusionHeader" style="display:none">
-        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
-          <input type="checkbox" id="toggleExclusions" class="exclusion-checkbox">
-          <strong>Excluir préstamos del cálculo actual (solo para esta sesión)</strong>
-        </label>
-        <div style="font-size:12px; color:#6b7280; margin-top:4px;">
-          Los préstamos excluidos no se incluirán en los totales de ganancia, capital y total a recibir
-        </div>
-      </div>
-
       <!-- Leyenda de colores -->
       <div class="modal-legend">
         <div class="legend-item">
@@ -1119,7 +865,6 @@ $msg = $_GET['msg'] ?? '';
         <table class="detalle-table">
           <thead>
             <tr>
-              <th style="width:30px;">Excluir</th>
               <th>ID</th>
               <th>Fecha</th>
               <th>Meses</th>
@@ -1134,20 +879,6 @@ $msg = $_GET['msg'] ?? '';
           <tbody id="modalRows"><!-- dinámico --></tbody>
         </table>
       </div>
-
-      <!-- Totales de exclusión -->
-      <div class="exclusion-totals" id="exclusionTotals" style="display:none">
-        <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px;">
-          <div>
-            <strong>Total incluido:</strong><br>
-            <span id="totalIncluido">$ 0</span> (<span id="countIncluido">0</span> préstamos)
-          </div>
-          <div>
-            <strong>Total excluido:</strong><br>
-            <span id="totalExcluido" style="color:#dc2626;">$ 0</span> (<span id="countExcluido">0</span> préstamos)
-          </div>
-        </div>
-      </div>
     </div>
   </div>
 </div>
@@ -1157,15 +888,11 @@ $msg = $_GET['msg'] ?? '';
 const DATA = <?php echo json_encode($data, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 const GANANCIA = <?php echo json_encode($ganPrest, JSON_NUMERIC_CHECK); ?>;
 const CAPITAL  = <?php echo json_encode($capPendPrest, JSON_NUMERIC_CHECK); ?>;
-const TOTAL_PREST = <?php echo json_encode($totalPrest, JSON_NUMERIC_CHECK); ?>;
 const COMISION_GLADYS = <?php echo json_encode($comisionGladys, JSON_NUMERIC_CHECK); ?>;
-const COMISION_CELENE_A_GLADYS = <?php echo $comisionCeleneAGladys; ?>;
+const COMISION_CELENE_A_GLADYS = <?php echo $comisionCeleneAGladys; ?>; // NUEVO
 const SELECTORS_HTML = <?php echo json_encode($selectors, JSON_UNESCAPED_UNICODE); ?>;
 const ALL_DEBTORS = <?php echo json_encode(array_values($allDebtors), JSON_UNESCAPED_UNICODE); ?>;
 const DETALLE = <?php echo json_encode($detalleMap, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
-
-/* ===== Sistema de Exclusiones Temporales ===== */
-const EXCLUDED_LOANS = new Set(); // IDs de préstamos excluidos temporalmente
 
 /* ===== D3 setup ===== */
 const svg = d3.select("#chart");
@@ -1202,33 +929,50 @@ renderToolbar(currentPrest);
 function renderChips(prest, visibleRows=null){
   chipsHost.innerHTML = "";
 
-  let interesReal = 0;
-  let capital = 0;
-  let totalGeneral = 0;
+  let interesReal, capital, comisionGladys;
+  let interesTeorico = 0;
+  let desc5 = 0;
 
+  const isCelene = (prest || '').toLowerCase().trim() === 'celene';
   const isGladysSalinas = (prest || '').toLowerCase().includes('gladys') || 
                           (prest || '').toLowerCase().includes('salinas');
 
-  // USAR EXACTAMENTE LAS MISMAS FILAS QUE SE MUESTRAN EN LAS TARJETAS
-  const rowsToUse = visibleRows || (DATA[prest] || []);
+  if (isGlobalMode()) {
+    const all = visibleRows || collectRowsForSelected();
+    interesReal = all.reduce((a,r)=>a+Number(r.interes||0),0);
+    capital     = all.reduce((a,r)=>a+Number(r.valor||0),0);
+    interesTeorico = all.reduce((a,r)=>a+Number(r.interes13||0),0);
+    desc5          = all.reduce((a,r)=>a+Number(r.descuento5||0),0);
+    comisionGladys = all.reduce((a,r)=>a+Number(r.comision_gladys||0),0);
 
-  // CALCULAR DIRECTAMENTE DE LOS VALORES QUE SE MUESTRAN EN LAS TARJETAS
-  rowsToUse.forEach(row => {
-    capital += Number(row.valor || 0);           // El capital que aparece en la tarjeta
-    interesReal += Number(row.interes || 0);     // El interés que aparece en la tarjeta
-  });
+    const chipM = document.createElement("span");
+    chipM.className="chip";
+    chipM.textContent = "Modo global (todos los prestamistas)";
 
-  // El total es simplemente capital + interés
-  totalGeneral = capital + interesReal;
+    const chipF = document.createElement("span");
+    chipF.className="chip";
+    chipF.textContent = `Filtro: ${SELECTED_DEUDORES.size} deudor(es)`;
 
-  // Mostrar advertencia si hay exclusiones activas
-  if (EXCLUDED_LOANS.size > 0) {
-    const exclusionChip = document.createElement("span");
-    exclusionChip.className = "chip";
-    exclusionChip.style.background = "#fef3c7";
-    exclusionChip.style.color = "#92400e";
-    exclusionChip.textContent = `⚠️ ${EXCLUDED_LOANS.size} préstamo(s) excluido(s)`;
-    chipsHost.appendChild(exclusionChip);
+    chipsHost.append(chipM, chipF);
+  } else {
+    interesReal = Number(GANANCIA[prest]||0);
+    capital     = Number(CAPITAL[prest]||0);
+    comisionGladys = Number(COMISION_GLADYS[prest]||0);
+
+    if (Array.isArray(visibleRows)) {
+      interesReal = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
+      capital     = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
+      interesTeorico = visibleRows.reduce((a,r)=>a+Number(r.interes13||0),0);
+      desc5          = visibleRows.reduce((a,r)=>a+Number(r.descuento5||0),0);
+      comisionGladys = visibleRows.reduce((a,r)=>a+Number(r.comision_gladys||0),0);
+    } else {
+      // si no vino visibleRows pero sí es Celene, sumamos de DATA
+      if (isCelene) {
+        const rows = DATA[prest] || [];
+        interesTeorico = rows.reduce((a,r)=>a+Number(r.interes13||0),0);
+        desc5          = rows.reduce((a,r)=>a+Number(r.descuento5||0),0);
+      }
+    }
   }
 
   const chip1 = document.createElement("span");
@@ -1239,36 +983,44 @@ function renderChips(prest, visibleRows=null){
   chip2.className = "chip";
   chip2.textContent = `Total prestado (pend.): $ ${capital.toLocaleString()}`;
 
-  // Para Gladys Salinas: cálculo especial
-  if (!isGlobalMode() && isGladysSalinas) {
-    const totalRecibir = totalGeneral + COMISION_CELENE_A_GLADYS;
-    const totalConComision = interesReal + COMISION_CELENE_A_GLADYS;
-    
+  chipsHost.append(chip1, chip2);
+
+  // si es Celene, mostramos las cifras extra: 13%, 5% y comisión Gladys
+  if (!isGlobalMode() && isCelene) {
     const chip3 = document.createElement("span");
     chip3.className = "chip";
-    chip3.style.background = "#DCFCE7";
-    chip3.style.color = "#166534";
-    chip3.textContent = `Total a recibir: $ ${totalRecibir.toLocaleString()}`;
-
+    chip3.textContent = `Interés 13% (teórico): $ ${interesTeorico.toLocaleString()}`;
+    
     const chip4 = document.createElement("span");
     chip4.className = "chip";
-    chip4.style.background = "#FEF3C7";
-    chip4.textContent = `Total + Comisión: $ ${totalConComision.toLocaleString()}`;
-
+    chip4.textContent = `Descuento 5%: $ ${desc5.toLocaleString()}`;
+    
     const chip5 = document.createElement("span");
     chip5.className = "chip";
-    chip5.style.background = "#FFE4E4";
-    chip5.textContent = `Comisión Celene (5%): $ ${COMISION_CELENE_A_GLADYS.toLocaleString()}`;
+    chip5.textContent = `Interés 8% (real): $ ${(interesTeorico - desc5).toLocaleString()}`;
+    
+    // NUEVO: Comisión Gladys Salinas
+    const chip6 = document.createElement("span");
+    chip6.className = "chip";
+    chip6.style.background = "#FFE4E4";
+    chip6.textContent = `Comisión Gladys (5%): $ ${comisionGladys.toLocaleString()}`;
+    
+    chipsHost.append(chip3, chip4, chip5, chip6);
+  }
 
-    chipsHost.append(chip1, chip2, chip5, chip3, chip4);
-  } else {
-    // Para otros prestamistas: total normal (capital + interés)
-    const chip3 = document.createElement("span");
-    chip3.className = "chip";
-    chip3.style.background = "#DCFCE7";
-    chip3.style.color = "#166534";
-    chip3.textContent = `Total a recibir: $ ${totalGeneral.toLocaleString()}`;
-    chipsHost.append(chip1, chip2, chip3);
+  // NUEVO: Si es Gladys Salinas, mostrar la comisión de Celene
+  if (!isGlobalMode() && isGladysSalinas) {
+    const chip7 = document.createElement("span");
+    chip7.className = "chip";
+    chip7.style.background = "#DCFCE7";
+    chip7.textContent = `Comisión Celene (5%): $ ${COMISION_CELENE_A_GLADYS.toLocaleString()}`;
+    
+    const chip8 = document.createElement("span");
+    chip8.className = "chip";
+    chip8.style.background = "#FEF3C7";
+    chip8.textContent = `Total + Comisión: $ ${(interesReal + COMISION_CELENE_A_GLADYS).toLocaleString()}`;
+    
+    chipsHost.append(chip7, chip8);
   }
 
   const chipL1 = document.createElement("span");
@@ -1304,7 +1056,7 @@ function renderSelector(prest){
 /* ===== Buscador ===== */
 const searchInput = document.getElementById('searchInput');
 const clearBtn = document.getElementById('clearSearch');
-let searchTerm = '<?= h($q) ?>';
+let searchTerm = '';
 
 function norm(s){ return (s||'').toString().toLocaleLowerCase(); }
 
@@ -1436,28 +1188,16 @@ function wrapText(textSel, width){
 }
 
 /* ===== helpers globales ===== */
-function collectRowsForSelected(prestamista = null){
+function collectRowsForSelected(){
   const rows = [];
   if (SELECTED_DEUDORES.size === 0) return rows;
-  
-  // Si hay un prestamista específico, solo buscar en ese prestamista
-  if (prestamista) {
-    const list = DATA[prestamista] || [];
+  for (const prest of Object.keys(DATA)) {
+    const list = DATA[prest] || [];
     list.forEach(r => {
       if (SELECTED_DEUDORES.has(r.nombre)) {
-        rows.push({ ...r, __prest: prestamista });
+        rows.push({ ...r, __prest: prest });
       }
     });
-  } else {
-    // Modo global: buscar en todos los prestamistas
-    for (const prest of Object.keys(DATA)) {
-      const list = DATA[prest] || [];
-      list.forEach(r => {
-        if (SELECTED_DEUDORES.has(r.nombre)) {
-          rows.push({ ...r, __prest: prest });
-        }
-      });
-    }
   }
   return rows;
 }
@@ -1468,11 +1208,6 @@ const modalClose = document.getElementById('modalClose');
 const modalTitle = document.getElementById('modalTitle');
 const modalSub   = document.getElementById('modalSub');
 const modalRows  = document.getElementById('modalRows');
-const exclusionHeader = document.getElementById('exclusionHeader');
-const exclusionTotals = document.getElementById('exclusionTotals');
-const toggleExclusions = document.getElementById('toggleExclusions');
-
-let currentModalData = { prestKey: '', deudKey: '', prestName: '', deudName: '' };
 
 modalClose.addEventListener('click', ()=>{
   loanModal.style.display='none';
@@ -1481,62 +1216,14 @@ loanModal.addEventListener('click', (e)=>{
   if (e.target === loanModal) loanModal.style.display='none';
 });
 
-// Toggle para activar/desactivar exclusiones
-toggleExclusions.addEventListener('change', function() {
-  const isActive = this.checked;
-  document.querySelectorAll('.exclusion-cb').forEach(cb => {
-    cb.disabled = !isActive;
-    if (!isActive) {
-      cb.checked = false;
-      EXCLUDED_LOANS.delete(parseInt(cb.value));
-    }
-  });
-  updateExclusionTotals();
-  drawTree(currentPrest);
-});
-
 // Capitaliza estilo título
 function mbTitleJs(str){
   const s = (str||'').toString().toLowerCase();
   return s.replace(/\b([a-záéíóúñ])/gi, (m) => m.toUpperCase());
 }
 
-// Actualizar totales de exclusión
-function updateExclusionTotals() {
-  const { prestKey, deudKey } = currentModalData;
-  const lista = (DETALLE[prestKey] && DETALLE[prestKey][deudKey]) || [];
-  
-  let totalIncluido = 0;
-  let totalExcluido = 0;
-  let countIncluido = 0;
-  let countExcluido = 0;
-
-  lista.forEach(item => {
-    if (EXCLUDED_LOANS.has(item.id)) {
-      totalExcluido += item.total;
-      countExcluido++;
-    } else {
-      totalIncluido += item.total;
-      countIncluido++;
-    }
-  });
-
-  document.getElementById('totalIncluido').textContent = `$ ${totalIncluido.toLocaleString()}`;
-  document.getElementById('totalExcluido').textContent = `$ ${totalExcluido.toLocaleString()}`;
-  document.getElementById('countIncluido').textContent = countIncluido;
-  document.getElementById('countExcluido').textContent = countExcluido;
-
-  // Mostrar/ocultar sección de totales
-  if (countExcluido > 0) {
-    exclusionTotals.style.display = 'block';
-  } else {
-    exclusionTotals.style.display = 'none';
-  }
-}
-
 /* Rellena y abre modal */
-function fillAndOpenModal(prestKey, deudKey, prestName, deudName){
-  currentModalData = { prestKey, deudKey, prestName, deudName };
+function fillAndOpenModal(prestKey,deudKey,prestName,deudName){
   modalRows.innerHTML = '';
 
   const lista = (DETALLE[prestKey] && DETALLE[prestKey][deudKey])
@@ -1545,11 +1232,8 @@ function fillAndOpenModal(prestKey, deudKey, prestName, deudName){
 
   if (!lista.length){
     modalRows.innerHTML =
-      '<tr><td colspan="10" style="text-align:center;color:#6b7280;padding:16px;">No hay registros.</td></tr>';
-    exclusionHeader.style.display = 'none';
-    exclusionTotals.style.display = 'none';
+      '<tr><td colspan="9" style="text-align:center;color:#6b7280;padding:16px;">No hay registros.</td></tr>';
   } else {
-    exclusionHeader.style.display = 'block';
 
     let sumMonto = 0;
     let sumInteresTeorico = 0;
@@ -1557,55 +1241,19 @@ function fillAndOpenModal(prestKey, deudKey, prestName, deudName){
     let sumInteresReal = 0;
     let sumTotal = 0;
 
-    lista.forEach(item => {
+    lista.forEach(item=>{
       const tr = document.createElement('tr');
-      const isExcluded = EXCLUDED_LOANS.has(item.id);
-      
-      if (isExcluded) {
-        tr.className = 'excluded-row';
-      } else {
-        const mesesNum = Number(item.meses || 0);
-        let ageClass = 'age-m0';
-        if (mesesNum >= 3) {
-          ageClass = 'age-m3';
-        } else if (mesesNum === 2) {
-          ageClass = 'age-m2';
-        } else if (mesesNum === 1) {
-          ageClass = 'age-m1';
-        }
-        tr.className = ageClass;
-      }
 
-      // Checkbox de exclusión
-      const tdExcl = document.createElement('td');
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.className = 'exclusion-cb';
-      cb.value = item.id;
-      cb.checked = isExcluded;
-      cb.disabled = !toggleExclusions.checked;
-      cb.addEventListener('change', function() {
-        if (this.checked) {
-          EXCLUDED_LOANS.add(parseInt(this.value));
-        } else {
-          EXCLUDED_LOANS.delete(parseInt(this.value));
-        }
-        updateExclusionTotals();
-        drawTree(currentPrest);
-        
-        // Actualizar apariencia de la fila
-        if (this.checked) {
-          tr.className = 'excluded-row';
-        } else {
-          const mesesNum = Number(item.meses || 0);
-          let ageClass = 'age-m0';
-          if (mesesNum >= 3) ageClass = 'age-m3';
-          else if (mesesNum === 2) ageClass = 'age-m2';
-          else if (mesesNum === 1) ageClass = 'age-m1';
-          tr.className = ageClass;
-        }
-      });
-      tdExcl.appendChild(cb);
+      const mesesNum = Number(item.meses || 0);
+      let ageClass = 'age-m0';
+      if (mesesNum >= 3) {
+        ageClass = 'age-m3';
+      } else if (mesesNum === 2) {
+        ageClass = 'age-m2';
+      } else if (mesesNum === 1) {
+        ageClass = 'age-m1';
+      }
+      tr.className = ageClass;
 
       const tdId = document.createElement('td');
       tdId.textContent = item.id;
@@ -1614,7 +1262,7 @@ function fillAndOpenModal(prestKey, deudKey, prestName, deudName){
       tdFecha.textContent = item.fecha;
 
       const tdMeses = document.createElement('td');
-      tdMeses.textContent = item.meses + " mes(es)";
+      tdMeses.textContent = mesesNum + " mes(es)";
 
       const tdMonto = document.createElement('td');
       tdMonto.textContent = "$ " + Number(item.monto||0).toLocaleString();
@@ -1644,7 +1292,6 @@ function fillAndOpenModal(prestKey, deudKey, prestName, deudName){
       }
       tdEstado.appendChild(badge);
 
-      tr.appendChild(tdExcl);
       tr.appendChild(tdId);
       tr.appendChild(tdFecha);
       tr.appendChild(tdMeses);
@@ -1657,13 +1304,11 @@ function fillAndOpenModal(prestKey, deudKey, prestName, deudName){
 
       modalRows.appendChild(tr);
 
-      if (!isExcluded) {
-        sumMonto          += Number(item.monto||0);
-        sumInteresTeorico += Number(item.interes_teorico||0);
-        sumDesc           += Number(item.interes_desc||0);
-        sumInteresReal    += Number(item.interes||0);
-        sumTotal          += Number(item.total||0);
-      }
+      sumMonto          += Number(item.monto||0);
+      sumInteresTeorico += Number(item.interes_teorico||0);
+      sumDesc           += Number(item.interes_desc||0);
+      sumInteresReal    += Number(item.interes||0);
+      sumTotal          += Number(item.total||0);
     });
 
     const trTotal = document.createElement('tr');
@@ -1677,7 +1322,7 @@ function fillAndOpenModal(prestKey, deudKey, prestName, deudName){
 
     const tdEmpty3 = document.createElement('td');
     tdEmpty3.className = 'label-cell';
-    tdEmpty3.textContent = 'TOTAL INCLUIDO:';
+    tdEmpty3.textContent = 'TOTAL:';
 
     const tdMontoTotal = document.createElement('td');
     tdMontoTotal.textContent = "$ " + sumMonto.toLocaleString();
@@ -1713,9 +1358,6 @@ function fillAndOpenModal(prestKey, deudKey, prestName, deudName){
   modalTitle.textContent = 'Detalle de préstamos';
   modalSub.textContent   = mbTitleJs(deudName) + ' ↔ ' + mbTitleJs(prestName);
 
-  // Actualizar totales de exclusión
-  updateExclusionTotals();
-
   loanModal.style.display='flex';
 }
 
@@ -1725,27 +1367,23 @@ function drawTree(prestamista) {
 
   const global = isGlobalMode();
 
-  // 1) Filas base - CORREGIDO: usar prestamista actual en el filtro
+  // 1) Filas base
   let allRows;
   if (global) {
-    // Pasar el prestamista actual al filtro para que solo muestre los deudores seleccionados de ESE prestamista
-    allRows = collectRowsForSelected(prestamista);
+    allRows = collectRowsForSelected(); // multi prestamistas, solo deudores filtrados
   } else {
     allRows = DATA[prestamista] || [];
   }
 
   // 2) Filtros cliente
   const rows = allRows.filter(r => {
-    // Si hay deudores seleccionados, solo mostrar esos
     if (SELECTED_DEUDORES.size > 0 && !SELECTED_DEUDORES.has(r.nombre)) return false;
     if (!matches(r)) return false;
     return true;
   });
 
-  // 3) Layout responsive
-  const isMobile = window.innerWidth < 768;
-  const cardW = isMobile ? Math.min(350, window.innerWidth - 40) : 480;
-  const padX = 12, padY = 10, lineGap = 18;
+  // 3) Layout
+  const cardW = 480, padX=12, padY=10, lineGap=18;
   const svgWidth = document.getElementById("stage").clientWidth;
   svg.attr("width", svgWidth);
   const svgH = +svg.attr("height");
@@ -1753,7 +1391,7 @@ function drawTree(prestamista) {
   const extraLines = global ? 2 : 1;
   const approxCardH = padY*2 + lineGap*(2 + extraLines);
   const treeLayout = d3.tree()
-    .nodeSize([ approxCardH + 24, cardW + (isMobile ? 80 : 240) ])
+    .nodeSize([ approxCardH + 24, cardW + 240 ])
     .separation((a,b)=> (a.parent===b.parent? 1.2 : 1.5));
 
   const rootName = global ? "Todos los prestamistas" : prestamista;
@@ -1770,7 +1408,7 @@ function drawTree(prestamista) {
     if (d.depth === 1) d.y = centerX;
   });
 
-  // Enlaces raíz → deudores
+  // enlaces raíz → deudores
   const linkPath = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
   const links = g.selectAll(".link")
     .data(root.links())
@@ -1786,12 +1424,12 @@ function drawTree(prestamista) {
     .ease(d3.easeCubicOut)
     .attr("stroke-dashoffset",0);
 
-  // Nodos
+  // nodos
   const nodes = g.selectAll(".node")
     .data(root.descendants())
     .join("g")
     .attr("class","node")
-    .attr("transform", d => `translate(${d.y - (isMobile ? 80 : 160)},${d.x})`)
+    .attr("transform", d => `translate(${d.y - 160},${d.x})`)
     .style("opacity",0);
 
   nodes.transition()
@@ -1853,7 +1491,7 @@ function drawTree(prestamista) {
       loanCount = DETALLE[prestKeyForCount][deudKeyForCount].length;
     }
 
-    // Tarjeta clickable
+    // tarjeta clickable
     sel.append("rect")
       .attr("class", `nodeCard ${mcls}`)
       .attr("x", 0)
@@ -1882,7 +1520,7 @@ function drawTree(prestamista) {
 
     let y = -cardH/2 + padY + 12;
 
-    // Título con número de préstamos
+    // título con número de préstamos
     const titleText =
       loanCount === 1
         ? `${d.data.nombre} (1 préstamo)`
@@ -1899,7 +1537,7 @@ function drawTree(prestamista) {
     const titleBox = t.node().getBBox();
     y = titleBox.y + titleBox.height + 2;
 
-    // En modo global mostramos prestamista
+    // en modo global mostramos prestamista
     if (global) {
       const l0 = sel.append("text")
         .attr("class","nodeLine")
@@ -1913,7 +1551,7 @@ function drawTree(prestamista) {
       y += lineGap;
     }
 
-    // Línea montos/fecha
+    // línea montos/fecha
     const l1 = sel.append("text")
       .attr("class","nodeLine")
       .attr("x", padX)
@@ -1927,7 +1565,7 @@ function drawTree(prestamista) {
     l1.append("tspan")
       .attr("class","nodeAmt")
       .text(`$ ${Number(d.data.interes||0).toLocaleString()}`);
-    // Si es Celene mostramos también el 13% y el descuento
+    // si es Celene mostramos también el 13% y el descuento
     if (!global && (prestamista||'').toLowerCase().trim()==='celene') {
       l1.append("tspan").text(" • 13%: ");
       l1.append("tspan")
@@ -1955,15 +1593,12 @@ function drawTree(prestamista) {
       .style("opacity", 1);
   });
 
-  // ===== Resumen lateral RESPONSIVE =====
+  // ===== Resumen lateral =====
   const visibleRows = rows;
-
-  // CALCULAR DIRECTAMENTE DE LAS FILAS VISIBLES (LAS MISMAS QUE EN LAS TARJETAS)
   const totalInteresReal = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
   const totalCapital = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
-  const totalGeneral = totalCapital + totalInteresReal; // Simple suma
   
-  // Para Gladys Salinas, mostrar la comisión de Celene
+  // NUEVO: Para Gladys Salinas, mostrar la comisión de Celene
   let totalComisionGladys = 0;
   const isGladysSalinas = (prestamista || '').toLowerCase().includes('gladys') || 
                           (prestamista || '').toLowerCase().includes('salinas');
@@ -1975,19 +1610,12 @@ function drawTree(prestamista) {
   const deudores = root.descendants().filter(d=>d.depth===1);
   const midY = d3.mean(deudores, d=>d.x) || 0;
 
-  // Posición responsive del resumen
-  const summaryX = isMobile ? 
-    centerX + cardW + 80 :  // Móvil: más cerca
-    centerX + cardW + 280;  // Desktop: posición original
-  
-  const sumW = isMobile ? 300 : 380;
-  const sumH = isMobile ? 160 : 140;
-  const sumPadX = 14;
-  const sumLine = 24;
+  const summaryX = centerX + cardW + 280;
+  const sumW = 380, sumH = 140, sumPadX = 14, sumLine = 24;
 
   const summaryG = g.append("g")
     .attr("class","summary")
-    .attr("transform", `translate(${summaryX - (isMobile ? 100 : 220)},${midY})`)
+    .attr("transform", `translate(${summaryX - 220},${midY})`)
     .style("opacity", 0);
 
   summaryG.transition()
@@ -1997,7 +1625,7 @@ function drawTree(prestamista) {
     .attr("transform", `translate(${summaryX},${midY})`)
     .style("opacity", 1);
 
-  // Caja
+  // caja
   summaryG.append("rect")
     .attr("class","summaryCard")
     .attr("x", 0)
@@ -2009,7 +1637,7 @@ function drawTree(prestamista) {
 
   const isCelene = (!global && (prestamista||'').toLowerCase().trim()==='celene');
 
-  // Título diferente para Gladys
+  // NUEVO: Título diferente para Gladys
   let tituloResumen = "Resumen del prestamista";
   if (isCelene) {
     tituloResumen = "Resumen de Celene";
@@ -2043,11 +1671,8 @@ function drawTree(prestamista) {
     .attr("class","summaryAmt")
     .text(`$ ${totalCapital.toLocaleString()}`);
 
-  // Para Gladys Salinas: cálculo especial
-  if (isGladysSalinas) {
-    const totalRecibir = totalInteresReal + totalCapital + totalComisionGladys;
-    const totalConComision = totalInteresReal + totalComisionGladys;
-    
+  // NUEVO: Para Gladys Salinas, mostrar la comisión de Celene
+  if (isGladysSalinas && totalComisionGladys > 0) {
     sy += 22;
     const s3 = summaryG.append("text")
       .attr("class","summaryLine")
@@ -2058,39 +1683,55 @@ function drawTree(prestamista) {
       .attr("class","summaryAmt")
       .text(`$ ${totalComisionGladys.toLocaleString()}`);
 
+    // Mostrar total con comisión
     sy += 22;
     const s4 = summaryG.append("text")
       .attr("class","summaryLine")
       .attr("x", sumPadX)
       .attr("y", sy)
-      .text("Total a recibir: ");
+      .text("Total + Comisión: ");
     s4.append("tspan")
       .attr("class","summaryAmt")
-      .text(`$ ${totalRecibir.toLocaleString()}`);
-
-    sy += 22;
-    const s5 = summaryG.append("text")
-      .attr("class","summaryLine")
-      .attr("x", sumPadX)
-      .attr("y", sy)
-      .text("Total + Comisión: ");
-    s5.append("tspan")
-      .attr("class","summaryAmt")
-      .text(`$ ${totalConComision.toLocaleString()}`);
-  } else {
-    // Para otros prestamistas: total normal
-    sy += 22;
-    const s3 = summaryG.append("text")
-      .attr("class","summaryLine")
-      .attr("x", sumPadX)
-      .attr("y", sy)
-      .text("Total a recibir: ");
-    s3.append("tspan")
-      .attr("class","summaryAmt")
-      .text(`$ ${totalGeneral.toLocaleString()}`);
+      .text(`$ ${(totalInteresReal + totalComisionGladys).toLocaleString()}`);
   }
 
-  // Enlaces deudor -> resumen global
+  // si es Celene, mostramos lado derecho sus otras 2 cifras
+  if (isCelene) {
+    const totalTeorico = visibleRows.reduce((a,r)=>a+Number(r.interes13||0),0);
+    const totalDesc5   = visibleRows.reduce((a,r)=>a+Number(r.descuento5||0),0);
+
+    const sy2 = -sumH/2 + sumLine + 20;
+    const s3 = summaryG.append("text")
+      .attr("class","summaryLine")
+      .attr("x", sumW/2)
+      .attr("y", sy2)
+      .text("Interés 13%: ");
+    s3.append("tspan")
+      .attr("class","summaryAmt")
+      .text(`$ ${totalTeorico.toLocaleString()}`);
+
+    const s4 = summaryG.append("text")
+      .attr("class","summaryLine")
+      .attr("x", sumW/2)
+      .attr("y", sy2 + 22)
+      .text("Descuento 5%: ");
+    s4.append("tspan")
+      .attr("class","summaryAmt")
+      .text(`$ ${totalDesc5.toLocaleString()}`);
+
+    // Comisión Gladys Salinas
+    const totalComision = visibleRows.reduce((a,r)=>a+Number(r.comision_gladys||0),0);
+    const s5 = summaryG.append("text")
+      .attr("class","summaryLine")
+      .attr("x", sumW/2)
+      .attr("y", sy2 + 44)
+      .text("Comisión Gladys: ");
+    s5.append("tspan")
+      .attr("class","summaryAmt")
+      .text(`$ ${totalComision.toLocaleString()}`);
+  }
+
+  // enlaces deudor -> resumen global
   const link2 = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
   g.selectAll(".link2")
     .data(
@@ -2115,10 +1756,9 @@ function drawTree(prestamista) {
     const perPrest = {};
     visibleRows.forEach(r=>{
       const p = r.__prest || 'Desconocido';
-      if (!perPrest[p]) perPrest[p] = { interes:0, capital:0, total:0, comision:0 };
+      if (!perPrest[p]) perPrest[p] = { interes:0, capital:0, comision:0 };
       perPrest[p].interes += Number(r.interes||0);
       perPrest[p].capital += Number(r.valor||0);
-      perPrest[p].total = perPrest[p].capital + perPrest[p].interes; // CORREGIDO: Calcular total como capital + interés
       perPrest[p].comision += Number(r.comision_gladys||0);
     });
 
@@ -2170,30 +1810,21 @@ function drawTree(prestamista) {
       t2.append("tspan")
         .attr("class","summaryAmt")
         .text(`$ ${perPrest[p].capital.toLocaleString()}`);
-
-      // Línea para el total general en modo global
-      const t3 = gP.append("text")
-        .attr("class","summaryLine")
-        .attr("x", sumPadX)
-        .attr("y", sy1+40)
-        .text("Total: ");
-      t3.append("tspan")
-        .attr("class","summaryAmt")
-        .text(`$ ${perPrest[p].total.toLocaleString()}`);
     });
   }
 
-  // Chips arriba
+  // chips arriba
   renderChips(prestamista, visibleRows);
 
-  // Selector abajo (solo modo prestamista)
+  // selector abajo (solo modo prestamista)
   if (!global) renderSelector(prestamista);
 }
 
-// Redimensionar responsivamente
+
 window.addEventListener('resize', ()=>{
   if (currentPrest) drawTree(currentPrest);
 });
+
 
 if (currentPrest){
   drawTree(currentPrest);
