@@ -300,6 +300,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   .viajes-close:hover{background:#f3f4f6}
 
   .conductor-link{cursor:pointer; color:#0d6efd; text-decoration:underline;}
+
+  /* Estados de pago */
+  .estado-pagado { background-color: #f0fdf4 !important; border-left: 4px solid #22c55e; }
+  .estado-pendiente { background-color: #fef2f2 !important; border-left: 4px solid #ef4444; }
+  .estado-procesando { background-color: #fffbeb !important; border-left: 4px solid #f59e0b; }
+  .estado-parcial { background-color: #eff6ff !important; border-left: 4px solid #3b82f6; }
 </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
@@ -384,6 +390,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
               <th class="px-3 py-2 text-right">Préstamos (pend.)</th>
               <th class="px-3 py-2 text-left">N° Cuenta</th>
               <th class="px-3 py-2 text-right">A pagar</th>
+              <th class="px-3 py-2 text-center">Estado</th>
             </tr>
           </thead>
           <tbody id="tbody" class="divide-y divide-slate-100 bg-white">
@@ -414,6 +421,15 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 <input type="text" class="cta w-full max-w-[180px] rounded-lg border border-slate-300 px-2 py-1" value="" placeholder="N° cuenta">
               </td>
               <td class="px-3 py-2 text-right num pagar">0</td>
+              <td class="px-3 py-2 text-center">
+                <select class="estado-pago w-full max-w-[140px] rounded-lg border border-slate-300 px-2 py-1 text-sm">
+                  <option value="">Sin estado</option>
+                  <option value="pagado">✅ Pagado</option>
+                  <option value="pendiente">❌ Pendiente</option>
+                  <option value="procesando">🔄 Procesando</option>
+                  <option value="parcial">⚠️ Parcial</option>
+                </select>
+              </td>
             </tr>
             <?php endforeach; ?>
           </tbody>
@@ -428,6 +444,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
               <td class="px-3 py-2 text-right num" id="tot_prestamos">0</td>
               <td class="px-3 py-2"></td>
               <td class="px-3 py-2 text-right num" id="tot_pagar">0</td>
+              <td class="px-3 py-2"></td>
             </tr>
           </tfoot>
         </table>
@@ -577,6 +594,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const ACC_KEY   = 'cuentas:'+COMPANY_SCOPE;
   const SS_KEY    = 'seg_social:'+COMPANY_SCOPE;
   const PREST_SEL_KEY = 'prestamo_sel_multi:v2:'+COMPANY_SCOPE;
+  const ESTADO_PAGO_KEY = 'estado_pago:'+COMPANY_SCOPE; // Nueva clave para estados de pago
   const PERIODOS_KEY  = 'cuentas_cobro_periodos:v1';
 
   const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
@@ -589,6 +607,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   let accMap = getLS(ACC_KEY);
   let ssMap  = getLS(SS_KEY);
   let prestSel = getLS(PREST_SEL_KEY); if(!prestSel || typeof prestSel!=='object') prestSel = {};
+  let estadoPagoMap = getLS(ESTADO_PAGO_KEY); // Mapa para estados de pago
 
   const tbody = document.getElementById('tbody');
 
@@ -598,12 +617,17 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   [...tbody.querySelectorAll('tr')].forEach(tr=>{
     const cta = tr.querySelector('input.cta');
     const ss  = tr.querySelector('input.ss');
+    const estadoPago = tr.querySelector('select.estado-pago'); // Selector de estado
     const baseName = tr.children[0].innerText.trim();
     const prestSpan = tr.querySelector('.prest');
     const selLabel  = tr.querySelector('.selected-deudor');
 
     if (accMap[baseName]) cta.value = accMap[baseName];
     if (ssMap[baseName])  ss.value  = fmt(toInt(ssMap[baseName]));
+    if (estadoPagoMap[baseName]) {
+      estadoPago.value = estadoPagoMap[baseName];
+      aplicarEstadoFila(tr, estadoPagoMap[baseName]);
+    }
 
     const chosen = prestSel[baseName] || [];
     prestSpan.textContent = fmt(sumTotals(chosen));
@@ -611,7 +635,25 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     cta.addEventListener('change', ()=>{ accMap[baseName] = cta.value.trim(); setLS(ACC_KEY, accMap); });
     ss.addEventListener('input', ()=>{ ssMap[baseName] = toInt(ss.value); setLS(SS_KEY, ssMap); recalc(); });
+    
+    // Event listener para cambios de estado
+    estadoPago.addEventListener('change', ()=>{ 
+      estadoPagoMap[baseName] = estadoPago.value; 
+      setLS(ESTADO_PAGO_KEY, estadoPagoMap); 
+      aplicarEstadoFila(tr, estadoPago.value);
+    });
   });
+
+  // Función para aplicar el estado visual a la fila
+  function aplicarEstadoFila(tr, estado) {
+    // Remover todas las clases de estado anteriores
+    tr.classList.remove('estado-pagado', 'estado-pendiente', 'estado-procesando', 'estado-parcial');
+    
+    // Aplicar la clase correspondiente al estado
+    if (estado) {
+      tr.classList.add(`estado-${estado}`);
+    }
+  }
 
   // ===== Modal préstamos =====
   const prestModal   = document.getElementById('prestModal');
