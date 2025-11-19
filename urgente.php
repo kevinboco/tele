@@ -18,12 +18,21 @@ $result_deudores = $conn->query($sql_deudores);
 $sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' ORDER BY prestamista";
 $result_prestamistas = $conn->query($sql_prestamistas);
 
+// Variables para mantener los valores del formulario
+$deudores_seleccionados = [];
+$prestamista_seleccionado = '';
+$porcentaje_interes = 10; // Por defecto 10%
+
 // Procesar el formulario cuando se envía
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $deudores_seleccionados = $_POST['deudores'] ?? [];
     $prestamista_seleccionado = $_POST['prestamista'] ?? '';
+    $porcentaje_interes = floatval($_POST['porcentaje_interes']) ?? 10;
     
     if (!empty($deudores_seleccionados) && !empty($prestamista_seleccionado)) {
+        // Calcular factor de interés
+        $factor_interes = $porcentaje_interes / 100;
+        
         // Consulta para obtener los préstamos
         $placeholders = str_repeat('?,', count($deudores_seleccionados) - 1) . '?';
         
@@ -31,8 +40,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     deudor,
                     prestamista,
                     SUM(monto) as total_capital,
-                    SUM(monto) * 0.20 as total_interes,
-                    SUM(monto) * 1.20 as total_general,
+                    SUM(monto) * ? as total_interes,
+                    SUM(monto) * (1 + ?) as total_general,
                     COUNT(*) as cantidad_prestamos
                 FROM prestamos 
                 WHERE deudor IN ($placeholders) 
@@ -42,8 +51,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ORDER BY deudor";
         
         $stmt = $conn->prepare($sql);
-        $types = str_repeat('s', count($deudores_seleccionados)) . 's';
-        $params = array_merge($deudores_seleccionados, [$prestamista_seleccionado]);
+        $types = 'd' . 'd' . str_repeat('s', count($deudores_seleccionados)) . 's';
+        $params = array_merge([$factor_interes, $factor_interes], $deudores_seleccionados, [$prestamista_seleccionado]);
         $stmt->bind_param($types, ...$params);
         $stmt->execute();
         $resultado = $stmt->get_result();
@@ -66,7 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .container { max-width: 1200px; margin: 20px auto; padding: 20px; }
         .form-group { margin-bottom: 20px; }
         label { display: block; margin-bottom: 5px; font-weight: bold; }
-        select, button { width: 100%; padding: 10px; margin: 5px 0; }
+        select, button, input { width: 100%; padding: 10px; margin: 5px 0; }
         select[multiple] { height: 200px; }
         .resultados { margin-top: 30px; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
@@ -74,6 +83,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         th { background-color: #f2f2f2; }
         .totales { background-color: #e8f4fd; font-weight: bold; }
         .moneda { text-align: right; }
+        .porcentaje-input { width: 100px; display: inline-block; }
+        .form-row { display: flex; gap: 20px; }
+        .form-col { flex: 1; }
     </style>
 </head>
 <body>
@@ -81,36 +93,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <h1>Reporte de Préstamos Consolidados</h1>
         
         <form method="POST">
-            <div class="form-group">
-                <label for="deudores">Seleccionar Deudores (Múltiple):</label>
-                <select name="deudores[]" id="deudores" multiple required>
-                    <?php while($deudor = $result_deudores->fetch_assoc()): ?>
-                        <option value="<?= htmlspecialchars($deudor['deudor']) ?>">
-                            <?= htmlspecialchars($deudor['deudor']) ?>
-                        </option>
-                    <?php endwhile; ?>
-                </select>
-                <small>Mantén presionado Ctrl para seleccionar múltiples deudores</small>
+            <div class="form-row">
+                <div class="form-col">
+                    <div class="form-group">
+                        <label for="deudores">Seleccionar Deudores (Múltiple):</label>
+                        <select name="deudores[]" id="deudores" multiple required>
+                            <?php while($deudor = $result_deudores->fetch_assoc()): ?>
+                                <option value="<?= htmlspecialchars($deudor['deudor']) ?>" 
+                                    <?= in_array($deudor['deudor'], $deudores_seleccionados) ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars($deudor['deudor']) ?>
+                                </option>
+                            <?php endwhile; ?>
+                        </select>
+                        <small>Mantén presionado Ctrl para seleccionar múltiples deudores</small>
+                    </div>
+                </div>
+                
+                <div class="form-col">
+                    <div class="form-group">
+                        <label for="prestamista">Seleccionar Prestamista:</label>
+                        <select name="prestamista" id="prestamista" required>
+                            <option value="">-- Seleccionar Prestamista --</option>
+                            <?php 
+                            $result_prestamistas->data_seek(0); // Resetear el puntero
+                            while($prestamista = $result_prestamistas->fetch_assoc()): ?>
+                                <option value="<?= htmlspecialchars($prestamista['prestamista']) ?>" 
+                                    <?= $prestamista_seleccionado == $prestamista['prestamista'] ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars($prestamista['prestamista']) ?>
+                                </option>
+                            <?php endwhile; ?>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="porcentaje_interes">Porcentaje de Interés (%):</label>
+                        <input type="number" name="porcentaje_interes" id="porcentaje_interes" 
+                               value="<?= $porcentaje_interes ?>" step="0.1" min="0" max="100" required>
+                        <small>Ej: 10, 13, 15.5</small>
+                    </div>
+                    
+                    <button type="submit">Generar Reporte</button>
+                </div>
             </div>
-            
-            <div class="form-group">
-                <label for="prestamista">Seleccionar Prestamista:</label>
-                <select name="prestamista" id="prestamista" required>
-                    <option value="">-- Seleccionar Prestamista --</option>
-                    <?php while($prestamista = $result_prestamistas->fetch_assoc()): ?>
-                        <option value="<?= htmlspecialchars($prestamista['prestamista']) ?>">
-                            <?= htmlspecialchars($prestamista['prestamista']) ?>
-                        </option>
-                    <?php endwhile; ?>
-                </select>
-            </div>
-            
-            <button type="submit">Generar Reporte</button>
         </form>
 
         <?php if (isset($resultado)): ?>
         <div class="resultados">
-            <h2>Resultados para: <?= htmlspecialchars($prestamista_seleccionado) ?></h2>
+            <h2>Resultados para: <?= htmlspecialchars($prestamista_seleccionado) ?> (Interés: <?= $porcentaje_interes ?>%)</h2>
             
             <table>
                 <thead>
@@ -118,7 +147,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <th>Deudor</th>
                         <th>Préstamos</th>
                         <th>Capital</th>
-                        <th>Interés (20%)</th>
+                        <th>Interés (<?= $porcentaje_interes ?>%)</th>
                         <th>Total a Pagar</th>
                     </tr>
                 </thead>
@@ -156,6 +185,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         document.getElementById('deudores').addEventListener('dblclick', function(e) {
             if (e.target.tagName === 'OPTION') {
                 e.target.selected = !e.target.selected;
+            }
+        });
+        
+        // Seleccionar todos los deudores con doble click en el label (opcional)
+        document.querySelector('label[for="deudores"]').addEventListener('dblclick', function() {
+            const select = document.getElementById('deudores');
+            for (let option of select.options) {
+                option.selected = true;
             }
         });
     </script>
