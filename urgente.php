@@ -729,7 +729,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 
     <script>
-        // ARRAY PARA ALMACENAR DEUDORES SELECCIONADOS
+        // ARRAY PARA ALMACENAR DEUDORES SELECCIONA
         let deudoresSeleccionados = <?php echo json_encode($deudores_seleccionados); ?>;
 
         document.addEventListener('DOMContentLoaded', function() {
