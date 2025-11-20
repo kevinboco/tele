@@ -50,7 +50,11 @@ $interes_celene = 8;
 
 // Procesar el formulario cuando se envía
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $deudores_seleccionados = $_POST['deudores'] ?? [];
+    $deudores_seleccionados = isset($_POST['deudores']) ? $_POST['deudores'] : [];
+    // Si viene como string separado por comas, convertirlo a array
+    if (is_string($deudores_seleccionados)) {
+        $deudores_seleccionados = explode(',', $deudores_seleccionados);
+    }
     $prestamista_seleccionado = $_POST['prestamista'] ?? '';
     $porcentaje_interes = floatval($_POST['porcentaje_interes'] ?? 10);
     $comision_celene = floatval($_POST['comision_celene'] ?? 5);
@@ -176,6 +180,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .buscador-icon { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #666; }
         .contador-deudores { font-size: 0.9em; color: #666; margin-top: 5px; }
         .nota-pagados { background-color: #d4edda; padding: 10px; border-radius: 5px; margin: 10px 0; border-left: 4px solid #28a745; }
+        .deudor-item { padding: 8px; cursor: pointer; border-bottom: 1px solid #eee; }
+        .deudor-item:hover { background-color: #f0f0f0; }
+        .deudor-item.selected { background-color: #007bff; color: white; }
+        .deudores-container { border: 1px solid #ddd; border-radius: 4px; max-height: 200px; overflow-y: auto; }
+        .botones-seleccion { margin: 10px 0; }
+        .botones-seleccion button { width: auto; padding: 5px 10px; margin-right: 5px; }
     </style>
 </head>
 <body>
@@ -191,7 +201,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="form-row">
                 <div class="form-col">
                     <div class="form-group">
-                        <label for="deudores">Seleccionar Deudores (Múltiple):</label>
+                        <label for="deudores">Seleccionar Deudores (Haz clic para seleccionar):</label>
                         
                         <!-- Buscador para deudores -->
                         <div class="buscador-container">
@@ -199,19 +209,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                    placeholder="Buscar deudor...">
                             <span class="buscador-icon">🔍</span>
                         </div>
-                        
-                        <select name="deudores[]" id="deudores" multiple required>
-                            <?php while($deudor = $result_deudores->fetch_assoc()): ?>
-                                <option value="<?php echo htmlspecialchars($deudor['deudor']); ?>" 
-                                    <?php echo in_array($deudor['deudor'], $deudores_seleccionados) ? 'selected' : ''; ?>>
-                                    <?php echo htmlspecialchars($deudor['deudor']); ?>
-                                </option>
-                            <?php endwhile; ?>
-                        </select>
-                        <div class="contador-deudores" id="contadorDeudores">
-                            Mostrando todos los deudores con préstamos pendientes
+
+                        <!-- Botones de selección rápida -->
+                        <div class="botones-seleccion">
+                            <button type="button" onclick="seleccionarTodos()">Seleccionar Todos</button>
+                            <button type="button" onclick="deseleccionarTodos()">Deseleccionar Todos</button>
                         </div>
-                        <small>Mantén presionado Ctrl para seleccionar múltiples deudores</small>
+                        
+                        <!-- Lista personalizada de deudores -->
+                        <div class="deudores-container" id="listaDeudores">
+                            <?php 
+                            $result_deudores->data_seek(0);
+                            while($deudor = $result_deudores->fetch_assoc()): 
+                                $es_seleccionado = in_array($deudor['deudor'], $deudores_seleccionados);
+                            ?>
+                                <div class="deudor-item <?php echo $es_seleccionado ? 'selected' : ''; ?>" 
+                                     data-value="<?php echo htmlspecialchars($deudor['deudor']); ?>">
+                                    <?php echo htmlspecialchars($deudor['deudor']); ?>
+                                </div>
+                            <?php endwhile; ?>
+                        </div>
+                        
+                        <!-- Campo oculto para almacenar los valores seleccionados -->
+                        <input type="hidden" name="deudores" id="deudoresSeleccionados" 
+                               value="<?php echo htmlspecialchars(implode(',', $deudores_seleccionados)); ?>">
+                        
+                        <div class="contador-deudores" id="contadorDeudores">
+                            <?php 
+                            $total_deudores = $result_deudores->num_rows;
+                            $seleccionados = count($deudores_seleccionados);
+                            echo "Seleccionados: $seleccionados de $total_deudores deudores";
+                            ?>
+                        </div>
+                        <small>Haz clic en cada deudor para seleccionarlo/deseleccionarlo</small>
                     </div>
                 </div>
                 
@@ -405,28 +435,111 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 
     <script>
+        // ARRAY PARA ALMACENAR DEUDORES SELECCIONADOS
+        let deudoresSeleccionados = <?php echo json_encode($deudores_seleccionados); ?>;
+
+        // INICIALIZAR LA LISTA DE DEUDORES
+        document.addEventListener('DOMContentLoaded', function() {
+            actualizarListaDeudores();
+            actualizarContador();
+        });
+
+        // FUNCIÓN PARA MANEJAR CLIC EN DEUDOR
+        function toggleDeudor(element) {
+            const valor = element.getAttribute('data-value');
+            const index = deudoresSeleccionados.indexOf(valor);
+            
+            if (index === -1) {
+                // Agregar a seleccionados
+                deudoresSeleccionados.push(valor);
+                element.classList.add('selected');
+            } else {
+                // Quitar de seleccionados
+                deudoresSeleccionados.splice(index, 1);
+                element.classList.remove('selected');
+            }
+            
+            // Actualizar campo oculto y contador
+            document.getElementById('deudoresSeleccionados').value = deudoresSeleccionados.join(',');
+            actualizarContador();
+        }
+
+        // FUNCIÓN PARA ACTUALIZAR LA LISTA VISUAL
+        function actualizarListaDeudores() {
+            const items = document.querySelectorAll('.deudor-item');
+            items.forEach(item => {
+                const valor = item.getAttribute('data-value');
+                if (deudoresSeleccionados.includes(valor)) {
+                    item.classList.add('selected');
+                } else {
+                    item.classList.remove('selected');
+                }
+                
+                // Agregar evento click
+                item.addEventListener('click', function() {
+                    toggleDeudor(this);
+                });
+            });
+        }
+
+        // FUNCIÓN PARA ACTUALIZAR CONTADOR
+        function actualizarContador() {
+            const total = document.querySelectorAll('.deudor-item').length;
+            const seleccionados = deudoresSeleccionados.length;
+            document.getElementById('contadorDeudores').textContent = 
+                `Seleccionados: ${seleccionados} de ${total} deudores`;
+        }
+
+        // FUNCIÓN PARA SELECCIONAR TODOS
+        function seleccionarTodos() {
+            const items = document.querySelectorAll('.deudor-item');
+            deudoresSeleccionados = [];
+            
+            items.forEach(item => {
+                const valor = item.getAttribute('data-value');
+                deudoresSeleccionados.push(valor);
+                item.classList.add('selected');
+            });
+            
+            document.getElementById('deudoresSeleccionados').value = deudoresSeleccionados.join(',');
+            actualizarContador();
+        }
+
+        // FUNCIÓN PARA DESELECCIONAR TODOS
+        function deseleccionarTodos() {
+            const items = document.querySelectorAll('.deudor-item');
+            deudoresSeleccionados = [];
+            
+            items.forEach(item => {
+                item.classList.remove('selected');
+            });
+            
+            document.getElementById('deudoresSeleccionados').value = '';
+            actualizarContador();
+        }
+
         // BUSCADOR DE DEUDORES
         document.getElementById('buscadorDeudores').addEventListener('input', function(e) {
             const filtro = e.target.value.toLowerCase();
-            const options = document.getElementById('deudores').options;
+            const items = document.querySelectorAll('.deudor-item');
             let contador = 0;
             
-            for (let i = 0; i < options.length; i++) {
-                const texto = options[i].text.toLowerCase();
+            items.forEach(item => {
+                const texto = item.textContent.toLowerCase();
                 if (texto.includes(filtro)) {
-                    options[i].style.display = '';
+                    item.style.display = '';
                     contador++;
                 } else {
-                    options[i].style.display = 'none';
+                    item.style.display = 'none';
                 }
-            }
+            });
             
             // Actualizar contador
             const contadorElement = document.getElementById('contadorDeudores');
             if (filtro === '') {
-                contadorElement.textContent = 'Mostrando todos los deudores con préstamos pendientes';
+                actualizarContador();
             } else {
-                contadorElement.textContent = 'Mostrando ' + contador + ' deudor(es) que coinciden con "' + filtro + '"';
+                contadorElement.textContent = `Mostrando ${contador} deudor(es) que coinciden con "${filtro}"`;
             }
         });
         
@@ -437,13 +550,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             configCelene.style.display = (prestamista == 'Celene') ? 'block' : 'none';
         }
-        
-        // Para hacer más fácil la selección múltiple
-        document.getElementById('deudores').addEventListener('dblclick', function(e) {
-            if (e.target.tagName === 'OPTION') {
-                e.target.selected = !e.target.selected;
-            }
-        });
         
         // Función para mostrar/ocultar detalle
         function toggleDetalle(id) {
@@ -600,14 +706,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         function formatNumber(num) {
             return Math.round(num).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
         }
-        
-        // Seleccionar todos los deudores con doble click en el label
-        document.querySelector('label[for="deudores"]').addEventListener('dblclick', function() {
-            const select = document.getElementById('deudores');
-            for (let option of select.options) {
-                option.selected = true;
-            }
-        });
     </script>
 </body>
 </html>
