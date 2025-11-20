@@ -36,7 +36,7 @@ function calcularMesesAutomaticos($fecha_prestamo) {
 // Variables para mantener los valores del formulario
 $deudores_seleccionados = [];
 $prestamista_seleccionado = '';
-$porcentaje_interes = 10; // ya no se usa para el cálculo, pero lo dejamos por si acaso
+$porcentaje_interes = 10; // ya no se usa para el cálculo, pero lo dejamos
 $comision_celene = 5;
 $interes_celene = 8;
 $fecha_desde = '';
@@ -74,7 +74,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $deudores_seleccionados = $deudores_seleccionados !== '' ? explode(',', $deudores_seleccionados) : [];
     }
     $prestamista_seleccionado = $_POST['prestamista'] ?? '';
-    // Dejamos la lectura del interés, aunque ya no se usa para el cálculo
     $porcentaje_interes = floatval($_POST['porcentaje_interes'] ?? 10);
     $comision_celene = floatval($_POST['comision_celene'] ?? 5);
     $interes_celene = floatval($_POST['interes_celene'] ?? 8);
@@ -152,10 +151,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $meses = calcularMesesAutomaticos($fila['fecha']);
 
             if ($es_celene) {
-                // Celene: Capital + Interés Celene + Comisión
+                // Celene: Capital + Interés Celene (NO incluye tu comisión en el total)
                 $interes_celene_monto = $fila['monto'] * ($interes_celene / 100) * $meses;
                 $comision_monto = $fila['monto'] * ($comision_celene / 100) * $meses;
-                $total_prestamo = $fila['monto'] + $interes_celene_monto + $comision_monto;
+                $total_prestamo = $fila['monto'] + $interes_celene_monto; // <-- CAMBIO: sin comisión
                 $tasa_interes = 0; // no aplica
             } else {
                 // OTROS PRESTAMISTAS: 10% o 13% según fecha del préstamo
@@ -191,7 +190,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'monto' => $fila['monto'],
                 'fecha' => $fila['fecha'],
                 'meses' => $meses,
-                'tasa_interes' => $tasa_interes, // NUEVO: guardamos la tasa por préstamo
+                'tasa_interes' => $tasa_interes,
                 'interes_celene' => $interes_celene_monto ?? 0,
                 'comision' => $comision_monto ?? 0,
                 'total' => $total_prestamo,
@@ -236,7 +235,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($es_celene) {
                 $interes_celene_monto = $fila['monto'] * ($interes_celene / 100) * $meses;
                 $comision_monto = $fila['monto'] * ($comision_celene / 100) * $meses;
-                $total_prestamo = $fila['monto'] + $interes_celene_monto + $comision_monto;
+                $total_prestamo = $fila['monto'] + $interes_celene_monto; // <-- CAMBIO: sin comisión
                 $interes_total = 0;
             } else {
                 // MISMA REGLA 10% / 13%
@@ -477,7 +476,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <label for="comision_celene">Tu Comisión (%):</label>
                                 <input type="number" name="comision_celene" id="comision_celene" 
                                        value="<?php echo $comision_celene; ?>" step="0.1" min="0" max="100" required>
-                                <small>Lo que recibes tú</small>
+                                <small>Lo que recibes tú (No incluido en el total a pagar)</small>
                             </div>
                         </div>
                     </div>
@@ -505,8 +504,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="info-meses">
                 <strong>Distribución para Celene:</strong><br>
                 - <strong>Celene recibe:</strong> Capital + <?php echo $interes_celene; ?>% interés<br>
-                - <strong>Tú recibes:</strong> <?php echo $comision_celene; ?>% de comisión<br>
-                - <strong>Total a pagar:</strong> Capital + Interés Celene + Tu Comisión
+                - <strong>Tú recibes:</strong> <?php echo $comision_celene; ?>% de comisión (por separado)<br>
+                - <strong>Total a pagar (en la tabla):</strong> Capital + Interés Celene (sin tu comisión)
             </div>
             <?php else: ?>
             <div class="info-meses">
@@ -868,7 +867,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 const interesCeleneMonto = monto * (interesCelene / 100) * meses;
                 const comisionMonto = monto * (comision / 100) * meses;
-                const total = monto + interesCeleneMonto + comisionMonto;
+                const total = monto + interesCeleneMonto; // <-- CAMBIO: sin comisión
                 
                 const celdaInteresCelene = fila.querySelector('.interes-celene-prestamo');
                 const celdaComision = fila.querySelector('.comision-prestamo');
