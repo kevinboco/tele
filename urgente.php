@@ -121,9 +121,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $comision_monto = $fila['monto'] * ($comision_alexander / 100) * $meses;
                     $total_prestamo = $fila['monto'] + $interes_alexander_monto + $comision_monto;
                 } else {
-                    // Para Alexander SIN comisión (antes de 18-11-2025): Capital + Interés Total normal
+                    // Para Alexander SIN comisión (antes de 18-11-2025): Capital + Interés Total normal AL 10%
                     $interes_total = $fila['monto'] * ($porcentaje_interes / 100) * $meses;
-                    $interes_alexander_monto = 0;
+                    $interes_alexander_monto = $interes_total; // Alexander recibe todo el interés
                     $comision_monto = 0;
                     $total_prestamo = $fila['monto'] + $interes_total;
                 }
@@ -319,9 +319,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php elseif ($prestamista_seleccionado == 'Alexander Peralta'): ?>
             <div class="info-meses">
                 <strong>💰 Distribución para Alexander Peralta:</strong><br>
-                - <strong>Alexander recibe:</strong> Capital + <?= $interes_alexander ?>% interés<br>
-                - <strong>Tú recibes:</strong> <?= $comision_alexander ?>% de comisión (solo desde 18-11-2025)<br>
-                - <strong>Total a pagar:</strong> Capital + Interés Alexander + Tu Comisión (si aplica)
+                - <strong>Préstamos ANTES del 18-11-2025:</strong> Alexander recibe Capital + <?= $porcentaje_interes ?>% interés total<br>
+                - <strong>Préstamos DESPUÉS del 18-11-2025:</strong> Alexander recibe Capital + <?= $interes_alexander ?>% interés + Tú recibes <?= $comision_alexander ?>% comisión<br>
+                - <strong>Total a pagar:</strong> Capital + Interés correspondiente
             </div>
             <?php else: ?>
             <div class="info-meses">
@@ -341,7 +341,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <th>Interés Celene (<?= $interes_celene ?>%)</th>
                         <th>Tu Comisión (<?= $comision_celene ?>%)</th>
                         <?php elseif ($prestamista_seleccionado == 'Alexander Peralta'): ?>
-                        <th>Interés Alexander (<?= $interes_alexander ?>%)</th>
+                        <th>Interés Alexander</th>
                         <th>Tu Comisión (<?= $comision_alexander ?>%)</th>
                         <?php else: ?>
                         <th>Interés (<?= $porcentaje_interes ?>%)</th>
@@ -556,15 +556,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     
                     fila.classList.remove('sin-comision');
                 } else {
-                    // SIN comisión: Capital + Interés Total normal
-                    const interesTotal = monto * (document.getElementById('porcentaje_interes').value / 100) * meses;
-                    const total = monto + interesTotal;
+                    // SIN comisión: Capital + Interés Total normal AL 10%
+                    const interesTotal = parseFloat(document.getElementById('porcentaje_interes').value);
+                    const interesMonto = monto * (interesTotal / 100) * meses;
+                    const total = monto + interesMonto;
                     
                     const celdaInteresAlexander = fila.querySelector('.interes-alexander-prestamo');
                     const celdaComision = fila.querySelector('.comision-prestamo');
                     const celdaTotal = fila.querySelector('.total-prestamo');
                     
-                    celdaInteresAlexander.textContent = '$ ' + formatNumber(0);
+                    celdaInteresAlexander.textContent = '$ ' + formatNumber(interesMonto);
                     celdaComision.textContent = '$ ' + formatNumber(0);
                     celdaTotal.textContent = '$ ' + formatNumber(total);
                     
