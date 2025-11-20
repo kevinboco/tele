@@ -11,12 +11,12 @@ if ($conn->connect_error) {
     die("Error de conexión: " . $conn->connect_error);
 }
 
-// Obtener todos los deudores únicos de la base de datos
-$sql_deudores = "SELECT DISTINCT deudor FROM prestamos WHERE deudor != '' ORDER BY deudor";
+// Obtener todos los deudores únicos de la base de datos (SOLO NO PAGADOS)
+$sql_deudores = "SELECT DISTINCT deudor FROM prestamos WHERE deudor != '' AND pagado = 0 ORDER BY deudor";
 $result_deudores = $conn->query($sql_deudores);
 
-// Obtener todos los prestamistas únicos de la base de datos
-$sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' ORDER BY prestamista";
+// Obtener todos los prestamistas únicos de la base de datos (SOLO NO PAGADOS)
+$sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' AND pagado = 0 ORDER BY prestamista";
 $result_prestamistas = $conn->query($sql_prestamistas);
 
 // Función para calcular meses automáticamente - CÁLCULO CORRECTO DE MESES
@@ -57,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $interes_celene = floatval($_POST['interes_celene'] ?? 8);
     
     if (!empty($deudores_seleccionados) && !empty($prestamista_seleccionado)) {
-        // Consulta para obtener los préstamos
+        // Consulta para obtener los préstamos (SOLO NO PAGADOS)
         $placeholders = str_repeat('?,', count($deudores_seleccionados) - 1) . '?';
         
         $sql = "SELECT 
@@ -69,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 FROM prestamos 
                 WHERE deudor IN ($placeholders) 
                 AND prestamista = ?
-                AND pagado = 0
+                AND pagado = 0  -- SOLO PRÉSTAMOS NO PAGADOS
                 ORDER BY deudor, fecha";
         
         $stmt = $conn->prepare($sql);
@@ -143,7 +143,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reporte de Préstamos</title>
+    <title>Reporte de Préstamos - Pendientes de Pago</title>
     <style>
         .container { max-width: 1600px; margin: 20px auto; padding: 20px; }
         .form-group { margin-bottom: 20px; }
@@ -175,11 +175,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .buscador-input { width: 100%; padding: 8px 30px 8px 10px; border: 1px solid #ddd; border-radius: 4px; }
         .buscador-icon { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #666; }
         .contador-deudores { font-size: 0.9em; color: #666; margin-top: 5px; }
+        .nota-pagados { background-color: #d4edda; padding: 10px; border-radius: 5px; margin: 10px 0; border-left: 4px solid #28a745; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Reporte de Préstamos Consolidados</h1>
+        <h1>Reporte de Préstamos Consolidados - Pendientes de Pago</h1>
+        
+        <div class="nota-pagados">
+            <strong>Nota:</strong> Esta vista solo muestra préstamos que están <strong>pendientes de pago</strong> (pagado = 0). 
+            Los préstamos ya pagados no aparecen en esta lista.
+        </div>
         
         <form method="POST" id="formPrincipal">
             <div class="form-row">
@@ -203,7 +209,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <?php endwhile; ?>
                         </select>
                         <div class="contador-deudores" id="contadorDeudores">
-                            Mostrando todos los deudores
+                            Mostrando todos los deudores con préstamos pendientes
                         </div>
                         <small>Mantén presionado Ctrl para seleccionar múltiples deudores</small>
                     </div>
@@ -277,6 +283,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
             <?php endif; ?>
             
+            <?php if (empty($prestamos_por_deudor)): ?>
+                <div style="background-color: #f8d7da; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                    <strong>No se encontraron préstamos pendientes</strong> para los criterios seleccionados.
+                </div>
+            <?php else: ?>
             <table id="tablaReporte">
                 <thead>
                     <tr>
@@ -388,6 +399,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </tr>
                 </tbody>
             </table>
+            <?php endif; ?>
         </div>
         <?php endif; ?>
     </div>
@@ -412,7 +424,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Actualizar contador
             const contadorElement = document.getElementById('contadorDeudores');
             if (filtro === '') {
-                contadorElement.textContent = 'Mostrando todos los deudores';
+                contadorElement.textContent = 'Mostrando todos los deudores con préstamos pendientes';
             } else {
                 contadorElement.textContent = 'Mostrando ' + contador + ' deudor(es) que coinciden con "' + filtro + '"';
             }
