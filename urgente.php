@@ -154,11 +154,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Celene: Capital + Interés Celene (NO incluye tu comisión en el total)
                 $interes_celene_monto = $fila['monto'] * ($interes_celene / 100) * $meses;
                 $comision_monto = $fila['monto'] * ($comision_celene / 100) * $meses;
-                $total_prestamo = $fila['monto'] + $interes_celene_monto; // <-- CAMBIO: sin comisión
-                $tasa_interes = 0; // no aplica
+                $total_prestamo = $fila['monto'] + $interes_celene_monto;
+                $tasa_interes = 0;
             } else {
                 // OTROS PRESTAMISTAS: 10% o 13% según fecha del préstamo
-                global $FECHA_CORTE;
                 $fecha_prestamo_dt = new DateTime($fila['fecha']);
                 $tasa_interes = ($fecha_prestamo_dt >= $FECHA_CORTE) ? 13 : 10;
 
@@ -235,11 +234,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($es_celene) {
                 $interes_celene_monto = $fila['monto'] * ($interes_celene / 100) * $meses;
                 $comision_monto = $fila['monto'] * ($comision_celene / 100) * $meses;
-                $total_prestamo = $fila['monto'] + $interes_celene_monto; // <-- CAMBIO: sin comisión
+                $total_prestamo = $fila['monto'] + $interes_celene_monto;
                 $interes_total = 0;
             } else {
                 // MISMA REGLA 10% / 13%
-                global $FECHA_CORTE;
                 $fecha_prestamo_dt = new DateTime($fila['fecha']);
                 $tasa_interes = ($fecha_prestamo_dt >= $FECHA_CORTE) ? 13 : 10;
 
@@ -283,64 +281,469 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Reporte de Préstamos - Pendientes de Pago</title>
+    <!-- Fuente bonita -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        .container { max-width: 1600px; margin: 20px auto; padding: 20px; }
-        .form-group { margin-bottom: 20px; }
-        label { display: block; margin-bottom: 5px; font-weight: bold; }
-        select, button, input { width: 100%; padding: 10px; margin: 5px 0; }
-        select[multiple] { height: 200px; }
-        .resultados { margin-top: 30px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
-        .totales { background-color: #e8f4fd; font-weight: bold; }
-        .moneda { text-align: right; }
-        .form-row { display: flex; gap: 20px; }
-        .form-col { flex: 1; }
-        .detalle-toggle { cursor: pointer; color: #007bff; }
-        .detalle-prestamo { display: none; background-color: #f9f9f9; }
-        .detalle-prestamo td { padding: 5px 8px; font-size: 0.9em; }
-        .meses { text-align: center; }
-        .header-deudor { background-color: #e9ecef; }
-        .excluido { background-color: #ffe6e6; text-decoration: line-through; color: #999; }
-        .interes-input, .meses-input, .comision-input { width: 70px; padding: 4px; text-align: center; }
-        .checkbox-excluir { transform: scale(1.2); }
-        .acciones { text-align: center; }
-        .info-meses { background-color: #fff3cd; padding: 10px; border-radius: 5px; margin: 10px 0; }
-        .config-celene { background-color: #e7f3ff; padding: 15px; border-radius: 5px; margin: 10px 0; border-left: 4px solid #007bff; }
-        .comision-celene { background-color: #d4edda; }
-        .interes-celene { background-color: #fff3cd; }
-        .buscador-container { position: relative; margin-bottom: 10px; }
-        .buscador-input { width: 100%; padding: 8px 30px 8px 10px; border: 1px solid #ddd; border-radius: 4px; }
-        .buscador-icon { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #666; }
-        .contador-deudores { font-size: 0.9em; color: #666; margin-top: 5px; }
-        .nota-pagados { background-color: #d4edda; padding: 10px; border-radius: 5px; margin: 10px 0; border-left: 4px solid #28a745; }
-        .deudor-item { padding: 8px; cursor: pointer; border-bottom: 1px solid #eee; }
-        .deudor-item:hover { background-color: #f0f0f0; }
-        .deudor-item.selected { background-color: #007bff; color: white; }
-        .deudores-container { border: 1px solid #ddd; border-radius: 4px; max-height: 200px; overflow-y: auto; }
-        .botones-seleccion { margin: 10px 0; }
-        .botones-seleccion button { width: auto; padding: 5px 10px; margin-right: 5px; }
-        .filtro-fechas { background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0; border-left: 4px solid #6c757d; }
-        .fecha-row { display: flex; gap: 15px; }
-        .fecha-col { flex: 1; }
-        .subtitulo-cuadro { margin-top: 25px; font-size: 1.1em; font-weight: bold; }
-        .cuadro-otros { background-color: #f8f9ff; padding: 10px; border-radius: 5px; }
+        :root{
+            --bg-main: #020617;
+            --bg-card: #0b1220;
+            --bg-card-soft: #020617;
+            --accent: #38bdf8;
+            --accent-soft: rgba(56,189,248,0.15);
+            --accent-strong: #0ea5e9;
+            --danger: #ef4444;
+            --success: #22c55e;
+            --text-main: #e5e7eb;
+            --text-soft: #9ca3af;
+            --border-subtle: #1f2937;
+            --table-header: #020617;
+        }
+
+        *{
+            box-sizing:border-box;
+        }
+
+        body{
+            margin:0;
+            padding:0;
+            font-family:'Inter',system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+            background: radial-gradient(circle at top, #0f172a 0, #020617 40%, #000 100%);
+            color:var(--text-main);
+        }
+
+        .container{
+            max-width:1600px;
+            margin:20px auto 40px;
+            padding:24px;
+            background:linear-gradient(135deg,rgba(15,23,42,0.95),rgba(2,6,23,0.98));
+            border-radius:24px;
+            border:1px solid rgba(148,163,184,0.25);
+            box-shadow:
+                0 20px 45px rgba(15,23,42,0.9),
+                0 0 0 1px rgba(15,23,42,0.8);
+            backdrop-filter:blur(18px);
+        }
+
+        h1{
+            margin-top:0;
+            font-size:1.9rem;
+            font-weight:700;
+            letter-spacing:0.03em;
+            background:linear-gradient(90deg,#38bdf8,#a855f7,#22c55e);
+            -webkit-background-clip:text;
+            color:transparent;
+        }
+
+        .page-header{
+            display:flex;
+            align-items:flex-start;
+            justify-content:space-between;
+            gap:16px;
+            margin-bottom:18px;
+        }
+
+        .page-header-badge{
+            display:inline-flex;
+            align-items:center;
+            gap:6px;
+            padding:4px 12px;
+            border-radius:999px;
+            background:rgba(56,189,248,0.12);
+            border:1px solid rgba(56,189,248,0.4);
+            font-size:0.75rem;
+            text-transform:uppercase;
+            letter-spacing:0.12em;
+            color:var(--accent);
+        }
+        .page-header-badge span.icon{
+            font-size:0.9rem;
+        }
+
+        .nota-pagados{
+            background:rgba(34,197,94,0.11);
+            border-radius:14px;
+            padding:12px 14px;
+            border:1px solid rgba(34,197,94,0.4);
+            font-size:0.85rem;
+            display:flex;
+            align-items:flex-start;
+            gap:8px;
+            margin-bottom:18px;
+        }
+        .nota-pagados::before{
+            content:"✔";
+            color:var(--success);
+            margin-top:2px;
+        }
+
+        .form-card{
+            background:var(--bg-card);
+            border-radius:18px;
+            border:1px solid var(--border-subtle);
+            padding:16px 18px 18px;
+            margin-bottom:20px;
+        }
+
+        .form-card h3{
+            margin-top:0;
+            margin-bottom:10px;
+            font-size:1rem;
+            font-weight:600;
+            display:flex;
+            align-items:center;
+            gap:8px;
+        }
+        .form-card h3::before{
+            content:"⚙";
+            font-size:1rem;
+            opacity:0.9;
+        }
+
+        .form-group{
+            margin-bottom:16px;
+        }
+        label{
+            display:block;
+            margin-bottom:6px;
+            font-weight:500;
+            font-size:0.85rem;
+            color:var(--text-soft);
+        }
+
+        select,button,input{
+            width:100%;
+            padding:9px 11px;
+            margin:4px 0;
+            border-radius:10px;
+            border:1px solid rgba(148,163,184,0.35);
+            background:#020617;
+            color:var(--text-main);
+            font-size:0.9rem;
+            outline:none;
+            transition:all .18s ease;
+        }
+
+        select:focus,input:focus{
+            border-color:var(--accent);
+            box-shadow:0 0 0 1px rgba(56,189,248,0.4);
+        }
+
+        button{
+            border-radius:999px;
+            background:linear-gradient(135deg,var(--accent),var(--accent-strong));
+            border:none;
+            font-weight:600;
+            text-transform:uppercase;
+            letter-spacing:0.08em;
+            font-size:0.8rem;
+            cursor:pointer;
+            padding:10px 16px;
+            box-shadow:0 10px 18px rgba(56,189,248,0.35);
+        }
+        button:hover{
+            transform:translateY(-1px);
+            box-shadow:0 14px 26px rgba(56,189,248,0.5);
+            filter:brightness(1.05);
+        }
+        button:active{
+            transform:translateY(0);
+            box-shadow:0 8px 14px rgba(56,189,248,0.35);
+        }
+
+        select[multiple]{height:200px;}
+
+        .resultados{margin-top:26px;}
+
+        table{
+            width:100%;
+            border-collapse:collapse;
+            margin-top:12px;
+            font-size:0.85rem;
+            background:var(--bg-card-soft);
+            border-radius:16px;
+            overflow:hidden;
+            border:1px solid var(--border-subtle);
+        }
+
+        th,td{
+            border-bottom:1px solid rgba(31,41,55,0.9);
+            padding:8px 9px;
+            text-align:left;
+        }
+
+        thead th{
+            background:linear-gradient(180deg,var(--table-header),#020617);
+            position:sticky;
+            top:0;
+            z-index:1;
+            font-size:0.78rem;
+            text-transform:uppercase;
+            letter-spacing:0.08em;
+            color:var(--text-soft);
+        }
+
+        tbody tr:nth-child(even){
+            background:#020617;
+        }
+        tbody tr:nth-child(odd){
+            background:#020617;
+        }
+
+        tbody tr:hover{
+            background:rgba(15,23,42,0.9);
+        }
+
+        .totales{
+            background:rgba(15,23,42,0.96);
+            font-weight:600;
+        }
+
+        .moneda{text-align:right;font-variant-numeric:tabular-nums;}
+
+        .form-row{
+            display:flex;
+            flex-wrap:wrap;
+            gap:18px;
+        }
+        .form-col{flex:1 1 280px;}
+
+        .detalle-toggle{
+            cursor:pointer;
+            color:var(--accent);
+            font-weight:500;
+        }
+        .detalle-toggle::before{
+            content:"▸ ";
+            font-size:0.8rem;
+            opacity:0.85;
+        }
+
+        .detalle-prestamo{
+            background:#020617;
+        }
+
+        .header-deudor{
+            background:#020617;
+        }
+
+        .excluido{
+            background:rgba(127,29,29,0.45) !important;
+            text-decoration:line-through;
+            color:#9ca3af;
+        }
+
+        .interes-input,.meses-input,.comision-input{
+            width:72px;
+            padding:4px;
+            font-size:0.78rem;
+            text-align:center;
+            border-radius:8px;
+            background:#020617;
+        }
+
+        .checkbox-excluir{
+            transform:scale(1.2);
+            cursor:pointer;
+        }
+
+        .acciones{text-align:center;}
+
+        .info-meses{
+            background:rgba(251,191,36,0.08);
+            border-radius:14px;
+            padding:10px 12px;
+            margin:10px 0 16px;
+            border:1px solid rgba(245,158,11,0.4);
+            font-size:0.82rem;
+            color:#facc15;
+        }
+
+        .config-celene{
+            background:rgba(56,189,248,0.06);
+            padding:12px 14px;
+            border-radius:14px;
+            margin:10px 0;
+            border:1px solid rgba(56,189,248,0.5);
+        }
+        .config-celene h4{
+            margin:0 0 8px;
+            font-size:0.9rem;
+            font-weight:600;
+            display:flex;
+            align-items:center;
+            gap:6px;
+        }
+        .config-celene h4::before{
+            content:"💎";
+        }
+
+        .buscador-container{
+            position:relative;
+            margin-bottom:10px;
+        }
+        .buscador-input{
+            width:100%;
+            padding:8px 30px 8px 10px;
+            border-radius:999px;
+            border:1px solid rgba(148,163,184,0.4);
+            background:#020617;
+            font-size:0.85rem;
+        }
+        .buscador-icon{
+            position:absolute;
+            right:10px;
+            top:50%;
+            transform:translateY(-50%);
+            color:#6b7280;
+            font-size:0.9rem;
+        }
+
+        .contador-deudores{
+            font-size:0.78rem;
+            color:var(--text-soft);
+            margin-top:5px;
+        }
+
+        .deudor-item{
+            padding:7px 9px;
+            cursor:pointer;
+            border-bottom:1px solid rgba(31,41,55,0.9);
+            font-size:0.85rem;
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+        }
+
+        .deudor-item:hover{
+            background:rgba(30,64,175,0.5);
+        }
+
+        .deudor-item.selected{
+            background:linear-gradient(90deg,#1d4ed8,#22c55e);
+            color:white;
+            border-bottom-color:transparent;
+        }
+
+        .deudores-container{
+            border:1px solid var(--border-subtle);
+            border-radius:14px;
+            max-height:220px;
+            overflow-y:auto;
+            background:#020617;
+        }
+
+        .deudor-pill{
+            font-size:0.7rem;
+            padding:2px 7px;
+            border-radius:999px;
+            background:rgba(15,23,42,0.9);
+            border:1px solid rgba(148,163,184,0.4);
+        }
+
+        .botones-seleccion{
+            margin:6px 0 10px;
+            display:flex;
+            flex-wrap:wrap;
+            gap:8px;
+        }
+        .botones-seleccion button{
+            width:auto;
+            padding:6px 10px;
+            font-size:0.75rem;
+            box-shadow:none;
+            background:rgba(15,23,42,0.9);
+            border:1px solid rgba(148,163,184,0.7);
+            text-transform:none;
+            letter-spacing:0.03em;
+        }
+        .botones-seleccion button:hover{
+            box-shadow:0 0 0 1px rgba(148,163,184,0.9);
+            transform:none;
+        }
+
+        .filtro-fechas{
+            background:var(--bg-card);
+            padding:14px 16px;
+            border-radius:16px;
+            margin:12px 0 18px;
+            border:1px solid var(--border-subtle);
+        }
+
+        .filtro-fechas small{
+            font-size:0.78rem;
+            color:var(--text-soft);
+        }
+
+        .fecha-row{
+            display:flex;
+            flex-wrap:wrap;
+            gap:12px;
+        }
+        .fecha-col{
+            flex:1 1 180px;
+        }
+
+        .subtitulo-cuadro{
+            margin-top:20px;
+            font-size:1rem;
+            font-weight:600;
+            display:flex;
+            align-items:center;
+            gap:8px;
+        }
+        .subtitulo-cuadro::before{
+            content:"◆";
+            font-size:0.75rem;
+            color:var(--accent);
+        }
+
+        .cuadro-otros{
+            background:linear-gradient(145deg,#020617,#020617);
+            padding:10px 12px 14px;
+            border-radius:16px;
+            border:1px solid var(--border-subtle);
+            margin-top:8px;
+        }
+
+        .checkbox-otro-deudor{
+            transform:scale(1.2);
+            cursor:pointer;
+        }
+
+        @media (max-width: 900px){
+            .container{padding:16px;}
+            .page-header{
+                flex-direction:column;
+                align-items:flex-start;
+            }
+        }
+
+        small{
+            font-size:0.77rem;
+            color:var(--text-soft);
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Reporte de Préstamos Consolidados - Pendientes de Pago</h1>
+        <div class="page-header">
+            <div>
+                <div class="page-header-badge">
+                    <span class="icon">📊</span>
+                    <span>Panel de préstamos pendientes</span>
+                </div>
+                <h1>Reporte de Préstamos Consolidados</h1>
+            </div>
+        </div>
         
         <div class="nota-pagados">
-            <strong>Nota:</strong> Esta vista solo muestra préstamos que están <strong>pendientes de pago</strong> (pagado = 0). 
-            Los préstamos ya pagados no aparecen en esta lista.
+            <strong>Nota:</strong> Esta vista solo muestra préstamos que están <strong>pendientes de pago</strong> (pagado = 0). Los préstamos ya pagados no aparecen en esta lista.
         </div>
         
         <form method="POST" id="formPrincipal">
             <!-- Filtro de Fechas y Empresa -->
-            <div class="filtro-fechas">
-                <h3>Filtrar Conductores por Fecha y Empresa (tabla VIAJES)</h3>
+            <div class="filtro-fechas form-card">
+                <h3>Filtro de conductores (tabla VIAJES)</h3>
                 <div class="fecha-row">
                     <div class="fecha-col">
                         <label for="fecha_desde">Fecha Desde:</label>
@@ -379,150 +782,157 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             <div class="form-row">
                 <div class="form-col">
-                    <div class="form-group">
-                        <label for="deudores">Seleccionar Conductores (Haz clic para seleccionar):</label>
-                        
-                        <!-- Buscador para conductores -->
-                        <div class="buscador-container">
-                            <input type="text" id="buscadorDeudores" class="buscador-input" 
-                                   placeholder="Buscar conductor...">
-                            <span class="buscador-icon">🔍</span>
-                        </div>
+                    <div class="form-card">
+                        <div class="form-group">
+                            <label for="deudores">Seleccionar Conductores (haz clic para seleccionar):</label>
+                            
+                            <!-- Buscador para conductores -->
+                            <div class="buscador-container">
+                                <input type="text" id="buscadorDeudores" class="buscador-input" 
+                                       placeholder="Buscar conductor...">
+                                <span class="buscador-icon">🔍</span>
+                            </div>
 
-                        <!-- Botones de selección rápida -->
-                        <div class="botones-seleccion">
-                            <button type="button" onclick="seleccionarTodos()">Seleccionar Todos</button>
-                            <button type="button" onclick="deseleccionarTodos()">Deseleccionar Todos</button>
-                        </div>
-                        
-                        <!-- Lista personalizada de conductores -->
-                        <div class="deudores-container" id="listaDeudores">
-                            <?php 
-                            if (!empty($conductores_filtrados)) {
-                                foreach ($conductores_filtrados as $conductor): 
-                                    $es_seleccionado = in_array($conductor, $deudores_seleccionados);
-                            ?>
-                                <div class="deudor-item <?php echo $es_seleccionado ? 'selected' : ''; ?>" 
-                                     data-value="<?php echo htmlspecialchars($conductor); ?>">
-                                    <?php echo htmlspecialchars($conductor); ?>
-                                </div>
-                            <?php 
-                                endforeach; 
-                            } else {
-                                echo '<div style="padding: 10px; text-align: center; color: #666;">';
-                                if (!empty($fecha_desde) && !empty($fecha_hasta)) {
-                                    echo 'No se encontraron conductores para el rango de fechas y empresa seleccionados';
+                            <!-- Botones de selección rápida -->
+                            <div class="botones-seleccion">
+                                <button type="button" onclick="seleccionarTodos()">Seleccionar todos</button>
+                                <button type="button" onclick="deseleccionarTodos()">Deseleccionar todos</button>
+                            </div>
+                            
+                            <!-- Lista personalizada de conductores -->
+                            <div class="deudores-container" id="listaDeudores">
+                                <?php 
+                                if (!empty($conductores_filtrados)) {
+                                    foreach ($conductores_filtrados as $conductor): 
+                                        $es_seleccionado = in_array($conductor, $deudores_seleccionados);
+                                ?>
+                                    <div class="deudor-item <?php echo $es_seleccionado ? 'selected' : ''; ?>" 
+                                         data-value="<?php echo htmlspecialchars($conductor); ?>">
+                                        <span><?php echo htmlspecialchars($conductor); ?></span>
+                                        <span class="deudor-pill">Conductor</span>
+                                    </div>
+                                <?php 
+                                    endforeach; 
                                 } else {
-                                    echo 'Selecciona un rango de fechas para ver los conductores';
+                                    echo '<div style="padding: 10px; text-align: center; color: #9ca3af; font-size:0.85rem;">';
+                                    if (!empty($fecha_desde) && !empty($fecha_hasta)) {
+                                        echo 'No se encontraron conductores para el rango de fechas y empresa seleccionados';
+                                    } else {
+                                        echo 'Selecciona un rango de fechas para ver los conductores';
+                                    }
+                                    echo '</div>';
                                 }
-                                echo '</div>';
-                            }
-                            ?>
-                        </div>
-                        
-                        <!-- Campo oculto para almacenar los valores seleccionados -->
-                        <input type="hidden" name="deudores" id="deudoresSeleccionados" 
-                               value="<?php echo htmlspecialchars(implode(',', $deudores_seleccionados)); ?>">
-                        
-                        <div class="contador-deudores" id="contadorDeudores">
-                            <?php 
-                            if (!empty($conductores_filtrados)) {
-                                $total_conductores = count($conductores_filtrados);
-                                $seleccionados = count($deudores_seleccionados);
-                                echo "Seleccionados: $seleccionados de $total_conductores conductores";
-                            } else {
-                                if (!empty($fecha_desde) && !empty($fecha_hasta)) {
-                                    echo "No se encontraron conductores";
+                                ?>
+                            </div>
+                            
+                            <!-- Campo oculto para almacenar los valores seleccionados -->
+                            <input type="hidden" name="deudores" id="deudoresSeleccionados" 
+                                   value="<?php echo htmlspecialchars(implode(',', $deudores_seleccionados)); ?>">
+                            
+                            <div class="contador-deudores" id="contadorDeudores">
+                                <?php 
+                                if (!empty($conductores_filtrados)) {
+                                    $total_conductores = count($conductores_filtrados);
+                                    $seleccionados = count($deudores_seleccionados);
+                                    echo "Seleccionados: $seleccionados de $total_conductores conductores";
                                 } else {
-                                    echo "Selecciona fechas para ver conductores";
+                                    if (!empty($fecha_desde) && !empty($fecha_hasta)) {
+                                        echo "No se encontraron conductores";
+                                    } else {
+                                        echo "Selecciona fechas para ver conductores";
+                                    }
                                 }
-                            }
-                            ?>
+                                ?>
+                            </div>
+                            <small>Haz clic en cada conductor para seleccionarlo o quitarlo del reporte.</small>
                         </div>
-                        <small>Haz clic en cada conductor para seleccionarlo/deseleccionarlo</small>
                     </div>
                 </div>
                 
                 <div class="form-col">
-                    <div class="form-group">
-                        <label for="prestamista">Seleccionar Prestamista:</label>
-                        <select name="prestamista" id="prestamista" required onchange="toggleConfigCelene()">
-                            <option value="">-- Seleccionar Prestamista --</option>
-                            <?php 
-                            if (isset($result_prestamistas) && $result_prestamistas->num_rows > 0) {
-                                $result_prestamistas->data_seek(0);
-                                while ($prestamista = $result_prestamistas->fetch_assoc()): ?>
-                                    <option value="<?php echo htmlspecialchars($prestamista['prestamista']); ?>" 
-                                        <?php echo $prestamista_seleccionado == $prestamista['prestamista'] ? 'selected' : ''; ?>>
-                                        <?php echo htmlspecialchars($prestamista['prestamista']); ?>
-                                    </option>
-                                <?php endwhile; 
-                            }
-                            ?>
-                        </select>
-                    </div>
-                    
-                    <!-- Configuración especial para Celene -->
-                    <div id="configCelene" class="config-celene" style="display: <?php echo $prestamista_seleccionado == 'Celene' ? 'block' : 'none'; ?>;">
-                        <h4>Configuración para Celene</h4>
-                        <div class="form-row">
-                            <div class="form-col">
-                                <label for="interes_celene">Interés para Celene (%):</label>
-                                <input type="number" name="interes_celene" id="interes_celene" 
-                                       value="<?php echo $interes_celene; ?>" step="0.1" min="0" max="100" required>
-                                <small>Lo que recibe Celene</small>
-                            </div>
-                            <div class="form-col">
-                                <label for="comision_celene">Tu Comisión (%):</label>
-                                <input type="number" name="comision_celene" id="comision_celene" 
-                                       value="<?php echo $comision_celene; ?>" step="0.1" min="0" max="100" required>
-                                <small>Lo que recibes tú (No incluido en el total a pagar)</small>
+                    <div class="form-card">
+                        <div class="form-group">
+                            <label for="prestamista">Seleccionar Prestamista:</label>
+                            <select name="prestamista" id="prestamista" required onchange="toggleConfigCelene()">
+                                <option value="">-- Seleccionar Prestamista --</option>
+                                <?php 
+                                if (isset($result_prestamistas) && $result_prestamistas->num_rows > 0) {
+                                    $result_prestamistas->data_seek(0);
+                                    while ($prestamista = $result_prestamistas->fetch_assoc()): ?>
+                                        <option value="<?php echo htmlspecialchars($prestamista['prestamista']); ?>" 
+                                            <?php echo $prestamista_seleccionado == $prestamista['prestamista'] ? 'selected' : ''; ?>>
+                                            <?php echo htmlspecialchars($prestamista['prestamista']); ?>
+                                        </option>
+                                    <?php endwhile; 
+                                }
+                                ?>
+                            </select>
+                        </div>
+                        
+                        <!-- Configuración especial para Celene -->
+                        <div id="configCelene" class="config-celene" style="display: <?php echo $prestamista_seleccionado == 'Celene' ? 'block' : 'none'; ?>;">
+                            <h4>Configuración para Celene</h4>
+                            <div class="form-row">
+                                <div class="form-col">
+                                    <label for="interes_celene">Interés para Celene (%):</label>
+                                    <input type="number" name="interes_celene" id="interes_celene" 
+                                           value="<?php echo $interes_celene; ?>" step="0.1" min="0" max="100" required>
+                                    <small>Lo que recibe Celene.</small>
+                                </div>
+                                <div class="form-col">
+                                    <label for="comision_celene">Tu Comisión (%):</label>
+                                    <input type="number" name="comision_celene" id="comision_celene" 
+                                           value="<?php echo $comision_celene; ?>" step="0.1" min="0" max="100" required>
+                                    <small>Lo que recibes tú (no se suma al total a pagar).</small>
+                                </div>
                             </div>
                         </div>
+                        
+                        <button type="submit">Generar reporte</button>
                     </div>
-                    
-                    <button type="submit">Generar Reporte</button>
                 </div>
             </div>
         </form>
 
         <?php if (!empty($prestamista_seleccionado)): ?>
         <div class="resultados">
-            <h2>Resultados para: <?php echo htmlspecialchars($prestamista_seleccionado); ?></h2>
+            <h2 style="font-size:1.1rem;font-weight:600;margin-bottom:6px;">
+                Resultados para: <span style="color:var(--accent);"><?php echo htmlspecialchars($prestamista_seleccionado); ?></span>
+            </h2>
             
             <?php if (!empty($empresa_seleccionada) || (!empty($fecha_desde) && !empty($fecha_hasta))): ?>
             <div class="info-meses">
                 <strong>Filtro de conductores aplicado:</strong>
                 <?php if (!empty($empresa_seleccionada)): ?>
-                    Empresa <?php echo htmlspecialchars($empresa_seleccionada); ?> |
+                    Empresa <strong><?php echo htmlspecialchars($empresa_seleccionada); ?></strong> |
                 <?php endif; ?>
-                Fechas: <?php echo htmlspecialchars($fecha_desde); ?> al <?php echo htmlspecialchars($fecha_hasta); ?>
+                Fechas: <strong><?php echo htmlspecialchars($fecha_desde); ?></strong> al <strong><?php echo htmlspecialchars($fecha_hasta); ?></strong>
             </div>
             <?php endif; ?>
             
             <?php if ($prestamista_seleccionado == 'Celene'): ?>
             <div class="info-meses">
                 <strong>Distribución para Celene:</strong><br>
-                - <strong>Celene recibe:</strong> Capital + <?php echo $interes_celene; ?>% interés<br>
-                - <strong>Tú recibes:</strong> <?php echo $comision_celene; ?>% de comisión (por separado)<br>
-                - <strong>Total a pagar (en la tabla):</strong> Capital + Interés Celene (sin tu comisión)
+                • Celene recibe: <strong>Capital + <?php echo $interes_celene; ?>% de interés</strong><br>
+                • Tú recibes: <strong><?php echo $comision_celene; ?>% de comisión</strong> (se muestra aparte)<br>
+                • En la columna “Total a pagar” solo se suma: <strong>Capital + Interés Celene</strong>.
             </div>
             <?php else: ?>
             <div class="info-meses">
-                <strong>Cálculo automático de meses:</strong> 
-                Los meses se calculan automáticamente basado en la fecha del préstamo y la fecha actual. 
-                Además, se aplica <strong>10% de interés</strong> a préstamos antes del <strong>29-10-2025</strong> y 
-                <strong>13% de interés</strong> a préstamos desde esa fecha en adelante.
+                <strong>Cálculo de interés y meses:</strong><br>
+                • Los meses se calculan automáticamente según la fecha del préstamo y la fecha actual.<br>
+                • Préstamos <strong>anteriores al 29-10-2025</strong>: interés del <strong>10%</strong> mensual.<br>
+                • Préstamos <strong>desde el 29-10-2025 en adelante</strong>: interés del <strong>13%</strong> mensual.
             </div>
             <?php endif; ?>
 
             <!-- ===================== -->
             <!-- CUADRO 1 -->
             <!-- ===================== -->
-            <div class="subtitulo-cuadro">Cuadro 1: Préstamos de Conductores (y otros deudores seleccionados)</div>
+            <div class="subtitulo-cuadro">Cuadro 1: Préstamos de conductores y otros deudores seleccionados</div>
 
             <?php if (empty($prestamos_por_deudor)): ?>
-                <div style="background-color: #f8d7da; padding: 12px; border-radius: 5px; margin: 15px 0;">
+                <div style="background-color: rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.4); padding: 12px; border-radius: 10px; margin: 15px 0; font-size:0.85rem;">
                     <strong>No se encontraron préstamos pendientes</strong> para los deudores seleccionados.
                 </div>
             <?php else: ?>
@@ -538,7 +948,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <?php else: ?>
                         <th>Interés (10% / 13%)</th>
                         <?php endif; ?>
-                        <th>Total a Pagar</th>
+                        <th>Total a pagar</th>
                     </tr>
                 </thead>
                 <tbody id="cuerpoReporte">
@@ -577,7 +987,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <!-- Detalle de cada préstamo -->
                     <tr class="detalle-prestamo" id="detalle-<?php echo md5($deudor); ?>" style="display:none;">
                         <td colspan="<?php echo $prestamista_seleccionado == 'Celene' ? '6' : '5'; ?>">
-                            <table style="width: 100%; background-color: white;">
+                            <table style="width: 100%; background-color: #020617;">
                                 <thead>
                                     <tr>
                                         <th>Incluir</th>
@@ -650,10 +1060,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <!-- =========================== -->
             <!-- CUADRO 2: OTROS DEUDORES    -->
             <!-- =========================== -->
-            <div class="subtitulo-cuadro">Cuadro 2: Otros Deudores (Nómina, Facturas, etc.)</div>
+            <div class="subtitulo-cuadro">Cuadro 2: Otros deudores (nómina, facturas, etc.)</div>
             <div class="cuadro-otros">
             <?php if (empty($otros_prestamos_por_deudor)): ?>
-                <div style="background-color: #e2e3e5; padding: 12px; border-radius: 5px; margin: 10px 0;">
+                <div style="background-color: rgba(148,163,184,0.06); border:1px solid rgba(148,163,184,0.3); padding: 10px; border-radius: 10px; margin: 10px 0; font-size:0.85rem;">
                     No hay otros deudores con préstamos pendientes diferentes a los ya seleccionados.
                 </div>
             <?php else: ?>
@@ -670,7 +1080,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <?php else: ?>
                             <th>Interés</th>
                             <?php endif; ?>
-                            <th>Total a Pagar</th>
+                            <th>Total a pagar</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -729,7 +1139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 
     <script>
-        // ARRAY PARA ALMACENAR DEUDORES SELECCIONA
+        // ARRAY PARA ALMACENAR DEUDORES SELECCIONADOS
         let deudoresSeleccionados = <?php echo json_encode($deudores_seleccionados); ?>;
 
         document.addEventListener('DOMContentLoaded', function() {
@@ -867,7 +1277,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 const interesCeleneMonto = monto * (interesCelene / 100) * meses;
                 const comisionMonto = monto * (comision / 100) * meses;
-                const total = monto + interesCeleneMonto; // <-- CAMBIO: sin comisión
+                const total = monto + interesCeleneMonto;
                 
                 const celdaInteresCelene = fila.querySelector('.interes-celene-prestamo');
                 const celdaComision = fila.querySelector('.comision-prestamo');
