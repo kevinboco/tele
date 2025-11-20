@@ -18,32 +18,26 @@ $result_deudores = $conn->query($sql_deudores);
 $sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' ORDER BY prestamista";
 $result_prestamistas = $conn->query($sql_prestamistas);
 
-// Función para calcular meses automáticamente - REGLA DEL DÍA 10
+// Función para calcular meses automáticamente - INTERÉS SIMPLE
 function calcularMesesAutomaticos($fecha_prestamo) {
     $hoy = new DateTime();
     $fecha_prestamo_obj = new DateTime($fecha_prestamo);
     
+    // Si la fecha del préstamo es futura, retornar 1 mes mínimo
     if ($fecha_prestamo_obj > $hoy) {
         return 1;
     }
     
-    $meses = 0;
-    $fecha_temp = clone $fecha_prestamo_obj;
+    // Calcular diferencia en meses completos
+    $diff = $fecha_prestamo_obj->diff($hoy);
+    $meses = $diff->y * 12 + $diff->m;
     
-    while ($fecha_temp <= $hoy) {
+    // Si pasó al menos un día del mes actual, sumar 1 mes
+    if ($diff->d > 0 || $diff->m > 0 || $diff->y > 0) {
         $meses++;
-        $fecha_temp->modify('+1 month');
     }
     
-    $dia_prestamo = $fecha_prestamo_obj->format('d');
-    $dia_hoy = $hoy->format('d');
-    
-    if ($dia_prestamo < 10 && $dia_hoy >= 10) {
-        // Ya pasó el día 10 del mes actual, contar mes completo
-    } else {
-        $meses = max(1, $meses - 1);
-    }
-    
+    // Mínimo 1 mes
     return max(1, $meses);
 }
 
@@ -214,6 +208,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .comision-especial { background-color: #d4edda; }
         .interes-especial { background-color: #fff3cd; }
         .sin-comision { background-color: #f8d7da; color: #721c24; }
+        .ejemplo-fechas { background-color: #e7f3ff; padding: 10px; border-radius: 5px; margin: 10px 0; font-size: 0.9em; }
     </style>
 </head>
 <body>
@@ -309,6 +304,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="resultados">
             <h2>Resultados para: <?= htmlspecialchars($prestamista_seleccionado) ?></h2>
             
+            <div class="ejemplo-fechas">
+                <strong>📅 Cálculo de meses (Interés Simple):</strong><br>
+                - <strong>Ejemplo:</strong> Préstamo del 5/11 al 5/12 = 2 meses (noviembre y diciembre)<br>
+                - <strong>Regla:</strong> Cada mes calendario completo cuenta como 1 mes<br>
+                - <strong>Mínimo:</strong> 1 mes para cualquier préstamo
+            </div>
+            
             <?php if ($prestamista_seleccionado == 'Celene'): ?>
             <div class="info-meses">
                 <strong>💰 Distribución para Celene:</strong><br>
@@ -322,12 +324,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 - <strong>Préstamos ANTES del 18-11-2025:</strong> Alexander recibe Capital + <?= $porcentaje_interes ?>% interés total<br>
                 - <strong>Préstamos DESPUÉS del 18-11-2025:</strong> Alexander recibe Capital + <?= $interes_alexander ?>% interés + Tú recibes <?= $comision_alexander ?>% comisión<br>
                 - <strong>Total a pagar:</strong> Capital + Interés correspondiente
-            </div>
-            <?php else: ?>
-            <div class="info-meses">
-                <strong>📅 Cálculo automático de meses:</strong> 
-                Los meses se calculan automáticamente basado en la fecha del préstamo y la fecha actual. 
-                Puedes ajustarlos manualmente si es necesario.
             </div>
             <?php endif; ?>
             
