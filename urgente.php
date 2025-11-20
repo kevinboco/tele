@@ -41,6 +41,20 @@ function calcularMesesAutomaticos($fecha_prestamo) {
     return max(1, $meses);
 }
 
+// Función para determinar interés automático según fecha
+function calcularInteresAutomatico($fecha_prestamo) {
+    $fecha_corte = new DateTime('2025-10-29');
+    $fecha_prestamo_obj = new DateTime($fecha_prestamo);
+    
+    // Si el préstamo es desde 2025-10-29 o posterior = 13%
+    // Si es anterior = 10%
+    if ($fecha_prestamo_obj >= $fecha_corte) {
+        return 13;
+    } else {
+        return 10;
+    }
+}
+
 // Variables para mantener los valores del formulario
 $deudores_seleccionados = [];
 $prestamista_seleccionado = '';
@@ -81,7 +95,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         while($fila = $result_detalle->fetch_assoc()) {
             $deudor = $fila['deudor'];
             $meses = calcularMesesAutomaticos($fila['fecha']);
-            $interes_prestamo = $fila['monto'] * ($porcentaje_interes / 100) * $meses;
+            $interes_automatico = calcularInteresAutomatico($fila['fecha']);
+            $interes_prestamo = $fila['monto'] * ($interes_automatico / 100) * $meses;
             $total_prestamo = $fila['monto'] + $interes_prestamo;
             
             if (!isset($prestamos_por_deudor[$deudor])) {
@@ -104,6 +119,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'monto' => $fila['monto'],
                 'fecha' => $fila['fecha'],
                 'meses' => $meses,
+                'interes_automatico' => $interes_automatico,
                 'interes' => $interes_prestamo,
                 'total' => $total_prestamo,
                 'incluido' => true
@@ -148,6 +164,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .checkbox-excluir { transform: scale(1.2); }
         .acciones { text-align: center; }
         .info-meses { background-color: #d4edda; padding: 10px; border-radius: 5px; margin: 10px 0; }
+        .info-interes { background-color: #fff3cd; padding: 10px; border-radius: 5px; margin: 10px 0; }
+        .interes-10 { background-color: #e8f5e8; }
+        .interes-13 { background-color: #fff3cd; }
     </style>
 </head>
 <body>
@@ -188,10 +207,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                     
                     <div class="form-group">
-                        <label for="porcentaje_interes">Interés Mensual (%):</label>
+                        <label for="porcentaje_interes">Interés Base (%):</label>
                         <input type="number" name="porcentaje_interes" id="porcentaje_interes" 
-                               value="<?= $porcentaje_interes ?>" step="0.1" min="0" max="100" required>
-                        <small>Interés mensual (10%, 13%, etc.)</small>
+                               value="<?= $porcentaje_interes ?>" step="0.1" min="0" max="100">
+                        <small>Interés base (se usará automáticamente 10% o 13% según fecha)</small>
                     </div>
                     
                     <button type="submit">Generar Reporte</button>
@@ -201,12 +220,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <?php if (isset($prestamos_por_deudor)): ?>
         <div class="resultados">
-            <h2>Resultados para: <?= htmlspecialchars($prestamista_seleccionado) ?> (Interés: <?= $porcentaje_interes ?>% mensual)</h2>
+            <h2>Resultados para: <?= htmlspecialchars($prestamista_seleccionado) ?></h2>
             
             <div class="info-meses">
                 <strong>📅 Cálculo automático de meses:</strong> 
                 Cada préstamo cuenta desde su fecha. Ejemplo: Préstamo del 19/11 → 19/12 = 2 meses, 19/01 = 3 meses, etc.
-                Los meses se calculan automáticamente, pero puedes ajustarlos manualmente.
+            </div>
+            
+            <div class="info-interes">
+                <strong>💰 Interés automático por fecha:</strong> 
+                • <span style="color: #28a745;">10% para préstamos antes del 29/10/2025</span><br>
+                • <span style="color: #ffc107;">13% para préstamos desde el 29/10/2025</span>
             </div>
             
             <table id="tablaReporte">
@@ -255,7 +279,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 </thead>
                                 <tbody>
                                     <?php foreach($datos['prestamos_detalle'] as $index => $detalle): ?>
-                                    <tr class="fila-prestamo" data-deudor="<?= md5($deudor) ?>" data-id="<?= $detalle['id'] ?>">
+                                    <tr class="fila-prestamo interes-<?= $detalle['interes_automatico'] ?>" 
+                                        data-deudor="<?= md5($deudor) ?>" data-id="<?= $detalle['id'] ?>">
                                         <td class="acciones">
                                             <input type="checkbox" class="checkbox-excluir" checked 
                                                    onchange="togglePrestamo(this)">
@@ -268,7 +293,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                                    data-monto="<?= $detalle['monto'] ?>">
                                         </td>
                                         <td class="acciones">
-                                            <input type="number" class="interes-input" value="<?= $porcentaje_interes ?>" 
+                                            <input type="number" class="interes-input" value="<?= $detalle['interes_automatico'] ?>" 
                                                    step="0.1" min="0" max="100" 
                                                    onchange="recalcularPrestamo(this)" 
                                                    data-monto="<?= $detalle['monto'] ?>">
