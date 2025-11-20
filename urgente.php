@@ -1,4 +1,5 @@
 <?php
+include("nav.php");
 // Conexión a la base de datos
 define('DB_HOST', 'mysql.hostinger.com');
 define('DB_USER', 'u648222299_keboco5');

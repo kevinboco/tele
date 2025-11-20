@@ -184,7 +184,10 @@ $url_pago = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago
     <img src="https://img.icons8.com/color/48/edit-file.png" alt="Editar">
     <span>Editar</span>
   </a>
-
+  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/urgente.php" title="Días">
+    <img src="https://img.icons8.com/color/64/loan.png" alt="Días">
+    <span>liquidacion prestamistas</span>
+  </a>
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/tatiana.php" title="Días">
     <img src="https://img.icons8.com/color/48/planner.png" alt="Días">
     <span>Días</span>
