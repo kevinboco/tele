@@ -158,6 +158,39 @@ if ($action==='bulk_update' && $_SERVER['REQUEST_METHOD']==='POST'){
   go(BASE_URL.'?view=cards&msg='.$msg);
 }
 
+/* ===== NUEVO: Acción masiva "Préstamo pagado" desde TARJETAS ===== */
+if ($action==='bulk_mark_paid' && $_SERVER['REQUEST_METHOD']==='POST'){
+  $ids = $_POST['ids'] ?? [];
+  if (!is_array($ids)) $ids = [];
+  $ids = array_values(array_unique(array_map(fn($v)=> (int)$v, $ids)));
+
+  if (!$ids) {
+    go(BASE_URL.'?view=cards&msg=noselect');
+  }
+
+  $c = db();
+  $ok = true;
+
+  foreach (array_chunk($ids, 200) as $chunk) {
+    $ph    = implode(',', array_fill(0, count($chunk), '?'));
+    $types = str_repeat('i', count($chunk));
+    $sql   = "UPDATE prestamos 
+              SET pagado = 1, pagado_at = NOW() 
+              WHERE id IN ($ph) AND (pagado IS NULL OR pagado = 0)";
+    $st = $c->prepare($sql);
+    if (!$st) { $ok = false; break; }
+    $st->bind_param($types, ...$chunk);
+    if (!$st->execute()) { $ok = false; }
+    $st->close();
+    if (!$ok) break;
+  }
+
+  $c->close();
+
+  $msg = $ok ? 'bulkpaid' : 'bulkpaidoops';
+  go(BASE_URL.'?view=cards&msg='.$msg);
+}
+
 /* ===== CRUD ===== */
 if ($action==='create' && $_SERVER['REQUEST_METHOD']==='POST'){
   $deudor = trim($_POST['deudor']??'');
@@ -299,6 +332,8 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
         'noupdate'=>'No indicaste ningún campo para editar.',
         'bulkok'=>'Actualización en lote aplicada.',
         'bulkoops'=>'Hubo un error al actualizar en lote.',
+        'bulkpaid'=>'Préstamos seleccionados marcados como pagados.',
+        'bulkpaidoops'=>'Hubo un error al marcar como pagados.',
         default=>'Operación realizada.'
       };
     ?>
@@ -546,6 +581,14 @@ else:
               <input id="chkAll" type="checkbox"> Seleccionar todo (página)
             </label>
             <button type="button" class="btn gray small" id="btnToggleBulk">✏️ Editar selección</button>
+            <!-- NUEVO BOTÓN: marcar como pagados los seleccionados -->
+            <button 
+              type="submit" 
+              class="btn small" 
+              formaction="?action=bulk_mark_paid"
+              onclick="return confirm('¿Marcar como pagados los préstamos seleccionados?')">
+              ✔ Préstamo pagado
+            </button>
             <span class="badge" id="selCount">0 seleccionadas</span>
           </div>
         </div>
