@@ -18,30 +18,23 @@ $result_deudores = $conn->query($sql_deudores);
 $sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' ORDER BY prestamista";
 $result_prestamistas = $conn->query($sql_prestamistas);
 
-// Función para calcular meses automáticamente - REGLA DEL DÍA 10
+// Función para calcular meses automáticamente - CÁLCULO CORRECTO DE MESES
 function calcularMesesAutomaticos($fecha_prestamo) {
     $hoy = new DateTime();
     $fecha_prestamo_obj = new DateTime($fecha_prestamo);
     
+    // Si la fecha del préstamo es futura, retornar 1 mes mínimo
     if ($fecha_prestamo_obj > $hoy) {
         return 1;
     }
     
-    $meses = 0;
-    $fecha_temp = clone $fecha_prestamo_obj;
+    // Calcular diferencia exacta en meses
+    $diferencia = $fecha_prestamo_obj->diff($hoy);
+    $meses = $diferencia->y * 12 + $diferencia->m;
     
-    while ($fecha_temp <= $hoy) {
+    // Si hay días restantes, sumar un mes adicional
+    if ($diferencia->d > 0 || $meses == 0) {
         $meses++;
-        $fecha_temp->modify('+1 month');
-    }
-    
-    $dia_prestamo = $fecha_prestamo_obj->format('d');
-    $dia_hoy = $hoy->format('d');
-    
-    if ($dia_prestamo < 10 && $dia_hoy >= 10) {
-        // Ya pasó el día 10 del mes actual, contar mes completo
-    } else {
-        $meses = max(1, $meses - 1);
     }
     
     return max(1, $meses);
@@ -51,16 +44,16 @@ function calcularMesesAutomaticos($fecha_prestamo) {
 $deudores_seleccionados = [];
 $prestamista_seleccionado = '';
 $porcentaje_interes = 10;
-$comision_celene = 5; // Tu comisión por defecto
-$interes_celene = 8; // Interés para Celene por defecto
+$comision_celene = 5;
+$interes_celene = 8;
 
 // Procesar el formulario cuando se envía
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $deudores_seleccionados = $_POST['deudores'] ?? [];
     $prestamista_seleccionado = $_POST['prestamista'] ?? '';
-    $porcentaje_interes = floatval($_POST['porcentaje_interes']) ?? 10;
-    $comision_celene = floatval($_POST['comision_celene']) ?? 5;
-    $interes_celene = floatval($_POST['interes_celene']) ?? 8;
+    $porcentaje_interes = floatval($_POST['porcentaje_interes'] ?? 10);
+    $comision_celene = floatval($_POST['comision_celene'] ?? 5);
+    $interes_celene = floatval($_POST['interes_celene'] ?? 8);
     
     if (!empty($deudores_seleccionados) && !empty($prestamista_seleccionado)) {
         // Consulta para obtener los préstamos
@@ -177,6 +170,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .config-celene { background-color: #e7f3ff; padding: 15px; border-radius: 5px; margin: 10px 0; border-left: 4px solid #007bff; }
         .comision-celene { background-color: #d4edda; }
         .interes-celene { background-color: #fff3cd; }
+        .buscador-container { position: relative; margin-bottom: 10px; }
+        .buscador-input { width: 100%; padding: 8px 30px 8px 10px; border: 1px solid #ddd; border-radius: 4px; }
+        .buscador-icon { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #666; }
+        .contador-deudores { font-size: 0.9em; color: #666; margin-top: 5px; }
     </style>
 </head>
 <body>
@@ -188,14 +185,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="form-col">
                     <div class="form-group">
                         <label for="deudores">Seleccionar Deudores (Múltiple):</label>
+                        
+                        <!-- Buscador para deudores -->
+                        <div class="buscador-container">
+                            <input type="text" id="buscadorDeudores" class="buscador-input" 
+                                   placeholder="Buscar deudor...">
+                            <span class="buscador-icon">🔍</span>
+                        </div>
+                        
                         <select name="deudores[]" id="deudores" multiple required>
                             <?php while($deudor = $result_deudores->fetch_assoc()): ?>
-                                <option value="<?= htmlspecialchars($deudor['deudor']) ?>" 
-                                    <?= in_array($deudor['deudor'], $deudores_seleccionados) ? 'selected' : '' ?>>
-                                    <?= htmlspecialchars($deudor['deudor']) ?>
+                                <option value="<?php echo htmlspecialchars($deudor['deudor']); ?>" 
+                                    <?php echo in_array($deudor['deudor'], $deudores_seleccionados) ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($deudor['deudor']); ?>
                                 </option>
                             <?php endwhile; ?>
                         </select>
+                        <div class="contador-deudores" id="contadorDeudores">
+                            Mostrando todos los deudores
+                        </div>
                         <small>Mantén presionado Ctrl para seleccionar múltiples deudores</small>
                     </div>
                 </div>
@@ -208,9 +216,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <?php 
                             $result_prestamistas->data_seek(0);
                             while($prestamista = $result_prestamistas->fetch_assoc()): ?>
-                                <option value="<?= htmlspecialchars($prestamista['prestamista']) ?>" 
-                                    <?= $prestamista_seleccionado == $prestamista['prestamista'] ? 'selected' : '' ?>>
-                                    <?= htmlspecialchars($prestamista['prestamista']) ?>
+                                <option value="<?php echo htmlspecialchars($prestamista['prestamista']); ?>" 
+                                    <?php echo $prestamista_seleccionado == $prestamista['prestamista'] ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($prestamista['prestamista']); ?>
                                 </option>
                             <?php endwhile; ?>
                         </select>
@@ -220,25 +228,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <div class="form-group">
                         <label for="porcentaje_interes">Interés Total (%):</label>
                         <input type="number" name="porcentaje_interes" id="porcentaje_interes" 
-                               value="<?= $porcentaje_interes ?>" step="0.1" min="0" max="100" required>
+                               value="<?php echo $porcentaje_interes; ?>" step="0.1" min="0" max="100" required>
                         <small>Interés total que paga el deudor</small>
                     </div>
                     <?php endif; ?>
                     
                     <!-- Configuración especial para Celene -->
-                    <div id="configCelene" class="config-celene" style="display: <?= $prestamista_seleccionado == 'Celene' ? 'block' : 'none' ?>;">
-                        <h4>💰 Configuración para Celene</h4>
+                    <div id="configCelene" class="config-celene" style="display: <?php echo $prestamista_seleccionado == 'Celene' ? 'block' : 'none'; ?>;">
+                        <h4>Configuración para Celene</h4>
                         <div class="form-row">
                             <div class="form-col">
                                 <label for="interes_celene">Interés para Celene (%):</label>
                                 <input type="number" name="interes_celene" id="interes_celene" 
-                                       value="<?= $interes_celene ?>" step="0.1" min="0" max="100" required>
+                                       value="<?php echo $interes_celene; ?>" step="0.1" min="0" max="100" required>
                                 <small>Lo que recibe Celene</small>
                             </div>
                             <div class="form-col">
                                 <label for="comision_celene">Tu Comisión (%):</label>
                                 <input type="number" name="comision_celene" id="comision_celene" 
-                                       value="<?= $comision_celene ?>" step="0.1" min="0" max="100" required>
+                                       value="<?php echo $comision_celene; ?>" step="0.1" min="0" max="100" required>
                                 <small>Lo que recibes tú</small>
                             </div>
                         </div>
@@ -251,20 +259,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <?php if (isset($prestamos_por_deudor)): ?>
         <div class="resultados">
-            <h2>Resultados para: <?= htmlspecialchars($prestamista_seleccionado) ?></h2>
+            <h2>Resultados para: <?php echo htmlspecialchars($prestamista_seleccionado); ?></h2>
             
             <?php if ($prestamista_seleccionado == 'Celene'): ?>
             <div class="info-meses">
-                <strong>💰 Distribución para Celene:</strong><br>
-                - <strong>Celene recibe:</strong> Capital + <?= $interes_celene ?>% interés<br>
-                - <strong>Tú recibes:</strong> <?= $comision_celene ?>% de comisión<br>
+                <strong>Distribución para Celene:</strong><br>
+                - <strong>Celene recibe:</strong> Capital + <?php echo $interes_celene; ?>% interés<br>
+                - <strong>Tú recibes:</strong> <?php echo $comision_celene; ?>% de comisión<br>
                 - <strong>Total a pagar:</strong> Capital + Interés Celene + Tu Comisión
             </div>
             <?php else: ?>
             <div class="info-meses">
-                <strong>📅 Cálculo automático de meses:</strong> 
+                <strong>Cálculo automático de meses:</strong> 
                 Los meses se calculan automáticamente basado en la fecha del préstamo y la fecha actual. 
-                Puedes ajustarlos manualmente si es necesario.
+                Se cuenta un mes completo por cada mes calendario transcurrido.
             </div>
             <?php endif; ?>
             
@@ -275,10 +283,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <th>Préstamos</th>
                         <th>Capital</th>
                         <?php if ($prestamista_seleccionado == 'Celene'): ?>
-                        <th>Interés Celene (<?= $interes_celene ?>%)</th>
-                        <th>Tu Comisión (<?= $comision_celene ?>%)</th>
+                        <th>Interés Celene (<?php echo $interes_celene; ?>%)</th>
+                        <th>Tu Comisión (<?php echo $comision_celene; ?>%)</th>
                         <?php else: ?>
-                        <th>Interés (<?= $porcentaje_interes ?>%)</th>
+                        <th>Interés (<?php echo $porcentaje_interes; ?>%)</th>
                         <?php endif; ?>
                         <th>Total a Pagar</th>
                     </tr>
@@ -293,26 +301,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $total_comision_general += $datos['total_comision'];
                         }
                     ?>
-                    <tr class="header-deudor" id="fila-<?= md5($deudor) ?>">
+                    <tr class="header-deudor" id="fila-<?php echo md5($deudor); ?>">
                         <td>
-                            <span class="detalle-toggle" onclick="toggleDetalle('<?= md5($deudor) ?>')">
-                                📊 <?= htmlspecialchars($deudor) ?>
+                            <span class="detalle-toggle" onclick="toggleDetalle('<?php echo md5($deudor); ?>')">
+                                <?php echo htmlspecialchars($deudor); ?>
                             </span>
                         </td>
-                        <td><?= $datos['cantidad_prestamos'] ?></td>
-                        <td class="moneda capital-deudor">$ <?= number_format($datos['total_capital'], 0, ',', '.') ?></td>
+                        <td><?php echo $datos['cantidad_prestamos']; ?></td>
+                        <td class="moneda capital-deudor">$ <?php echo number_format($datos['total_capital'], 0, ',', '.'); ?></td>
                         <?php if ($prestamista_seleccionado == 'Celene'): ?>
-                        <td class="moneda interes-celene-deudor">$ <?= number_format($datos['total_interes_celene'], 0, ',', '.') ?></td>
-                        <td class="moneda comision-deudor">$ <?= number_format($datos['total_comision'], 0, ',', '.') ?></td>
+                        <td class="moneda interes-celene-deudor">$ <?php echo number_format($datos['total_interes_celene'], 0, ',', '.'); ?></td>
+                        <td class="moneda comision-deudor">$ <?php echo number_format($datos['total_comision'], 0, ',', '.'); ?></td>
                         <?php else: ?>
-                        <td class="moneda interes-deudor">$ <?= number_format($datos['total_general'] - $datos['total_capital'], 0, ',', '.') ?></td>
+                        <td class="moneda interes-deudor">$ <?php echo number_format($datos['total_general'] - $datos['total_capital'], 0, ',', '.'); ?></td>
                         <?php endif; ?>
-                        <td class="moneda total-deudor">$ <?= number_format($datos['total_general'], 0, ',', '.') ?></td>
+                        <td class="moneda total-deudor">$ <?php echo number_format($datos['total_general'], 0, ',', '.'); ?></td>
                     </tr>
                     
                     <!-- Detalle de cada préstamo -->
-                    <tr class="detalle-prestamo" id="detalle-<?= md5($deudor) ?>">
-                        <td colspan="<?= $prestamista_seleccionado == 'Celene' ? '6' : '5' ?>">
+                    <tr class="detalle-prestamo" id="detalle-<?php echo md5($deudor); ?>">
+                        <td colspan="<?php echo $prestamista_seleccionado == 'Celene' ? '6' : '5'; ?>">
                             <table style="width: 100%; background-color: white;">
                                 <thead>
                                     <tr>
@@ -332,31 +340,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 </thead>
                                 <tbody>
                                     <?php foreach($datos['prestamos_detalle'] as $index => $detalle): ?>
-                                    <tr class="fila-prestamo" data-deudor="<?= md5($deudor) ?>" data-id="<?= $detalle['id'] ?>">
+                                    <tr class="fila-prestamo" data-deudor="<?php echo md5($deudor); ?>" data-id="<?php echo $detalle['id']; ?>">
                                         <td class="acciones">
                                             <input type="checkbox" class="checkbox-excluir" checked 
                                                    onchange="togglePrestamo(this)">
                                         </td>
-                                        <td><?= $detalle['fecha'] ?></td>
-                                        <td class="moneda monto-prestamo">$ <?= number_format($detalle['monto'], 0, ',', '.') ?></td>
+                                        <td><?php echo $detalle['fecha']; ?></td>
+                                        <td class="moneda monto-prestamo">$ <?php echo number_format($detalle['monto'], 0, ',', '.'); ?></td>
                                         <td class="acciones">
-                                            <input type="number" class="meses-input" value="<?= $detalle['meses'] ?>" 
+                                            <input type="number" class="meses-input" value="<?php echo $detalle['meses']; ?>" 
                                                    min="1" max="36" onchange="recalcularPrestamo(this)"
-                                                   data-monto="<?= $detalle['monto'] ?>">
+                                                   data-monto="<?php echo $detalle['monto']; ?>">
                                         </td>
                                         <?php if ($prestamista_seleccionado == 'Celene'): ?>
-                                        <td class="moneda interes-celene-prestamo">$ <?= number_format($detalle['interes_celene'], 0, ',', '.') ?></td>
-                                        <td class="moneda comision-prestamo">$ <?= number_format($detalle['comision'], 0, ',', '.') ?></td>
+                                        <td class="moneda interes-celene-prestamo">$ <?php echo number_format($detalle['interes_celene'], 0, ',', '.'); ?></td>
+                                        <td class="moneda comision-prestamo">$ <?php echo number_format($detalle['comision'], 0, ',', '.'); ?></td>
                                         <?php else: ?>
                                         <td class="acciones">
-                                            <input type="number" class="interes-input" value="<?= $porcentaje_interes ?>" 
+                                            <input type="number" class="interes-input" value="<?php echo $porcentaje_interes; ?>" 
                                                    step="0.1" min="0" max="100" 
                                                    onchange="recalcularPrestamo(this)" 
-                                                   data-monto="<?= $detalle['monto'] ?>">
+                                                   data-monto="<?php echo $detalle['monto']; ?>">
                                         </td>
-                                        <td class="moneda interes-prestamo">$ <?= number_format($detalle['total'] - $detalle['monto'], 0, ',', '.') ?></td>
+                                        <td class="moneda interes-prestamo">$ <?php echo number_format($detalle['total'] - $detalle['monto'], 0, ',', '.'); ?></td>
                                         <?php endif; ?>
-                                        <td class="moneda total-prestamo">$ <?= number_format($detalle['total'], 0, ',', '.') ?></td>
+                                        <td class="moneda total-prestamo">$ <?php echo number_format($detalle['total'], 0, ',', '.'); ?></td>
                                     </tr>
                                     <?php endforeach; ?>
                                 </tbody>
@@ -368,14 +376,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <!-- Totales generales -->
                     <tr class="totales">
                         <td colspan="2"><strong>TOTAL GENERAL</strong></td>
-                        <td class="moneda" id="total-capital-general">$ <?= number_format($total_capital_general, 0, ',', '.') ?></td>
+                        <td class="moneda" id="total-capital-general">$ <?php echo number_format($total_capital_general, 0, ',', '.'); ?></td>
                         <?php if ($prestamista_seleccionado == 'Celene'): ?>
-                        <td class="moneda interes-celene" id="total-interes-celene-general">$ <?= number_format($total_interes_celene_general, 0, ',', '.') ?></td>
-                        <td class="moneda comision-celene" id="total-comision-general">$ <?= number_format($total_comision_general, 0, ',', '.') ?></td>
+                        <td class="moneda interes-celene" id="total-interes-celene-general">$ <?php echo number_format($total_interes_celene_general, 0, ',', '.'); ?></td>
+                        <td class="moneda comision-celene" id="total-comision-general">$ <?php echo number_format($total_comision_general, 0, ',', '.'); ?></td>
                         <?php else: ?>
-                        <td class="moneda" id="total-interes-general">$ <?= number_format($total_general - $total_capital_general, 0, ',', '.') ?></td>
+                        <td class="moneda" id="total-interes-general">$ <?php echo number_format($total_general - $total_capital_general, 0, ',', '.'); ?></td>
                         <?php endif; ?>
-                        <td class="moneda" id="total-general">$ <?= number_format($total_general, 0, ',', '.') ?></td>
+                        <td class="moneda" id="total-general">$ <?php echo number_format($total_general, 0, ',', '.'); ?></td>
                     </tr>
                 </tbody>
             </table>
@@ -384,11 +392,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 
     <script>
+        // BUSCADOR DE DEUDORES
+        document.getElementById('buscadorDeudores').addEventListener('input', function(e) {
+            const filtro = e.target.value.toLowerCase();
+            const options = document.getElementById('deudores').options;
+            let contador = 0;
+            
+            for (let i = 0; i < options.length; i++) {
+                const texto = options[i].text.toLowerCase();
+                if (texto.includes(filtro)) {
+                    options[i].style.display = '';
+                    contador++;
+                } else {
+                    options[i].style.display = 'none';
+                }
+            }
+            
+            // Actualizar contador
+            const contadorElement = document.getElementById('contadorDeudores');
+            if (filtro === '') {
+                contadorElement.textContent = 'Mostrando todos los deudores';
+            } else {
+                contadorElement.textContent = 'Mostrando ' + contador + ' deudor(es) que coinciden con "' + filtro + '"';
+            }
+        });
+        
         // Mostrar/ocultar configuración de Celene
         function toggleConfigCelene() {
             const prestamista = document.getElementById('prestamista').value;
             const configCelene = document.getElementById('configCelene');
-            const interesTotalDiv = document.getElementById('interes-total-div');
             
             configCelene.style.display = (prestamista == 'Celene') ? 'block' : 'none';
         }
