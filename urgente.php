@@ -18,30 +18,23 @@ $result_deudores = $conn->query($sql_deudores);
 $sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' ORDER BY prestamista";
 $result_prestamistas = $conn->query($sql_prestamistas);
 
-// Función para calcular meses automáticamente - REGLA DEL DÍA 10
+// Función para calcular meses automáticamente - CÁLCULO CORRECTO DE MESES
 function calcularMesesAutomaticos($fecha_prestamo) {
     $hoy = new DateTime();
     $fecha_prestamo_obj = new DateTime($fecha_prestamo);
     
+    // Si la fecha del préstamo es futura, retornar 1 mes mínimo
     if ($fecha_prestamo_obj > $hoy) {
         return 1;
     }
     
-    $meses = 0;
-    $fecha_temp = clone $fecha_prestamo_obj;
+    // Calcular diferencia exacta en meses
+    $diferencia = $fecha_prestamo_obj->diff($hoy);
+    $meses = $diferencia->y * 12 + $diferencia->m;
     
-    while ($fecha_temp <= $hoy) {
+    // Si hay días restantes, sumar un mes adicional
+    if ($diferencia->d > 0 || $meses == 0) {
         $meses++;
-        $fecha_temp->modify('+1 month');
-    }
-    
-    $dia_prestamo = $fecha_prestamo_obj->format('d');
-    $dia_hoy = $hoy->format('d');
-    
-    if ($dia_prestamo < 10 && $dia_hoy >= 10) {
-        // Ya pasó el día 10 del mes actual, contar mes completo
-    } else {
-        $meses = max(1, $meses - 1);
     }
     
     return max(1, $meses);
@@ -177,6 +170,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .config-celene { background-color: #e7f3ff; padding: 15px; border-radius: 5px; margin: 10px 0; border-left: 4px solid #007bff; }
         .comision-celene { background-color: #d4edda; }
         .interes-celene { background-color: #fff3cd; }
+        .buscador-container { position: relative; margin-bottom: 10px; }
+        .buscador-input { width: 100%; padding: 8px 30px 8px 10px; border: 1px solid #ddd; border-radius: 4px; }
+        .buscador-icon { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: #666; }
+        .contador-deudores { font-size: 0.9em; color: #666; margin-top: 5px; }
     </style>
 </head>
 <body>
@@ -188,6 +185,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="form-col">
                     <div class="form-group">
                         <label for="deudores">Seleccionar Deudores (Múltiple):</label>
+                        
+                        <!-- Buscador para deudores -->
+                        <div class="buscador-container">
+                            <input type="text" id="buscadorDeudores" class="buscador-input" 
+                                   placeholder="Buscar deudor...">
+                            <span class="buscador-icon">🔍</span>
+                        </div>
+                        
                         <select name="deudores[]" id="deudores" multiple required>
                             <?php while($deudor = $result_deudores->fetch_assoc()): ?>
                                 <option value="<?= htmlspecialchars($deudor['deudor']) ?>" 
@@ -196,6 +201,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 </option>
                             <?php endwhile; ?>
                         </select>
+                        <div class="contador-deudores" id="contadorDeudores">
+                            Mostrando todos los deudores
+                        </div>
                         <small>Mantén presionado Ctrl para seleccionar múltiples deudores</small>
                     </div>
                 </div>
@@ -264,7 +272,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="info-meses">
                 <strong>📅 Cálculo automático de meses:</strong> 
                 Los meses se calculan automáticamente basado en la fecha del préstamo y la fecha actual. 
-                Puedes ajustarlos manualmente si es necesario.
+                Se cuenta un mes completo por cada mes calendario transcurrido.
             </div>
             <?php endif; ?>
             
@@ -326,7 +334,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         <?php else: ?>
                                         <th>Interés %</th>
                                         <th>Interés $</th>
-                                        <?php endif; ?>
+                                        <?php endif; %}
                                         <th>Total</th>
                                     </tr>
                                 </thead>
@@ -380,10 +388,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </tbody>
             </table>
         </div>
-        <?php endif; ?>
+        <?php endif; %}
     </div>
 
     <script>
+        // BUSCADOR DE DEUDORES
+        document.getElementById('buscadorDeudores').addEventListener('input', function(e) {
+            const filtro = e.target.value.toLowerCase();
+            const options = document.getElementById('deudores').options;
+            let contador = 0;
+            
+            for (let i = 0; i < options.length; i++) {
+                const texto = options[i].text.toLowerCase();
+                if (texto.includes(filtro)) {
+                    options[i].style.display = '';
+                    contador++;
+                } else {
+                    options[i].style.display = 'none';
+                }
+            }
+            
+            // Actualizar contador
+            const contadorElement = document.getElementById('contadorDeudores');
+            if (filtro === '') {
+                contadorElement.textContent = 'Mostrando todos los deudores';
+            } else {
+                contadorElement.textContent = `Mostrando ${contador} deudor(es) que coinciden con "${filtro}"`;
+            }
+        });
+        
         // Mostrar/ocultar configuración de Celene
         function toggleConfigCelene() {
             const prestamista = document.getElementById('prestamista').value;
