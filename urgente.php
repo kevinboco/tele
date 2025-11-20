@@ -41,11 +41,6 @@ $comision_celene = 5;
 $interes_celene = 8;
 $fecha_desde = '';
 $fecha_hasta = '';
-$empresa_seleccionada = '';
-
-// Obtener empresas únicas de la base de datos
-$sql_empresas = "SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa != '' ORDER BY empresa";
-$result_empresas = $conn->query($sql_empresas);
 
 // Procesar el formulario cuando se envía
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -60,27 +55,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $interes_celene = floatval($_POST['interes_celene'] ?? 8);
     $fecha_desde = $_POST['fecha_desde'] ?? '';
     $fecha_hasta = $_POST['fecha_hasta'] ?? '';
-    $empresa_seleccionada = $_POST['empresa'] ?? '';
     
     // Obtener prestamistas únicos de la base de datos (SOLO NO PAGADOS)
     $sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' AND pagado = 0 ORDER BY prestamista";
     $result_prestamistas = $conn->query($sql_prestamistas);
     
-    // Obtener conductores basado en el filtro de fechas y empresa
+    // Obtener conductores basado en el filtro de fechas
     $conductores_filtrados = [];
     if (!empty($fecha_desde) && !empty($fecha_hasta)) {
-        if (!empty($empresa_seleccionada)) {
-            // Filtrar por fecha Y empresa
-            $sql_conductores = "SELECT DISTINCT nombre FROM viajes WHERE fecha BETWEEN ? AND ? AND empresa = ? AND nombre IS NOT NULL AND nombre != '' ORDER BY nombre";
-            $stmt = $conn->prepare($sql_conductores);
-            $stmt->bind_param("sss", $fecha_desde, $fecha_hasta, $empresa_seleccionada);
-        } else {
-            // Filtrar solo por fecha (todas las empresas)
-            $sql_conductores = "SELECT DISTINCT nombre FROM viajes WHERE fecha BETWEEN ? AND ? AND nombre IS NOT NULL AND nombre != '' ORDER BY nombre";
-            $stmt = $conn->prepare($sql_conductores);
-            $stmt->bind_param("ss", $fecha_desde, $fecha_hasta);
-        }
-        
+        $sql_conductores = "SELECT DISTINCT nombre FROM viajes WHERE fecha BETWEEN ? AND ? AND nombre IS NOT NULL AND nombre != '' ORDER BY nombre";
+        $stmt = $conn->prepare($sql_conductores);
+        $stmt->bind_param("ss", $fecha_desde, $fecha_hasta);
         $stmt->execute();
         $result_conductores = $stmt->get_result();
         
@@ -234,9 +219,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
         
         <form method="POST" id="formPrincipal">
-            <!-- Filtro de Fechas y Empresa -->
+            <!-- Filtro de Fechas -->
             <div class="filtro-fechas">
-                <h3>Filtrar Conductores por Fecha y Empresa</h3>
+                <h3>Filtrar Conductores por Fecha de Viajes</h3>
                 <div class="fecha-row">
                     <div class="fecha-col">
                         <label for="fecha_desde">Fecha Desde:</label>
@@ -248,25 +233,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <input type="date" name="fecha_hasta" id="fecha_hasta" 
                                value="<?php echo htmlspecialchars($fecha_hasta); ?>" required>
                     </div>
-                    <div class="fecha-col">
-                        <label for="empresa">Empresa:</label>
-                        <select name="empresa" id="empresa">
-                            <option value="">-- Todas las Empresas --</option>
-                            <?php 
-                            if (isset($result_empresas)) {
-                                $result_empresas->data_seek(0);
-                                while($empresa = $result_empresas->fetch_assoc()): ?>
-                                    <option value="<?php echo htmlspecialchars($empresa['empresa']); ?>" 
-                                        <?php echo $empresa_seleccionada == $empresa['empresa'] ? 'selected' : ''; ?>>
-                                        <?php echo htmlspecialchars($empresa['empresa']); ?>
-                                    </option>
-                                <?php endwhile; 
-                            }
-                            ?>
-                        </select>
-                    </div>
                 </div>
-                <small>Selecciona el mismo rango de fechas y empresa que usas en la vista de Pago para obtener los mismos conductores</small>
+                <small>Selecciona el mismo rango de fechas que usas en la vista de Pago para obtener los mismos conductores</small>
             </div>
 
             <div class="form-row">
@@ -291,7 +259,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <div class="deudores-container" id="listaDeudores">
                             <?php 
                             if (!empty($conductores_filtrados)) {
-                                // Mostrar conductores filtrados por fecha y empresa
+                                // Mostrar conductores filtrados por fecha
                                 foreach($conductores_filtrados as $conductor): 
                                     $es_seleccionado = in_array($conductor, $deudores_seleccionados);
                             ?>
@@ -302,11 +270,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <?php endforeach; 
                             } else {
                                 echo '<div style="padding: 10px; text-align: center; color: #666;">';
-                                if (!empty($fecha_desde) && !empty($fecha_hasta)) {
-                                    echo 'No se encontraron conductores para el rango de fechas y empresa seleccionados';
-                                } else {
-                                    echo 'Selecciona un rango de fechas para ver los conductores';
-                                }
+                                echo 'Selecciona un rango de fechas para ver los conductores';
                                 echo '</div>';
                             }
                             ?>
@@ -323,11 +287,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $seleccionados = count($deudores_seleccionados);
                                 echo "Seleccionados: $seleccionados de $total_conductores conductores";
                             } else {
-                                if (!empty($fecha_desde) && !empty($fecha_hasta)) {
-                                    echo "No se encontraron conductores";
-                                } else {
-                                    echo "Selecciona fechas para ver conductores";
-                                }
+                                echo "Selecciona fechas para ver conductores";
                             }
                             ?>
                         </div>
@@ -390,13 +350,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php if (isset($prestamos_por_deudor)): ?>
         <div class="resultados">
             <h2>Resultados para: <?php echo htmlspecialchars($prestamista_seleccionado); ?></h2>
-            
-            <?php if (!empty($empresa_seleccionada)): ?>
-            <div class="info-meses">
-                <strong>Filtro aplicado:</strong> Empresa <?php echo htmlspecialchars($empresa_seleccionada); ?> | 
-                Fechas: <?php echo htmlspecialchars($fecha_desde); ?> al <?php echo htmlspecialchars($fecha_hasta); ?>
-            </div>
-            <?php endif; ?>
             
             <?php if ($prestamista_seleccionado == 'Celene'): ?>
             <div class="info-meses">
@@ -817,3 +770,4 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <?php
 // Cerrar conexión
 $conn->close();
+?>
