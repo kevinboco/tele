@@ -11,14 +11,6 @@ if ($conn->connect_error) {
     die("Error de conexión: " . $conn->connect_error);
 }
 
-// Obtener todos los deudores únicos de la base de datos (SOLO NO PAGADOS)
-$sql_deudores = "SELECT DISTINCT deudor FROM prestamos WHERE deudor != '' AND pagado = 0 ORDER BY deudor";
-$result_deudores = $conn->query($sql_deudores);
-
-// Obtener todos los prestamistas únicos de la base de datos (SOLO NO PAGADOS)
-$sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' AND pagado = 0 ORDER BY prestamista";
-$result_prestamistas = $conn->query($sql_prestamistas);
-
 // Función para calcular meses automáticamente - CÁLCULO CORRECTO DE MESES
 function calcularMesesAutomaticos($fecha_prestamo) {
     $hoy = new DateTime();
@@ -47,6 +39,8 @@ $prestamista_seleccionado = '';
 $porcentaje_interes = 10;
 $comision_celene = 5;
 $interes_celene = 8;
+$fecha_desde = '';
+$fecha_hasta = '';
 
 // Procesar el formulario cuando se envía
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -59,6 +53,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $porcentaje_interes = floatval($_POST['porcentaje_interes'] ?? 10);
     $comision_celene = floatval($_POST['comision_celene'] ?? 5);
     $interes_celene = floatval($_POST['interes_celene'] ?? 8);
+    $fecha_desde = $_POST['fecha_desde'] ?? '';
+    $fecha_hasta = $_POST['fecha_hasta'] ?? '';
+    
+    // Obtener prestamistas únicos de la base de datos (SOLO NO PAGADOS)
+    $sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' AND pagado = 0 ORDER BY prestamista";
+    $result_prestamistas = $conn->query($sql_prestamistas);
+    
+    // Obtener conductores basado en el filtro de fechas
+    $conductores_filtrados = [];
+    if (!empty($fecha_desde) && !empty($fecha_hasta)) {
+        $sql_conductores = "SELECT DISTINCT nombre FROM viajes WHERE fecha BETWEEN ? AND ? AND nombre IS NOT NULL AND nombre != '' ORDER BY nombre";
+        $stmt = $conn->prepare($sql_conductores);
+        $stmt->bind_param("ss", $fecha_desde, $fecha_hasta);
+        $stmt->execute();
+        $result_conductores = $stmt->get_result();
+        
+        while($conductor = $result_conductores->fetch_assoc()) {
+            $conductores_filtrados[] = $conductor['nombre'];
+        }
+    }
     
     if (!empty($deudores_seleccionados) && !empty($prestamista_seleccionado)) {
         // Consulta para obtener los préstamos (SOLO NO PAGADOS)
@@ -139,6 +153,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $total_interes_celene_general = 0;
         $total_comision_general = 0;
     }
+} else {
+    // Si no es POST, obtener prestamistas para el select
+    $sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' AND pagado = 0 ORDER BY prestamista";
+    $result_prestamistas = $conn->query($sql_prestamistas);
 }
 ?>
 
@@ -186,6 +204,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .deudores-container { border: 1px solid #ddd; border-radius: 4px; max-height: 200px; overflow-y: auto; }
         .botones-seleccion { margin: 10px 0; }
         .botones-seleccion button { width: auto; padding: 5px 10px; margin-right: 5px; }
+        .filtro-fechas { background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0; border-left: 4px solid #6c757d; }
+        .fecha-row { display: flex; gap: 15px; }
+        .fecha-col { flex: 1; }
     </style>
 </head>
 <body>
@@ -198,15 +219,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
         
         <form method="POST" id="formPrincipal">
+            <!-- Filtro de Fechas -->
+            <div class="filtro-fechas">
+                <h3>Filtrar Conductores por Fecha de Viajes</h3>
+                <div class="fecha-row">
+                    <div class="fecha-col">
+                        <label for="fecha_desde">Fecha Desde:</label>
+                        <input type="date" name="fecha_desde" id="fecha_desde" 
+                               value="<?php echo htmlspecialchars($fecha_desde); ?>" required>
+                    </div>
+                    <div class="fecha-col">
+                        <label for="fecha_hasta">Fecha Hasta:</label>
+                        <input type="date" name="fecha_hasta" id="fecha_hasta" 
+                               value="<?php echo htmlspecialchars($fecha_hasta); ?>" required>
+                    </div>
+                </div>
+                <small>Selecciona el mismo rango de fechas que usas en la vista de Pago para obtener los mismos conductores</small>
+            </div>
+
             <div class="form-row">
                 <div class="form-col">
                     <div class="form-group">
-                        <label for="deudores">Seleccionar Deudores (Haz clic para seleccionar):</label>
+                        <label for="deudores">Seleccionar Conductores (Haz clic para seleccionar):</label>
                         
-                        <!-- Buscador para deudores -->
+                        <!-- Buscador para conductores -->
                         <div class="buscador-container">
                             <input type="text" id="buscadorDeudores" class="buscador-input" 
-                                   placeholder="Buscar deudor...">
+                                   placeholder="Buscar conductor...">
                             <span class="buscador-icon">🔍</span>
                         </div>
 
@@ -216,18 +255,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <button type="button" onclick="deseleccionarTodos()">Deseleccionar Todos</button>
                         </div>
                         
-                        <!-- Lista personalizada de deudores -->
+                        <!-- Lista personalizada de conductores -->
                         <div class="deudores-container" id="listaDeudores">
                             <?php 
-                            $result_deudores->data_seek(0);
-                            while($deudor = $result_deudores->fetch_assoc()): 
-                                $es_seleccionado = in_array($deudor['deudor'], $deudores_seleccionados);
+                            if (!empty($conductores_filtrados)) {
+                                // Mostrar conductores filtrados por fecha
+                                foreach($conductores_filtrados as $conductor): 
+                                    $es_seleccionado = in_array($conductor, $deudores_seleccionados);
                             ?>
                                 <div class="deudor-item <?php echo $es_seleccionado ? 'selected' : ''; ?>" 
-                                     data-value="<?php echo htmlspecialchars($deudor['deudor']); ?>">
-                                    <?php echo htmlspecialchars($deudor['deudor']); ?>
+                                     data-value="<?php echo htmlspecialchars($conductor); ?>">
+                                    <?php echo htmlspecialchars($conductor); ?>
                                 </div>
-                            <?php endwhile; ?>
+                            <?php endforeach; 
+                            } else {
+                                echo '<div style="padding: 10px; text-align: center; color: #666;">';
+                                echo 'Selecciona un rango de fechas para ver los conductores';
+                                echo '</div>';
+                            }
+                            ?>
                         </div>
                         
                         <!-- Campo oculto para almacenar los valores seleccionados -->
@@ -236,12 +282,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         
                         <div class="contador-deudores" id="contadorDeudores">
                             <?php 
-                            $total_deudores = $result_deudores->num_rows;
-                            $seleccionados = count($deudores_seleccionados);
-                            echo "Seleccionados: $seleccionados de $total_deudores deudores";
+                            if (!empty($conductores_filtrados)) {
+                                $total_conductores = count($conductores_filtrados);
+                                $seleccionados = count($deudores_seleccionados);
+                                echo "Seleccionados: $seleccionados de $total_conductores conductores";
+                            } else {
+                                echo "Selecciona fechas para ver conductores";
+                            }
                             ?>
                         </div>
-                        <small>Haz clic en cada deudor para seleccionarlo/deseleccionarlo</small>
+                        <small>Haz clic en cada conductor para seleccionarlo/deseleccionarlo</small>
                     </div>
                 </div>
                 
@@ -251,13 +301,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <select name="prestamista" id="prestamista" required onchange="toggleConfigCelene()">
                             <option value="">-- Seleccionar Prestamista --</option>
                             <?php 
-                            $result_prestamistas->data_seek(0);
-                            while($prestamista = $result_prestamistas->fetch_assoc()): ?>
-                                <option value="<?php echo htmlspecialchars($prestamista['prestamista']); ?>" 
-                                    <?php echo $prestamista_seleccionado == $prestamista['prestamista'] ? 'selected' : ''; ?>>
-                                    <?php echo htmlspecialchars($prestamista['prestamista']); ?>
-                                </option>
-                            <?php endwhile; ?>
+                            if (isset($result_prestamistas)) {
+                                $result_prestamistas->data_seek(0);
+                                while($prestamista = $result_prestamistas->fetch_assoc()): ?>
+                                    <option value="<?php echo htmlspecialchars($prestamista['prestamista']); ?>" 
+                                        <?php echo $prestamista_seleccionado == $prestamista['prestamista'] ? 'selected' : ''; ?>>
+                                        <?php echo htmlspecialchars($prestamista['prestamista']); ?>
+                                    </option>
+                                <?php endwhile; 
+                            }
+                            ?>
                         </select>
                     </div>
                     
@@ -484,10 +537,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // FUNCIÓN PARA ACTUALIZAR CONTADOR
         function actualizarContador() {
-            const total = document.querySelectorAll('.deudor-item').length;
+            const items = document.querySelectorAll('.deudor-item');
+            const total = items.length;
             const seleccionados = deudoresSeleccionados.length;
-            document.getElementById('contadorDeudores').textContent = 
-                `Seleccionados: ${seleccionados} de ${total} deudores`;
+            
+            if (total > 0) {
+                document.getElementById('contadorDeudores').textContent = 
+                    `Seleccionados: ${seleccionados} de ${total} conductores`;
+            }
         }
 
         // FUNCIÓN PARA SELECCIONAR TODOS
@@ -539,7 +596,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (filtro === '') {
                 actualizarContador();
             } else {
-                contadorElement.textContent = `Mostrando ${contador} deudor(es) que coinciden con "${filtro}"`;
+                contadorElement.textContent = `Mostrando ${contador} conductor(es) que coinciden con "${filtro}"`;
             }
         });
         
