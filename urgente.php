@@ -121,7 +121,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // ==========================
     // 2) PRÉSTAMOS DE CONDUCTORES (CUADRO 1)
     // ==========================
-
     if (!empty($deudores_seleccionados) && !empty($prestamista_seleccionado)) {
         // Consulta para obtener los préstamos (SOLO NO PAGADOS) de esos deudores
         $placeholders = str_repeat('?,', count($deudores_seleccionados) - 1) . '?';
@@ -192,14 +191,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'incluido' => true
             ];
         }
-
-        // Totales cuadro 1 se calculan en el HTML al recorrer el arreglo
     }
 
     // ==========================
     // 3) OTROS DEUDORES (NO CONDUCTORES) - CUADRO 2
     // ==========================
-
     if (!empty($prestamista_seleccionado)) {
         $sql_otros = "SELECT 
                         id,
@@ -223,8 +219,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         while ($fila = $result_otros->fetch_assoc()) {
             $deudor = $fila['deudor'];
 
-            // Si el deudor está en la lista de conductores, lo ignoramos en este cuadro
-            if (in_array($deudor, $conductores_filtrados)) {
+            // AHORA: si el deudor ya está seleccionado (aparece en cuadro 1),
+            // no lo mostramos en el cuadro 2
+            if (in_array($deudor, $deudores_seleccionados)) {
                 continue;
             }
 
@@ -520,11 +517,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <!-- ===================== -->
             <!-- CUADRO 1: CONDUCTORES -->
             <!-- ===================== -->
-            <div class="subtitulo-cuadro">Cuadro 1: Préstamos de Conductores (según viajes)</div>
+            <div class="subtitulo-cuadro">Cuadro 1: Préstamos de Conductores (y otros deudores seleccionados)</div>
 
             <?php if (empty($prestamos_por_deudor)): ?>
                 <div style="background-color: #f8d7da; padding: 12px; border-radius: 5px; margin: 15px 0;">
-                    <strong>No se encontraron préstamos pendientes</strong> para los conductores seleccionados.
+                    <strong>No se encontraron préstamos pendientes</strong> para los deudores seleccionados.
                 </div>
             <?php else: ?>
             <table id="tablaReporte">
@@ -630,9 +627,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </tr>
                     <?php endforeach; ?>
                     
-                    <!-- Totales generales CONDUCTORES -->
+                    <!-- Totales generales CONDUCTORES/SELECCIONADOS -->
                     <tr class="totales">
-                        <td colspan="2"><strong>TOTAL GENERAL CONDUCTORES</strong></td>
+                        <td colspan="2"><strong>TOTAL GENERAL CONDUCTORES / DEUDORES SELECCIONADOS</strong></td>
                         <td class="moneda" id="total-capital-general">$ <?php echo number_format($total_capital_general, 0, ',', '.'); ?></td>
                         <?php if ($prestamista_seleccionado == 'Celene'): ?>
                         <td class="moneda interes-celene" id="total-interes-celene-general">$ <?php echo number_format($total_interes_celene_general, 0, ',', '.'); ?></td>
@@ -653,12 +650,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="cuadro-otros">
             <?php if (empty($otros_prestamos_por_deudor)): ?>
                 <div style="background-color: #e2e3e5; padding: 12px; border-radius: 5px; margin: 10px 0;">
-                    No hay otros deudores con préstamos pendientes diferentes a los conductores seleccionados.
+                    No hay otros deudores con préstamos pendientes diferentes a los ya seleccionados.
                 </div>
             <?php else: ?>
                 <table>
                     <thead>
                         <tr>
+                            <th>Incluir en Cuadro 1</th>
                             <th>Deudor</th>
                             <th>Préstamos</th>
                             <th>Capital</th>
@@ -686,6 +684,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $otros_total_comision_general += $datos['total_comision'];
                         ?>
                         <tr>
+                            <td class="acciones">
+                                <input type="checkbox"
+                                       class="checkbox-otro-deudor"
+                                       data-deudor="<?php echo htmlspecialchars($deudor); ?>"
+                                       onchange="toggleOtroDeudor(this)">
+                            </td>
                             <td><?php echo htmlspecialchars($deudor); ?></td>
                             <td><?php echo $datos['cantidad_prestamos']; ?></td>
                             <td class="moneda">$ <?php echo number_format($datos['total_capital'], 0, ',', '.'); ?></td>
@@ -701,7 +705,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                         <!-- Totales OTROS DEUDORES -->
                         <tr class="totales">
-                            <td colspan="2"><strong>TOTAL GENERAL OTROS DEUDORES</strong></td>
+                            <td colspan="3"><strong>TOTAL GENERAL OTROS DEUDORES</strong></td>
                             <td class="moneda">$ <?php echo number_format($otros_total_capital_general, 0, ',', '.'); ?></td>
                             <?php if ($prestamista_seleccionado == 'Celene'): ?>
                             <td class="moneda">$ <?php echo number_format($otros_total_interes_celene_general, 0, ',', '.'); ?></td>
@@ -967,6 +971,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 const interesTotal = totalGeneral - totalCapital;
                 document.getElementById('total-interes-general').textContent = '$ ' + formatNumber(interesTotal);
             }
+        }
+
+        // NUEVO: seleccionar otros deudores del cuadro 2 y pasarlos al cuadro 1
+        function toggleOtroDeudor(checkbox) {
+            const deudor = checkbox.getAttribute('data-deudor');
+            const index = deudoresSeleccionados.indexOf(deudor);
+
+            if (checkbox.checked) {
+                // Si no está en la lista, lo agregamos
+                if (index === -1) {
+                    deudoresSeleccionados.push(deudor);
+                }
+            } else {
+                // Si se desmarca, lo quitamos de la lista
+                if (index !== -1) {
+                    deudoresSeleccionados.splice(index, 1);
+                }
+            }
+
+            // Actualizar campo oculto
+            document.getElementById('deudoresSeleccionados').value = deudoresSeleccionados.join(',');
+
+            // Volver a generar el reporte automáticamente
+            document.getElementById('formPrincipal').submit();
         }
         
         function formatNumber(num) {
