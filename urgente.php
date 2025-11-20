@@ -18,6 +18,29 @@ $result_deudores = $conn->query($sql_deudores);
 $sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' ORDER BY prestamista";
 $result_prestamistas = $conn->query($sql_prestamistas);
 
+// Función para calcular meses automáticamente - MESES SIMPLES DESDE LA FECHA
+function calcularMesesAutomaticos($fecha_prestamo) {
+    $hoy = new DateTime();
+    $fecha_prestamo_obj = new DateTime($fecha_prestamo);
+    
+    // Si el préstamo es hoy, 1 mes mínimo
+    if ($fecha_prestamo_obj->format('Y-m-d') === $hoy->format('Y-m-d')) {
+        return 1;
+    }
+    
+    // Calcular diferencia en meses completos desde la fecha del préstamo
+    $diferencia = $hoy->diff($fecha_prestamo_obj);
+    $meses = ($diferencia->y * 12) + $diferencia->m;
+    
+    // Si han pasado días adicionales, sumar 1 mes más
+    if ($diferencia->d > 0 || $diferencia->m > 0 || $diferencia->y > 0) {
+        $meses += 1;
+    }
+    
+    // Mínimo 1 mes
+    return max(1, $meses);
+}
+
 // Variables para mantener los valores del formulario
 $deudores_seleccionados = [];
 $prestamista_seleccionado = '';
@@ -38,13 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     deudor,
                     prestamista,
                     monto,
-                    fecha,
-                    DATEDIFF(CURDATE(), fecha) as dias_transcurridos,
-                    FLOOR(DATEDIFF(CURDATE(), fecha) / 30) as meses_transcurridos,
-                    CASE 
-                        WHEN FLOOR(DATEDIFF(CURDATE(), fecha) / 30) < 1 THEN 1
-                        ELSE FLOOR(DATEDIFF(CURDATE(), fecha) / 30)
-                    END as meses_a_cobrar
+                    fecha
                 FROM prestamos 
                 WHERE deudor IN ($placeholders) 
                 AND prestamista = ?
@@ -63,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         while($fila = $result_detalle->fetch_assoc()) {
             $deudor = $fila['deudor'];
-            $meses = $fila['meses_a_cobrar'];
+            $meses = calcularMesesAutomaticos($fila['fecha']);
             $interes_prestamo = $fila['monto'] * ($porcentaje_interes / 100) * $meses;
             $total_prestamo = $fila['monto'] + $interes_prestamo;
             
@@ -130,6 +147,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .interes-input, .meses-input { width: 70px; padding: 4px; text-align: center; }
         .checkbox-excluir { transform: scale(1.2); }
         .acciones { text-align: center; }
+        .info-meses { background-color: #d4edda; padding: 10px; border-radius: 5px; margin: 10px 0; }
     </style>
 </head>
 <body>
@@ -184,7 +202,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php if (isset($prestamos_por_deudor)): ?>
         <div class="resultados">
             <h2>Resultados para: <?= htmlspecialchars($prestamista_seleccionado) ?> (Interés: <?= $porcentaje_interes ?>% mensual)</h2>
-            <p><small>Puedes modificar el interés, los meses y excluir préstamos</small></p>
+            
+            <div class="info-meses">
+                <strong>📅 Cálculo automático de meses:</strong> 
+                Cada préstamo cuenta desde su fecha. Ejemplo: Préstamo del 19/11 → 19/12 = 2 meses, 19/01 = 3 meses, etc.
+                Los meses se calculan automáticamente, pero puedes ajustarlos manualmente.
+            </div>
             
             <table id="tablaReporte">
                 <thead>
