@@ -36,7 +36,7 @@ function calcularMesesAutomaticos($fecha_prestamo) {
 // Variables para mantener los valores del formulario
 $deudores_seleccionados = [];
 $prestamista_seleccionado = '';
-$porcentaje_interes = 10;
+$porcentaje_interes = 10; // ya no se usa para el cálculo, pero lo dejamos por si acaso
 $comision_celene = 5;
 $interes_celene = 8;
 $fecha_desde = '';
@@ -44,22 +44,25 @@ $fecha_hasta = '';
 $empresa_seleccionada = '';
 
 // Arreglos para los reportes
-$prestamos_por_deudor = [];          // CONDUCTORES
+$prestamos_por_deudor = [];          // CONDUCTORES + otros seleccionados
 $otros_prestamos_por_deudor = [];    // OTROS DEUDORES
 
-// Totales generales cuadro 1 (conductores)
+// Totales generales cuadro 1
 $total_capital_general = 0;
 $total_general = 0;
 $total_interes_celene_general = 0;
 $total_comision_general = 0;
 
-// Totales generales cuadro 2 (otros deudores)
+// Totales generales cuadro 2
 $otros_total_capital_general = 0;
 $otros_total_general = 0;
 $otros_total_interes_celene_general = 0;
 $otros_total_comision_general = 0;
 
-// Obtener empresas únicas de la base de datos - desde la tabla VIAJES
+// Fecha de corte para 10% / 13%
+$FECHA_CORTE = new DateTime('2025-10-29');
+
+// Obtener empresas desde VIAJES
 $sql_empresas = "SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa != '' ORDER BY empresa";
 $result_empresas = $conn->query($sql_empresas);
 
@@ -71,6 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $deudores_seleccionados = $deudores_seleccionados !== '' ? explode(',', $deudores_seleccionados) : [];
     }
     $prestamista_seleccionado = $_POST['prestamista'] ?? '';
+    // Dejamos la lectura del interés, aunque ya no se usa para el cálculo
     $porcentaje_interes = floatval($_POST['porcentaje_interes'] ?? 10);
     $comision_celene = floatval($_POST['comision_celene'] ?? 5);
     $interes_celene = floatval($_POST['interes_celene'] ?? 8);
@@ -78,7 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $fecha_hasta = $_POST['fecha_hasta'] ?? '';
     $empresa_seleccionada = $_POST['empresa'] ?? '';
 
-    // Obtener prestamistas únicos de la base de datos (SOLO NO PAGADOS)
+    // Prestamistas únicos (NO PAGADOS)
     $sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' AND pagado = 0 ORDER BY prestamista";
     $result_prestamistas = $conn->query($sql_prestamistas);
 
@@ -88,7 +92,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $conductores_filtrados = [];
     if (!empty($fecha_desde) && !empty($fecha_hasta)) {
         if (!empty($empresa_seleccionada)) {
-            // Filtrar por fecha Y empresa
             $sql_conductores = "SELECT DISTINCT nombre 
                                 FROM viajes 
                                 WHERE fecha BETWEEN ? AND ? 
@@ -99,7 +102,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $conn->prepare($sql_conductores);
             $stmt->bind_param("sss", $fecha_desde, $fecha_hasta, $empresa_seleccionada);
         } else {
-            // Filtrar solo por fecha (todas las empresas)
             $sql_conductores = "SELECT DISTINCT nombre 
                                 FROM viajes 
                                 WHERE fecha BETWEEN ? AND ? 
@@ -119,10 +121,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // ==========================
-    // 2) PRÉSTAMOS DE CONDUCTORES (CUADRO 1)
+    // 2) PRÉSTAMOS DE DEUDORES SELECCIONADOS (CUADRO 1)
     // ==========================
     if (!empty($deudores_seleccionados) && !empty($prestamista_seleccionado)) {
-        // Consulta para obtener los préstamos (SOLO NO PAGADOS) de esos deudores
         $placeholders = str_repeat('?,', count($deudores_seleccionados) - 1) . '?';
 
         $sql = "SELECT 
@@ -151,13 +152,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $meses = calcularMesesAutomaticos($fila['fecha']);
 
             if ($es_celene) {
-                // Para Celene: Capital + Interés Celene + Comisión
+                // Celene: Capital + Interés Celene + Comisión
                 $interes_celene_monto = $fila['monto'] * ($interes_celene / 100) * $meses;
                 $comision_monto = $fila['monto'] * ($comision_celene / 100) * $meses;
                 $total_prestamo = $fila['monto'] + $interes_celene_monto + $comision_monto;
+                $tasa_interes = 0; // no aplica
             } else {
-                // Otros prestamistas: Capital + Interés total
-                $interes_total = $fila['monto'] * ($porcentaje_interes / 100) * $meses;
+                // OTROS PRESTAMISTAS: 10% o 13% según fecha del préstamo
+                global $FECHA_CORTE;
+                $fecha_prestamo_dt = new DateTime($fila['fecha']);
+                $tasa_interes = ($fecha_prestamo_dt >= $FECHA_CORTE) ? 13 : 10;
+
+                $interes_total = $fila['monto'] * ($tasa_interes / 100) * $meses;
                 $interes_celene_monto = 0;
                 $comision_monto = 0;
                 $total_prestamo = $fila['monto'] + $interes_total;
@@ -185,6 +191,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'monto' => $fila['monto'],
                 'fecha' => $fila['fecha'],
                 'meses' => $meses,
+                'tasa_interes' => $tasa_interes, // NUEVO: guardamos la tasa por préstamo
                 'interes_celene' => $interes_celene_monto ?? 0,
                 'comision' => $comision_monto ?? 0,
                 'total' => $total_prestamo,
@@ -194,7 +201,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // ==========================
-    // 3) OTROS DEUDORES (NO CONDUCTORES) - CUADRO 2
+    // 3) OTROS DEUDORES (NO SELECCIONADOS) - CUADRO 2
     // ==========================
     if (!empty($prestamista_seleccionado)) {
         $sql_otros = "SELECT 
@@ -219,8 +226,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         while ($fila = $result_otros->fetch_assoc()) {
             $deudor = $fila['deudor'];
 
-            // AHORA: si el deudor ya está seleccionado (aparece en cuadro 1),
-            // no lo mostramos en el cuadro 2
+            // Si ya está en el cuadro 1 (seleccionado), no lo mostramos en cuadro 2
             if (in_array($deudor, $deudores_seleccionados)) {
                 continue;
             }
@@ -233,7 +239,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $total_prestamo = $fila['monto'] + $interes_celene_monto + $comision_monto;
                 $interes_total = 0;
             } else {
-                $interes_total = $fila['monto'] * ($porcentaje_interes / 100) * $meses;
+                // MISMA REGLA 10% / 13%
+                global $FECHA_CORTE;
+                $fecha_prestamo_dt = new DateTime($fila['fecha']);
+                $tasa_interes = ($fecha_prestamo_dt >= $FECHA_CORTE) ? 13 : 10;
+
+                $interes_total = $fila['monto'] * ($tasa_interes / 100) * $meses;
                 $total_prestamo = $fila['monto'] + $interes_total;
                 $interes_celene_monto = 0;
                 $comision_monto = 0;
@@ -260,7 +271,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
 } else {
-    // Si no es POST, obtener prestamistas para el select
+    // GET: solo prestamistas
     $sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' AND pagado = 0 ORDER BY prestamista";
     $result_prestamistas = $conn->query($sql_prestamistas);
     $conductores_filtrados = [];
@@ -452,15 +463,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </select>
                     </div>
                     
-                    <?php if ($prestamista_seleccionado != 'Celene'): ?>
-                    <div class="form-group">
-                        <label for="porcentaje_interes">Interés Total (%):</label>
-                        <input type="number" name="porcentaje_interes" id="porcentaje_interes" 
-                               value="<?php echo $porcentaje_interes; ?>" step="0.1" min="0" max="100" required>
-                        <small>Interés total que paga el deudor</small>
-                    </div>
-                    <?php endif; ?>
-                    
                     <!-- Configuración especial para Celene -->
                     <div id="configCelene" class="config-celene" style="display: <?php echo $prestamista_seleccionado == 'Celene' ? 'block' : 'none'; ?>;">
                         <h4>Configuración para Celene</h4>
@@ -510,12 +512,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="info-meses">
                 <strong>Cálculo automático de meses:</strong> 
                 Los meses se calculan automáticamente basado en la fecha del préstamo y la fecha actual. 
-                Se cuenta un mes completo por cada mes calendario transcurrido.
+                Además, se aplica <strong>10% de interés</strong> a préstamos antes del <strong>29-10-2025</strong> y 
+                <strong>13% de interés</strong> a préstamos desde esa fecha en adelante.
             </div>
             <?php endif; ?>
 
             <!-- ===================== -->
-            <!-- CUADRO 1: CONDUCTORES -->
+            <!-- CUADRO 1 -->
             <!-- ===================== -->
             <div class="subtitulo-cuadro">Cuadro 1: Préstamos de Conductores (y otros deudores seleccionados)</div>
 
@@ -534,7 +537,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <th>Interés Celene (<?php echo $interes_celene; ?>%)</th>
                         <th>Tu Comisión (<?php echo $comision_celene; ?>%)</th>
                         <?php else: ?>
-                        <th>Interés (<?php echo $porcentaje_interes; ?>%)</th>
+                        <th>Interés (10% / 13%)</th>
                         <?php endif; ?>
                         <th>Total a Pagar</th>
                     </tr>
@@ -611,12 +614,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         <td class="moneda comision-prestamo">$ <?php echo number_format($detalle['comision'], 0, ',', '.'); ?></td>
                                         <?php else: ?>
                                         <td class="acciones">
-                                            <input type="number" class="interes-input" value="<?php echo $porcentaje_interes; ?>" 
+                                            <input type="number" class="interes-input" value="<?php echo $detalle['tasa_interes']; ?>" 
                                                    step="0.1" min="0" max="100" 
                                                    onchange="recalcularPrestamo(this)" 
                                                    data-monto="<?php echo $detalle['monto']; ?>">
                                         </td>
-                                        <td class="moneda interes-prestamo">$ <?php echo number_format($detalle['total'] - $detalle['monto'], 0, ',', '.'); ?></td>
+                                        <td class="moneda interes-prestamo">
+                                            $ <?php echo number_format($detalle['total'] - $detalle['monto'], 0, ',', '.'); ?>
+                                        </td>
                                         <?php endif; ?>
                                         <td class="moneda total-prestamo">$ <?php echo number_format($detalle['total'], 0, ',', '.'); ?></td>
                                     </tr>
@@ -627,7 +632,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </tr>
                     <?php endforeach; ?>
                     
-                    <!-- Totales generales CONDUCTORES/SELECCIONADOS -->
+                    <!-- Totales generales CUADRO 1 -->
                     <tr class="totales">
                         <td colspan="2"><strong>TOTAL GENERAL CONDUCTORES / DEUDORES SELECCIONADOS</strong></td>
                         <td class="moneda" id="total-capital-general">$ <?php echo number_format($total_capital_general, 0, ',', '.'); ?></td>
@@ -973,27 +978,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        // NUEVO: seleccionar otros deudores del cuadro 2 y pasarlos al cuadro 1
+        // Seleccionar otros deudores para pasarlos al cuadro 1
         function toggleOtroDeudor(checkbox) {
             const deudor = checkbox.getAttribute('data-deudor');
             const index = deudoresSeleccionados.indexOf(deudor);
 
             if (checkbox.checked) {
-                // Si no está en la lista, lo agregamos
                 if (index === -1) {
                     deudoresSeleccionados.push(deudor);
                 }
             } else {
-                // Si se desmarca, lo quitamos de la lista
                 if (index !== -1) {
                     deudoresSeleccionados.splice(index, 1);
                 }
             }
 
-            // Actualizar campo oculto
             document.getElementById('deudoresSeleccionados').value = deudoresSeleccionados.join(',');
-
-            // Volver a generar el reporte automáticamente
             document.getElementById('formPrincipal').submit();
         }
         
