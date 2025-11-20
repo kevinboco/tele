@@ -43,16 +43,16 @@ $fecha_desde = '';
 $fecha_hasta = '';
 $empresa_seleccionada = '';
 
-// Obtener empresas únicas de la base de datos - CORREGIDO
+// Obtener empresas únicas de la base de datos - desde la tabla VIAJES
 $sql_empresas = "SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa != '' ORDER BY empresa";
 $result_empresas = $conn->query($sql_empresas);
 
-// Procesar el formulario cuando se envía
+// Si es POST procesamos todo
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $deudores_seleccionados = isset($_POST['deudores']) ? $_POST['deudores'] : [];
     // Si viene como string separado por comas, convertirlo a array
     if (is_string($deudores_seleccionados)) {
-        $deudores_seleccionados = explode(',', $deudores_seleccionados);
+        $deudores_seleccionados = $deudores_seleccionados !== '' ? explode(',', $deudores_seleccionados) : [];
     }
     $prestamista_seleccionado = $_POST['prestamista'] ?? '';
     $porcentaje_interes = floatval($_POST['porcentaje_interes'] ?? 10);
@@ -61,38 +61,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $fecha_desde = $_POST['fecha_desde'] ?? '';
     $fecha_hasta = $_POST['fecha_hasta'] ?? '';
     $empresa_seleccionada = $_POST['empresa'] ?? '';
-    
+
     // Obtener prestamistas únicos de la base de datos (SOLO NO PAGADOS)
     $sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' AND pagado = 0 ORDER BY prestamista";
     $result_prestamistas = $conn->query($sql_prestamistas);
-    
-    // Obtener conductores basado en el filtro de fechas y empresa
+
+    // Obtener conductores basado en el filtro de fechas y empresa DESDE VIAJES
     $conductores_filtrados = [];
     if (!empty($fecha_desde) && !empty($fecha_hasta)) {
         if (!empty($empresa_seleccionada)) {
             // Filtrar por fecha Y empresa
-            $sql_conductores = "SELECT DISTINCT nombre FROM viajes WHERE fecha BETWEEN ? AND ? AND empresa = ? AND nombre IS NOT NULL AND nombre != '' ORDER BY nombre";
+            $sql_conductores = "SELECT DISTINCT nombre 
+                                FROM viajes 
+                                WHERE fecha BETWEEN ? AND ? 
+                                  AND empresa = ? 
+                                  AND nombre IS NOT NULL 
+                                  AND nombre != '' 
+                                ORDER BY nombre";
             $stmt = $conn->prepare($sql_conductores);
             $stmt->bind_param("sss", $fecha_desde, $fecha_hasta, $empresa_seleccionada);
         } else {
             // Filtrar solo por fecha (todas las empresas)
-            $sql_conductores = "SELECT DISTINCT nombre FROM viajes WHERE fecha BETWEEN ? AND ? AND nombre IS NOT NULL AND nombre != '' ORDER BY nombre";
+            $sql_conductores = "SELECT DISTINCT nombre 
+                                FROM viajes 
+                                WHERE fecha BETWEEN ? AND ? 
+                                  AND nombre IS NOT NULL 
+                                  AND nombre != '' 
+                                ORDER BY nombre";
             $stmt = $conn->prepare($sql_conductores);
             $stmt->bind_param("ss", $fecha_desde, $fecha_hasta);
         }
-        
+
         $stmt->execute();
         $result_conductores = $stmt->get_result();
-        
-        while($conductor = $result_conductores->fetch_assoc()) {
+
+        while ($conductor = $result_conductores->fetch_assoc()) {
             $conductores_filtrados[] = $conductor['nombre'];
         }
     }
-    
+
     if (!empty($deudores_seleccionados) && !empty($prestamista_seleccionado)) {
         // Consulta para obtener los préstamos (SOLO NO PAGADOS)
         $placeholders = str_repeat('?,', count($deudores_seleccionados) - 1) . '?';
-        
+
         $sql = "SELECT 
                     id,
                     deudor,
@@ -101,27 +112,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     fecha
                 FROM prestamos 
                 WHERE deudor IN ($placeholders) 
-                AND prestamista = ?
-                AND pagado = 0  -- SOLO PRÉSTAMOS NO PAGADOS
+                  AND prestamista = ?
+                  AND pagado = 0
                 ORDER BY deudor, fecha";
-        
+
         $stmt = $conn->prepare($sql);
         $types = str_repeat('s', count($deudores_seleccionados)) . 's';
         $params = array_merge($deudores_seleccionados, [$prestamista_seleccionado]);
         $stmt->bind_param($types, ...$params);
         $stmt->execute();
         $result_detalle = $stmt->get_result();
-        
+
         // Procesar los datos para agrupar por deudor
         $prestamos_por_deudor = [];
         $es_celene = ($prestamista_seleccionado == 'Celene');
-        
-        while($fila = $result_detalle->fetch_assoc()) {
+
+        while ($fila = $result_detalle->fetch_assoc()) {
             $deudor = $fila['deudor'];
             $meses = calcularMesesAutomaticos($fila['fecha']);
-            
+
             if ($es_celene) {
-                // Para Celene: cálculo separado SIN interés total
+                // Para Celene: cálculo separado SIN interés total general
                 $interes_celene_monto = $fila['monto'] * ($interes_celene / 100) * $meses;
                 $comision_monto = $fila['monto'] * ($comision_celene / 100) * $meses;
                 $total_prestamo = $fila['monto'] + $interes_celene_monto + $comision_monto;
@@ -132,7 +143,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $comision_monto = 0;
                 $total_prestamo = $fila['monto'] + $interes_total;
             }
-            
+
             if (!isset($prestamos_por_deudor[$deudor])) {
                 $prestamos_por_deudor[$deudor] = [
                     'total_capital' => 0,
@@ -143,35 +154,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'prestamos_detalle' => []
                 ];
             }
-            
+
             $prestamos_por_deudor[$deudor]['total_capital'] += $fila['monto'];
             $prestamos_por_deudor[$deudor]['total_general'] += $total_prestamo;
-            $prestamos_por_deudor[$deudor]['total_interes_celene'] += $interes_celene_monto;
-            $prestamos_por_deudor[$deudor]['total_comision'] += $comision_monto;
+            $prestamos_por_deudor[$deudor]['total_interes_celene'] += $interes_celene_monto ?? 0;
+            $prestamos_por_deudor[$deudor]['total_comision'] += $comision_monto ?? 0;
             $prestamos_por_deudor[$deudor]['cantidad_prestamos']++;
-            
+
             $prestamos_por_deudor[$deudor]['prestamos_detalle'][] = [
                 'id' => $fila['id'],
                 'monto' => $fila['monto'],
                 'fecha' => $fila['fecha'],
                 'meses' => $meses,
-                'interes_celene' => $interes_celene_monto,
-                'comision' => $comision_monto,
+                'interes_celene' => $interes_celene_monto ?? 0,
+                'comision' => $comision_monto ?? 0,
                 'total' => $total_prestamo,
                 'incluido' => true
             ];
         }
-        
+
         // Calcular totales generales
         $total_capital_general = 0;
         $total_general = 0;
         $total_interes_celene_general = 0;
         $total_comision_general = 0;
     }
+
 } else {
     // Si no es POST, obtener prestamistas para el select
     $sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' AND pagado = 0 ORDER BY prestamista";
     $result_prestamistas = $conn->query($sql_prestamistas);
+
+    // Conductores vacíos hasta que filtren por fecha/empresa
+    $conductores_filtrados = [];
 }
 ?>
 
@@ -236,7 +251,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <form method="POST" id="formPrincipal">
             <!-- Filtro de Fechas y Empresa -->
             <div class="filtro-fechas">
-                <h3>Filtrar Conductores por Fecha y Empresa</h3>
+                <h3>Filtrar Conductores por Fecha y Empresa (tabla VIAJES)</h3>
                 <div class="fecha-row">
                     <div class="fecha-col">
                         <label for="fecha_desde">Fecha Desde:</label>
@@ -255,7 +270,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <?php 
                             if ($result_empresas && $result_empresas->num_rows > 0) {
                                 $result_empresas->data_seek(0);
-                                while($empresa = $result_empresas->fetch_assoc()): 
+                                while ($empresa = $result_empresas->fetch_assoc()): 
                                     if (!empty($empresa['empresa'])):
                             ?>
                                     <option value="<?php echo htmlspecialchars($empresa['empresa']); ?>" 
@@ -265,14 +280,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <?php 
                                     endif;
                                 endwhile; 
-                            } else {
-                                echo '<!-- No se encontraron empresas -->';
                             }
                             ?>
                         </select>
                     </div>
                 </div>
-                <small>Selecciona el mismo rango de fechas y empresa que usas en la vista de Pago para obtener los mismos conductores</small>
+                <small>Usa el mismo rango de fechas y empresa que en la vista de pago para que salgan los mismos conductores.</small>
             </div>
 
             <div class="form-row">
@@ -297,15 +310,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <div class="deudores-container" id="listaDeudores">
                             <?php 
                             if (!empty($conductores_filtrados)) {
-                                // Mostrar conductores filtrados por fecha y empresa
-                                foreach($conductores_filtrados as $conductor): 
+                                foreach ($conductores_filtrados as $conductor): 
                                     $es_seleccionado = in_array($conductor, $deudores_seleccionados);
                             ?>
                                 <div class="deudor-item <?php echo $es_seleccionado ? 'selected' : ''; ?>" 
                                      data-value="<?php echo htmlspecialchars($conductor); ?>">
                                     <?php echo htmlspecialchars($conductor); ?>
                                 </div>
-                            <?php endforeach; 
+                            <?php 
+                                endforeach; 
                             } else {
                                 echo '<div style="padding: 10px; text-align: center; color: #666;">';
                                 if (!empty($fecha_desde) && !empty($fecha_hasta)) {
@@ -349,7 +362,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <?php 
                             if (isset($result_prestamistas) && $result_prestamistas->num_rows > 0) {
                                 $result_prestamistas->data_seek(0);
-                                while($prestamista = $result_prestamistas->fetch_assoc()): ?>
+                                while ($prestamista = $result_prestamistas->fetch_assoc()): ?>
                                     <option value="<?php echo htmlspecialchars($prestamista['prestamista']); ?>" 
                                         <?php echo $prestamista_seleccionado == $prestamista['prestamista'] ? 'selected' : ''; ?>>
                                         <?php echo htmlspecialchars($prestamista['prestamista']); ?>
@@ -382,7 +395,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <div class="form-col">
                                 <label for="comision_celene">Tu Comisión (%):</label>
                                 <input type="number" name="comision_celene" id="comision_celene" 
-                                       value="<?php echo $comision_celene; ?>" step="0.1, min="0" max="100" required>
+                                       value="<?php echo $comision_celene; ?>" step="0.1" min="0" max="100" required>
                                 <small>Lo que recibes tú</small>
                             </div>
                         </div>
@@ -440,7 +453,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </tr>
                 </thead>
                 <tbody id="cuerpoReporte">
-                    <?php foreach($prestamos_por_deudor as $deudor => $datos): ?>
+                    <?php foreach ($prestamos_por_deudor as $deudor => $datos): ?>
                     <?php 
                         $total_capital_general += $datos['total_capital'];
                         $total_general += $datos['total_general'];
@@ -467,7 +480,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </tr>
                     
                     <!-- Detalle de cada préstamo -->
-                    <tr class="detalle-prestamo" id="detalle-<?php echo md5($deudor); ?>">
+                    <tr class="detalle-prestamo" id="detalle-<?php echo md5($deudor); ?>" style="display:none;">
                         <td colspan="<?php echo $prestamista_seleccionado == 'Celene' ? '6' : '5'; ?>">
                             <table style="width: 100%; background-color: white;">
                                 <thead>
@@ -487,7 +500,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <?php foreach($datos['prestamos_detalle'] as $index => $detalle): ?>
+                                    <?php foreach ($datos['prestamos_detalle'] as $index => $detalle): ?>
                                     <tr class="fila-prestamo" data-deudor="<?php echo md5($deudor); ?>" data-id="<?php echo $detalle['id']; ?>">
                                         <td class="acciones">
                                             <input type="checkbox" class="checkbox-excluir" checked 
@@ -544,33 +557,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // ARRAY PARA ALMACENAR DEUDORES SELECCIONADOS
         let deudoresSeleccionados = <?php echo json_encode($deudores_seleccionados); ?>;
 
-        // INICIALIZAR LA LISTA DE DEUDORES
         document.addEventListener('DOMContentLoaded', function() {
             actualizarListaDeudores();
             actualizarContador();
         });
 
-        // FUNCIÓN PARA MANEJAR CLIC EN DEUDOR
         function toggleDeudor(element) {
             const valor = element.getAttribute('data-value');
             const index = deudoresSeleccionados.indexOf(valor);
             
             if (index === -1) {
-                // Agregar a seleccionados
                 deudoresSeleccionados.push(valor);
                 element.classList.add('selected');
             } else {
-                // Quitar de seleccionados
                 deudoresSeleccionados.splice(index, 1);
                 element.classList.remove('selected');
             }
             
-            // Actualizar campo oculto y contador
             document.getElementById('deudoresSeleccionados').value = deudoresSeleccionados.join(',');
             actualizarContador();
         }
 
-        // FUNCIÓN PARA ACTUALIZAR LA LISTA VISUAL
         function actualizarListaDeudores() {
             const items = document.querySelectorAll('.deudor-item');
             items.forEach(item => {
@@ -580,15 +587,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } else {
                     item.classList.remove('selected');
                 }
-                
-                // Agregar evento click
                 item.addEventListener('click', function() {
                     toggleDeudor(this);
                 });
             });
         }
 
-        // FUNCIÓN PARA ACTUALIZAR CONTADOR
         function actualizarContador() {
             const items = document.querySelectorAll('.deudor-item');
             const total = items.length;
@@ -600,7 +604,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        // FUNCIÓN PARA SELECCIONAR TODOS
         function seleccionarTodos() {
             const items = document.querySelectorAll('.deudor-item');
             deudoresSeleccionados = [];
@@ -615,7 +618,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             actualizarContador();
         }
 
-        // FUNCIÓN PARA DESELECCIONAR TODOS
         function deseleccionarTodos() {
             const items = document.querySelectorAll('.deudor-item');
             deudoresSeleccionados = [];
@@ -628,7 +630,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             actualizarContador();
         }
 
-        // BUSCADOR DE DEUDORES
         document.getElementById('buscadorDeudores').addEventListener('input', function(e) {
             const filtro = e.target.value.toLowerCase();
             const items = document.querySelectorAll('.deudor-item');
@@ -644,7 +645,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             });
             
-            // Actualizar contador
             const contadorElement = document.getElementById('contadorDeudores');
             if (filtro === '') {
                 actualizarContador();
@@ -653,48 +653,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         });
         
-        // Mostrar/ocultar configuración de Celene
         function toggleConfigCelene() {
             const prestamista = document.getElementById('prestamista').value;
             const configCelene = document.getElementById('configCelene');
-            
             configCelene.style.display = (prestamista == 'Celene') ? 'block' : 'none';
         }
         
-        // Función para mostrar/ocultar detalle
         function toggleDetalle(id) {
             const detalle = document.getElementById('detalle-' + id);
-            detalle.style.display = detalle.style.display === 'none' ? 'table-row' : 'none';
+            if (!detalle) return;
+            detalle.style.display = detalle.style.display === 'none' || detalle.style.display === '' ? 'table-row' : 'none';
         }
         
-        // Función para excluir/incluir préstamos
         function togglePrestamo(checkbox) {
             const fila = checkbox.closest('.fila-prestamo');
-            
+            if (!fila) return;
+
             if (!checkbox.checked) {
                 fila.classList.add('excluido');
             } else {
                 fila.classList.remove('excluido');
             }
             
-            // Recalcular totales del deudor
             const deudorId = fila.dataset.deudor;
             actualizarTotalesDeudor(deudorId);
         }
         
-        // Función para recalcular cuando se modifican meses o interés
         function recalcularPrestamo(input) {
             const fila = input.closest('.fila-prestamo');
             const monto = parseFloat(fila.querySelector('.monto-prestamo').textContent.replace(/[^\d]/g, ''));
             const inputMeses = fila.querySelector('.meses-input');
-            
             const meses = parseInt(inputMeses.value);
             const prestamista = document.getElementById('prestamista').value;
             
             if (prestamista == 'Celene') {
-                // Para Celene: Capital + Interés Celene + Comisión
-                const interesCelene = document.getElementById('interes_celene').value;
-                const comision = document.getElementById('comision_celene').value;
+                const interesCelene = parseFloat(document.getElementById('interes_celene').value || 0);
+                const comision = parseFloat(document.getElementById('comision_celene').value || 0);
                 
                 const interesCeleneMonto = monto * (interesCelene / 100) * meses;
                 const comisionMonto = monto * (comision / 100) * meses;
@@ -708,9 +702,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 celdaComision.textContent = '$ ' + formatNumber(comisionMonto);
                 celdaTotal.textContent = '$ ' + formatNumber(total);
             } else {
-                // Para otros prestamistas: Capital + Interés Total
                 const inputInteres = fila.querySelector('.interes-input');
-                const porcentajeTotal = parseFloat(inputInteres.value);
+                const porcentajeTotal = parseFloat(inputInteres.value || 0);
                 
                 const interesTotal = monto * (porcentajeTotal / 100) * meses;
                 const total = monto + interesTotal;
@@ -722,15 +715,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 celdaTotal.textContent = '$ ' + formatNumber(total);
             }
             
-            // Si el préstamo está incluido, actualizar totales
             const checkbox = fila.querySelector('.checkbox-excluir');
-            if (checkbox.checked) {
+            if (checkbox && checkbox.checked) {
                 const deudorId = fila.dataset.deudor;
                 actualizarTotalesDeudor(deudorId);
             }
         }
         
-        // Función para actualizar totales por deudor
         function actualizarTotalesDeudor(deudorId) {
             const filasPrestamos = document.querySelectorAll('.fila-prestamo[data-deudor="' + deudorId + '"]');
             let totalCapital = 0;
@@ -744,7 +735,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             filasPrestamos.forEach(fila => {
                 const checkbox = fila.querySelector('.checkbox-excluir');
-                if (checkbox.checked && !fila.classList.contains('excluido')) {
+                if (checkbox && checkbox.checked && !fila.classList.contains('excluido')) {
                     const monto = parseFloat(fila.querySelector('.monto-prestamo').textContent.replace(/[^\d]/g, ''));
                     const total = parseFloat(fila.querySelector('.total-prestamo').textContent.replace(/[^\d]/g, ''));
                     
@@ -762,8 +753,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             });
             
-            // Actualizar fila del deudor
             const filaDeudor = document.getElementById('fila-' + deudorId);
+            if (!filaDeudor) return;
+
             filaDeudor.querySelector('.capital-deudor').textContent = '$ ' + formatNumber(totalCapital);
             filaDeudor.querySelector('.total-deudor').textContent = '$ ' + formatNumber(totalGeneral);
             filaDeudor.querySelector('td:nth-child(2)').textContent = prestamosIncluidos;
@@ -776,11 +768,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 filaDeudor.querySelector('.interes-deudor').textContent = '$ ' + formatNumber(interesTotal);
             }
             
-            // Actualizar totales generales
             actualizarTotalesGenerales();
         }
         
-        // Función para actualizar totales generales
         function actualizarTotalesGenerales() {
             let totalCapital = 0;
             let totalGeneral = 0;
@@ -812,7 +802,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         
-        // Función para formatear números
         function formatNumber(num) {
             return Math.round(num).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
         }
@@ -821,5 +810,5 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </html>
 
 <?php
-// Cerrar conexión
 $conn->close();
+?>
