@@ -94,11 +94,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $meses = calcularMesesAutomaticos($fila['fecha']);
             
             if ($es_celene) {
-                // Para Celene: cálculo separado
-                $interes_total = $fila['monto'] * ($porcentaje_interes / 100) * $meses;
+                // Para Celene: cálculo separado SIN interés total
                 $interes_celene_monto = $fila['monto'] * ($interes_celene / 100) * $meses;
                 $comision_monto = $fila['monto'] * ($comision_celene / 100) * $meses;
-                $total_prestamo = $fila['monto'] + $interes_total;
+                $total_prestamo = $fila['monto'] + $interes_celene_monto + $comision_monto;
             } else {
                 // Para otros prestamistas: cálculo normal
                 $interes_total = $fila['monto'] * ($porcentaje_interes / 100) * $meses;
@@ -110,7 +109,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!isset($prestamos_por_deudor[$deudor])) {
                 $prestamos_por_deudor[$deudor] = [
                     'total_capital' => 0,
-                    'total_interes' => 0,
                     'total_general' => 0,
                     'total_interes_celene' => 0,
                     'total_comision' => 0,
@@ -120,7 +118,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             
             $prestamos_por_deudor[$deudor]['total_capital'] += $fila['monto'];
-            $prestamos_por_deudor[$deudor]['total_interes'] += $interes_total;
             $prestamos_por_deudor[$deudor]['total_general'] += $total_prestamo;
             $prestamos_por_deudor[$deudor]['total_interes_celene'] += $interes_celene_monto;
             $prestamos_por_deudor[$deudor]['total_comision'] += $comision_monto;
@@ -131,7 +128,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'monto' => $fila['monto'],
                 'fecha' => $fila['fecha'],
                 'meses' => $meses,
-                'interes' => $interes_total,
                 'interes_celene' => $interes_celene_monto,
                 'comision' => $comision_monto,
                 'total' => $total_prestamo,
@@ -141,7 +137,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         // Calcular totales generales
         $total_capital_general = 0;
-        $total_interes_general = 0;
         $total_general = 0;
         $total_interes_celene_general = 0;
         $total_comision_general = 0;
@@ -221,12 +216,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </select>
                     </div>
                     
+                    <?php if ($prestamista_seleccionado != 'Celene'): ?>
                     <div class="form-group">
-                        <label for="porcentaje_interes">Interés Total al Deudor (%):</label>
+                        <label for="porcentaje_interes">Interés Total (%):</label>
                         <input type="number" name="porcentaje_interes" id="porcentaje_interes" 
                                value="<?= $porcentaje_interes ?>" step="0.1" min="0" max="100" required>
                         <small>Interés total que paga el deudor</small>
                     </div>
+                    <?php endif; ?>
                     
                     <!-- Configuración especial para Celene -->
                     <div id="configCelene" class="config-celene" style="display: <?= $prestamista_seleccionado == 'Celene' ? 'block' : 'none' ?>;">
@@ -259,9 +256,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php if ($prestamista_seleccionado == 'Celene'): ?>
             <div class="info-meses">
                 <strong>💰 Distribución para Celene:</strong><br>
-                - <strong>Interés Total:</strong> <?= $porcentaje_interes ?>% (<?= $interes_celene ?>% para Celene + <?= $comision_celene ?>% tu comisión)<br>
                 - <strong>Celene recibe:</strong> Capital + <?= $interes_celene ?>% interés<br>
-                - <strong>Tú recibes:</strong> <?= $comision_celene ?>% de comisión
+                - <strong>Tú recibes:</strong> <?= $comision_celene ?>% de comisión<br>
+                - <strong>Total a pagar:</strong> Capital + Interés Celene + Tu Comisión
             </div>
             <?php else: ?>
             <div class="info-meses">
@@ -277,10 +274,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <th>Deudor</th>
                         <th>Préstamos</th>
                         <th>Capital</th>
-                        <th>Interés Total</th>
                         <?php if ($prestamista_seleccionado == 'Celene'): ?>
                         <th>Interés Celene (<?= $interes_celene ?>%)</th>
                         <th>Tu Comisión (<?= $comision_celene ?>%)</th>
+                        <?php else: ?>
+                        <th>Interés (<?= $porcentaje_interes ?>%)</th>
                         <?php endif; ?>
                         <th>Total a Pagar</th>
                     </tr>
@@ -289,7 +287,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <?php foreach($prestamos_por_deudor as $deudor => $datos): ?>
                     <?php 
                         $total_capital_general += $datos['total_capital'];
-                        $total_interes_general += $datos['total_interes'];
                         $total_general += $datos['total_general'];
                         if ($prestamista_seleccionado == 'Celene') {
                             $total_interes_celene_general += $datos['total_interes_celene'];
@@ -304,17 +301,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </td>
                         <td><?= $datos['cantidad_prestamos'] ?></td>
                         <td class="moneda capital-deudor">$ <?= number_format($datos['total_capital'], 0, ',', '.') ?></td>
-                        <td class="moneda interes-deudor">$ <?= number_format($datos['total_interes'], 0, ',', '.') ?></td>
                         <?php if ($prestamista_seleccionado == 'Celene'): ?>
                         <td class="moneda interes-celene-deudor">$ <?= number_format($datos['total_interes_celene'], 0, ',', '.') ?></td>
                         <td class="moneda comision-deudor">$ <?= number_format($datos['total_comision'], 0, ',', '.') ?></td>
+                        <?php else: ?>
+                        <td class="moneda interes-deudor">$ <?= number_format($datos['total_general'] - $datos['total_capital'], 0, ',', '.') ?></td>
                         <?php endif; ?>
                         <td class="moneda total-deudor">$ <?= number_format($datos['total_general'], 0, ',', '.') ?></td>
                     </tr>
                     
                     <!-- Detalle de cada préstamo -->
                     <tr class="detalle-prestamo" id="detalle-<?= md5($deudor) ?>">
-                        <td colspan="<?= $prestamista_seleccionado == 'Celene' ? '7' : '5' ?>">
+                        <td colspan="<?= $prestamista_seleccionado == 'Celene' ? '6' : '5' ?>">
                             <table style="width: 100%; background-color: white;">
                                 <thead>
                                     <tr>
@@ -322,11 +320,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         <th>Fecha</th>
                                         <th>Monto</th>
                                         <th>Meses</th>
-                                        <th>Int. Total %</th>
-                                        <th>Int. Total $</th>
                                         <?php if ($prestamista_seleccionado == 'Celene'): ?>
                                         <th>Int. Celene $</th>
                                         <th>Comisión $</th>
+                                        <?php else: ?>
+                                        <th>Interés %</th>
+                                        <th>Interés $</th>
                                         <?php endif; ?>
                                         <th>Total</th>
                                     </tr>
@@ -345,16 +344,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                                    min="1" max="36" onchange="recalcularPrestamo(this)"
                                                    data-monto="<?= $detalle['monto'] ?>">
                                         </td>
+                                        <?php if ($prestamista_seleccionado == 'Celene'): ?>
+                                        <td class="moneda interes-celene-prestamo">$ <?= number_format($detalle['interes_celene'], 0, ',', '.') ?></td>
+                                        <td class="moneda comision-prestamo">$ <?= number_format($detalle['comision'], 0, ',', '.') ?></td>
+                                        <?php else: ?>
                                         <td class="acciones">
                                             <input type="number" class="interes-input" value="<?= $porcentaje_interes ?>" 
                                                    step="0.1" min="0" max="100" 
                                                    onchange="recalcularPrestamo(this)" 
                                                    data-monto="<?= $detalle['monto'] ?>">
                                         </td>
-                                        <td class="moneda interes-prestamo">$ <?= number_format($detalle['interes'], 0, ',', '.') ?></td>
-                                        <?php if ($prestamista_seleccionado == 'Celene'): ?>
-                                        <td class="moneda interes-celene-prestamo">$ <?= number_format($detalle['interes_celene'], 0, ',', '.') ?></td>
-                                        <td class="moneda comision-prestamo">$ <?= number_format($detalle['comision'], 0, ',', '.') ?></td>
+                                        <td class="moneda interes-prestamo">$ <?= number_format($detalle['total'] - $detalle['monto'], 0, ',', '.') ?></td>
                                         <?php endif; ?>
                                         <td class="moneda total-prestamo">$ <?= number_format($detalle['total'], 0, ',', '.') ?></td>
                                     </tr>
@@ -369,10 +369,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <tr class="totales">
                         <td colspan="2"><strong>TOTAL GENERAL</strong></td>
                         <td class="moneda" id="total-capital-general">$ <?= number_format($total_capital_general, 0, ',', '.') ?></td>
-                        <td class="moneda" id="total-interes-general">$ <?= number_format($total_interes_general, 0, ',', '.') ?></td>
                         <?php if ($prestamista_seleccionado == 'Celene'): ?>
                         <td class="moneda interes-celene" id="total-interes-celene-general">$ <?= number_format($total_interes_celene_general, 0, ',', '.') ?></td>
                         <td class="moneda comision-celene" id="total-comision-general">$ <?= number_format($total_comision_general, 0, ',', '.') ?></td>
+                        <?php else: ?>
+                        <td class="moneda" id="total-interes-general">$ <?= number_format($total_general - $total_capital_general, 0, ',', '.') ?></td>
                         <?php endif; ?>
                         <td class="moneda" id="total-general">$ <?= number_format($total_general, 0, ',', '.') ?></td>
                     </tr>
@@ -387,6 +388,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         function toggleConfigCelene() {
             const prestamista = document.getElementById('prestamista').value;
             const configCelene = document.getElementById('configCelene');
+            const interesTotalDiv = document.getElementById('interes-total-div');
+            
             configCelene.style.display = (prestamista == 'Celene') ? 'block' : 'none';
         }
         
@@ -423,36 +426,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             const fila = input.closest('.fila-prestamo');
             const monto = parseFloat(fila.querySelector('.monto-prestamo').textContent.replace(/[^\d]/g, ''));
             const inputMeses = fila.querySelector('.meses-input');
-            const inputInteres = fila.querySelector('.interes-input');
             
             const meses = parseInt(inputMeses.value);
-            const porcentajeTotal = parseFloat(inputInteres.value);
-            
-            // Calcular interés total
-            const interesTotal = monto * (porcentajeTotal / 100) * meses;
-            const total = monto + interesTotal;
-            
-            // Actualizar fila
-            const celdaInteres = fila.querySelector('.interes-prestamo');
-            const celdaTotal = fila.querySelector('.total-prestamo');
-            
-            celdaInteres.textContent = '$ ' + formatNumber(interesTotal);
-            celdaTotal.textContent = '$ ' + formatNumber(total);
-            
-            // Si es Celene, calcular distribución
             const prestamista = document.getElementById('prestamista').value;
+            
             if (prestamista == 'Celene') {
+                // Para Celene: Capital + Interés Celene + Comisión
                 const interesCelene = document.getElementById('interes_celene').value;
                 const comision = document.getElementById('comision_celene').value;
                 
                 const interesCeleneMonto = monto * (interesCelene / 100) * meses;
                 const comisionMonto = monto * (comision / 100) * meses;
+                const total = monto + interesCeleneMonto + comisionMonto;
                 
                 const celdaInteresCelene = fila.querySelector('.interes-celene-prestamo');
                 const celdaComision = fila.querySelector('.comision-prestamo');
+                const celdaTotal = fila.querySelector('.total-prestamo');
                 
                 celdaInteresCelene.textContent = '$ ' + formatNumber(interesCeleneMonto);
                 celdaComision.textContent = '$ ' + formatNumber(comisionMonto);
+                celdaTotal.textContent = '$ ' + formatNumber(total);
+            } else {
+                // Para otros prestamistas: Capital + Interés Total
+                const inputInteres = fila.querySelector('.interes-input');
+                const porcentajeTotal = parseFloat(inputInteres.value);
+                
+                const interesTotal = monto * (porcentajeTotal / 100) * meses;
+                const total = monto + interesTotal;
+                
+                const celdaInteres = fila.querySelector('.interes-prestamo');
+                const celdaTotal = fila.querySelector('.total-prestamo');
+                
+                celdaInteres.textContent = '$ ' + formatNumber(interesTotal);
+                celdaTotal.textContent = '$ ' + formatNumber(total);
             }
             
             // Si el préstamo está incluido, actualizar totales
@@ -467,7 +473,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         function actualizarTotalesDeudor(deudorId) {
             const filasPrestamos = document.querySelectorAll('.fila-prestamo[data-deudor="' + deudorId + '"]');
             let totalCapital = 0;
-            let totalInteres = 0;
             let totalGeneral = 0;
             let totalInteresCelene = 0;
             let totalComision = 0;
@@ -480,11 +485,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 const checkbox = fila.querySelector('.checkbox-excluir');
                 if (checkbox.checked && !fila.classList.contains('excluido')) {
                     const monto = parseFloat(fila.querySelector('.monto-prestamo').textContent.replace(/[^\d]/g, ''));
-                    const interes = parseFloat(fila.querySelector('.interes-prestamo').textContent.replace(/[^\d]/g, ''));
                     const total = parseFloat(fila.querySelector('.total-prestamo').textContent.replace(/[^\d]/g, ''));
                     
                     totalCapital += monto;
-                    totalInteres += interes;
                     totalGeneral += total;
                     
                     if (esCelene) {
@@ -501,13 +504,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Actualizar fila del deudor
             const filaDeudor = document.getElementById('fila-' + deudorId);
             filaDeudor.querySelector('.capital-deudor').textContent = '$ ' + formatNumber(totalCapital);
-            filaDeudor.querySelector('.interes-deudor').textContent = '$ ' + formatNumber(totalInteres);
             filaDeudor.querySelector('.total-deudor').textContent = '$ ' + formatNumber(totalGeneral);
             filaDeudor.querySelector('td:nth-child(2)').textContent = prestamosIncluidos;
             
             if (esCelene) {
                 filaDeudor.querySelector('.interes-celene-deudor').textContent = '$ ' + formatNumber(totalInteresCelene);
                 filaDeudor.querySelector('.comision-deudor').textContent = '$ ' + formatNumber(totalComision);
+            } else {
+                const interesTotal = totalGeneral - totalCapital;
+                filaDeudor.querySelector('.interes-deudor').textContent = '$ ' + formatNumber(interesTotal);
             }
             
             // Actualizar totales generales
@@ -517,7 +522,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Función para actualizar totales generales
         function actualizarTotalesGenerales() {
             let totalCapital = 0;
-            let totalInteres = 0;
             let totalGeneral = 0;
             let totalInteresCelene = 0;
             let totalComision = 0;
@@ -527,7 +531,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             document.querySelectorAll('.header-deudor').forEach(fila => {
                 totalCapital += parseFloat(fila.querySelector('.capital-deudor').textContent.replace(/[^\d]/g, ''));
-                totalInteres += parseFloat(fila.querySelector('.interes-deudor').textContent.replace(/[^\d]/g, ''));
                 totalGeneral += parseFloat(fila.querySelector('.total-deudor').textContent.replace(/[^\d]/g, ''));
                 
                 if (esCelene) {
@@ -537,12 +540,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             });
             
             document.getElementById('total-capital-general').textContent = '$ ' + formatNumber(totalCapital);
-            document.getElementById('total-interes-general').textContent = '$ ' + formatNumber(totalInteres);
             document.getElementById('total-general').textContent = '$ ' + formatNumber(totalGeneral);
             
             if (esCelene) {
                 document.getElementById('total-interes-celene-general').textContent = '$ ' + formatNumber(totalInteresCelene);
                 document.getElementById('total-comision-general').textContent = '$ ' + formatNumber(totalComision);
+            } else {
+                const interesTotal = totalGeneral - totalCapital;
+                document.getElementById('total-interes-general').textContent = '$ ' + formatNumber(interesTotal);
             }
         }
         
