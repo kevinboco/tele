@@ -102,6 +102,7 @@ if (isset($_GET['viajes_conductor'])) {
     $rowsHTML .= "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresa.</td></tr>";
   }
 
+  // lo que devolvemos al fetch (sin <script>, el JS global hará el filtro)
   ?>
   <div class='space-y-3'>
 
@@ -247,7 +248,7 @@ $qPrest = "
            CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
          ) AS total
   FROM prestamos
-  WHERE (pagado IS NULL OR pagado = 0)
+  WHERE (pagado IS NULL OR pagado = 0)  -- SOLO PRÉSTAMOS NO PAGADOS
   GROUP BY deudor
 ";
 if ($rP = $conn->query($qPrest)) {
@@ -305,8 +306,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   .estado-pendiente { background-color: #fef2f2 !important; border-left: 4px solid #ef4444; }
   .estado-procesando { background-color: #fffbeb !important; border-left: 4px solid #f59e0b; }
   .estado-parcial { background-color: #eff6ff !important; border-left: 4px solid #3b82f6; }
-
-  .row-manual-label { font-size: 11px; color: #f59e0b; margin-left: 4px; }
 </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
@@ -371,43 +370,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
           <div class="text-xs text-slate-500 mb-1">Total ajuste</div>
           <div id="lbl_total_ajuste" class="text-lg font-semibold text-amber-600 num">0</div>
         </div>
-      </div>
-
-      <!-- NUEVO: Registro manual por conductor -->
-      <div class="mt-5 pt-4 border-t border-dashed border-slate-200">
-        <div class="flex items-center justify-between gap-3 mb-2">
-          <h3 class="text-sm font-semibold flex items-center gap-2">
-            ➕ Registro manual por conductor
-          </h3>
-          <span class="text-[11px] text-slate-500">
-            Útil para pagos especiales (ej. viaje mensual hospital) que no vienen de los viajes.
-          </span>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-          <label class="block md:col-span-1">
-            <span class="block text-xs font-medium mb-1">Conductor</span>
-            <select id="manual_conductor" class="w-full rounded-xl border border-slate-300 px-3 py-2">
-              <option value="">-- Selecciona conductor --</option>
-              <?php foreach($filas as $f): ?>
-                <option value="<?= htmlspecialchars($f['nombre']) ?>"><?= htmlspecialchars($f['nombre']) ?></option>
-              <?php endforeach; ?>
-            </select>
-          </label>
-          <label class="block md:col-span-1">
-            <span class="block text-xs font-medium mb-1">Total base manual</span>
-            <input id="manual_base" type="text" placeholder="Ej: 3.500.000"
-                   class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
-          </label>
-          <div class="md:col-span-1 flex">
-            <button id="btnAddManualRow"
-                    class="w-full rounded-xl bg-emerald-600 text-white py-2.5 font-semibold shadow hover:bg-emerald-700 active:bg-emerald-800 text-sm">
-              Agregar registro
-            </button>
-          </div>
-        </div>
-        <p class="mt-1 text-[11px] text-slate-500">
-          Se agregará una fila extra para ese conductor con ese total base y se calcularán todos los descuentos igual que en las otras filas.
-        </p>
       </div>
     </section>
 
@@ -632,7 +594,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const ACC_KEY   = 'cuentas:'+COMPANY_SCOPE;
   const SS_KEY    = 'seg_social:'+COMPANY_SCOPE;
   const PREST_SEL_KEY = 'prestamo_sel_multi:v2:'+COMPANY_SCOPE;
-  const ESTADO_PAGO_KEY = 'estado_pago:'+COMPANY_SCOPE;
+  const ESTADO_PAGO_KEY = 'estado_pago:'+COMPANY_SCOPE; // Nueva clave para estados de pago
   const PERIODOS_KEY  = 'cuentas_cobro_periodos:v1';
 
   const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
@@ -645,54 +607,53 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   let accMap = getLS(ACC_KEY);
   let ssMap  = getLS(SS_KEY);
   let prestSel = getLS(PREST_SEL_KEY); if(!prestSel || typeof prestSel!=='object') prestSel = {};
-  let estadoPagoMap = getLS(ESTADO_PAGO_KEY);
+  let estadoPagoMap = getLS(ESTADO_PAGO_KEY); // Mapa para estados de pago
 
   const tbody = document.getElementById('tbody');
 
   function summarizeNames(arr){ if(!arr||arr.length===0)return''; const n=arr.map(x=>x.name); return n.length<=2?n.join(', '): n.slice(0,2).join(', ')+' +'+(n.length-2)+' más'; }
   function sumTotals(arr){ return (arr||[]).reduce((a,b)=> a+(toInt(b.total)||0),0); }
 
-  function aplicarEstadoFila(tr, estado) {
-    tr.classList.remove('estado-pagado', 'estado-pendiente', 'estado-procesando', 'estado-parcial');
-    if (estado) tr.classList.add(`estado-${estado}`);
-  }
-
-  function attachRowBehavior(tr){
+  [...tbody.querySelectorAll('tr')].forEach(tr=>{
     const cta = tr.querySelector('input.cta');
     const ss  = tr.querySelector('input.ss');
-    const estadoPago = tr.querySelector('select.estado-pago');
+    const estadoPago = tr.querySelector('select.estado-pago'); // Selector de estado
     const baseName = tr.children[0].innerText.trim();
     const prestSpan = tr.querySelector('.prest');
     const selLabel  = tr.querySelector('.selected-deudor');
-    const btnPrest  = tr.querySelector('.btn-prest');
-    const conductorBtn = tr.querySelector('.conductor-link');
 
-    if (accMap[baseName] && cta) cta.value = accMap[baseName];
-    if (ssMap[baseName] && ss)  ss.value  = fmt(toInt(ssMap[baseName]));
-    if (estadoPagoMap && estadoPagoMap[baseName] && estadoPago) {
+    if (accMap[baseName]) cta.value = accMap[baseName];
+    if (ssMap[baseName])  ss.value  = fmt(toInt(ssMap[baseName]));
+    if (estadoPagoMap[baseName]) {
       estadoPago.value = estadoPagoMap[baseName];
       aplicarEstadoFila(tr, estadoPagoMap[baseName]);
     }
 
     const chosen = prestSel[baseName] || [];
-    if (prestSpan) prestSpan.textContent = fmt(sumTotals(chosen));
-    if (selLabel)  selLabel.textContent  = summarizeNames(chosen);
+    prestSpan.textContent = fmt(sumTotals(chosen));
+    selLabel.textContent  = summarizeNames(chosen);
 
-    if (cta) cta.addEventListener('change', ()=>{ accMap[baseName] = cta.value.trim(); setLS(ACC_KEY, accMap); });
-    if (ss)  ss.addEventListener('input', ()=>{ ssMap[baseName] = toInt(ss.value); setLS(SS_KEY, ssMap); recalc(); });
-    if (estadoPago) {
-      estadoPago.addEventListener('change', ()=>{ 
-        estadoPagoMap[baseName] = estadoPago.value; 
-        setLS(ESTADO_PAGO_KEY, estadoPagoMap); 
-        aplicarEstadoFila(tr, estadoPago.value);
-      });
+    cta.addEventListener('change', ()=>{ accMap[baseName] = cta.value.trim(); setLS(ACC_KEY, accMap); });
+    ss.addEventListener('input', ()=>{ ssMap[baseName] = toInt(ss.value); setLS(SS_KEY, ssMap); recalc(); });
+    
+    // Event listener para cambios de estado
+    estadoPago.addEventListener('change', ()=>{ 
+      estadoPagoMap[baseName] = estadoPago.value; 
+      setLS(ESTADO_PAGO_KEY, estadoPagoMap); 
+      aplicarEstadoFila(tr, estadoPago.value);
+    });
+  });
+
+  // Función para aplicar el estado visual a la fila
+  function aplicarEstadoFila(tr, estado) {
+    // Remover todas las clases de estado anteriores
+    tr.classList.remove('estado-pagado', 'estado-pendiente', 'estado-procesando', 'estado-parcial');
+    
+    // Aplicar la clase correspondiente al estado
+    if (estado) {
+      tr.classList.add(`estado-${estado}`);
     }
-    if (btnPrest) btnPrest.addEventListener('click',()=>openPrestModalForRow(tr));
-    if (conductorBtn) conductorBtn.addEventListener('click', ()=>{ abrirModalViajes(conductorBtn.textContent.trim()); });
   }
-
-  // attach behavior for filas iniciales
-  [...tbody.querySelectorAll('tr')].forEach(tr=> attachRowBehavior(tr));
 
   // ===== Modal préstamos =====
   const prestModal   = document.getElementById('prestModal');
@@ -767,6 +728,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     recalc(); closePrest();
   });
   prestSearch.addEventListener('input',()=>renderPrestList(prestSearch.value));
+  tbody.querySelectorAll('.btn-prest').forEach(btn=> btn.addEventListener('click',()=>openPrestModalForRow(btn.closest('tr'))));
 
   // ===== Datos para el modal de viajes =====
   const RANGO_DESDE = <?= json_encode($desde) ?>;
@@ -795,6 +757,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     });
   }
 
+  // Esta función SE LLAMA cada vez que cargamos viajes via fetch
   function attachFiltroViajes(){
     const pills = viajesContent.querySelectorAll('#legendFilterBar .legend-pill');
     const rows  = viajesContent.querySelectorAll('#viajesTableBody .row-viaje');
@@ -855,7 +818,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       .then(r => r.text())
       .then(html => {
         viajesContent.innerHTML = html;
-        attachFiltroViajes();
+        attachFiltroViajes(); // <-- importante
       })
       .catch(() => {
         viajesContent.innerHTML = '<p class="text-center text-rose-600">Error cargando viajes.</p>';
@@ -906,6 +869,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       const base=toInt(tr.querySelector('.base').textContent);
       const prest=toInt(tr.querySelector('.prest').textContent);
       
+      // Calcular ajuste como porcentaje del base
       const ajuste = Math.round(base * (porcentaje / 100));
       const llego = base - ajuste;
       const ret=Math.round(llego*0.035);
@@ -944,73 +908,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   fmtInput(document.getElementById('inp_facturado'));
   fmtInput(document.getElementById('inp_porcentaje_ajuste'));
   recalc();
-
-  // ===== NUEVO: agregar fila manual por conductor =====
-  const manualConductor = document.getElementById('manual_conductor');
-  const manualBase      = document.getElementById('manual_base');
-  const btnAddManualRow = document.getElementById('btnAddManualRow');
-
-  btnAddManualRow.addEventListener('click', (e)=>{
-    e.preventDefault();
-    const nombre = (manualConductor.value || '').trim();
-    const baseVal = toInt(manualBase.value);
-
-    if (!nombre) {
-      alert('Selecciona un conductor.');
-      return;
-    }
-    if (!baseVal) {
-      alert('Ingresa un total base válido.');
-      return;
-    }
-
-    const tr = document.createElement('tr');
-    tr.classList.add('row-manual');
-
-    tr.innerHTML = `
-      <td class="px-3 py-2">
-        <button type="button" class="conductor-link" title="Ver viajes">${nombre}</button>
-        <span class="row-manual-label">(ajuste manual)</span>
-      </td>
-      <td class="px-3 py-2 text-right num base">${fmt(baseVal)}</td>
-      <td class="px-3 py-2 text-right num ajuste">0</td>
-      <td class="px-3 py-2 text-right num llego">0</td>
-      <td class="px-3 py-2 text-right num ret">0</td>
-      <td class="px-3 py-2 text-right num mil4">0</td>
-      <td class="px-3 py-2 text-right num apor">0</td>
-      <td class="px-3 py-2 text-right">
-        <input type="text" class="ss w-full max-w-[120px] rounded-lg border border-slate-300 px-2 py-1 text-right num" value="">
-      </td>
-      <td class="px-3 py-2 text-right">
-        <div class="flex items-center justify-end gap-2">
-          <span class="num prest">0</span>
-          <button type="button" class="btn-prest text-xs px-2 py-1 rounded border border-slate-300 bg-slate-50 hover:bg-slate-100">
-            Seleccionar
-          </button>
-        </div>
-        <div class="text-[11px] text-slate-500 text-right selected-deudor"></div>
-      </td>
-      <td class="px-3 py-2">
-        <input type="text" class="cta w-full max-w-[180px] rounded-lg border border-slate-300 px-2 py-1" value="" placeholder="N° cuenta">
-      </td>
-      <td class="px-3 py-2 text-right num pagar">0</td>
-      <td class="px-3 py-2 text-center">
-        <select class="estado-pago w-full max-w-[140px] rounded-lg border border-slate-300 px-2 py-1 text-sm">
-          <option value="">Sin estado</option>
-          <option value="pagado">✅ Pagado</option>
-          <option value="pendiente">❌ Pendiente</option>
-          <option value="procesando">🔄 Procesando</option>
-          <option value="parcial">⚠️ Parcial</option>
-        </select>
-      </td>
-    `;
-
-    tbody.appendChild(tr);
-    attachRowBehavior(tr);
-    recalc();
-
-    manualBase.value = '';
-  });
 
   // ===== Gestor de cuentas =====
   const formFiltros = document.getElementById('formFiltros');
@@ -1159,12 +1056,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     setTimeout(()=> buscaCuenta.focus(), 0);
   }
   function closeGestor(){ gestorModal.classList.add('hidden'); }
-
-  const btnShowGestor = document.getElementById('btnShowGestorCuentas');
-  const btnCloseGestor = document.getElementById('btnCloseGestor');
-  const btnAddDesdeFiltro = document.getElementById('btnAddDesdeFiltro');
-  const buscaCuenta = document.getElementById('buscaCuenta');
-  const gestorModal = document.getElementById('gestorCuentasModal');
 
   btnShowGestor.addEventListener('click', openGestor);
   btnCloseGestor.addEventListener('click', closeGestor);
