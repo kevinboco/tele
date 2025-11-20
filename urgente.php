@@ -43,6 +43,22 @@ $fecha_desde = '';
 $fecha_hasta = '';
 $empresa_seleccionada = '';
 
+// Arreglos para los reportes
+$prestamos_por_deudor = [];          // CONDUCTORES
+$otros_prestamos_por_deudor = [];    // OTROS DEUDORES
+
+// Totales generales cuadro 1 (conductores)
+$total_capital_general = 0;
+$total_general = 0;
+$total_interes_celene_general = 0;
+$total_comision_general = 0;
+
+// Totales generales cuadro 2 (otros deudores)
+$otros_total_capital_general = 0;
+$otros_total_general = 0;
+$otros_total_interes_celene_general = 0;
+$otros_total_comision_general = 0;
+
 // Obtener empresas únicas de la base de datos - desde la tabla VIAJES
 $sql_empresas = "SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa != '' ORDER BY empresa";
 $result_empresas = $conn->query($sql_empresas);
@@ -66,7 +82,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' AND pagado = 0 ORDER BY prestamista";
     $result_prestamistas = $conn->query($sql_prestamistas);
 
-    // Obtener conductores basado en el filtro de fechas y empresa DESDE VIAJES
+    // ==========================
+    // 1) CONDUCTORES DESDE VIAJES
+    // ==========================
     $conductores_filtrados = [];
     if (!empty($fecha_desde) && !empty($fecha_hasta)) {
         if (!empty($empresa_seleccionada)) {
@@ -100,8 +118,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    // ==========================
+    // 2) PRÉSTAMOS DE CONDUCTORES (CUADRO 1)
+    // ==========================
+
     if (!empty($deudores_seleccionados) && !empty($prestamista_seleccionado)) {
-        // Consulta para obtener los préstamos (SOLO NO PAGADOS)
+        // Consulta para obtener los préstamos (SOLO NO PAGADOS) de esos deudores
         $placeholders = str_repeat('?,', count($deudores_seleccionados) - 1) . '?';
 
         $sql = "SELECT 
@@ -123,8 +145,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute();
         $result_detalle = $stmt->get_result();
 
-        // Procesar los datos para agrupar por deudor
-        $prestamos_por_deudor = [];
         $es_celene = ($prestamista_seleccionado == 'Celene');
 
         while ($fila = $result_detalle->fetch_assoc()) {
@@ -132,12 +152,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $meses = calcularMesesAutomaticos($fila['fecha']);
 
             if ($es_celene) {
-                // Para Celene: cálculo separado SIN interés total general
+                // Para Celene: Capital + Interés Celene + Comisión
                 $interes_celene_monto = $fila['monto'] * ($interes_celene / 100) * $meses;
                 $comision_monto = $fila['monto'] * ($comision_celene / 100) * $meses;
                 $total_prestamo = $fila['monto'] + $interes_celene_monto + $comision_monto;
             } else {
-                // Para otros prestamistas: cálculo normal
+                // Otros prestamistas: Capital + Interés total
                 $interes_total = $fila['monto'] * ($porcentaje_interes / 100) * $meses;
                 $interes_celene_monto = 0;
                 $comision_monto = 0;
@@ -173,19 +193,79 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ];
         }
 
-        // Calcular totales generales
-        $total_capital_general = 0;
-        $total_general = 0;
-        $total_interes_celene_general = 0;
-        $total_comision_general = 0;
+        // Totales cuadro 1 se calculan en el HTML al recorrer el arreglo
+    }
+
+    // ==========================
+    // 3) OTROS DEUDORES (NO CONDUCTORES) - CUADRO 2
+    // ==========================
+
+    if (!empty($prestamista_seleccionado)) {
+        $sql_otros = "SELECT 
+                        id,
+                        deudor,
+                        prestamista,
+                        monto,
+                        fecha
+                      FROM prestamos
+                      WHERE prestamista = ?
+                        AND pagado = 0
+                        AND deudor IS NOT NULL
+                        AND deudor != ''
+                      ORDER BY deudor, fecha";
+        $stmt_otros = $conn->prepare($sql_otros);
+        $stmt_otros->bind_param("s", $prestamista_seleccionado);
+        $stmt_otros->execute();
+        $result_otros = $stmt_otros->get_result();
+
+        $es_celene = ($prestamista_seleccionado == 'Celene');
+
+        while ($fila = $result_otros->fetch_assoc()) {
+            $deudor = $fila['deudor'];
+
+            // Si el deudor está en la lista de conductores, lo ignoramos en este cuadro
+            if (in_array($deudor, $conductores_filtrados)) {
+                continue;
+            }
+
+            $meses = calcularMesesAutomaticos($fila['fecha']);
+
+            if ($es_celene) {
+                $interes_celene_monto = $fila['monto'] * ($interes_celene / 100) * $meses;
+                $comision_monto = $fila['monto'] * ($comision_celene / 100) * $meses;
+                $total_prestamo = $fila['monto'] + $interes_celene_monto + $comision_monto;
+                $interes_total = 0;
+            } else {
+                $interes_total = $fila['monto'] * ($porcentaje_interes / 100) * $meses;
+                $total_prestamo = $fila['monto'] + $interes_total;
+                $interes_celene_monto = 0;
+                $comision_monto = 0;
+            }
+
+            if (!isset($otros_prestamos_por_deudor[$deudor])) {
+                $otros_prestamos_por_deudor[$deudor] = [
+                    'total_capital' => 0,
+                    'total_general' => 0,
+                    'total_interes_celene' => 0,
+                    'total_comision' => 0,
+                    'total_interes_normal' => 0,
+                    'cantidad_prestamos' => 0
+                ];
+            }
+
+            $otros_prestamos_por_deudor[$deudor]['total_capital'] += $fila['monto'];
+            $otros_prestamos_por_deudor[$deudor]['total_general'] += $total_prestamo;
+            $otros_prestamos_por_deudor[$deudor]['total_interes_celene'] += $interes_celene_monto ?? 0;
+            $otros_prestamos_por_deudor[$deudor]['total_comision'] += $comision_monto ?? 0;
+            $otros_prestamos_por_deudor[$deudor]['total_interes_normal'] += $interes_total ?? 0;
+            $otros_prestamos_por_deudor[$deudor]['cantidad_prestamos']++;
+        }
     }
 
 } else {
     // Si no es POST, obtener prestamistas para el select
     $sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' AND pagado = 0 ORDER BY prestamista";
     $result_prestamistas = $conn->query($sql_prestamistas);
-
-    // Conductores vacíos hasta que filtren por fecha/empresa
     $conductores_filtrados = [];
 }
 ?>
@@ -237,6 +317,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .filtro-fechas { background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0; border-left: 4px solid #6c757d; }
         .fecha-row { display: flex; gap: 15px; }
         .fecha-col { flex: 1; }
+        .subtitulo-cuadro { margin-top: 25px; font-size: 1.1em; font-weight: bold; }
+        .cuadro-otros { background-color: #f8f9ff; padding: 10px; border-radius: 5px; }
     </style>
 </head>
 <body>
@@ -406,13 +488,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         </form>
 
-        <?php if (isset($prestamos_por_deudor)): ?>
+        <?php if (!empty($prestamista_seleccionado)): ?>
         <div class="resultados">
             <h2>Resultados para: <?php echo htmlspecialchars($prestamista_seleccionado); ?></h2>
             
-            <?php if (!empty($empresa_seleccionada)): ?>
+            <?php if (!empty($empresa_seleccionada) || (!empty($fecha_desde) && !empty($fecha_hasta))): ?>
             <div class="info-meses">
-                <strong>Filtro aplicado:</strong> Empresa <?php echo htmlspecialchars($empresa_seleccionada); ?> | 
+                <strong>Filtro de conductores aplicado:</strong>
+                <?php if (!empty($empresa_seleccionada)): ?>
+                    Empresa <?php echo htmlspecialchars($empresa_seleccionada); ?> |
+                <?php endif; ?>
                 Fechas: <?php echo htmlspecialchars($fecha_desde); ?> al <?php echo htmlspecialchars($fecha_hasta); ?>
             </div>
             <?php endif; ?>
@@ -431,10 +516,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 Se cuenta un mes completo por cada mes calendario transcurrido.
             </div>
             <?php endif; ?>
-            
+
+            <!-- ===================== -->
+            <!-- CUADRO 1: CONDUCTORES -->
+            <!-- ===================== -->
+            <div class="subtitulo-cuadro">Cuadro 1: Préstamos de Conductores (según viajes)</div>
+
             <?php if (empty($prestamos_por_deudor)): ?>
-                <div style="background-color: #f8d7da; padding: 15px; border-radius: 5px; margin: 20px 0;">
-                    <strong>No se encontraron préstamos pendientes</strong> para los criterios seleccionados.
+                <div style="background-color: #f8d7da; padding: 12px; border-radius: 5px; margin: 15px 0;">
+                    <strong>No se encontraron préstamos pendientes</strong> para los conductores seleccionados.
                 </div>
             <?php else: ?>
             <table id="tablaReporte">
@@ -453,6 +543,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </tr>
                 </thead>
                 <tbody id="cuerpoReporte">
+                    <?php 
+                    $total_capital_general = 0;
+                    $total_general = 0;
+                    $total_interes_celene_general = 0;
+                    $total_comision_general = 0;
+                    ?>
                     <?php foreach ($prestamos_por_deudor as $deudor => $datos): ?>
                     <?php 
                         $total_capital_general += $datos['total_capital'];
@@ -534,9 +630,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </tr>
                     <?php endforeach; ?>
                     
-                    <!-- Totales generales -->
+                    <!-- Totales generales CONDUCTORES -->
                     <tr class="totales">
-                        <td colspan="2"><strong>TOTAL GENERAL</strong></td>
+                        <td colspan="2"><strong>TOTAL GENERAL CONDUCTORES</strong></td>
                         <td class="moneda" id="total-capital-general">$ <?php echo number_format($total_capital_general, 0, ',', '.'); ?></td>
                         <?php if ($prestamista_seleccionado == 'Celene'): ?>
                         <td class="moneda interes-celene" id="total-interes-celene-general">$ <?php echo number_format($total_interes_celene_general, 0, ',', '.'); ?></td>
@@ -549,6 +645,77 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </tbody>
             </table>
             <?php endif; ?>
+
+            <!-- =========================== -->
+            <!-- CUADRO 2: OTROS DEUDORES    -->
+            <!-- =========================== -->
+            <div class="subtitulo-cuadro">Cuadro 2: Otros Deudores (Nómina, Facturas, etc.)</div>
+            <div class="cuadro-otros">
+            <?php if (empty($otros_prestamos_por_deudor)): ?>
+                <div style="background-color: #e2e3e5; padding: 12px; border-radius: 5px; margin: 10px 0;">
+                    No hay otros deudores con préstamos pendientes diferentes a los conductores seleccionados.
+                </div>
+            <?php else: ?>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Deudor</th>
+                            <th>Préstamos</th>
+                            <th>Capital</th>
+                            <?php if ($prestamista_seleccionado == 'Celene'): ?>
+                            <th>Interés Celene</th>
+                            <th>Tu Comisión</th>
+                            <?php else: ?>
+                            <th>Interés</th>
+                            <?php endif; ?>
+                            <th>Total a Pagar</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php 
+                        $otros_total_capital_general = 0;
+                        $otros_total_general = 0;
+                        $otros_total_interes_celene_general = 0;
+                        $otros_total_comision_general = 0;
+                        ?>
+                        <?php foreach ($otros_prestamos_por_deudor as $deudor => $datos): ?>
+                        <?php
+                            $otros_total_capital_general += $datos['total_capital'];
+                            $otros_total_general += $datos['total_general'];
+                            $otros_total_interes_celene_general += $datos['total_interes_celene'];
+                            $otros_total_comision_general += $datos['total_comision'];
+                        ?>
+                        <tr>
+                            <td><?php echo htmlspecialchars($deudor); ?></td>
+                            <td><?php echo $datos['cantidad_prestamos']; ?></td>
+                            <td class="moneda">$ <?php echo number_format($datos['total_capital'], 0, ',', '.'); ?></td>
+                            <?php if ($prestamista_seleccionado == 'Celene'): ?>
+                            <td class="moneda">$ <?php echo number_format($datos['total_interes_celene'], 0, ',', '.'); ?></td>
+                            <td class="moneda">$ <?php echo number_format($datos['total_comision'], 0, ',', '.'); ?></td>
+                            <?php else: ?>
+                            <td class="moneda">$ <?php echo number_format($datos['total_interes_normal'], 0, ',', '.'); ?></td>
+                            <?php endif; ?>
+                            <td class="moneda">$ <?php echo number_format($datos['total_general'], 0, ',', '.'); ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+
+                        <!-- Totales OTROS DEUDORES -->
+                        <tr class="totales">
+                            <td colspan="2"><strong>TOTAL GENERAL OTROS DEUDORES</strong></td>
+                            <td class="moneda">$ <?php echo number_format($otros_total_capital_general, 0, ',', '.'); ?></td>
+                            <?php if ($prestamista_seleccionado == 'Celene'): ?>
+                            <td class="moneda">$ <?php echo number_format($otros_total_interes_celene_general, 0, ',', '.'); ?></td>
+                            <td class="moneda">$ <?php echo number_format($otros_total_comision_general, 0, ',', '.'); ?></td>
+                            <?php else: ?>
+                            <td class="moneda">$ <?php echo number_format($otros_total_general - $otros_total_capital_general, 0, ',', '.'); ?></td>
+                            <?php endif; ?>
+                            <td class="moneda">$ <?php echo number_format($otros_total_general, 0, ',', '.'); ?></td>
+                        </tr>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+            </div>
+
         </div>
         <?php endif; ?>
     </div>
