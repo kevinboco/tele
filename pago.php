@@ -248,7 +248,7 @@ $qPrest = "
            CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
          ) AS total
   FROM prestamos
-  WHERE (pagado IS NULL OR pagado = 0)  -- SOLO PRÉSTAMOS NO PAGADOS
+  WHERE (pagado IS NULL OR pagado = 0)
   GROUP BY deudor
 ";
 if ($rP = $conn->query($qPrest)) {
@@ -634,7 +634,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   let ssMap  = getLS(SS_KEY);
   let prestSel = getLS(PREST_SEL_KEY); if(!prestSel || typeof prestSel!=='object') prestSel = {};
   let estadoPagoMap = getLS(ESTADO_PAGO_KEY) || {};
-  let manualRows = getLS(MANUAL_ROWS_KEY) || [];
+  let manualRows = JSON.parse(localStorage.getItem(MANUAL_ROWS_KEY) || '[]');
 
   const tbody = document.getElementById('tbody');
   const btnAddManual = document.getElementById('btnAddManual');
@@ -697,7 +697,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     if (!manualIdFromLS) {
       manualRows.push(manualId);
-      setLS(MANUAL_ROWS_KEY, manualRows);
+      localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
     }
 
     configurarEventosFila(nuevaFila);
@@ -772,7 +772,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       btnEliminar.addEventListener('click', () => {
         const manualId = tr.dataset.manualId;
         manualRows = manualRows.filter(id => id !== manualId);
-        setLS(MANUAL_ROWS_KEY, manualRows);
+        localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
         tr.remove();
         recalc();
       });
@@ -903,32 +903,41 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   }
   
   function openPrestModalForRow(tr){
-    currentRow=tr; selectedIds=new Set();
+    currentRow = tr;
+    selectedIds = new Set();
     let baseName;
-    
+
     // Determinar el nombre base según si es fila manual o normal
     if (tr.classList.contains('fila-manual')) {
       const select = tr.querySelector('.conductor-select');
-      baseName = select ? select.value : '';
+      if (!select || !select.value.trim()) {
+        alert('Primero selecciona el conductor en la fila antes de elegir préstamos.');
+        return;
+      }
+      baseName = select.value.trim();
     } else {
       baseName = tr.children[0].innerText.trim();
     }
-    
-    (prestSel[baseName]||[]).forEach(x=> selectedIds.add(Number(x.id)));
-    prestSearch.value=''; 
+
+    (prestSel[baseName] || []).forEach(x => selectedIds.add(Number(x.id)));
+
+    prestSearch.value = '';
     delete selTotalManual.dataset.touched;
     renderPrestList('');
 
     const currentPrestVal = toInt(tr.querySelector('.prest').textContent || '0');
     const totalSeleccionado = PRESTAMOS_LIST
-      .filter(it=>selectedIds.has(it.id))
-      .reduce((a,b)=>a+(b.total||0),0);
+      .filter(it => selectedIds.has(it.id))
+      .reduce((a, b) => a + (b.total || 0), 0);
 
     const baseValor = currentPrestVal > 0 ? currentPrestVal : totalSeleccionado;
     selTotalManual.value = fmt(baseValor);
 
     prestModal.classList.remove('hidden');
-    requestAnimationFrame(()=>{ prestSearch.focus(); prestSearch.select(); });
+    requestAnimationFrame(() => {
+      prestSearch.focus();
+      prestSearch.select();
+    });
   }
   
   function closePrest(){ 
@@ -949,7 +958,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     
     if (currentRow.classList.contains('fila-manual')) {
       const select = currentRow.querySelector('.conductor-select');
-      baseName = select ? select.value : '';
+      baseName = select ? select.value.trim() : '';
     } else {
       baseName = currentRow.children[0].innerText.trim();
     }
@@ -967,23 +976,24 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     renderPrestList(prestSearch.value);
   });
   
-  btnAssign.addEventListener('click',()=>{
-    if(!currentRow) return;
+  btnAssign.addEventListener('click', () => {
+    if (!currentRow) return;
     let baseName;
-    
+
     if (currentRow.classList.contains('fila-manual')) {
       const select = currentRow.querySelector('.conductor-select');
-      baseName = select ? select.value : '';
+      baseName = select ? select.value.trim() : '';
     } else {
       baseName = currentRow.children[0].innerText.trim();
     }
-    
-    const chosen=PRESTAMOS_LIST
-      .filter(it=>selectedIds.has(it.id))
-      .map(it=>({id:it.id,name:it.name,total:it.total}));
 
+    const chosen = PRESTAMOS_LIST
+      .filter(it => selectedIds.has(it.id))
+      .map(it => ({ id: it.id, name: it.name, total: it.total }));
+
+    // Guardar en localStorage solo si tenemos nombre
     if (baseName) {
-      prestSel[baseName]=chosen; 
+      prestSel[baseName] = chosen;
       setLS(PREST_SEL_KEY, prestSel);
     }
 
@@ -991,12 +1001,17 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     let manualVal = toInt(selTotalManual.value);
 
     if (manualVal < 0) manualVal = 0;
-    if (manualVal === 0 && totalReal > 0) manualVal = totalReal;
-    if (manualVal > totalReal) manualVal = totalReal;
+
+    if (totalReal > 0) {
+      // Si hay préstamos seleccionados, no dejamos pasar del total real
+      if (manualVal === 0) manualVal = totalReal;
+      if (manualVal > totalReal) manualVal = totalReal;
+    }
+    // Si totalReal == 0, se respeta manualVal como está
 
     currentRow.querySelector('.prest').textContent = fmt(manualVal);
     currentRow.querySelector('.selected-deudor').textContent = summarizeNames(chosen);
-    recalc(); 
+    recalc();
     closePrest();
   });
   
@@ -1351,7 +1366,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   btnAddDesdeFiltro.addEventListener('click', ()=>{ closeGestor(); openSaveCuenta(); });
 
   const nf1 = el => el && el.addEventListener('input', ()=>{ el.value = fmt(toInt(el.value)); });
-  nf1(iCFact);
+  nf1(document.getElementById('cuenta_facturado'));
 </script>
 
 </body>
