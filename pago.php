@@ -1288,6 +1288,5 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const nf1 = el => el.addEventListener('input', ()=>{ el.value = fmt(toInt(el.value)); });
   nf1(iCFact);
 </script>
-
 </body>
 </html>
