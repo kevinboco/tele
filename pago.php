@@ -486,14 +486,26 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         </div>
         <div id="prestList" class="max-h-[50vh] overflow-auto rounded-xl border border-slate-200"></div>
       </div>
-      <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-between gap-2">
-        <div class="text-sm text-slate-600">Seleccionados: <span id="selCount" class="font-semibold">0</span></div>
+
+      <!-- FOOTER MODAL PRÉSTAMOS MODIFICADO -->
+      <div class="px-5 py-4 border-t border-slate-200 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div class="text-sm text-slate-600">
+          Seleccionados: <span id="selCount" class="font-semibold">0</span><br>
+          <span class="text-xs">Total seleccionado: <span id="selTotal" class="num font-semibold">0</span></span>
+        </div>
+
         <div class="flex items-center gap-2">
-          <div class="text-sm">Total seleccionado: <span id="selTotal" class="num font-semibold">0</span></div>
+          <label class="text-sm flex items-center gap-1">
+            <span>Valor a aplicar:</span>
+            <input id="selTotalManual" type="text"
+                   class="w-32 rounded-lg border border-slate-300 px-2 py-1 text-right num"
+                   value="0">
+          </label>
           <button id="btnCancel" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
           <button id="btnAssign" class="rounded-lg border border-blue-600 px-4 py-2 bg-blue-600 text-white hover:bg-blue-700">Asignar</button>
         </div>
       </div>
+      <!-- FIN FOOTER MODAL PRÉSTAMOS -->
     </div>
   </div>
 
@@ -684,8 +696,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       </td>
     `;
 
-    // Insertar antes del footer
-    tbody.insertBefore(nuevaFila, tbody.querySelector('tfoot'));
+    tbody.appendChild(nuevaFila);
 
     // Guardar en localStorage
     manualRows.push(manualId);
@@ -708,7 +719,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const btnPrest = tr.querySelector('.btn-prest');
     const conductorSelect = tr.querySelector('.conductor-select');
 
-    const baseName = conductorSelect ? conductorSelect.value : tr.children[0].innerText.trim();
+    let baseName = '';
+    if (conductorSelect) {
+      baseName = conductorSelect.value || '';
+    } else {
+      baseName = tr.children[0].innerText.trim();
+    }
 
     // Eventos para inputs
     if (baseInput) {
@@ -721,6 +737,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     if (cta) {
       if (accMap[baseName]) cta.value = accMap[baseName];
       cta.addEventListener('change', () => { 
+        baseName = (conductorSelect && conductorSelect.value) || tr.children[0].innerText.trim();
         accMap[baseName] = cta.value.trim(); 
         setLS(ACC_KEY, accMap); 
       });
@@ -729,6 +746,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     if (ss) {
       if (ssMap[baseName]) ss.value = fmt(toInt(ssMap[baseName]));
       ss.addEventListener('input', () => { 
+        baseName = (conductorSelect && conductorSelect.value) || tr.children[0].innerText.trim();
         ssMap[baseName] = toInt(ss.value); 
         setLS(SS_KEY, ssMap); 
         recalc(); 
@@ -741,6 +759,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         aplicarEstadoFila(tr, estadoPagoMap[baseName]);
       }
       estadoPago.addEventListener('change', () => { 
+        baseName = (conductorSelect && conductorSelect.value) || tr.children[0].innerText.trim();
         estadoPagoMap[baseName] = estadoPago.value; 
         setLS(ESTADO_PAGO_KEY, estadoPagoMap); 
         aplicarEstadoFila(tr, estadoPago.value);
@@ -764,7 +783,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     if (conductorSelect) {
       conductorSelect.addEventListener('change', () => {
         const newBaseName = conductorSelect.value;
-        // Actualizar datos según el nuevo conductor seleccionado
+        baseName = newBaseName;
+
         if (cta && accMap[newBaseName]) cta.value = accMap[newBaseName];
         if (ss && ssMap[newBaseName]) ss.value = fmt(toInt(ssMap[newBaseName]));
         if (estadoPago && estadoPagoMap[newBaseName]) {
@@ -792,8 +812,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
   // ===== CARGAR FILAS MANUALES EXISTENTES =====
   function cargarFilasManuales() {
-    manualRows.forEach(manualId => {
-      // Solo crear la estructura básica, los datos se cargan desde localStorage
+    // (simple: solo recreamos filas nuevas vacías con esos ids)
+    manualRows.forEach(() => {
       agregarFilaManual();
     });
   }
@@ -840,8 +860,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const prestList    = document.getElementById('prestList');
   const selCount     = document.getElementById('selCount');
   const selTotal     = document.getElementById('selTotal');
+  const selTotalManual = document.getElementById('selTotalManual');
 
   let currentRow=null, selectedIds=new Set(), filteredIdx=[];
+
+  // marcar cuando el usuario toca a mano el valor
+  selTotalManual.addEventListener('input', ()=>{ selTotalManual.dataset.touched = '1'; });
 
   function renderPrestList(filter=''){
     prestList.innerHTML='';
@@ -870,7 +894,13 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   function updateSelSummary(){
     const arr=PRESTAMOS_LIST.filter(it=>selectedIds.has(it.id));
     selCount.textContent=arr.length;
-    selTotal.textContent=arr.reduce((a,b)=>a+(b.total||0),0).toLocaleString('es-CO');
+    const total = arr.reduce((a,b)=>a+(b.total||0),0);
+    selTotal.textContent = fmt(total);
+
+    // mientras no hayas tocado el input manual, igualamos al total
+    if (!selTotalManual.dataset.touched) {
+      selTotalManual.value = fmt(total);
+    }
   }
   
   function openPrestModalForRow(tr){
@@ -886,12 +916,31 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     }
     
     (prestSel[baseName]||[]).forEach(x=> selectedIds.add(Number(x.id)));
-    prestSearch.value=''; renderPrestList('');
+    prestSearch.value=''; 
+    delete selTotalManual.dataset.touched; // reset
+    renderPrestList('');
+
+    // valor actual en la fila (por si ya antes aplicaste algo)
+    const currentPrestVal = toInt(tr.querySelector('.prest').textContent);
+    const totalSeleccionado = PRESTAMOS_LIST
+      .filter(it=>selectedIds.has(it.id))
+      .reduce((a,b)=>a+(b.total||0),0);
+
+    const baseValor = currentPrestVal > 0 ? currentPrestVal : totalSeleccionado;
+    selTotalManual.value = fmt(baseValor);
+
     prestModal.classList.remove('hidden');
     requestAnimationFrame(()=>{ prestSearch.focus(); prestSearch.select(); });
   }
   
-  function closePrest(){ prestModal.classList.add('hidden'); currentRow=null; selectedIds=new Set(); filteredIdx=[]; }
+  function closePrest(){
+    prestModal.classList.add('hidden'); 
+    currentRow=null; 
+    selectedIds=new Set(); 
+    filteredIdx=[];
+    selTotalManual.value = '0';
+    delete selTotalManual.dataset.touched;
+  }
   
   btnCancel.addEventListener('click',closePrest); 
   btnClose.addEventListener('click',closePrest);
@@ -915,6 +964,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     setLS(PREST_SEL_KEY, prestSel); 
     recalc();
     selectedIds.clear(); 
+    delete selTotalManual.dataset.touched;
+    selTotalManual.value = '0';
     renderPrestList(prestSearch.value);
   });
   
@@ -930,9 +981,26 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     }
     
     const chosen=PRESTAMOS_LIST.filter(it=>selectedIds.has(it.id)).map(it=>({id:it.id,name:it.name,total:it.total}));
+
+    // guardamos qué préstamos son, para que concuerde con las otras vistas
     prestSel[baseName]=chosen; 
     setLS(PREST_SEL_KEY, prestSel);
-    currentRow.querySelector('.prest').textContent = sumTotals(chosen).toLocaleString('es-CO');
+
+    // total real de los préstamos seleccionados
+    const totalReal = sumTotals(chosen);
+
+    // valor manual que quieres aplicar en esta liquidación
+    let manualVal = toInt(selTotalManual.value);
+
+    // reglas básicas: no negativo y no mayor al total real
+    if (manualVal < 0) manualVal = 0;
+    if (manualVal === 0 && totalReal > 0) {
+      // si dejaste 0 por error pero hay total, por seguridad ponemos el total
+      manualVal = totalReal;
+    }
+    if (manualVal > totalReal) manualVal = totalReal;
+
+    currentRow.querySelector('.prest').textContent = fmt(manualVal);
     currentRow.querySelector('.selected-deudor').textContent = summarizeNames(chosen);
     recalc(); 
     closePrest();
@@ -1073,7 +1141,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     let sumAjuste=0, sumLleg=0, sumRet=0, sumMil4=0, sumAp=0, sumSS=0, sumPrest=0, sumPagar=0;
     
-    rows.forEach((tr,i)=>{
+    rows.forEach((tr)=>{
       let base;
       
       // Determinar si es fila manual o normal
@@ -1081,10 +1149,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         const baseInput = tr.querySelector('.base-manual');
         base = baseInput ? toInt(baseInput.value) : 0;
       } else {
-        base = toInt(tr.querySelector('.base').textContent);
+        const baseEl = tr.querySelector('.base');
+        if (!baseEl) return;
+        base = toInt(baseEl.textContent);
       }
       
-      const prest=toInt(tr.querySelector('.prest').textContent);
+      const prest=toInt(tr.querySelector('.prest').textContent || '0');
       
       // Calcular ajuste como porcentaje del base
       const ajuste = Math.round(base * (porcentaje / 100));
@@ -1092,8 +1162,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       const ret=Math.round(llego*0.035);
       const mil4=Math.round(llego*0.004);
       const ap=Math.round(llego*0.10);
-      const ss=toInt(tr.querySelector('input.ss').value);
-      const pagar = llego - ret - mil4 - ap - ss - prest;
+      const ssInput = tr.querySelector('input.ss');
+      const ssVal = ssInput ? toInt(ssInput.value) : 0;
+      const pagar = llego - ret - mil4 - ap - ssVal - prest;
 
       tr.querySelector('.ajuste').textContent=fmt(ajuste);
       tr.querySelector('.llego').textContent=fmt(llego);
@@ -1103,7 +1174,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       tr.querySelector('.pagar').textContent=fmt(pagar);
 
       sumAjuste += ajuste;
-      sumLleg+=llego; sumRet+=ret; sumMil4+=mil4; sumAp+=ap; sumSS+=ss; sumPrest+=prest; sumPagar+=pagar;
+      sumLleg+=llego; sumRet+=ret; sumMil4+=mil4; sumAp+=ap; sumSS+=ssVal; sumPrest+=prest; sumPagar+=pagar;
     });
 
     document.getElementById('lbl_total_ajuste').textContent=fmt(sumAjuste);
@@ -1288,5 +1359,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const nf1 = el => el.addEventListener('input', ()=>{ el.value = fmt(toInt(el.value)); });
   nf1(iCFact);
 </script>
+
 </body>
 </html>
