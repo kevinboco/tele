@@ -191,6 +191,39 @@ if ($action==='bulk_mark_paid' && $_SERVER['REQUEST_METHOD']==='POST'){
   go(BASE_URL.'?view=cards&msg='.$msg);
 }
 
+/* ===== NUEVO: Acción masiva "Marcar como NO pagado" desde TARJETAS ===== */
+if ($action==='bulk_mark_unpaid' && $_SERVER['REQUEST_METHOD']==='POST'){
+  $ids = $_POST['ids'] ?? [];
+  if (!is_array($ids)) $ids = [];
+  $ids = array_values(array_unique(array_map(fn($v)=> (int)$v, $ids)));
+
+  if (!$ids) {
+    go(BASE_URL.'?view=cards&msg=noselect');
+  }
+
+  $c = db();
+  $ok = true;
+
+  foreach (array_chunk($ids, 200) as $chunk) {
+    $ph    = implode(',', array_fill(0, count($chunk), '?'));
+    $types = str_repeat('i', count($chunk));
+    $sql   = "UPDATE prestamos 
+              SET pagado = 0, pagado_at = NULL 
+              WHERE id IN ($ph) AND pagado = 1";
+    $st = $c->prepare($sql);
+    if (!$st) { $ok = false; break; }
+    $st->bind_param($types, ...$chunk);
+    if (!$st->execute()) { $ok = false; }
+    $st->close();
+    if (!$ok) break;
+  }
+
+  $c->close();
+
+  $msg = $ok ? 'bulkunpaid' : 'bulkunpaidoops';
+  go(BASE_URL.'?view=cards&msg='.$msg);
+}
+
 /* ===== CRUD ===== */
 if ($action==='create' && $_SERVER['REQUEST_METHOD']==='POST'){
   $deudor = trim($_POST['deudor']??'');
@@ -310,6 +343,21 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  .resumen-item { background: white; border-radius: 8px; padding: 12px; text-align: center; }
  .resumen-valor { font-size: 18px; font-weight: 800; color: #0369a1; }
  .resumen-label { font-size: 12px; color: #6b7280; margin-top: 4px; }
+
+ /* NUEVO: Estilos para switch de estado de pago */
+ .switch-container { display: flex; align-items: center; gap: 8px; background: #f8f9fa; padding: 8px 12px; border-radius: 12px; border: 1px solid #e5e7eb; }
+ .switch { position: relative; display: inline-block; width: 50px; height: 24px; }
+ .switch input { opacity: 0; width: 0; height: 0; }
+ .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 24px; }
+ .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+ input:checked + .slider { background-color: #0b5ed7; }
+ input:checked + .slider:before { transform: translateX(26px); }
+ .switch-label { font-size: 14px; font-weight: 600; color: #374151; }
+
+ /* NUEVO: Estilos para préstamos pagados */
+ .card-pagado { border-left: 4px solid #10b981; background: #f0fdf4 !important; opacity: 0.8; }
+ .pagado-badge { background: #10b981 !important; color: white !important; }
+ .text-pagado { color: #065f46 !important; font-weight: 600; }
 </style>
 </head><body>
 
@@ -334,6 +382,8 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
         'bulkoops'=>'Hubo un error al actualizar en lote.',
         'bulkpaid'=>'Préstamos seleccionados marcados como pagados.',
         'bulkpaidoops'=>'Hubo un error al marcar como pagados.',
+        'bulkunpaid'=>'Préstamos seleccionados marcados como NO pagados.',
+        'bulkunpaidoops'=>'Hubo un error al marcar como NO pagados.',
         default=>'Operación realizada.'
       };
     ?>
@@ -384,6 +434,8 @@ else:
   $fd  = trim($_GET['fd'] ?? ''); // deudor (normalizado)
   $fecha_desde = trim($_GET['fecha_desde'] ?? '');
   $fecha_hasta = trim($_GET['fecha_hasta'] ?? '');
+  // NUEVO: Filtro de estado de pago
+  $estado_pago = $_GET['estado_pago'] ?? 'no_pagados'; // 'no_pagados', 'pagados', 'todos'
 
   $qNorm  = mbnorm($q);
   $fpNorm = mbnorm($fp);
@@ -391,14 +443,18 @@ else:
 
   $conn=db();
 
-  // MODIFICADO: Filtrar por pagado=0 en todas las consultas
-  $whereBase = "pagado = 0";
+  // MODIFICADO: Filtrar según el estado de pago seleccionado
+  $whereBase = "1=1";
+  if ($estado_pago === 'no_pagados') {
+    $whereBase = "pagado = 0";
+  } elseif ($estado_pago === 'pagados') {
+    $whereBase = "pagado = 1";
+  }
+  // Si es 'todos', no se aplica filtro por pagado
 
   // Combo prestamistas
   $prestMap = [];
-  $resPL = ($view==='graph')
-    ? $conn->query("SELECT prestamista FROM prestamos WHERE $whereBase")
-    : $conn->query("SELECT prestamista FROM prestamos WHERE $whereBase");
+  $resPL = $conn->query("SELECT prestamista FROM prestamos WHERE $whereBase");
   while($rowPL=$resPL->fetch_row()){
     $norm = mbnorm($rowPL[0]);
     if ($norm==='') continue;
@@ -408,9 +464,7 @@ else:
 
   // Combo deudores
   $deudMap = [];
-  $resDL = ($view==='graph')
-    ? $conn->query("SELECT deudor FROM prestamos WHERE $whereBase")
-    : $conn->query("SELECT deudor FROM prestamos WHERE $whereBase");
+  $resDL = $conn->query("SELECT deudor FROM prestamos WHERE $whereBase");
   while($rowDL=$resDL->fetch_row()){
     $norm = mbnorm($rowDL[0]);
     if ($norm==='') continue;
@@ -427,9 +481,9 @@ else:
     if ($fecha_desde!==''){ $where.=" AND fecha >= ?"; $types.="s"; $params[]=$fecha_desde; }
     if ($fecha_hasta!==''){ $where.=" AND fecha <= ?"; $types.="s"; $params[]=$fecha_hasta; }
 
-    // MODIFICADO: Incluir campos de comisión y calcular interés correctamente con tasa variable
+    // MODIFICADO: Incluir campo pagado y calcular interés correctamente con tasa variable
     $sql = "
-      SELECT id,deudor,prestamista,monto,fecha,imagen,created_at,
+      SELECT id,deudor,prestamista,monto,fecha,imagen,created_at,pagado,pagado_at,
              comision_gestor_nombre, comision_gestor_porcentaje, comision_base_monto, 
              comision_origen_prestamista, comision_origen_porcentaje,
              CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS meses,
@@ -467,12 +521,12 @@ else:
               
       FROM prestamos
       WHERE $where
-      ORDER BY id DESC";
+      ORDER BY pagado ASC, id DESC";
     $st=$conn->prepare($sql); if($types) $st->bind_param($types, ...$params); $st->execute(); $rs=$st->get_result();
 
     // NUEVO: Calcular sumas para el rango de fechas seleccionado
     $sumas = ['capital' => 0, 'interes' => 0, 'total' => 0, 'count' => 0];
-    if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '') {
+    if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $estado_pago !== 'todos') {
       $sqlSumas = "
         SELECT COUNT(*) AS n,
                SUM(monto) AS capital,
@@ -523,8 +577,23 @@ else:
           <label>Hasta</label>
           <input name="fecha_hasta" type="date" value="<?= h($fecha_hasta) ?>">
         </div>
+        
+        <!-- NUEVO: Switch de estado de pago -->
+        <div class="switch-container">
+          <span class="switch-label">Estado:</span>
+          <label class="switch">
+            <input type="checkbox" name="estado_pago" value="todos" 
+                   <?= $estado_pago === 'todos' ? 'checked' : '' ?>
+                   onchange="this.form.submit()">
+            <span class="slider"></span>
+          </label>
+          <span class="switch-label">
+            <?= $estado_pago === 'todos' ? 'Todos' : ($estado_pago === 'pagados' ? 'Pagados' : 'No pagados') ?>
+          </span>
+        </div>
+
         <button class="btn" type="submit">Filtrar</button>
-        <?php if ($q!=='' || $fpNorm!=='' || $fdNorm!=='' || $fecha_desde!=='' || $fecha_hasta!==''): ?>
+        <?php if ($q!=='' || $fpNorm!=='' || $fdNorm!=='' || $fecha_desde!=='' || $fecha_hasta!=='' || $estado_pago !== 'no_pagados'): ?>
           <a class="btn gray" href="?view=cards">Quitar filtro</a>
         <?php endif; ?>
       </form>
@@ -532,7 +601,7 @@ else:
     </div>
 
     <!-- NUEVO: Mostrar resumen cuando hay filtros de fecha o persona -->
-    <?php if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== ''): ?>
+    <?php if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $estado_pago !== 'no_pagados'): ?>
       <div class="resumen-filtro">
         <div class="title">Resumen del Filtro</div>
         <div class="subtitle">
@@ -542,6 +611,7 @@ else:
             if ($fecha_hasta !== '') $filtros[] = "Hasta: " . h($fecha_hasta);
             if ($fdNorm !== '') $filtros[] = "Deudor: " . h(mbtitle($deudMap[$fdNorm] ?? $fdNorm));
             if ($fpNorm !== '') $filtros[] = "Prestamista: " . h(mbtitle($prestMap[$fpNorm] ?? $fpNorm));
+            $filtros[] = "Estado: " . ($estado_pago === 'todos' ? 'Todos' : ($estado_pago === 'pagados' ? 'Pagados' : 'No pagados'));
             echo implode(' • ', $filtros);
           ?>
         </div>
@@ -589,6 +659,14 @@ else:
               onclick="return confirm('¿Marcar como pagados los préstamos seleccionados?')">
               ✔ Préstamo pagado
             </button>
+            <!-- NUEVO BOTÓN: marcar como NO pagados los seleccionados -->
+            <button 
+              type="submit" 
+              class="btn gray small" 
+              formaction="?action=bulk_mark_unpaid"
+              onclick="return confirm('¿Marcar como NO pagados los préstamos seleccionados?')">
+              ↩ NO pagado
+            </button>
             <span class="badge" id="selCount">0 seleccionadas</span>
           </div>
         </div>
@@ -597,8 +675,19 @@ else:
           <?php while($r=$rs->fetch_assoc()): 
             // Determinar si es una comisión
             $esComision = !empty($r['comision_gestor_nombre']);
-            $cardClass = $esComision ? 'card-comision' : '';
-            $badgeClass = $esComision ? 'comision-badge' : 'chip';
+            $esPagado = (bool)($r['pagado'] ?? false);
+            
+            // Determinar clases CSS según estado
+            $cardClass = '';
+            $badgeClass = 'chip';
+            
+            if ($esComision) {
+              $cardClass = 'card-comision';
+              $badgeClass = 'comision-badge';
+            } elseif ($esPagado) {
+              $cardClass = 'card-pagado';
+              $badgeClass = 'pagado-badge';
+            }
             
             // Calcular porcentaje total
             $porcentajeTotal = (float)($r['comision_origen_porcentaje'] ?? 
@@ -611,6 +700,8 @@ else:
                 <div class="subtitle">#<?= h($r['id']) ?></div>
                 <?php if ($esComision): ?>
                   <span class="<?= $badgeClass ?>" style="margin-left:auto">💰 Comisión</span>
+                <?php elseif ($esPagado): ?>
+                  <span class="<?= $badgeClass ?>" style="margin-left:auto">✅ Pagado</span>
                 <?php endif; ?>
               </div>
 
@@ -622,6 +713,9 @@ else:
                 <div>
                   <div class="title"><?= h($r['deudor']) ?></div>
                   <div class="subtitle">Prestamista: <strong><?= h($r['prestamista']) ?></strong></div>
+                  <?php if ($esPagado && !empty($r['pagado_at'])): ?>
+                    <div class="subtitle text-pagado">Pagado el: <?= h($r['pagado_at']) ?></div>
+                  <?php endif; ?>
                 </div>
                 <span class="chip"><?= h($r['fecha']) ?></span>
               </div>
@@ -715,7 +809,7 @@ else:
     $st->close();
 
   } else {
-    // -------- VISUAL 3-NODOS (SOLO NO PAGADOS) --------
+    // -------- VISUAL 3-NODOS (CON FILTRO DE ESTADO) --------
     $where = $whereBase; $types=""; $params=[];
     $qNorm = mbnorm($_GET['q'] ?? '');
     $fpNorm = mbnorm($_GET['fp'] ?? '');
@@ -790,15 +884,30 @@ else:
         <select name="fp"><option value="">Todos los prestamistas</option>
           <?php foreach($prestMap as $norm=>$label): ?><option value="<?= h($norm) ?>" <?= $fpNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option><?php endforeach; ?>
         </select>
+        
+        <!-- NUEVO: Switch de estado de pago para vista gráfica -->
+        <div class="switch-container">
+          <span class="switch-label">Estado:</span>
+          <label class="switch">
+            <input type="checkbox" name="estado_pago" value="todos" 
+                   <?= $estado_pago === 'todos' ? 'checked' : '' ?>
+                   onchange="this.form.submit()">
+            <span class="slider"></span>
+          </label>
+          <span class="switch-label">
+            <?= $estado_pago === 'todos' ? 'Todos' : ($estado_pago === 'pagados' ? 'Pagados' : 'No pagados') ?>
+          </span>
+        </div>
+
         <button class="btn" type="submit">Filtrar</button>
-        <?php if (!empty($_GET['q']) || $fpNorm!==''): ?><a class="btn gray" href="?view=graph">Quitar filtro</a><?php endif; ?>
+        <?php if (!empty($_GET['q']) || $fpNorm!=='' || $estado_pago !== 'no_pagados'): ?><a class="btn gray" href="?view=graph">Quitar filtro</a><?php endif; ?>
       </form>
       <div class="subtitle">
         Diagrama: <strong>Prestamista ➜ Deudores (valor, fecha, interés, total) ➜ Ganancia</strong>.
         Debajo hay un selector para marcarlos como <strong>Préstamo pagado</strong>.
         El recuadro adicional muestra <strong>Total prestado (pendiente)</strong>.
         Interés: <strong>13% desde 2025-10-29, 10% para préstamos anteriores</strong>.
-        <strong>NOTA: Solo se muestran préstamos NO pagados (pagado=0)</strong>.
+        <strong>NOTA: Mostrando préstamos: <?= $estado_pago === 'todos' ? 'TODOS' : ($estado_pago === 'pagados' ? 'PAGADOS' : 'NO PAGADOS') ?></strong>.
       </div>
     </div>
 
@@ -816,6 +925,7 @@ else:
         <input type="hidden" name="view" value="graph">
         <input type="hidden" name="q" value="<?= h($_GET['q'] ?? '') ?>">
         <input type="hidden" name="fp" value="<?= h($fpNorm) ?>">
+        <input type="hidden" name="estado_pago" value="<?= h($estado_pago) ?>">
 
         <div class="title" style="margin:6px 10px 10px">Prestamista: <?= h($prestLabel) ?></div>
 
@@ -857,6 +967,7 @@ else:
           </svg>
         </div>
 
+        <?php if ($estado_pago !== 'pagados'): ?>
         <div class="selector">
           <div class="selhead">
             <div class="subtitle">Selecciona deudores para marcarlos como pagados:</div>
@@ -883,6 +994,7 @@ else:
             <button class="btn small" type="submit" onclick="return confirm('¿Marcar como pagados los seleccionados?')">✔ Préstamo pagado</button>
           </div>
         </div>
+        <?php endif; ?>
       </form>
     <?php endforeach; endif; ?>
 
