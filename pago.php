@@ -362,8 +362,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         </div>
         <label class="block md:col-span-2">
           <span class="block text-xs font-medium mb-1">Cuenta de cobro (facturado)</span>
-          <input id="inp_facturado" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num"
-                 value="<?= number_format($total_facturado,0,',','.') ?>">
+          <input id="inp_facturado" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num bg-slate-50"
+                 value="<?= number_format($total_facturado,0,',','.') ?>" readonly>
         </label>
         <label class="block md:col-span-2">
           <span class="block text-xs font-medium mb-1">Porcentaje de ajuste (%)</span>
@@ -630,6 +630,26 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const tbody = document.getElementById('tbody');
   const btnAddManual = document.getElementById('btnAddManual');
 
+  // ===== FUNCIÓN PARA CALCULAR TOTAL FACTURADO =====
+  function calcularTotalFacturado() {
+    let total = 0;
+    const rows = [...tbody.querySelectorAll('tr')];
+    
+    rows.forEach(tr => {
+      if (tr.classList.contains('fila-manual')) {
+        // Para filas manuales: usar el input de base manual
+        const baseInput = tr.querySelector('.base-manual');
+        total += baseInput ? toInt(baseInput.value) : 0;
+      } else {
+        // Para filas normales: usar el texto del td.base
+        const baseText = tr.querySelector('.base').textContent;
+        total += toInt(baseText);
+      }
+    });
+    
+    return total;
+  }
+
   // ===== FUNCIÓN PARA AGREGAR FILA MANUAL =====
   function agregarFilaManual() {
     const manualId = 'manual_' + Date.now();
@@ -694,7 +714,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     // Configurar eventos
     configurarEventosFila(nuevaFila);
     
-    // Recalcular
+    // Recalcular automáticamente
     recalc();
   }
 
@@ -713,9 +733,14 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     // Eventos para inputs
     if (baseInput) {
       baseInput.addEventListener('input', () => {
-        baseInput.value = fmt(toInt(baseInput.value));
+        const valor = toInt(baseInput.value);
+        baseInput.value = fmt(valor);
+        // Recalcular automáticamente cuando cambia el valor base
         recalc();
       });
+      
+      // También recalcular cuando pierde el foco
+      baseInput.addEventListener('blur', recalc);
     }
 
     if (cta) {
@@ -753,7 +778,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         manualRows = manualRows.filter(id => id !== manualId);
         setLS(MANUAL_ROWS_KEY, manualRows);
         tr.remove();
-        recalc();
+        recalc(); // Recalcular después de eliminar
       });
     }
 
@@ -778,7 +803,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         prestSpan.textContent = fmt(sumTotals(chosen));
         selLabel.textContent = summarizeNames(chosen);
         
-        recalc();
+        recalc(); // Recalcular después de cambiar conductor
       });
     }
 
@@ -788,23 +813,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const chosen = prestSel[baseName] || [];
     prestSpan.textContent = fmt(sumTotals(chosen));
     selLabel.textContent = summarizeNames(chosen);
-  }
-
-  // ===== CARGAR FILAS MANUALES EXISTENTES =====
-  function cargarFilasManuales() {
-    manualRows.forEach(manualId => {
-      // Solo crear la estructura básica, los datos se cargan desde localStorage
-      agregarFilaManual();
-    });
-  }
-
-  // ===== INICIALIZAR FILAS EXISTENTES =====
-  function initializeExistingRows() {
-    [...tbody.querySelectorAll('tr')].forEach(tr => {
-      if (!tr.dataset.manualId) { // Solo filas no manuales
-        configurarEventosFila(tr);
-      }
-    });
   }
 
   // ===== FUNCIONES AUXILIARES =====
@@ -823,6 +831,23 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     if (estado) {
       tr.classList.add(`estado-${estado}`);
     }
+  }
+
+  // ===== CARGAR FILAS MANUALES EXISTENTES =====
+  function cargarFilasManuales() {
+    manualRows.forEach(manualId => {
+      // Solo crear la estructura básica, los datos se cargan desde localStorage
+      agregarFilaManual();
+    });
+  }
+
+  // ===== INICIALIZAR FILAS EXISTENTES =====
+  function initializeExistingRows() {
+    [...tbody.querySelectorAll('tr')].forEach(tr => {
+      if (!tr.dataset.manualId) { // Solo filas no manuales
+        configurarEventosFila(tr);
+      }
+    });
   }
 
   // ===== EVENTO BOTÓN AGREGAR MANUAL =====
@@ -1068,12 +1093,16 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
   // ===== CÁLCULOS =====
   function recalc(){
-    const porcentaje = parseFloat(document.getElementById('inp_porcentaje_ajuste').value) || 0;
-    const rows=[...tbody.querySelectorAll('tr')];
-
-    let sumAjuste=0, sumLleg=0, sumRet=0, sumMil4=0, sumAp=0, sumSS=0, sumPrest=0, sumPagar=0;
+    // Primero actualizar el total facturado con todas las filas
+    const totalFacturado = calcularTotalFacturado();
+    document.getElementById('inp_facturado').value = fmt(totalFacturado);
     
-    rows.forEach((tr,i)=>{
+    const porcentaje = parseFloat(document.getElementById('inp_porcentaje_ajuste').value) || 0;
+    const rows = [...tbody.querySelectorAll('tr')];
+
+    let sumAjuste = 0, sumLleg = 0, sumRet = 0, sumMil4 = 0, sumAp = 0, sumSS = 0, sumPrest = 0, sumPagar = 0;
+    
+    rows.forEach((tr, i) => {
       let base;
       
       // Determinar si es fila manual o normal
@@ -1084,37 +1113,47 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         base = toInt(tr.querySelector('.base').textContent);
       }
       
-      const prest=toInt(tr.querySelector('.prest').textContent);
+      const prest = toInt(tr.querySelector('.prest').textContent);
       
       // Calcular ajuste como porcentaje del base
       const ajuste = Math.round(base * (porcentaje / 100));
       const llego = base - ajuste;
-      const ret=Math.round(llego*0.035);
-      const mil4=Math.round(llego*0.004);
-      const ap=Math.round(llego*0.10);
-      const ss=toInt(tr.querySelector('input.ss').value);
+      const ret = Math.round(llego * 0.035);
+      const mil4 = Math.round(llego * 0.004);
+      const ap = Math.round(llego * 0.10);
+      const ss = toInt(tr.querySelector('input.ss').value);
       const pagar = llego - ret - mil4 - ap - ss - prest;
 
-      tr.querySelector('.ajuste').textContent=fmt(ajuste);
-      tr.querySelector('.llego').textContent=fmt(llego);
-      tr.querySelector('.ret').textContent=fmt(ret);
-      tr.querySelector('.mil4').textContent=fmt(mil4);
-      tr.querySelector('.apor').textContent=fmt(ap);
-      tr.querySelector('.pagar').textContent=fmt(pagar);
+      tr.querySelector('.ajuste').textContent = fmt(ajuste);
+      tr.querySelector('.llego').textContent = fmt(llego);
+      tr.querySelector('.ret').textContent = fmt(ret);
+      tr.querySelector('.mil4').textContent = fmt(mil4);
+      tr.querySelector('.apor').textContent = fmt(ap);
+      tr.querySelector('.pagar').textContent = fmt(pagar);
 
       sumAjuste += ajuste;
-      sumLleg+=llego; sumRet+=ret; sumMil4+=mil4; sumAp+=ap; sumSS+=ss; sumPrest+=prest; sumPagar+=pagar;
+      sumLleg += llego; 
+      sumRet += ret; 
+      sumMil4 += mil4; 
+      sumAp += ap; 
+      sumSS += ss; 
+      sumPrest += prest; 
+      sumPagar += pagar;
     });
 
-    document.getElementById('lbl_total_ajuste').textContent=fmt(sumAjuste);
-    document.getElementById('tot_valor_llego').textContent=fmt(sumLleg);
-    document.getElementById('tot_retencion').textContent=fmt(sumRet);
-    document.getElementById('tot_4x1000').textContent=fmt(sumMil4);
-    document.getElementById('tot_aporte').textContent=fmt(sumAp);
-    document.getElementById('tot_ss').textContent=fmt(sumSS);
-    document.getElementById('tot_prestamos').textContent=fmt(sumPrest);
-    document.getElementById('tot_pagar').textContent=fmt(sumPagar);
+    document.getElementById('lbl_total_ajuste').textContent = fmt(sumAjuste);
+    document.getElementById('tot_valor_llego').textContent = fmt(sumLleg);
+    document.getElementById('tot_retencion').textContent = fmt(sumRet);
+    document.getElementById('tot_4x1000').textContent = fmt(sumMil4);
+    document.getElementById('tot_aporte').textContent = fmt(sumAp);
+    document.getElementById('tot_ss').textContent = fmt(sumSS);
+    document.getElementById('tot_prestamos').textContent = fmt(sumPrest);
+    document.getElementById('tot_pagar').textContent = fmt(sumPagar);
   }
+
+  // ===== AGREGAR EVENTO AL PORCENTAJE DE AJUSTE =====
+  document.getElementById('inp_porcentaje_ajuste').addEventListener('input', recalc);
+  document.getElementById('inp_porcentaje_ajuste').addEventListener('change', recalc);
 
   const fmtInput=(el)=> el.addEventListener('input',()=>{ 
     const raw=parseFloat(el.value) || 0; 
@@ -1122,7 +1161,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     recalc(); 
   });
   
-  fmtInput(document.getElementById('inp_facturado'));
+  // Solo aplicar formato al porcentaje de ajuste (el facturado es readonly)
   fmtInput(document.getElementById('inp_porcentaje_ajuste'));
 
   // ===== INICIALIZACIÓN =====
