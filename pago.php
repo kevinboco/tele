@@ -486,8 +486,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         </div>
         <div id="prestList" class="max-h-[50vh] overflow-auto rounded-xl border border-slate-200"></div>
       </div>
-
-      <!-- FOOTER MODAL PRÉSTAMOS MODIFICADO -->
       <div class="px-5 py-4 border-t border-slate-200 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div class="text-sm text-slate-600">
           Seleccionados: <span id="selCount" class="font-semibold">0</span><br>
@@ -505,7 +503,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
           <button id="btnAssign" class="rounded-lg border border-blue-600 px-4 py-2 bg-blue-600 text-white hover:bg-blue-700">Asignar</button>
         </div>
       </div>
-      <!-- FIN FOOTER MODAL PRÉSTAMOS -->
     </div>
   </div>
 
@@ -636,15 +633,15 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   let accMap = getLS(ACC_KEY);
   let ssMap  = getLS(SS_KEY);
   let prestSel = getLS(PREST_SEL_KEY); if(!prestSel || typeof prestSel!=='object') prestSel = {};
-  let estadoPagoMap = getLS(ESTADO_PAGO_KEY);
+  let estadoPagoMap = getLS(ESTADO_PAGO_KEY) || {};
   let manualRows = getLS(MANUAL_ROWS_KEY) || [];
 
   const tbody = document.getElementById('tbody');
   const btnAddManual = document.getElementById('btnAddManual');
 
   // ===== FUNCIÓN PARA AGREGAR FILA MANUAL =====
-  function agregarFilaManual() {
-    const manualId = 'manual_' + Date.now();
+  function agregarFilaManual(manualIdFromLS=null) {
+    const manualId = manualIdFromLS || ('manual_' + Date.now());
     const nuevaFila = document.createElement('tr');
     nuevaFila.className = 'fila-manual';
     nuevaFila.dataset.manualId = manualId;
@@ -698,14 +695,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     tbody.appendChild(nuevaFila);
 
-    // Guardar en localStorage
-    manualRows.push(manualId);
-    setLS(MANUAL_ROWS_KEY, manualRows);
+    if (!manualIdFromLS) {
+      manualRows.push(manualId);
+      setLS(MANUAL_ROWS_KEY, manualRows);
+    }
 
-    // Configurar eventos
     configurarEventosFila(nuevaFila);
-    
-    // Recalcular
     recalc();
   }
 
@@ -726,7 +721,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       baseName = tr.children[0].innerText.trim();
     }
 
-    // Eventos para inputs
+    // Base manual
     if (baseInput) {
       baseInput.addEventListener('input', () => {
         baseInput.value = fmt(toInt(baseInput.value));
@@ -734,38 +729,45 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       });
     }
 
+    // Cuenta bancaria
     if (cta) {
-      if (accMap[baseName]) cta.value = accMap[baseName];
+      if (baseName && accMap[baseName]) cta.value = accMap[baseName];
       cta.addEventListener('change', () => { 
-        baseName = (conductorSelect && conductorSelect.value) || tr.children[0].innerText.trim();
-        accMap[baseName] = cta.value.trim(); 
+        const name = conductorSelect ? conductorSelect.value : tr.children[0].innerText.trim();
+        if (!name) return;
+        accMap[name] = cta.value.trim(); 
         setLS(ACC_KEY, accMap); 
       });
     }
 
+    // Seguridad social
     if (ss) {
-      if (ssMap[baseName]) ss.value = fmt(toInt(ssMap[baseName]));
+      if (baseName && ssMap[baseName]) ss.value = fmt(toInt(ssMap[baseName]));
       ss.addEventListener('input', () => { 
-        baseName = (conductorSelect && conductorSelect.value) || tr.children[0].innerText.trim();
-        ssMap[baseName] = toInt(ss.value); 
+        const name = conductorSelect ? conductorSelect.value : tr.children[0].innerText.trim();
+        if (!name) return;
+        ssMap[name] = toInt(ss.value); 
         setLS(SS_KEY, ssMap); 
         recalc(); 
       });
     }
 
+    // Estado de pago
     if (estadoPago) {
-      if (estadoPagoMap[baseName]) {
+      if (baseName && estadoPagoMap[baseName]) {
         estadoPago.value = estadoPagoMap[baseName];
         aplicarEstadoFila(tr, estadoPagoMap[baseName]);
       }
       estadoPago.addEventListener('change', () => { 
-        baseName = (conductorSelect && conductorSelect.value) || tr.children[0].innerText.trim();
-        estadoPagoMap[baseName] = estadoPago.value; 
+        const name = conductorSelect ? conductorSelect.value : tr.children[0].innerText.trim();
+        if (!name) return;
+        estadoPagoMap[name] = estadoPago.value; 
         setLS(ESTADO_PAGO_KEY, estadoPagoMap); 
         aplicarEstadoFila(tr, estadoPago.value);
       });
     }
 
+    // Eliminar fila manual
     if (btnEliminar) {
       btnEliminar.addEventListener('click', () => {
         const manualId = tr.dataset.manualId;
@@ -776,10 +778,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       });
     }
 
+    // Botón préstamos
     if (btnPrest) {
       btnPrest.addEventListener('click', () => openPrestModalForRow(tr));
     }
 
+    // Cambio de conductor en fila manual
     if (conductorSelect) {
       conductorSelect.addEventListener('change', () => {
         const newBaseName = conductorSelect.value;
@@ -806,22 +810,21 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const prestSpan = tr.querySelector('.prest');
     const selLabel = tr.querySelector('.selected-deudor');
     const chosen = prestSel[baseName] || [];
-    prestSpan.textContent = fmt(sumTotals(chosen));
-    selLabel.textContent = summarizeNames(chosen);
+    if (prestSpan) prestSpan.textContent = fmt(sumTotals(chosen));
+    if (selLabel) selLabel.textContent = summarizeNames(chosen);
   }
 
-  // ===== CARGAR FILAS MANUALES EXISTENTES =====
+  // ===== CARGAR FILAS MANUALES EXISTENTES (de localStorage) =====
   function cargarFilasManuales() {
-    // (simple: solo recreamos filas nuevas vacías con esos ids)
-    manualRows.forEach(() => {
-      agregarFilaManual();
+    manualRows.forEach(manualId => {
+      agregarFilaManual(manualId);
     });
   }
 
   // ===== INICIALIZAR FILAS EXISTENTES =====
   function initializeExistingRows() {
     [...tbody.querySelectorAll('tr')].forEach(tr => {
-      if (!tr.dataset.manualId) { // Solo filas no manuales
+      if (!tr.classList.contains('fila-manual')) {
         configurarEventosFila(tr);
       }
     });
@@ -840,13 +843,11 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
   function aplicarEstadoFila(tr, estado) {
     tr.classList.remove('estado-pagado', 'estado-pendiente', 'estado-procesando', 'estado-parcial');
-    if (estado) {
-      tr.classList.add(`estado-${estado}`);
-    }
+    if (estado) tr.classList.add(`estado-${estado}`);
   }
 
   // ===== EVENTO BOTÓN AGREGAR MANUAL =====
-  btnAddManual.addEventListener('click', agregarFilaManual);
+  btnAddManual.addEventListener('click', ()=> agregarFilaManual());
 
   // ===== Modal préstamos =====
   const prestModal   = document.getElementById('prestModal');
@@ -864,7 +865,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
   let currentRow=null, selectedIds=new Set(), filteredIdx=[];
 
-  // marcar cuando el usuario toca a mano el valor
   selTotalManual.addEventListener('input', ()=>{ selTotalManual.dataset.touched = '1'; });
 
   function renderPrestList(filter=''){
@@ -893,11 +893,10 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   
   function updateSelSummary(){
     const arr=PRESTAMOS_LIST.filter(it=>selectedIds.has(it.id));
-    selCount.textContent=arr.length;
     const total = arr.reduce((a,b)=>a+(b.total||0),0);
-    selTotal.textContent = fmt(total);
+    selCount.textContent=arr.length;
+    selTotal.textContent=fmt(total);
 
-    // mientras no hayas tocado el input manual, igualamos al total
     if (!selTotalManual.dataset.touched) {
       selTotalManual.value = fmt(total);
     }
@@ -917,11 +916,10 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     
     (prestSel[baseName]||[]).forEach(x=> selectedIds.add(Number(x.id)));
     prestSearch.value=''; 
-    delete selTotalManual.dataset.touched; // reset
+    delete selTotalManual.dataset.touched;
     renderPrestList('');
 
-    // valor actual en la fila (por si ya antes aplicaste algo)
-    const currentPrestVal = toInt(tr.querySelector('.prest').textContent);
+    const currentPrestVal = toInt(tr.querySelector('.prest').textContent || '0');
     const totalSeleccionado = PRESTAMOS_LIST
       .filter(it=>selectedIds.has(it.id))
       .reduce((a,b)=>a+(b.total||0),0);
@@ -933,12 +931,10 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     requestAnimationFrame(()=>{ prestSearch.focus(); prestSearch.select(); });
   }
   
-  function closePrest(){
+  function closePrest(){ 
     prestModal.classList.add('hidden'); 
-    currentRow=null; 
-    selectedIds=new Set(); 
-    filteredIdx=[];
-    selTotalManual.value = '0';
+    currentRow=null; selectedIds=new Set(); filteredIdx=[]; 
+    selTotalManual.value='0';
     delete selTotalManual.dataset.touched;
   }
   
@@ -960,12 +956,14 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     
     currentRow.querySelector('.prest').textContent='0';
     currentRow.querySelector('.selected-deudor').textContent='';
-    delete prestSel[baseName]; 
-    setLS(PREST_SEL_KEY, prestSel); 
+    if (baseName) {
+      delete prestSel[baseName]; 
+      setLS(PREST_SEL_KEY, prestSel); 
+    }
     recalc();
     selectedIds.clear(); 
     delete selTotalManual.dataset.touched;
-    selTotalManual.value = '0';
+    selTotalManual.value='0';
     renderPrestList(prestSearch.value);
   });
   
@@ -980,24 +978,20 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       baseName = currentRow.children[0].innerText.trim();
     }
     
-    const chosen=PRESTAMOS_LIST.filter(it=>selectedIds.has(it.id)).map(it=>({id:it.id,name:it.name,total:it.total}));
+    const chosen=PRESTAMOS_LIST
+      .filter(it=>selectedIds.has(it.id))
+      .map(it=>({id:it.id,name:it.name,total:it.total}));
 
-    // guardamos qué préstamos son, para que concuerde con las otras vistas
-    prestSel[baseName]=chosen; 
-    setLS(PREST_SEL_KEY, prestSel);
+    if (baseName) {
+      prestSel[baseName]=chosen; 
+      setLS(PREST_SEL_KEY, prestSel);
+    }
 
-    // total real de los préstamos seleccionados
     const totalReal = sumTotals(chosen);
-
-    // valor manual que quieres aplicar en esta liquidación
     let manualVal = toInt(selTotalManual.value);
 
-    // reglas básicas: no negativo y no mayor al total real
     if (manualVal < 0) manualVal = 0;
-    if (manualVal === 0 && totalReal > 0) {
-      // si dejaste 0 por error pero hay total, por seguridad ponemos el total
-      manualVal = totalReal;
-    }
+    if (manualVal === 0 && totalReal > 0) manualVal = totalReal;
     if (manualVal > totalReal) manualVal = totalReal;
 
     currentRow.querySelector('.prest').textContent = fmt(manualVal);
@@ -1187,7 +1181,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     document.getElementById('tot_pagar').textContent=fmt(sumPagar);
   }
 
-  const fmtInput=(el)=> el.addEventListener('input',()=>{ 
+  const fmtInput=(el)=> el && el.addEventListener('input',()=>{ 
     const raw=parseFloat(el.value) || 0; 
     el.value = raw; 
     recalc(); 
@@ -1356,7 +1350,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   buscaCuenta.addEventListener('input', renderCuentas);
   btnAddDesdeFiltro.addEventListener('click', ()=>{ closeGestor(); openSaveCuenta(); });
 
-  const nf1 = el => el.addEventListener('input', ()=>{ el.value = fmt(toInt(el.value)); });
+  const nf1 = el => el && el.addEventListener('input', ()=>{ el.value = fmt(toInt(el.value)); });
   nf1(iCFact);
 </script>
 
