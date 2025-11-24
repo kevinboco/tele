@@ -3,7 +3,7 @@
 require_once __DIR__.'/helpers.php';
 
 function manual_entrypoint($chat_id, $estado) {
-    // Si ya estás en manual, reenvía el pas
+    // Si ya estás en manual, reenvía el paso
     if (!empty($estado) && ($estado['flujo'] ?? '') === 'manual') {
         return manual_resend_current_step($chat_id, $estado);
     }
@@ -16,8 +16,7 @@ function manual_entrypoint($chat_id, $estado) {
     $conn?->close();
 
     if ($conductores) {
-        $kb=["inline_keyboard"=>[]];
-        foreach ($conductores as $c) $kb["inline_keyboard"][] = [[ "text"=>$c['nombre'], "callback_data"=>"manual_sel_".$c['id'] ]];
+        $kb = manual_kb_grid($conductores, 'manual_sel_');
         $kb["inline_keyboard"][] = [[ "text"=>"➕ Nuevo conductor", "callback_data"=>"manual_nuevo" ]];
         sendMessage($chat_id, "Elige un *conductor* o crea uno nuevo:", $kb);
     } else {
@@ -26,14 +25,40 @@ function manual_entrypoint($chat_id, $estado) {
     }
 }
 
+/* ========= GRID LAYOUT FUNCTION ========= */
+function manual_kb_grid(array $items, string $callback_prefix): array {
+    $kb = ["inline_keyboard" => []];
+    $row = [];
+    
+    foreach ($items as $item) {
+        $id = $item['id'] ?? $item;
+        $text = $item['nombre'] ?? $item['ruta'] ?? $item['vehiculo'] ?? $item;
+        
+        $row[] = [
+            "text" => $text,
+            "callback_data" => $callback_prefix . $id
+        ];
+        
+        if (count($row) === 2) {
+            $kb["inline_keyboard"][] = $row;
+            $row = [];
+        }
+    }
+    
+    if (!empty($row)) {
+        $kb["inline_keyboard"][] = $row;
+    }
+    
+    return $kb;
+}
+
 function manual_resend_current_step($chat_id, $estado) {
     $conn = db();
     switch ($estado['paso']) {
         case 'manual_menu':
             $conductores = $conn ? obtenerConductoresAdmin($conn, $chat_id) : [];
             if ($conductores) {
-                $kb=["inline_keyboard"=>[]];
-                foreach ($conductores as $c) $kb["inline_keyboard"][] = [[ "text"=>$c['nombre'], "callback_data"=>"manual_sel_".$c['id'] ]];
+                $kb = manual_kb_grid($conductores, 'manual_sel_');
                 $kb["inline_keyboard"][] = [[ "text"=>"➕ Nuevo conductor", "callback_data"=>"manual_nuevo" ]];
                 sendMessage($chat_id, "Elige un *conductor* o crea uno nuevo:", $kb);
             } else {
@@ -46,8 +71,7 @@ function manual_resend_current_step($chat_id, $estado) {
         case 'manual_ruta_menu':
             $rutas = $conn ? obtenerRutasAdmin($conn, $chat_id) : [];
             if ($rutas) {
-                $kb=["inline_keyboard"=>[]];
-                foreach ($rutas as $r) $kb["inline_keyboard"][] = [[ "text"=>$r['ruta'], "callback_data"=>"manual_ruta_sel_".$r['id'] ]];
+                $kb = manual_kb_grid($rutas, 'manual_ruta_sel_');
                 $kb["inline_keyboard"][] = [[ "text"=>"➕ Nueva ruta", "callback_data"=>"manual_ruta_nueva" ]];
                 sendMessage($chat_id, "Selecciona una *ruta* o crea una nueva:", $kb);
             } else {
@@ -72,8 +96,7 @@ function manual_resend_current_step($chat_id, $estado) {
         case 'manual_vehiculo_menu':
             $vehiculos = $conn ? obtenerVehiculosAdmin($conn, $chat_id) : [];
             if ($vehiculos) {
-                $kb=["inline_keyboard"=>[]];
-                foreach ($vehiculos as $v) $kb["inline_keyboard"][] = [[ "text"=>$v['vehiculo'], "callback_data"=>"manual_vehiculo_sel_".$v['id'] ]];
+                $kb = manual_kb_grid($vehiculos, 'manual_vehiculo_sel_');
                 $kb["inline_keyboard"][] = [[ "text"=>"➕ Nuevo vehículo", "callback_data"=>"manual_vehiculo_nuevo" ]];
                 sendMessage($chat_id, "🚐 Selecciona el *tipo de vehículo* o crea uno nuevo:", $kb);
             } else {
@@ -86,8 +109,7 @@ function manual_resend_current_step($chat_id, $estado) {
         case 'manual_empresa_menu':
             $empresas = $conn ? obtenerEmpresasAdmin($conn, $chat_id) : [];
             if ($empresas) {
-                $kb=["inline_keyboard"=>[]];
-                foreach ($empresas as $e) $kb["inline_keyboard"][] = [[ "text"=>$e['nombre'], "callback_data"=>"manual_empresa_sel_".$e['id'] ]];
+                $kb = manual_kb_grid($empresas, 'manual_empresa_sel_');
                 $kb["inline_keyboard"][] = [[ "text"=>"➕ Nueva empresa", "callback_data"=>"manual_empresa_nuevo" ]];
                 sendMessage($chat_id, "🏢 Selecciona la *empresa* o crea una nueva:", $kb);
             } else {
@@ -117,8 +139,7 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
 
             $conn = db(); $rutas = $conn ? obtenerRutasAdmin($conn, $chat_id) : []; $conn?->close();
             if ($rutas) {
-                $kb=["inline_keyboard"=>[]];
-                foreach ($rutas as $r) $kb["inline_keyboard"][] = [[ "text"=>$r['ruta'], "callback_data"=>"manual_ruta_sel_".$r['id'] ]];
+                $kb = manual_kb_grid($rutas, 'manual_ruta_sel_');
                 $kb["inline_keyboard"][] = [[ "text"=>"➕ Nueva ruta", "callback_data"=>"manual_ruta_nueva" ]];
                 sendMessage($chat_id, "👤 Conductor: *{$row['nombre']}*\n\nSelecciona una *ruta* o crea una nueva:", $kb);
             } else {
@@ -159,8 +180,7 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
 
         $conn = db(); $vehiculos = $conn ? obtenerVehiculosAdmin($conn, $chat_id) : []; $conn?->close();
         if ($vehiculos) {
-            $kb=["inline_keyboard"=>[]];
-            foreach ($vehiculos as $v) $kb["inline_keyboard"][] = [[ "text"=>$v['vehiculo'], "callback_data"=>"manual_vehiculo_sel_".$v['id'] ]];
+            $kb = manual_kb_grid($vehiculos, 'manual_vehiculo_sel_');
             $kb["inline_keyboard"][] = [[ "text"=>"➕ Nuevo vehículo", "callback_data"=>"manual_vehiculo_nuevo" ]];
             sendMessage($chat_id, "🚐 Selecciona el *tipo de vehículo* o crea uno nuevo:", $kb);
         } else {
@@ -194,8 +214,7 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
 
             $conn = db(); $empresas = $conn ? obtenerEmpresasAdmin($conn, $chat_id) : []; $conn?->close();
             if ($empresas) {
-                $kb=["inline_keyboard"=>[]];
-                foreach ($empresas as $e) $kb["inline_keyboard"][] = [[ "text"=>$e['nombre'], "callback_data"=>"manual_empresa_sel_".$e['id'] ]];
+                $kb = manual_kb_grid($empresas, 'manual_empresa_sel_');
                 $kb["inline_keyboard"][] = [[ "text"=>"➕ Nueva empresa", "callback_data"=>"manual_empresa_nuevo" ]];
                 sendMessage($chat_id, "🏢 Selecciona la *empresa* o crea una nueva:", $kb);
             } else {
@@ -241,8 +260,7 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
 
             $conn = db(); $rutas = $conn ? obtenerRutasAdmin($conn, $chat_id) : []; $conn?->close();
             if ($rutas) {
-                $kb=["inline_keyboard"=>[]];
-                foreach ($rutas as $r) $kb["inline_keyboard"][] = [[ "text"=>$r['ruta'], "callback_data"=>"manual_ruta_sel_".$r['id'] ]];
+                $kb = manual_kb_grid($rutas, 'manual_ruta_sel_');
                 $kb["inline_keyboard"][] = [[ "text"=>"➕ Nueva ruta", "callback_data"=>"manual_ruta_nueva" ]];
                 sendMessage($chat_id, "👤 Conductor guardado: *{$nombre}*\n\nSelecciona una *ruta* o crea una nueva:", $kb);
             } else {
@@ -274,8 +292,7 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
             $estado['paso'] = 'manual_vehiculo_menu'; saveState($chat_id,$estado);
             $conn = db(); $vehiculos = $conn ? obtenerVehiculosAdmin($conn, $chat_id) : []; $conn?->close();
             if ($vehiculos) {
-                $kb=["inline_keyboard"=>[]];
-                foreach ($vehiculos as $v) $kb["inline_keyboard"][] = [[ "text"=>$v['vehiculo'], "callback_data"=>"manual_vehiculo_sel_".$v['id'] ]];
+                $kb = manual_kb_grid($vehiculos, 'manual_vehiculo_sel_');
                 $kb["inline_keyboard"][] = [[ "text"=>"➕ Nuevo vehículo", "callback_data"=>"manual_vehiculo_nuevo" ]];
                 sendMessage($chat_id, "🚐 Selecciona el *tipo de vehículo* o crea uno nuevo:", $kb);
             } else {
@@ -293,8 +310,7 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
 
             $conn = db(); $emp = $conn ? obtenerEmpresasAdmin($conn, $chat_id) : []; $conn?->close();
             if ($emp) {
-                $kb=["inline_keyboard"=>[]];
-                foreach ($emp as $e) $kb["inline_keyboard"][] = [[ "text"=>$e['nombre'], "callback_data"=>"manual_empresa_sel_".$e['id'] ]];
+                $kb = manual_kb_grid($emp, 'manual_empresa_sel_');
                 $kb["inline_keyboard"][] = [[ "text"=>"➕ Nueva empresa", "callback_data"=>"manual_empresa_nuevo" ]];
                 sendMessage($chat_id, "🏢 Selecciona la *empresa* o crea una nueva:", $kb);
             } else {
