@@ -496,7 +496,7 @@ function prestamos_handle_text($chat_id, &$estado, string $text=null, $photo=nul
             }
             if (!$ok || !file_exists($destino)) { sendMessage($chat_id,"❌ No pude guardar la imagen. Reenvíala, por favor."); return; }
 
-            // Guardar préstamo
+            // Guardar prést
             $conn = db();
             if (!$conn) { sendMessage($chat_id, "❌ Error de conexión a la base de datos."); return; }
 
