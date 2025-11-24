@@ -3,7 +3,7 @@
 require_once __DIR__.'/helpers.php';
 
 function manual_entrypoint($chat_id, $estado) {
-    // Si ya estás en manual, reenvía el paso
+    // Si ya estás en manual, reenvía el pas
     if (!empty($estado) && ($estado['flujo'] ?? '') === 'manual') {
         return manual_resend_current_step($chat_id, $estado);
     }
