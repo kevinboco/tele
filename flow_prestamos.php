@@ -110,6 +110,51 @@ function kbNombreLista(array $opts, string $tipoPaso): array {
     return $kb;
 }
 
+function kbPrestamoFecha(): array {
+    return [
+        "inline_keyboard" => [
+            [
+                [
+                    "text" => "✅ Hoy",
+                    "callback_data" => "pfecha_hoy"
+                ],
+                [
+                    "text" => "📅 Otra fecha",
+                    "callback_data" => "pfecha_otro"
+                ]
+            ]
+        ]
+    ];
+}
+
+function kbPrestamoMeses(int $anio): array {
+    $meses = [
+        1 => "Enero", 2 => "Febrero", 3 => "Marzo", 4 => "Abril",
+        5 => "Mayo", 6 => "Junio", 7 => "Julio", 8 => "Agosto",
+        9 => "Septiembre", 10 => "Octubre", 11 => "Noviembre", 12 => "Diciembre"
+    ];
+    
+    $kb = ["inline_keyboard" => []];
+    $row = [];
+    
+    foreach ($meses as $num => $nombre) {
+        $row[] = [
+            "text" => $nombre,
+            "callback_data" => "pmes_{$anio}_{$num}"
+        ];
+        
+        if (count($row) === 3) {
+            $kb["inline_keyboard"][] = $row;
+            $row = [];
+        }
+    }
+    
+    if (!empty($row)) {
+        $kb["inline_keyboard"][] = $row;
+    }
+    
+    return $kb;
+}
 
 /* ========= entry ========= */
 function prestamos_entrypoint($chat_id, $estado): void
