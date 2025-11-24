@@ -52,6 +52,15 @@ function manual_kb_grid(array $items, string $callback_prefix): array {
     return $kb;
 }
 
+/* ========= FUNCIÓN PARA AGREGAR BOTÓN VOLVER ========= */
+function manual_add_back_button(array $kb, string $back_step): array {
+    $kb["inline_keyboard"][] = [[ 
+        "text" => "⬅️ Volver", 
+        "callback_data" => "manual_back_" . $back_step 
+    ]];
+    return $kb;
+}
+
 function manual_resend_current_step($chat_id, $estado) {
     $conn = db();
     switch ($estado['paso']) {
@@ -73,10 +82,11 @@ function manual_resend_current_step($chat_id, $estado) {
             if ($rutas) {
                 $kb = manual_kb_grid($rutas, 'manual_ruta_sel_');
                 $kb["inline_keyboard"][] = [[ "text"=>"➕ Nueva ruta", "callback_data"=>"manual_ruta_nueva" ]];
+                $kb = manual_add_back_button($kb, 'menu');
                 sendMessage($chat_id, "Selecciona una *ruta* o crea una nueva:", $kb);
             } else {
-                sendMessage($chat_id, "No tienes rutas guardadas.\n✍️ Escribe la *ruta del viaje*:");
                 $estado['paso']='manual_ruta_nueva_texto'; saveState($chat_id,$estado);
+                sendMessage($chat_id, "No tienes rutas guardadas.\n✍️ Escribe la *ruta del viaje*:");
             }
             break;
         case 'manual_ruta_nueva_texto':
@@ -84,20 +94,28 @@ function manual_resend_current_step($chat_id, $estado) {
         case 'manual_ruta':
             sendMessage($chat_id, "🛣️ Ingresa la *ruta del viaje*:"); break;
         case 'manual_fecha':
-            sendMessage($chat_id, "📅 Selecciona la *fecha*:", kbFechaManual()); break;
+            $kb = kbFechaManual();
+            $kb = manual_add_back_button($kb, 'ruta_menu');
+            sendMessage($chat_id, "📅 Selecciona la *fecha*:", $kb); 
+            break;
         case 'manual_fecha_mes':
             $anio=$estado["anio"] ?? date("Y");
-            sendMessage($chat_id, "📆 Selecciona el *mes*:", kbMeses($anio)); break;
+            $kb = kbMeses($anio);
+            $kb = manual_add_back_button($kb, 'fecha');
+            sendMessage($chat_id, "📆 Selecciona el *mes*:", $kb); 
+            break;
         case 'manual_fecha_dia_input':
             $anio=(int)($estado["anio"] ?? date("Y"));
             $mes =(int)($estado["mes"]  ?? date("m"));
             $maxDias=cal_days_in_month(CAL_GREGORIAN, $mes, $anio);
-            sendMessage($chat_id, "✍️ Escribe el *día* del mes (1–$maxDias):"); break;
+            sendMessage($chat_id, "✍️ Escribe el *día* del mes (1–$maxDias):"); 
+            break;
         case 'manual_vehiculo_menu':
             $vehiculos = $conn ? obtenerVehiculosAdmin($conn, $chat_id) : [];
             if ($vehiculos) {
                 $kb = manual_kb_grid($vehiculos, 'manual_vehiculo_sel_');
                 $kb["inline_keyboard"][] = [[ "text"=>"➕ Nuevo vehículo", "callback_data"=>"manual_vehiculo_nuevo" ]];
+                $kb = manual_add_back_button($kb, 'fecha');
                 sendMessage($chat_id, "🚐 Selecciona el *tipo de vehículo* o crea uno nuevo:", $kb);
             } else {
                 sendMessage($chat_id, "No tienes vehículos guardados.\n✍️ Escribe el *tipo de vehículo* (ej.: Toyota Hilux 4x4):");
@@ -111,6 +129,7 @@ function manual_resend_current_step($chat_id, $estado) {
             if ($empresas) {
                 $kb = manual_kb_grid($empresas, 'manual_empresa_sel_');
                 $kb["inline_keyboard"][] = [[ "text"=>"➕ Nueva empresa", "callback_data"=>"manual_empresa_nuevo" ]];
+                $kb = manual_add_back_button($kb, 'vehiculo_menu');
                 sendMessage($chat_id, "🏢 Selecciona la *empresa* o crea una nueva:", $kb);
             } else {
                 sendMessage($chat_id, "No tienes empresas guardadas.\n✍️ Escribe el *nombre de la empresa*:");
@@ -128,6 +147,14 @@ function manual_resend_current_step($chat_id, $estado) {
 function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
     if (($estado["flujo"] ?? "") !== "manual") return;
 
+    // ========= BOTÓN VOLVER =========
+    if (strpos($cb_data, 'manual_back_') === 0) {
+        $back_step = substr($cb_data, strlen('manual_back_'));
+        manual_handle_back($chat_id, $estado, $back_step);
+        if ($cb_id) answerCallbackQuery($cb_id);
+        return;
+    }
+
     // Seleccionar conductor existente
     if (strpos($cb_data, 'manual_sel_') === 0) {
         $idSel = (int)substr($cb_data, strlen('manual_sel_'));
@@ -141,6 +168,7 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
             if ($rutas) {
                 $kb = manual_kb_grid($rutas, 'manual_ruta_sel_');
                 $kb["inline_keyboard"][] = [[ "text"=>"➕ Nueva ruta", "callback_data"=>"manual_ruta_nueva" ]];
+                $kb = manual_add_back_button($kb, 'menu');
                 sendMessage($chat_id, "👤 Conductor: *{$row['nombre']}*\n\nSelecciona una *ruta* o crea una nueva:", $kb);
             } else {
                 $estado['paso']='manual_ruta_nueva_texto'; saveState($chat_id,$estado);
@@ -163,7 +191,9 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
         else {
             $estado['manual_ruta'] = $r['ruta'];
             $estado['paso'] = 'manual_fecha'; saveState($chat_id,$estado);
-            sendMessage($chat_id, "🛣️ Ruta: *{$r['ruta']}*\n\n📅 Selecciona la *fecha*:", kbFechaManual());
+            $kb = kbFechaManual();
+            $kb = manual_add_back_button($kb, 'ruta_menu');
+            sendMessage($chat_id, "🛣️ Ruta: *{$r['ruta']}*\n\n📅 Selecciona la *fecha*:", $kb);
         }
     }
 
@@ -182,6 +212,7 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
         if ($vehiculos) {
             $kb = manual_kb_grid($vehiculos, 'manual_vehiculo_sel_');
             $kb["inline_keyboard"][] = [[ "text"=>"➕ Nuevo vehículo", "callback_data"=>"manual_vehiculo_nuevo" ]];
+            $kb = manual_add_back_button($kb, 'fecha');
             sendMessage($chat_id, "🚐 Selecciona el *tipo de vehículo* o crea uno nuevo:", $kb);
         } else {
             $estado['paso']='manual_vehiculo_nuevo_texto'; saveState($chat_id,$estado);
@@ -191,7 +222,9 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
     if ($cb_data === 'mfecha_otro') {
         $anio = date("Y"); $estado["anio"]=$anio;
         $estado["paso"]="manual_fecha_mes"; saveState($chat_id,$estado);
-        sendMessage($chat_id, "📆 Selecciona el *mes* ($anio):", kbMeses($anio));
+        $kb = kbMeses($anio);
+        $kb = manual_add_back_button($kb, 'fecha');
+        sendMessage($chat_id, "📆 Selecciona el *mes* ($anio):", $kb);
     }
     if (strpos($cb_data, 'mmes_') === 0) {
         $parts = explode('_', $cb_data);
@@ -216,6 +249,7 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
             if ($empresas) {
                 $kb = manual_kb_grid($empresas, 'manual_empresa_sel_');
                 $kb["inline_keyboard"][] = [[ "text"=>"➕ Nueva empresa", "callback_data"=>"manual_empresa_nuevo" ]];
+                $kb = manual_add_back_button($kb, 'vehiculo_menu');
                 sendMessage($chat_id, "🏢 Selecciona la *empresa* o crea una nueva:", $kb);
             } else {
                 $estado['paso']='manual_empresa_nuevo_texto'; saveState($chat_id,$estado);
@@ -246,6 +280,43 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
     if ($cb_id) answerCallbackQuery($cb_id);
 }
 
+/* ========= MANEJO DEL BOTÓN VOLVER ========= */
+function manual_handle_back($chat_id, &$estado, $back_step) {
+    switch ($back_step) {
+        case 'menu':
+            $estado['paso'] = 'manual_menu';
+            // Limpiar datos si es necesario
+            unset($estado['manual_nombre']);
+            break;
+            
+        case 'ruta_menu':
+            $estado['paso'] = 'manual_ruta_menu';
+            // Limpiar datos de ruta
+            unset($estado['manual_ruta']);
+            break;
+            
+        case 'fecha':
+            $estado['paso'] = 'manual_fecha';
+            // Limpiar datos de fecha
+            unset($estado['manual_fecha'], $estado['anio'], $estado['mes']);
+            break;
+            
+        case 'vehiculo_menu':
+            $estado['paso'] = 'manual_vehiculo_menu';
+            // Limpiar datos de vehículo
+            unset($estado['manual_vehiculo']);
+            break;
+            
+        default:
+            // Si no reconoce el paso, volver al menú principal
+            $estado['paso'] = 'manual_menu';
+            break;
+    }
+    
+    saveState($chat_id, $estado);
+    manual_resend_current_step($chat_id, $estado);
+}
+
 function manual_handle_text($chat_id, &$estado, $text, $photo) {
     if (($estado["flujo"] ?? "") !== "manual") return;
 
@@ -262,6 +333,7 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
             if ($rutas) {
                 $kb = manual_kb_grid($rutas, 'manual_ruta_sel_');
                 $kb["inline_keyboard"][] = [[ "text"=>"➕ Nueva ruta", "callback_data"=>"manual_ruta_nueva" ]];
+                $kb = manual_add_back_button($kb, 'menu');
                 sendMessage($chat_id, "👤 Conductor guardado: *{$nombre}*\n\nSelecciona una *ruta* o crea una nueva:", $kb);
             } else {
                 $estado['paso']='manual_ruta_nueva_texto'; saveState($chat_id,$estado);
@@ -276,7 +348,9 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
             $conn = db(); if ($conn) { crearRutaAdmin($conn, $chat_id, $rutaTxt); $conn->close(); }
             $estado["manual_ruta"] = $rutaTxt;
             $estado["paso"] = "manual_fecha"; saveState($chat_id,$estado);
-            sendMessage($chat_id, "🛣️ Ruta guardada: *{$rutaTxt}*\n\n📅 Selecciona la *fecha*:", kbFechaManual());
+            $kb = kbFechaManual();
+            $kb = manual_add_back_button($kb, 'ruta_menu');
+            sendMessage($chat_id, "🛣️ Ruta guardada: *{$rutaTxt}*\n\n📅 Selecciona la *fecha*:", $kb);
             break;
 
         case "manual_fecha_dia_input":
@@ -294,6 +368,7 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
             if ($vehiculos) {
                 $kb = manual_kb_grid($vehiculos, 'manual_vehiculo_sel_');
                 $kb["inline_keyboard"][] = [[ "text"=>"➕ Nuevo vehículo", "callback_data"=>"manual_vehiculo_nuevo" ]];
+                $kb = manual_add_back_button($kb, 'fecha');
                 sendMessage($chat_id, "🚐 Selecciona el *tipo de vehículo* o crea uno nuevo:", $kb);
             } else {
                 $estado['paso']='manual_vehiculo_nuevo_texto'; saveState($chat_id,$estado);
@@ -312,6 +387,7 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
             if ($emp) {
                 $kb = manual_kb_grid($emp, 'manual_empresa_sel_');
                 $kb["inline_keyboard"][] = [[ "text"=>"➕ Nueva empresa", "callback_data"=>"manual_empresa_nuevo" ]];
+                $kb = manual_add_back_button($kb, 'vehiculo_menu');
                 sendMessage($chat_id, "🏢 Selecciona la *empresa* o crea una nueva:", $kb);
             } else {
                 $estado['paso']='manual_empresa_nuevo_texto'; saveState($chat_id,$estado);
