@@ -11,7 +11,6 @@ function manual_entrypoint($chat_id, $estado) {
     $estado = ["flujo"=>"manual","paso"=>"manual_menu"];
     saveState($chat_id, $estado);
 
-    // Cargar conductores frescos desde BD
     $conn = db();
     $conductores = $conn ? obtenerConductoresAdmin($conn, $chat_id) : [];
     $conn?->close();
@@ -66,7 +65,6 @@ function manual_resend_current_step($chat_id, $estado) {
     $conn = db();
     switch ($estado['paso']) {
         case 'manual_menu':
-            // Cargar conductores frescos desde BD
             $conductores = $conn ? obtenerConductoresAdmin($conn, $chat_id) : [];
             if ($conductores) {
                 $kb = manual_kb_grid($conductores, 'manual_sel_');
@@ -80,7 +78,6 @@ function manual_resend_current_step($chat_id, $estado) {
         case 'manual_nombre_nuevo':
             sendMessage($chat_id, "✍️ Escribe el *nombre* del nuevo conductor:"); break;
         case 'manual_ruta_menu':
-            // Cargar rutas frescas desde BD
             $rutas = $conn ? obtenerRutasAdmin($conn, $chat_id) : [];
             if ($rutas) {
                 $kb = manual_kb_grid($rutas, 'manual_ruta_sel_');
@@ -88,8 +85,8 @@ function manual_resend_current_step($chat_id, $estado) {
                 $kb = manual_add_back_button($kb, 'menu');
                 sendMessage($chat_id, "Selecciona una *ruta* o crea una nueva:", $kb);
             } else {
-                sendMessage($chat_id, "No tienes rutas guardadas.\n✍️ Escribe la *ruta del viaje*:");
                 $estado['paso']='manual_ruta_nueva_texto'; saveState($chat_id,$estado);
+                sendMessage($chat_id, "No tienes rutas guardadas.\n✍️ Escribe la *ruta del viaje*:");
             }
             break;
         case 'manual_ruta_nueva_texto':
@@ -114,7 +111,6 @@ function manual_resend_current_step($chat_id, $estado) {
             sendMessage($chat_id, "✍️ Escribe el *día* del mes (1–$maxDias):"); 
             break;
         case 'manual_vehiculo_menu':
-            // Cargar vehículos frescos desde BD
             $vehiculos = $conn ? obtenerVehiculosAdmin($conn, $chat_id) : [];
             if ($vehiculos) {
                 $kb = manual_kb_grid($vehiculos, 'manual_vehiculo_sel_');
@@ -129,7 +125,6 @@ function manual_resend_current_step($chat_id, $estado) {
         case 'manual_vehiculo_nuevo_texto':
             sendMessage($chat_id, "✍️ Escribe el *tipo de vehículo*:"); break;
         case 'manual_empresa_menu':
-            // Cargar empresas frescas desde BD
             $empresas = $conn ? obtenerEmpresasAdmin($conn, $chat_id) : [];
             if ($empresas) {
                 $kb = manual_kb_grid($empresas, 'manual_empresa_sel_');
@@ -169,7 +164,6 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
             $estado['manual_nombre'] = $row['nombre'];
             $estado['paso'] = 'manual_ruta_menu'; saveState($chat_id,$estado);
 
-            // Cargar rutas frescas desde BD
             $conn = db(); $rutas = $conn ? obtenerRutasAdmin($conn, $chat_id) : []; $conn?->close();
             if ($rutas) {
                 $kb = manual_kb_grid($rutas, 'manual_ruta_sel_');
@@ -214,7 +208,6 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
         $estado['manual_fecha'] = date("Y-m-d");
         $estado['paso'] = 'manual_vehiculo_menu'; saveState($chat_id,$estado);
 
-        // Cargar vehículos frescos desde BD
         $conn = db(); $vehiculos = $conn ? obtenerVehiculosAdmin($conn, $chat_id) : []; $conn?->close();
         if ($vehiculos) {
             $kb = manual_kb_grid($vehiculos, 'manual_vehiculo_sel_');
@@ -252,7 +245,6 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
             $estado['manual_vehiculo'] = $v['vehiculo'];
             $estado['paso'] = 'manual_empresa_menu'; saveState($chat_id,$estado);
 
-            // Cargar empresas frescas desde BD
             $conn = db(); $empresas = $conn ? obtenerEmpresasAdmin($conn, $chat_id) : []; $conn?->close();
             if ($empresas) {
                 $kb = manual_kb_grid($empresas, 'manual_empresa_sel_');
@@ -333,19 +325,10 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
         case "manual_nombre_nuevo":
             $nombre = trim($text);
             if ($nombre==="") { sendMessage($chat_id, "⚠️ El nombre no puede estar vacío. Escribe el *nombre* del nuevo conductor:"); break; }
-            
-            // Guardar en BD
-            $conn = db(); 
-            if ($conn) { 
-                crearConductorAdmin($conn, $chat_id, $nombre); 
-                $conn->close(); 
-            }
-            
+            $conn = db(); if ($conn) { crearConductorAdmin($conn, $chat_id, $nombre); $conn->close(); }
             $estado["manual_nombre"] = $nombre;
-            $estado["paso"] = "manual_ruta_menu"; 
-            saveState($chat_id,$estado);
+            $estado["paso"] = "manual_ruta_menu"; saveState($chat_id,$estado);
 
-            // Cargar rutas frescas desde BD
             $conn = db(); $rutas = $conn ? obtenerRutasAdmin($conn, $chat_id) : []; $conn?->close();
             if ($rutas) {
                 $kb = manual_kb_grid($rutas, 'manual_ruta_sel_');
@@ -362,14 +345,7 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
         case "manual_ruta_nueva_texto":
             $rutaTxt = trim($text);
             if ($rutaTxt==="") { sendMessage($chat_id, "⚠️ La ruta no puede estar vacía. Escribe la *ruta del viaje*:"); break; }
-            
-            // Guardar en BD
-            $conn = db(); 
-            if ($conn) { 
-                crearRutaAdmin($conn, $chat_id, $rutaTxt); 
-                $conn->close(); 
-            }
-            
+            $conn = db(); if ($conn) { crearRutaAdmin($conn, $chat_id, $rutaTxt); $conn->close(); }
             $estado["manual_ruta"] = $rutaTxt;
             $estado["paso"] = "manual_fecha"; saveState($chat_id,$estado);
             $kb = kbFechaManual();
@@ -388,8 +364,6 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
             $estado["manual_fecha"] = sprintf("%04d-%02d-%02d",$anio,$mes,$dia);
 
             $estado['paso'] = 'manual_vehiculo_menu'; saveState($chat_id,$estado);
-            
-            // Cargar vehículos frescos desde BD
             $conn = db(); $vehiculos = $conn ? obtenerVehiculosAdmin($conn, $chat_id) : []; $conn?->close();
             if ($vehiculos) {
                 $kb = manual_kb_grid($vehiculos, 'manual_vehiculo_sel_');
@@ -405,18 +379,10 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
         case "manual_vehiculo_nuevo_texto":
             $vehTxt = trim($text);
             if ($vehTxt==="") { sendMessage($chat_id, "⚠️ El *tipo de vehículo* no puede estar vacío. Escríbelo nuevamente:"); break; }
-            
-            // Guardar en BD
-            $conn = db(); 
-            if ($conn) { 
-                crearVehiculoAdmin($conn, $chat_id, $vehTxt); 
-                $conn->close(); 
-            }
-            
+            $conn = db(); if ($conn) { crearVehiculoAdmin($conn, $chat_id, $vehTxt); $conn->close(); }
             $estado["manual_vehiculo"] = $vehTxt;
             $estado['paso'] = 'manual_empresa_menu'; saveState($chat_id,$estado);
 
-            // Cargar empresas frescas desde BD
             $conn = db(); $emp = $conn ? obtenerEmpresasAdmin($conn, $chat_id) : []; $conn?->close();
             if ($emp) {
                 $kb = manual_kb_grid($emp, 'manual_empresa_sel_');
@@ -432,14 +398,7 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
         case "manual_empresa_nuevo_texto":
             $empTxt = trim($text);
             if ($empTxt==="") { sendMessage($chat_id, "⚠️ El *nombre de la empresa* no puede estar vacío. Escríbelo nuevamente:"); break; }
-            
-            // Guardar en BD
-            $conn = db(); 
-            if ($conn) { 
-                crearEmpresaAdmin($conn, $chat_id, $empTxt); 
-                $conn->close(); 
-            }
-            
+            $conn = db(); if ($conn) { crearEmpresaAdmin($conn, $chat_id, $empTxt); $conn->close(); }
             $estado["manual_empresa"] = $empTxt;
             manual_insert_viaje_and_close($chat_id, $estado);
             break;
