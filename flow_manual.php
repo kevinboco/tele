@@ -29,13 +29,20 @@ function manual_entrypoint($chat_id, $estado) {
     }
 }
 
-/* ========= GRID LAYOUT CON PAGINACIÓN CORREGIDA ========= */
+/* ========= GRID LAYOUT CON PAGINACIÓN MEJORADA ========= */
 function manual_kb_grid_paginado(array $items, string $callback_prefix, int $pagina = 0): array {
     $kb = ["inline_keyboard" => []];
     $row = [];
     
-    // REDUCIDO a 10 elementos por página para que la paginación sea visible
-    $items_por_pagina = 10; // 5 filas × 2 columnas = 10 items
+    // ORDENAR ALFABÉTICAMENTE de la A a la Z
+    usort($items, function($a, $b) {
+        $nombreA = $a['nombre'] ?? $a;
+        $nombreB = $b['nombre'] ?? $b;
+        return strcasecmp($nombreA, $nombreB);
+    });
+    
+    // 15 elementos por página (más manejable)
+    $items_por_pagina = 15; // 5 filas × 3 columnas = 15 items
     $total_paginas = ceil(count($items) / $items_por_pagina);
     
     // Items para esta página
@@ -46,8 +53,8 @@ function manual_kb_grid_paginado(array $items, string $callback_prefix, int $pag
         $text = $item['nombre'] ?? $item['ruta'] ?? $item['vehiculo'] ?? $item;
         
         // Acortar nombres largos para mejor visualización
-        if (mb_strlen($text) > 20) {
-            $text = mb_substr($text, 0, 17) . '...';
+        if (mb_strlen($text) > 15) {
+            $text = mb_substr($text, 0, 12) . '...';
         }
         
         $row[] = [
@@ -55,7 +62,8 @@ function manual_kb_grid_paginado(array $items, string $callback_prefix, int $pag
             "callback_data" => $callback_prefix . $id
         ];
         
-        if (count($row) === 2) {
+        // 3 columnas en lugar de 2 para mejor uso del espacio
+        if (count($row) === 3) {
             $kb["inline_keyboard"][] = $row;
             $row = [];
         }
@@ -66,13 +74,13 @@ function manual_kb_grid_paginado(array $items, string $callback_prefix, int $pag
         $kb["inline_keyboard"][] = $row;
     }
     
-    // Botones de navegación - AHORA VISIBLES
+    // Botones de navegación - MEJOR VISUALIZACIÓN
     $nav_buttons = [];
     if ($pagina > 0) {
         $nav_buttons[] = ["text" => "⬅️ Anterior", "callback_data" => "manual_page_" . ($pagina - 1)];
     }
     
-    // Indicador de página actual
+    // Indicador de página central
     if ($total_paginas > 1) {
         $nav_buttons[] = ["text" => "📄 " . ($pagina + 1) . "/" . $total_paginas, "callback_data" => "manual_info"];
     }
@@ -237,7 +245,7 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
 
     // ========= INFO PAGINACIÓN =========
     if ($cb_data === 'manual_info') {
-        if ($cb_id) answerCallbackQuery($cb_id, "Información de paginación");
+        if ($cb_id) answerCallbackQuery($cb_id, "Página " . ($estado['manual_page'] + 1) . " de " . ceil(count(obtenerConductoresAdmin(db(), $chat_id)) / 15));
         return;
     }
 
