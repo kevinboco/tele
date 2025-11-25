@@ -29,12 +29,13 @@ function manual_entrypoint($chat_id, $estado) {
     }
 }
 
-/* ========= GRID LAYOUT CON PAGINACIÓN ========= */
+/* ========= GRID LAYOUT CON PAGINACIÓN CORREGIDA ========= */
 function manual_kb_grid_paginado(array $items, string $callback_prefix, int $pagina = 0): array {
     $kb = ["inline_keyboard" => []];
     $row = [];
     
-    $items_por_pagina = 30; // 15 filas × 2 columnas = 30 items
+    // REDUCIDO a 10 elementos por página para que la paginación sea visible
+    $items_por_pagina = 10; // 5 filas × 2 columnas = 10 items
     $total_paginas = ceil(count($items) / $items_por_pagina);
     
     // Items para esta página
@@ -65,11 +66,17 @@ function manual_kb_grid_paginado(array $items, string $callback_prefix, int $pag
         $kb["inline_keyboard"][] = $row;
     }
     
-    // Botones de navegación
+    // Botones de navegación - AHORA VISIBLES
     $nav_buttons = [];
     if ($pagina > 0) {
         $nav_buttons[] = ["text" => "⬅️ Anterior", "callback_data" => "manual_page_" . ($pagina - 1)];
     }
+    
+    // Indicador de página actual
+    if ($total_paginas > 1) {
+        $nav_buttons[] = ["text" => "📄 " . ($pagina + 1) . "/" . $total_paginas, "callback_data" => "manual_info"];
+    }
+    
     if ($pagina < $total_paginas - 1) {
         $nav_buttons[] = ["text" => "Siguiente ➡️", "callback_data" => "manual_page_" . ($pagina + 1)];
     }
@@ -225,6 +232,12 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
             sendMessage($chat_id, "Elige un *conductor* o crea uno nuevo:", $kb);
         }
         if ($cb_id) answerCallbackQuery($cb_id);
+        return;
+    }
+
+    // ========= INFO PAGINACIÓN =========
+    if ($cb_data === 'manual_info') {
+        if ($cb_id) answerCallbackQuery($cb_id, "Información de paginación");
         return;
     }
 
