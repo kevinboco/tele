@@ -52,12 +52,13 @@ if (isset($_GET['obtener_cuentas'])) {
     $result = $conn->query($sql);
     $cuentas = [];
     
-    if ($result) {
+    if ($result && $result->num_rows > 0) {
         while ($row = $result->fetch_assoc()) {
             $cuentas[] = $row;
         }
     }
     
+    header('Content-Type: application/json');
     echo json_encode($cuentas);
     exit;
 }
@@ -1350,9 +1351,11 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       
       const response = await fetch('?' + params.toString());
       if (!response.ok) {
-        throw new Error('Error en la respuesta del servidor');
+        throw new Error('Error en la respuesta del servidor: ' + response.status);
       }
-      return await response.json();
+      const data = await response.json();
+      console.log('Cuentas obtenidas:', data);
+      return data;
     } catch (error) {
       console.error('Error obteniendo cuentas:', error);
       return [];
@@ -1426,10 +1429,11 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       tbodyCuentas.innerHTML = '<tr><td colspan="5" class="px-3 py-4 text-center text-slate-500">Cargando...</td></tr>';
       
       const cuentas = await obtenerCuentasBD(emp);
+      console.log('Cuentas a renderizar:', cuentas);
       
       tbodyCuentas.innerHTML = '';
       
-      if(cuentas.length === 0){
+      if(!cuentas || cuentas.length === 0){
         tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>No hay cuentas guardadas para esta empresa.</td></tr>";
         return;
       }
