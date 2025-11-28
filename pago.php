@@ -41,7 +41,16 @@ if (isset($_POST['guardar_cuenta'])) {
 
 /* ================= OBTENER CUENTAS GUARDADAS ================= */
 if (isset($_GET['obtener_cuentas'])) {
+    header('Content-Type: application/json');
+    
     $empresa = $conn->real_escape_string($_GET['empresa'] ?? '');
+    
+    // Primero verificamos si la tabla existe
+    $tableCheck = $conn->query("SHOW TABLES LIKE 'cuentas_cobro_guardadas'");
+    if (!$tableCheck || $tableCheck->num_rows == 0) {
+        echo json_encode([]);
+        exit;
+    }
     
     $sql = "SELECT * FROM cuentas_cobro_guardadas";
     if ($empresa !== '') {
@@ -58,7 +67,6 @@ if (isset($_GET['obtener_cuentas'])) {
         }
     }
     
-    header('Content-Type: application/json');
     echo json_encode($cuentas);
     exit;
 }
