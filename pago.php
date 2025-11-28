@@ -180,11 +180,8 @@ if (isset($_GET['viajes_conductor'])) {
     $rowsHTML .= "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresa.</td></tr>";
   }
 
-  // lo que devolvemos al fetch (sin <script>, el JS global hará el filtro)
   ?>
   <div class='space-y-3'>
-
-    <!-- Leyenda con contadores y filtro -->
     <div class='flex flex-wrap gap-2 text-xs' id="legendFilterBar">
       <?php
       foreach (['completo','medio','extra','siapana','carrotanque'] as $k) {
@@ -201,8 +198,6 @@ if (isset($_GET['viajes_conductor'])) {
       }
       ?>
     </div>
-
-    <!-- Tabla -->
     <div class='overflow-x-auto'>
       <table class='min-w-full text-sm text-left'>
         <thead class='bg-blue-600 text-white'>
@@ -223,6 +218,7 @@ if (isset($_GET['viajes_conductor'])) {
   exit;
 }
 
+// Si llegamos hasta aquí, mostramos la página normal (no es una petición AJAX)
 /* ================= Form si faltan fechas ================= */
 if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
   $empresas = [];
@@ -1352,6 +1348,10 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       const response = await fetch('?' + params.toString());
       if (!response.ok) {
         throw new Error('Error en la respuesta del servidor: ' + response.status);
+      }
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('La respuesta no es JSON: ' + contentType);
       }
       const data = await response.json();
       console.log('Cuentas obtenidas:', data);
