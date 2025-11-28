@@ -531,7 +531,7 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
             $empTxt = trim($text);
             if ($empTxt==="") { sendMessage($chat_id, "⚠️ El *nombre de la empresa* no puede estar vacío. Escríbelo nuevamente:"); break; }
             
-            // Guardar en BD
+            // Guardar en 
             $conn = db(); 
             if ($conn) { 
                 crearEmpresaAdmin($conn, $chat_id, $empTxt); 
