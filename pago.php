@@ -1318,56 +1318,82 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
   // ===== FUNCIONES PARA BD =====
   async function guardarCuentaBD(cuenta) {
-    const formData = new FormData();
-    formData.append('guardar_cuenta', '1');
-    formData.append('nombre', cuenta.nombre);
-    formData.append('empresa', cuenta.empresa);
-    formData.append('desde', cuenta.desde);
-    formData.append('hasta', cuenta.hasta);
-    formData.append('facturado', cuenta.facturado);
-    formData.append('porcentaje', cuenta.porcentaje);
+    try {
+      const formData = new FormData();
+      formData.append('guardar_cuenta', '1');
+      formData.append('nombre', cuenta.nombre);
+      formData.append('empresa', cuenta.empresa);
+      formData.append('desde', cuenta.desde);
+      formData.append('hasta', cuenta.hasta);
+      formData.append('facturado', cuenta.facturado);
+      formData.append('porcentaje', cuenta.porcentaje);
 
-    const response = await fetch('', {
-        method: 'POST',
-        body: formData
-    });
-    return await response.json();
+      const response = await fetch('', {
+          method: 'POST',
+          body: formData
+      });
+      return await response.json();
+    } catch (error) {
+      console.error('Error guardando cuenta:', error);
+      return { success: false, error: 'Error de conexión' };
+    }
   }
 
   async function obtenerCuentasBD(empresa) {
-    const params = new URLSearchParams({
-        obtener_cuentas: '1',
-        empresa: empresa
-    });
-    const response = await fetch('?' + params.toString());
-    return await response.json();
+    try {
+      const params = new URLSearchParams({
+          obtener_cuentas: '1'
+      });
+      if (empresa) {
+        params.append('empresa', empresa);
+      }
+      
+      const response = await fetch('?' + params.toString());
+      if (!response.ok) {
+        throw new Error('Error en la respuesta del servidor');
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Error obteniendo cuentas:', error);
+      return [];
+    }
   }
 
   async function eliminarCuentaBD(id) {
-    const formData = new FormData();
-    formData.append('eliminar_cuenta', '1');
-    formData.append('id', id);
+    try {
+      const formData = new FormData();
+      formData.append('eliminar_cuenta', '1');
+      formData.append('id', id);
 
-    const response = await fetch('', {
-        method: 'POST',
-        body: formData
-    });
-    return await response.json();
+      const response = await fetch('', {
+          method: 'POST',
+          body: formData
+      });
+      return await response.json();
+    } catch (error) {
+      console.error('Error eliminando cuenta:', error);
+      return { success: false, error: 'Error de conexión' };
+    }
   }
 
   async function actualizarCuentaBD(id, cuenta) {
-    const formData = new FormData();
-    formData.append('actualizar_cuenta', '1');
-    formData.append('id', id);
-    formData.append('nombre', cuenta.nombre);
-    formData.append('facturado', cuenta.facturado);
-    formData.append('porcentaje', cuenta.porcentaje);
+    try {
+      const formData = new FormData();
+      formData.append('actualizar_cuenta', '1');
+      formData.append('id', id);
+      formData.append('nombre', cuenta.nombre);
+      formData.append('facturado', cuenta.facturado);
+      formData.append('porcentaje', cuenta.porcentaje);
 
-    const response = await fetch('', {
-        method: 'POST',
-        body: formData
-    });
-    return await response.json();
+      const response = await fetch('', {
+          method: 'POST',
+          body: formData
+      });
+      return await response.json();
+    } catch (error) {
+      console.error('Error actualizando cuenta:', error);
+      return { success: false, error: 'Error de conexión' };
+    }
   }
 
   // ===== FUNCIONES PRINCIPALES =====
@@ -1397,10 +1423,13 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     lblEmpresaActual.textContent = emp || '(todas)';
 
     try {
+      tbodyCuentas.innerHTML = '<tr><td colspan="5" class="px-3 py-4 text-center text-slate-500">Cargando...</td></tr>';
+      
       const cuentas = await obtenerCuentasBD(emp);
+      
       tbodyCuentas.innerHTML = '';
       
-      if(cuentas.length===0){
+      if(cuentas.length === 0){
         tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>No hay cuentas guardadas para esta empresa.</td></tr>";
         return;
       }
@@ -1431,7 +1460,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       tbodyCuentas.appendChild(frag);
     } catch (error) {
       console.error('Error cargando cuentas:', error);
-      tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-rose-600'>Error cargando cuentas.</td></tr>";
+      tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-rose-600'>Error cargando cuentas: " + error.message + "</td></tr>";
     }
   }
 
@@ -1442,7 +1471,11 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     if(item.facturado) document.getElementById('inp_facturado').value = fmt(item.facturado);
     if(item.porcentaje_ajuste) document.getElementById('inp_porcentaje_ajuste').value = item.porcentaje_ajuste;
     recalc();
-    if(aplicar) formFiltros.submit();
+    if(aplicar) {
+      setTimeout(() => {
+        formFiltros.submit();
+      }, 100);
+    }
   }
 
   async function editarCuenta(item){
@@ -1453,14 +1486,17 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     iCFact.value = fmt(item.facturado||0);
     iCPorcentaje.value = item.porcentaje_ajuste || 0;
     
+    // Guardar referencia al item actual
+    const currentItem = item;
+    
     btnDoSaveCuenta.onclick = async ()=>{
       const cuentaActualizada = {
-        nombre: iNombre.value.trim() || item.nombre,
+        nombre: iNombre.value.trim() || currentItem.nombre,
         facturado: toInt(iCFact.value),
         porcentaje: parseFloat(iCPorcentaje.value) || 0
       };
       
-      const result = await actualizarCuentaBD(item.id, cuentaActualizada);
+      const result = await actualizarCuentaBD(currentItem.id, cuentaActualizada);
       if (result.success) {
         closeSaveCuenta(); 
         await renderCuentas();
@@ -1484,8 +1520,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   }
 
   async function openGestor(){
-    await renderCuentas();
     gestorModal.classList.remove('hidden');
+    await renderCuentas();
     setTimeout(()=> buscaCuenta.focus(), 0);
   }
 
