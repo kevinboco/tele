@@ -19,6 +19,83 @@ function norm_person($s){
   return $s;
 }
 
+/* ================= GUARDAR CUENTA EN BD ================= */
+if (isset($_POST['guardar_cuenta'])) {
+    $nombre = $conn->real_escape_string($_POST['nombre']);
+    $empresa = $conn->real_escape_string($_POST['empresa']);
+    $desde = $conn->real_escape_string($_POST['desde']);
+    $hasta = $conn->real_escape_string($_POST['hasta']);
+    $facturado = (float)$_POST['facturado'];
+    $porcentaje = (float)$_POST['porcentaje'];
+    
+    $sql = "INSERT INTO cuentas_cobro_guardadas (nombre, empresa, desde, hasta, facturado, porcentaje_ajuste) 
+            VALUES ('$nombre', '$empresa', '$desde', '$hasta', $facturado, $porcentaje)";
+    
+    if ($conn->query($sql)) {
+        echo json_encode(['success' => true, 'id' => $conn->insert_id]);
+    } else {
+        echo json_encode(['success' => false, 'error' => $conn->error]);
+    }
+    exit;
+}
+
+/* ================= OBTENER CUENTAS GUARDADAS ================= */
+if (isset($_GET['obtener_cuentas'])) {
+    $empresa = $conn->real_escape_string($_GET['empresa'] ?? '');
+    
+    $sql = "SELECT * FROM cuentas_cobro_guardadas";
+    if ($empresa !== '') {
+        $sql .= " WHERE empresa = '$empresa'";
+    }
+    $sql .= " ORDER BY desde DESC, fecha_creacion DESC";
+    
+    $result = $conn->query($sql);
+    $cuentas = [];
+    
+    if ($result) {
+        while ($row = $result->fetch_assoc()) {
+            $cuentas[] = $row;
+        }
+    }
+    
+    echo json_encode($cuentas);
+    exit;
+}
+
+/* ================= ELIMINAR CUENTA ================= */
+if (isset($_POST['eliminar_cuenta'])) {
+    $id = (int)$_POST['id'];
+    $sql = "DELETE FROM cuentas_cobro_guardadas WHERE id = $id";
+    
+    if ($conn->query($sql)) {
+        echo json_encode(['success' => true]);
+    } else {
+        echo json_encode(['success' => false, 'error' => $conn->error]);
+    }
+    exit;
+}
+
+/* ================= ACTUALIZAR CUENTA ================= */
+if (isset($_POST['actualizar_cuenta'])) {
+    $id = (int)$_POST['id'];
+    $nombre = $conn->real_escape_string($_POST['nombre']);
+    $facturado = (float)$_POST['facturado'];
+    $porcentaje = (float)$_POST['porcentaje'];
+    
+    $sql = "UPDATE cuentas_cobro_guardadas SET 
+            nombre = '$nombre', 
+            facturado = $facturado, 
+            porcentaje_ajuste = $porcentaje 
+            WHERE id = $id";
+    
+    if ($conn->query($sql)) {
+        echo json_encode(['success' => true]);
+    } else {
+        echo json_encode(['success' => false, 'error' => $conn->error]);
+    }
+    exit;
+}
+
 /* ================= AJAX: Viajes por conductor (leyenda con contadores y soporte de filtro) ================= */
 if (isset($_GET['viajes_conductor'])) {
   $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
@@ -619,7 +696,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const SS_KEY    = 'seg_social:'+COMPANY_SCOPE;
   const PREST_SEL_KEY = 'prestamo_sel_multi:v2:'+COMPANY_SCOPE;
   const ESTADO_PAGO_KEY = 'estado_pago:'+COMPANY_SCOPE;
-  const PERIODOS_KEY  = 'cuentas_cobro_periodos:v1';
   const MANUAL_ROWS_KEY = 'filas_manuales:'+COMPANY_SCOPE;
 
   const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
@@ -1212,7 +1288,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     recalc();
   });
 
-  // ===== Gestor de cuentas =====
+  // ===== Gestor de cuentas (BASE DE DATOS) =====
   const formFiltros = document.getElementById('formFiltros');
   const inpDesde = document.getElementById('inp_desde');
   const inpHasta = document.getElementById('inp_hasta');
@@ -1232,8 +1308,69 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const iCFact = document.getElementById('cuenta_facturado');
   const iCPorcentaje  = document.getElementById('cuenta_porcentaje');
 
-  const PERIODOS = getLS(PERIODOS_KEY);
+  const gestorModal = document.getElementById('gestorCuentasModal');
+  const btnShowGestor = document.getElementById('btnShowGestorCuentas');
+  const btnCloseGestor = document.getElementById('btnCloseGestor');
+  const btnAddDesdeFiltro = document.getElementById('btnAddDesdeFiltro');
+  const lblEmpresaActual = document.getElementById('lblEmpresaActual');
+  const buscaCuenta = document.getElementById('buscaCuenta');
+  const tbodyCuentas = document.getElementById('tbodyCuentas');
 
+  // ===== FUNCIONES PARA BD =====
+  async function guardarCuentaBD(cuenta) {
+    const formData = new FormData();
+    formData.append('guardar_cuenta', '1');
+    formData.append('nombre', cuenta.nombre);
+    formData.append('empresa', cuenta.empresa);
+    formData.append('desde', cuenta.desde);
+    formData.append('hasta', cuenta.hasta);
+    formData.append('facturado', cuenta.facturado);
+    formData.append('porcentaje', cuenta.porcentaje);
+
+    const response = await fetch('', {
+        method: 'POST',
+        body: formData
+    });
+    return await response.json();
+  }
+
+  async function obtenerCuentasBD(empresa) {
+    const params = new URLSearchParams({
+        obtener_cuentas: '1',
+        empresa: empresa
+    });
+    const response = await fetch('?' + params.toString());
+    return await response.json();
+  }
+
+  async function eliminarCuentaBD(id) {
+    const formData = new FormData();
+    formData.append('eliminar_cuenta', '1');
+    formData.append('id', id);
+
+    const response = await fetch('', {
+        method: 'POST',
+        body: formData
+    });
+    return await response.json();
+  }
+
+  async function actualizarCuentaBD(id, cuenta) {
+    const formData = new FormData();
+    formData.append('actualizar_cuenta', '1');
+    formData.append('id', id);
+    formData.append('nombre', cuenta.nombre);
+    formData.append('facturado', cuenta.facturado);
+    formData.append('porcentaje', cuenta.porcentaje);
+
+    const response = await fetch('', {
+        method: 'POST',
+        body: formData
+    });
+    return await response.json();
+  }
+
+  // ===== FUNCIONES PRINCIPALES =====
   function openSaveCuenta(){
     const emp = selEmpresa.value.trim();
     if(!emp){ alert('Selecciona una EMPRESA antes de guardar la cuenta.'); return; }
@@ -1248,13 +1385,118 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     saveCuentaModal.classList.remove('hidden');
     setTimeout(()=> iNombre.focus(), 0);
   }
-  function closeSaveCuenta(){ saveCuentaModal.classList.add('hidden'); }
 
+  function closeSaveCuenta(){ 
+    saveCuentaModal.classList.add('hidden'); 
+    btnDoSaveCuenta.onclick = null; // Resetear el evento
+  }
+
+  async function renderCuentas(){
+    const emp = selEmpresa.value.trim();
+    const filtro = (buscaCuenta.value||'').toLowerCase();
+    lblEmpresaActual.textContent = emp || '(todas)';
+
+    try {
+      const cuentas = await obtenerCuentasBD(emp);
+      tbodyCuentas.innerHTML = '';
+      
+      if(cuentas.length===0){
+        tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>No hay cuentas guardadas para esta empresa.</td></tr>";
+        return;
+      }
+      
+      const frag = document.createDocumentFragment();
+      cuentas.forEach(item=>{
+        if(filtro && !item.nombre.toLowerCase().includes(filtro)) return;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="px-3 py-2">${item.nombre}</td>
+          <td class="px-3 py-2">${item.desde} &rarr; ${item.hasta}</td>
+          <td class="px-3 py-2 text-right num">${fmt(item.facturado||0)}</td>
+          <td class="px-3 py-2 text-right num">${item.porcentaje_ajuste||0}%</td>
+          <td class="px-3 py-2 text-right">
+            <div class="inline-flex gap-2">
+              <button class="btnUsar border px-2 py-1 rounded bg-slate-50 hover:bg-slate-100 text-xs">Usar</button>
+              <button class="btnUsarAplicar border px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 text-xs">Usar y aplicar</button>
+              <button class="btnEditar border px-2 py-1 rounded bg-amber-50 hover:bg-amber-100 text-xs">Editar</button>
+              <button class="btnEliminar border px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-xs text-rose-700">Eliminar</button>
+            </div>
+          </td>`;
+        tr.querySelector('.btnUsar').addEventListener('click', ()=> usarCuenta(item,false));
+        tr.querySelector('.btnUsarAplicar').addEventListener('click', ()=> usarCuenta(item,true));
+        tr.querySelector('.btnEditar').addEventListener('click', ()=> editarCuenta(item));
+        tr.querySelector('.btnEliminar').addEventListener('click', ()=> eliminarCuenta(item));
+        frag.appendChild(tr);
+      });
+      tbodyCuentas.appendChild(frag);
+    } catch (error) {
+      console.error('Error cargando cuentas:', error);
+      tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-rose-600'>Error cargando cuentas.</td></tr>";
+    }
+  }
+
+  function usarCuenta(item, aplicar){
+    selEmpresa.value = item.empresa;
+    inpDesde.value = item.desde;
+    inpHasta.value = item.hasta;
+    if(item.facturado) document.getElementById('inp_facturado').value = fmt(item.facturado);
+    if(item.porcentaje_ajuste) document.getElementById('inp_porcentaje_ajuste').value = item.porcentaje_ajuste;
+    recalc();
+    if(aplicar) formFiltros.submit();
+  }
+
+  async function editarCuenta(item){
+    saveCuentaModal.classList.remove('hidden');
+    iEmpresa.value = item.empresa;
+    iRango.value = `${item.desde} → ${item.hasta}`;
+    iNombre.value = item.nombre;
+    iCFact.value = fmt(item.facturado||0);
+    iCPorcentaje.value = item.porcentaje_ajuste || 0;
+    
+    btnDoSaveCuenta.onclick = async ()=>{
+      const cuentaActualizada = {
+        nombre: iNombre.value.trim() || item.nombre,
+        facturado: toInt(iCFact.value),
+        porcentaje: parseFloat(iCPorcentaje.value) || 0
+      };
+      
+      const result = await actualizarCuentaBD(item.id, cuentaActualizada);
+      if (result.success) {
+        closeSaveCuenta(); 
+        await renderCuentas();
+        alert('Cuenta actualizada ✔');
+      } else {
+        alert('Error actualizando cuenta: ' + result.error);
+      }
+    };
+  }
+
+  async function eliminarCuenta(item){
+    if(!confirm('¿Eliminar esta cuenta?')) return;
+    
+    const result = await eliminarCuentaBD(item.id);
+    if (result.success) {
+      await renderCuentas();
+      alert('Cuenta eliminada ✔');
+    } else {
+      alert('Error eliminando cuenta: ' + result.error);
+    }
+  }
+
+  async function openGestor(){
+    await renderCuentas();
+    gestorModal.classList.remove('hidden');
+    setTimeout(()=> buscaCuenta.focus(), 0);
+  }
+
+  function closeGestor(){ gestorModal.classList.add('hidden'); }
+
+  // ===== EVENT LISTENERS =====
   btnShowSaveCuenta.addEventListener('click', openSaveCuenta);
   btnCloseSaveCuenta.addEventListener('click', closeSaveCuenta);
   btnCancelSaveCuenta.addEventListener('click', closeSaveCuenta);
 
-  btnDoSaveCuenta.addEventListener('click', ()=>{
+  btnDoSaveCuenta.addEventListener('click', async ()=>{
     const emp = iEmpresa.value.trim();
     const [d1, d2raw] = iRango.value.split('→');
     const desde = (d1||'').trim();
@@ -1263,102 +1505,16 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const facturado = toInt(iCFact.value);
     const porcentaje  = parseFloat(iCPorcentaje.value) || 0;
 
-    const item = { id: Date.now(), nombre, desde, hasta, facturado, porcentaje };
-    if(!PERIODOS[emp]) PERIODOS[emp] = [];
-    PERIODOS[emp].push(item);
-    setLS(PERIODOS_KEY, PERIODOS);
-    closeSaveCuenta();
-    alert('Cuenta guardada ✔');
-  });
-
-  const gestorModal = document.getElementById('gestorCuentasModal');
-  const btnShowGestor = document.getElementById('btnShowGestorCuentas');
-  const btnCloseGestor = document.getElementById('btnCloseGestor');
-  const btnAddDesdeFiltro = document.getElementById('btnAddDesdeFiltro');
-  const lblEmpresaActual = document.getElementById('lblEmpresaActual');
-  const buscaCuenta = document.getElementById('buscaCuenta');
-  const tbodyCuentas = document.getElementById('tbodyCuentas');
-
-  function renderCuentas(){
-    const emp = selEmpresa.value.trim();
-    const filtro = (buscaCuenta.value||'').toLowerCase();
-    lblEmpresaActual.textContent = emp || '(todas)';
-
-    const arr = (PERIODOS[emp]||[]).slice().sort((a,b)=> (a.desde>b.desde? -1:1));
-    tbodyCuentas.innerHTML = '';
-    if(arr.length===0){
-      tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>No hay cuentas guardadas para esta empresa.</td></tr>";
-      return;
+    const cuenta = { nombre, empresa: emp, desde, hasta, facturado, porcentaje };
+    
+    const result = await guardarCuentaBD(cuenta);
+    if (result.success) {
+      closeSaveCuenta();
+      alert('Cuenta guardada ✔');
+    } else {
+      alert('Error guardando cuenta: ' + result.error);
     }
-    const frag = document.createDocumentFragment();
-    arr.forEach(item=>{
-      if(filtro && !item.nombre.toLowerCase().includes(filtro)) return;
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td class="px-3 py-2">${item.nombre}</td>
-        <td class="px-3 py-2">${item.desde} &rarr; ${item.hasta}</td>
-        <td class="px-3 py-2 text-right num">${fmt(item.facturado||0)}</td>
-        <td class="px-3 py-2 text-right num">${item.porcentaje||0}%</td>
-        <td class="px-3 py-2 text-right">
-          <div class="inline-flex gap-2">
-            <button class="btnUsar border px-2 py-1 rounded bg-slate-50 hover:bg-slate-100 text-xs">Usar</button>
-            <button class="btnUsarAplicar border px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 text-xs">Usar y aplicar</button>
-            <button class="btnEditar border px-2 py-1 rounded bg-amber-50 hover:bg-amber-100 text-xs">Editar</button>
-            <button class="btnEliminar border px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-xs text-rose-700">Eliminar</button>
-          </div>
-        </td>`;
-      tr.querySelector('.btnUsar').addEventListener('click', ()=> usarCuenta(item,false));
-      tr.querySelector('.btnUsarAplicar').addEventListener('click', ()=> usarCuenta(item,true));
-      tr.querySelector('.btnEditar').addEventListener('click', ()=> editarCuenta(item));
-      tr.querySelector('.btnEliminar').addEventListener('click', ()=> eliminarCuenta(item));
-      frag.appendChild(tr);
-    });
-    tbodyCuentas.appendChild(frag);
-  }
-
-  function usarCuenta(item, aplicar){
-    selEmpresa.value = selEmpresa.value;
-    inpDesde.value = item.desde;
-    inpHasta.value = item.hasta;
-    if(item.facturado) document.getElementById('inp_facturado').value = fmt(item.facturado);
-    if(item.porcentaje)  document.getElementById('inp_porcentaje_ajuste').value  = item.porcentaje;
-    recalc();
-    if(aplicar) formFiltros.submit();
-  }
-
-  function editarCuenta(item){
-    saveCuentaModal.classList.remove('hidden');
-    iEmpresa.value = selEmpresa.value;
-    iRango.value = `${item.desde} → ${item.hasta}`;
-    iNombre.value = item.nombre;
-    iCFact.value = fmt(item.facturado||0);
-    iCPorcentaje.value  = item.porcentaje || 0;
-    btnDoSaveCuenta.onclick = ()=>{
-      const [d,h] = iRango.value.split('→').map(s=>s.trim());
-      item.nombre = iNombre.value.trim() || item.nombre;
-      item.desde  = d || item.desde;
-      item.hasta  = h || item.hasta;
-      item.facturado = toInt(iCFact.value);
-      item.porcentaje  = parseFloat(iCPorcentaje.value) || 0;
-      setLS(PERIODOS_KEY, PERIODOS);
-      closeSaveCuenta(); renderCuentas();
-    };
-  }
-
-  function eliminarCuenta(item){
-    const emp = selEmpresa.value.trim();
-    if(!confirm('¿Eliminar esta cuenta?')) return;
-    PERIODOS[emp] = (PERIODOS[emp]||[]).filter(x=> x.id!==item.id);
-    setLS(PERIODOS_KEY, PERIODOS);
-    renderCuentas();
-  }
-
-  function openGestor(){
-    renderCuentas();
-    gestorModal.classList.remove('hidden');
-    setTimeout(()=> buscaCuenta.focus(), 0);
-  }
-  function closeGestor(){ gestorModal.classList.add('hidden'); }
+  });
 
   btnShowGestor.addEventListener('click', openGestor);
   btnCloseGestor.addEventListener('click', closeGestor);
