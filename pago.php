@@ -1,3 +1,28 @@
+[file name]: image.png
+[file content begin]
+# Guardar cuenta de cobro
+
+## Nombre
+Hospital 2025-09-01 a 2025-09-25
+
+### Empresa
+Rango  
+2025-09-01 → 2025-09-25  
+
+### Hospital
+Facturado  
+Porcentaje ajuste  
+116.250.000  
+5  
+
+---
+
+**3.5%**  
+10%
+
+
+[file content end]
+
 <?php
 // ==== CONEXIÓN BD ====
 $conn = new mysqli(
@@ -649,20 +674,24 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             <input id="cuenta_empresa" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" readonly>
           </label>
           <label class="block">
-            <span class="block text-xs font-medium mb-1">Rango</span>
-            <input id="cuenta_rango" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" readonly>
+            <span class="block text-xs font-medium mb-1">Desde</span>
+            <input id="cuenta_desde" type="date" class="w-full rounded-xl border border-slate-300 px-3 py-2">
           </label>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <label class="block">
+            <span class="block text-xs font-medium mb-1">Hasta</span>
+            <input id="cuenta_hasta" type="date" class="w-full rounded-xl border border-slate-300 px-3 py-2">
+          </label>
+          <label class="block">
             <span class="block text-xs font-medium mb-1">Facturado</span>
             <input id="cuenta_facturado" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
           </label>
-          <label class="block">
-            <span class="block text-xs font-medium mb-1">Porcentaje ajuste</span>
-            <input id="cuenta_porcentaje" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
-          </label>
         </div>
+        <label class="block">
+          <span class="block text-xs font-medium mb-1">Porcentaje ajuste</span>
+          <input id="cuenta_porcentaje" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
+        </label>
       </div>
       <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
         <button id="btnCancelSaveCuenta" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
@@ -1314,7 +1343,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
   const iNombre = document.getElementById('cuenta_nombre');
   const iEmpresa = document.getElementById('cuenta_empresa');
-  const iRango = document.getElementById('cuenta_rango');
+  const iDesde = document.getElementById('cuenta_desde');
+  const iHasta = document.getElementById('cuenta_hasta');
   const iCFact = document.getElementById('cuenta_facturado');
   const iCPorcentaje  = document.getElementById('cuenta_porcentaje');
 
@@ -1331,7 +1361,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     if (item){
       iEmpresa.value = item.empresa;
-      iRango.value   = `${item.desde} → ${item.hasta}`;
+      iDesde.value = item.desde;
+      iHasta.value = item.hasta;
       iNombre.value  = item.nombre;
       iCFact.value   = fmt(item.facturado || 0);
       iCPorcentaje.value = item.porcentaje_ajuste || 0;
@@ -1339,7 +1370,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       const d = inpDesde.value;
       const h = inpHasta.value;
       iEmpresa.value = emp;
-      iRango.value   = `${d} → ${h}`;
+      iDesde.value = d;
+      iHasta.value = h;
       iNombre.value  = `${emp} ${d} a ${h}`;
       iCFact.value   = fmt(toInt(inpFact.value));
       iCPorcentaje.value = parseFloat(inpPorcentaje.value) || 0;
@@ -1359,12 +1391,16 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     if (!emp){
       alert('Empresa requerida'); return;
     }
-    const [d1, d2raw] = iRango.value.split('→');
-    const desde = (d1||'').trim();
-    const hasta = (d2raw||'').trim();
+    const desde = iDesde.value.trim();
+    const hasta = iHasta.value.trim();
     const nombre = iNombre.value.trim() || `${emp} ${desde} a ${hasta}`;
     const facturado = toInt(iCFact.value);
     const porcentaje  = parseFloat(iCPorcentaje.value) || 0;
+
+    if (!desde || !hasta) {
+      alert('Las fechas Desde y Hasta son requeridas');
+      return;
+    }
 
     const params = new URLSearchParams();
     params.append('accion','guardar_cuenta');
