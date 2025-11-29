@@ -1,63 +1,3 @@
-[file name]: image.png
-[file content begin]
-# Ajuste de Pago
-
-## Bícala
-01/09/2025  
-dd/mm/aaaa  
-
----
-
-### Comblemes en rango
-0  
-**Cuerda de saldo (hfes)**  
-
----
-
-### Conductores
-- **Combletes**  
-  - Total calpte (base)  
-- **Ajuste por 4%**  
-  - Textiles  
-
----
-
-### Cuentas guardadas
-- **Expertas visualizadas**  
-  - Unicita por nombre...  
-
-| Nombre    | Range    | Factoriale | % Agents | Acciones |
-|---|---|---|---|---|
-| Hospital 2025-09-01 a 2025-09-25 funcionari | 2025-09-01 – 0000-00-00 | 114.520.000 | 5% | User Ignite |
-| Hospital 2025-09-01 a 2025-09-25 funcionari | 2025-09-01 – 0000-00-00 | 114.520.000 | 5% | User Ignite |
-| Hospital 2025-09-01 a 2025-09-25 funcionari | 2025-09-01 – 2025-09-25 funcionari | 114.520.000 | 5% | User Ignite |
-| Hospital 2025-09-01 a 2025-09-25 funcionari | 2025-09-01 – 2025-09-25 funcionari | 114.520.000 | 5% | User Ignite |
-
----
-
-### Guardas como cuenta
-- **Cuentas guardadas**  
-  - Apélicar  
-  - Noto ajente  
-  - Alargar conductor manual  
-
----
-
-### Guardas rasgos actual
-- **1º Cuenta**  
-  - A pesar  
-  - Estudio  
-  - Acciones  
-
----
-
-10 Anunciada  
-8:30  
-SERVISORES
-
-
-[file content end]
-
 <?php
 // ==== CONEXIÓN BD ====
 $conn = new mysqli(
@@ -1419,10 +1359,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     if (!emp){
       alert('Empresa requerida'); return;
     }
-    
-    // CORRECCIÓN: Obtener las fechas directamente de los inputs, no del campo de rango
-    const desde = inpDesde.value;
-    const hasta = inpHasta.value;
+    const [d1, d2raw] = iRango.value.split('→');
+    const desde = (d1||'').trim();
+    const hasta = (d2raw||'').trim();
     const nombre = iNombre.value.trim() || `${emp} ${desde} a ${hasta}`;
     const facturado = toInt(iCFact.value);
     const porcentaje  = parseFloat(iCPorcentaje.value) || 0;
