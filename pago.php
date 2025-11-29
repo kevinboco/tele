@@ -1,14 +1,24 @@
 <?php
-include("nav.php");
-$conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
-if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); }
+// ==== CONEXIÓN BD ====
+$conn = new mysqli(
+  "mysql.hostinger.com",
+  "u648222299_keboco5",
+  "Bucaramanga3011",
+  "u648222299_viajes"
+);
+if ($conn->connect_error) {
+  die("Error conexión BD: " . $conn->connect_error);
+}
 $conn->set_charset('utf8mb4');
 
 /* ================= Helpers ================= */
 function strip_accents($s){
   $t = @iconv('UTF-8','ASCII//TRANSLIT//IGNORE',$s);
   if ($t !== false) return $t;
-  $repl = ['á'=>'a','é'=>'e','í'=>'i','ó'=>'o','ú'=>'u','ñ'=>'n','Á'=>'A','É'=>'E','Í'=>'I','Ó'=>'O','Ú'=>'U','Ñ'=>'N'];
+  $repl = [
+    'á'=>'a','é'=>'e','í'=>'i','ó'=>'o','ú'=>'u','ñ'=>'n',
+    'Á'=>'A','É'=>'E','Í'=>'I','Ó'=>'O','Ú'=>'U','Ñ'=>'N'
+  ];
   return strtr($s,$repl);
 }
 function norm_person($s){
@@ -19,152 +29,9 @@ function norm_person($s){
   return $s;
 }
 
-/* ================= AJAX CUENTAS DE COBRO ================= */
-if (isset($_GET['ajax']) && $_GET['ajax'] === 'cuentas') {
-  header('Content-Type: application/json; charset=utf-8');
-  $accion = $_GET['accion'] ?? '';
-
-  // LISTAR
-  if ($accion === 'listar') {
-    $empresa = $conn->real_escape_string($_GET['empresa'] ?? '');
-    $data = [];
-    if ($empresa !== '') {
-      $sql = "SELECT id, nombre, empresa, desde, hasta, facturado, porcentaje_ajuste
-              FROM cuentas_cobro_guardadas
-              WHERE empresa = '$empresa'
-              ORDER BY fecha_creacion DESC, id DESC";
-      if ($res = $conn->query($sql)) {
-        while ($r = $res->fetch_assoc()) {
-          $hasta = $r['hasta'];
-          if ($hasta === '0000-00-00' || $hasta === null) $hasta = '';
-
-          $data[] = [
-            'id' => (int)$r['id'],
-            'nombre' => $r['nombre'],
-            'empresa' => $r['empresa'],
-            'desde' => $r['desde'],
-            'hasta' => $hasta,
-            'facturado' => (int)$r['facturado'],
-            'porcentaje_ajuste' => (float)$r['porcentaje_ajuste'],
-          ];
-        }
-      }
-    }
-    echo json_encode(['ok'=>true,'items'=>$data], JSON_UNESCAPED_UNICODE);
-    exit;
-  }
-
-  // GUARDAR / ACTUALIZAR (POST JSON)
-  $raw = file_get_contents('php://input');
-  $body = json_decode($raw, true) ?: [];
-
-  if ($accion === 'guardar') {
-    $nombre = $conn->real_escape_string($body['nombre'] ?? '');
-    $empresa = $conn->real_escape_string($body['empresa'] ?? '');
-    $desde = $conn->real_escape_string($body['desde'] ?? '');
-    $hasta = $conn->real_escape_string($body['hasta'] ?? '');
-    $facturado = (int)($body['facturado'] ?? 0);
-    $porcentaje = (float)($body['porcentaje_ajuste'] ?? 0);
-
-    if ($empresa === '' || $desde === '' || $hasta === '') {
-      echo json_encode(['ok'=>false,'msg'=>'Faltan datos obligatorios.']);
-      exit;
-    }
-
-    $stmt = $conn->prepare(
-      "INSERT INTO cuentas_cobro_guardadas (nombre, empresa, desde, hasta, facturado, porcentaje_ajuste, fecha_creacion)
-       VALUES (?, ?, ?, ?, ?, ?, NOW())"
-    );
-    if (!$stmt) {
-      echo json_encode(['ok'=>false,'msg'=>'Error stmt: '.$conn->error]);
-      exit;
-    }
-    $stmt->bind_param('ssssii', $nombre, $empresa, $desde, $hasta, $facturado, $porcentaje);
-    $ok = $stmt->execute();
-    $id = $stmt->insert_id;
-    $stmt->close();
-
-    if (!$ok) {
-      echo json_encode(['ok'=>false,'msg'=>'Error insert: '.$conn->error]);
-      exit;
-    }
-
-    echo json_encode([
-      'ok'=>true,
-      'item'=>[
-        'id'=>$id,
-        'nombre'=>$nombre,
-        'empresa'=>$empresa,
-        'desde'=>$desde,
-        'hasta'=>$hasta,
-        'facturado'=>$facturado,
-        'porcentaje_ajuste'=>$porcentaje,
-      ]
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
-  }
-
-  if ($accion === 'actualizar') {
-    $id = (int)($body['id'] ?? 0);
-    $nombre = $conn->real_escape_string($body['nombre'] ?? '');
-    $desde = $conn->real_escape_string($body['desde'] ?? '');
-    $hasta = $conn->real_escape_string($body['hasta'] ?? '');
-    $facturado = (int)($body['facturado'] ?? 0);
-    $porcentaje = (float)($body['porcentaje_ajuste'] ?? 0);
-
-    if ($id <= 0) {
-      echo json_encode(['ok'=>false,'msg'=>'ID inválido']);
-      exit;
-    }
-
-    $stmt = $conn->prepare(
-      "UPDATE cuentas_cobro_guardadas
-       SET nombre=?, desde=?, hasta=?, facturado=?, porcentaje_ajuste=?
-       WHERE id=?"
-    );
-    if (!$stmt) {
-      echo json_encode(['ok'=>false,'msg'=>'Error stmt: '.$conn->error]);
-      exit;
-    }
-    $stmt->bind_param('sssiii', $nombre, $desde, $hasta, $facturado, $porcentaje, $id);
-    $ok = $stmt->execute();
-    $stmt->close();
-
-    if (!$ok) {
-      echo json_encode(['ok'=>false,'msg'=>'Error update: '.$conn->error]);
-      exit;
-    }
-    echo json_encode(['ok'=>true]);
-    exit;
-  }
-
-  if ($accion === 'eliminar') {
-    $id = (int)($_GET['id'] ?? 0);
-    if ($id <= 0) {
-      echo json_encode(['ok'=>false,'msg'=>'ID inválido']);
-      exit;
-    }
-    $stmt = $conn->prepare("DELETE FROM cuentas_cobro_guardadas WHERE id=?");
-    if (!$stmt) {
-      echo json_encode(['ok'=>false,'msg'=>'Error stmt: '.$conn->error]);
-      exit;
-    }
-    $stmt->bind_param('i',$id);
-    $ok = $stmt->execute();
-    $stmt->close();
-    if (!$ok) {
-      echo json_encode(['ok'=>false,'msg'=>'Error delete: '.$conn->error]);
-      exit;
-    }
-    echo json_encode(['ok'=>true]);
-    exit;
-  }
-
-  echo json_encode(['ok'=>false,'msg'=>'Acción no reconocida']);
-  exit;
-}
-
-/* ================= AJAX: Viajes por conductor (leyenda con contadores y soporte de filtro) ================= */
+/* =========================================================
+   AJAX 1: VIAJES POR CONDUCTOR (modal) — SOLO JSON/HTML
+   ========================================================= */
 if (isset($_GET['viajes_conductor'])) {
   $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
   $desde   = $conn->real_escape_string($_GET['desde'] ?? '');
@@ -203,7 +70,7 @@ if (isset($_GET['viajes_conductor'])) {
 
   if ($res && $res->num_rows > 0) {
     while ($r = $res->fetch_assoc()) {
-      $ruta = (string)$r['ruta'];
+      $ruta    = (string)$r['ruta'];
       $guiones = substr_count($ruta,'-');
 
       if ($r['tipo_vehiculo']==='Carrotanque' && $guiones==0) {
@@ -220,27 +87,28 @@ if (isset($_GET['viajes_conductor'])) {
         $cat = 'otro';
       }
 
-      if (isset($counts[$cat])) $counts[$cat]++; else $counts[$cat] = 1;
+      if (isset($counts[$cat])) $counts[$cat]++; else $counts[$cat]=1;
 
       $l = $legend[$cat];
       $badge = "<span class='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold {$l['badge']}'>".$l['label']."</span>";
       $rowCls = trim("row-viaje hover:bg-blue-50 transition-colors {$l['row']} cat-$cat");
 
       $rowsHTML .= "<tr class='{$rowCls}'>
-              <td class='px-3 py-2'>".htmlspecialchars($r['fecha'])."</td>
-              <td class='px-3 py-2'>
-                <div class='flex items-center gap-2'>
-                  {$badge}
-                  <span>".htmlspecialchars($ruta)."</span>
-                </div>
-              </td>
-              <td class='px-3 py-2'>".htmlspecialchars($r['empresa'])."</td>
-              <td class='px-3 py-2'>".htmlspecialchars($r['tipo_vehiculo'])."</td>
-            </tr>";
+          <td class='px-3 py-2'>".htmlspecialchars($r['fecha'])."</td>
+          <td class='px-3 py-2'>
+            <div class='flex items-center gap-2'>
+              {$badge}
+              <span>".htmlspecialchars($ruta)."</span>
+            </div>
+          </td>
+          <td class='px-3 py-2'>".htmlspecialchars($r['empresa'])."</td>
+          <td class='px-3 py-2'>".htmlspecialchars($r['tipo_vehiculo'])."</td>
+        </tr>";
     }
   } else {
     $rowsHTML .= "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresa.</td></tr>";
   }
+
   ?>
   <div class='space-y-3'>
     <div class='flex flex-wrap gap-2 text-xs' id="legendFilterBar">
@@ -280,7 +148,102 @@ if (isset($_GET['viajes_conductor'])) {
   exit;
 }
 
-/* ================= Form si faltan fechas ================= */
+/* =========================================================
+   AJAX 2: CRUD CUENTAS_COBRO_GUARDADAS — SOLO JSON
+   ========================================================= */
+if (isset($_GET['accion']) || isset($_POST['accion'])) {
+  $accion = $_GET['accion'] ?? $_POST['accion'];
+  header('Content-Type: application/json; charset=utf-8');
+
+  // LISTAR
+  if ($accion === 'listar_cuentas') {
+    $empresa = $conn->real_escape_string($_GET['empresa'] ?? '');
+    $data = [];
+    if ($empresa !== '') {
+      $sql = "SELECT id, nombre, empresa, desde, hasta, facturado, porcentaje_ajuste
+              FROM cuentas_cobro_guardadas
+              WHERE empresa = '$empresa'
+              ORDER BY desde DESC, id DESC";
+      if ($res = $conn->query($sql)) {
+        while ($r = $res->fetch_assoc()) {
+          $data[] = [
+            'id' => (int)$r['id'],
+            'nombre' => $r['nombre'],
+            'empresa' => $r['empresa'],
+            'desde' => $r['desde'],
+            'hasta' => $r['hasta'],
+            'facturado' => (int)$r['facturado'],
+            'porcentaje_ajuste' => (float)$r['porcentaje_ajuste'],
+          ];
+        }
+      }
+    }
+    echo json_encode(['ok'=>true,'items'=>$data], JSON_UNESCAPED_UNICODE);
+    exit;
+  }
+
+  // GUARDAR (INSERT / UPDATE)
+  if ($accion === 'guardar_cuenta') {
+    $id        = (int)($_POST['id'] ?? 0);
+    $nombre    = $conn->real_escape_string($_POST['nombre'] ?? '');
+    $empresa   = $conn->real_escape_string($_POST['empresa'] ?? '');
+    $desde     = $conn->real_escape_string($_POST['desde'] ?? '');
+    $hasta     = $conn->real_escape_string($_POST['hasta'] ?? '');
+    $facturado = (int)($_POST['facturado'] ?? 0);
+    $porcentaje = (float)($_POST['porcentaje_ajuste'] ?? 0);
+
+    if ($empresa === '' || $desde === '' || $hasta === '') {
+      echo json_encode(['ok'=>false,'msg'=>'Datos incompletos']); exit;
+    }
+
+    if ($id > 0) {
+      $stmt = $conn->prepare("UPDATE cuentas_cobro_guardadas
+                              SET nombre=?, empresa=?, desde=?, hasta=?, facturado=?, porcentaje_ajuste=?
+                              WHERE id=?");
+      if (!$stmt) {
+        echo json_encode(['ok'=>false,'msg'=>$conn->error]); exit;
+      }
+      $stmt->bind_param("sssiddi", $nombre, $empresa, $desde, $hasta, $facturado, $porcentaje, $id);
+      $ok = $stmt->execute();
+      $stmt->close();
+      echo json_encode(['ok'=>$ok, 'id'=>$id]); exit;
+    } else {
+      $stmt = $conn->prepare("INSERT INTO cuentas_cobro_guardadas
+        (nombre, empresa, desde, hasta, facturado, porcentaje_ajuste, fecha_creacion)
+        VALUES (?,?,?,?,?,?,NOW())");
+      if (!$stmt) {
+        echo json_encode(['ok'=>false,'msg'=>$conn->error]); exit;
+      }
+      $stmt->bind_param("sssidi", $nombre, $empresa, $desde, $hasta, $facturado, $porcentaje);
+      $ok = $stmt->execute();
+      $newId = $stmt->insert_id;
+      $stmt->close();
+      echo json_encode(['ok'=>$ok, 'id'=>$newId]); exit;
+    }
+  }
+
+  // ELIMINAR
+  if ($accion === 'eliminar_cuenta') {
+    $id = (int)($_POST['id'] ?? 0);
+    if ($id <= 0) { echo json_encode(['ok'=>false,'msg'=>'ID inválido']); exit; }
+    $stmt = $conn->prepare("DELETE FROM cuentas_cobro_guardadas WHERE id=?");
+    if (!$stmt) { echo json_encode(['ok'=>false,'msg'=>$conn->error]); exit; }
+    $stmt->bind_param("i",$id);
+    $ok = $stmt->execute();
+    $stmt->close();
+    echo json_encode(['ok'=>$ok]); exit;
+  }
+
+  echo json_encode(['ok'=>false,'msg'=>'Acción no reconocida']);
+  exit;
+}
+
+/* =========================================================
+   DESDE AQUÍ ES SOLO LA PÁGINA NORMAL (INCLUYE nav.php)
+   ========================================================= */
+include("nav.php");
+
+/* ====== SI FALTAN FECHAS: FORMULARIO SIMPLE ====== */
 if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
   $empresas = [];
   $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
@@ -344,7 +307,7 @@ if ($resV) {
       ];
     }
     $ruta = (string)$row['ruta'];
-    $guiones = substr_count($ruta, '-');
+    $guiones = substr_count($ruta,'-');
     if ($row['tipo_vehiculo']==='Carrotanque' && $guiones==0) {
       $contadores[$nombre]['carrotanques']++;
     } elseif (stripos($ruta,'Siapana') !== false) {
@@ -430,6 +393,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   .viajes-body{padding:14px 16px;overflow:auto; max-height:70vh}
   .viajes-close{padding:6px 10px; border-radius:10px; cursor:pointer;}
   .viajes-close:hover{background:#f3f4f6}
+
   .conductor-link{cursor:pointer; color:#0d6efd; text-decoration:underline;}
 
   .estado-pagado { background-color: #f0fdf4 !important; border-left: 4px solid #22c55e; }
@@ -452,6 +416,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         </div>
       </div>
 
+      <!-- filtros -->
       <form id="formFiltros" class="mt-3 grid grid-cols-1 md:grid-cols-6 gap-3" method="get">
         <label class="block md:col-span-1">
           <span class="block text-xs font-medium mb-1">Desde</span>
@@ -481,6 +446,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   </header>
 
   <main class="max-w-[1600px] mx-auto px-3 md:px-4 py-6 space-y-5">
+    <!-- Panel montos -->
     <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
       <div class="grid grid-cols-1 md:grid-cols-6 gap-4">
         <div>
@@ -504,6 +470,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       </div>
     </section>
 
+    <!-- Tabla principal -->
     <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
       <div class="flex justify-between items-center mb-4">
         <h3 class="text-lg font-semibold">Conductores</h3>
@@ -568,7 +535,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                   <option value="parcial">⚠️ Parcial</option>
                 </select>
               </td>
-              <td class="px-3 py-2 text-center"></td>
+              <td class="px-3 py-2 text-center">
+                <!-- Solo para filas manuales -->
+              </td>
             </tr>
             <?php endforeach; ?>
           </tbody>
@@ -591,12 +560,77 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </section>
   </main>
 
-  <!-- MODALES: préstamos, viajes, guardar cuenta, gestor de cuentas -->
-  <!-- (todo igual que lo tenías, solo te dejo la parte JS del gestor diferente) -->
+  <!-- ===== Modal PRÉSTAMOS (multi) ===== -->
+  <div id="prestModal" class="hidden fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/30"></div>
+    <div class="relative mx-auto my-8 max-w-2xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+      <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+        <h3 class="text-lg font-semibold">Seleccionar deudores (puedes marcar varios)</h3>
+        <button id="btnCloseModal" class="p-2 rounded hover:bg-slate-100" title="Cerrar">✕</button>
+      </div>
+      <div class="p-4">
+        <div class="flex flex-col md:flex-row md:items-center gap-3 mb-3">
+          <input id="prestSearch" type="text" placeholder="Buscar deudor..." class="w-full rounded-xl border border-slate-300 px-3 py-2">
+          <div class="flex gap-2">
+            <button id="btnSelectAll" class="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 hover:bg-slate-100">Marcar visibles</button>
+            <button id="btnUnselectAll" class="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 hover:bg-slate-100">Desmarcar</button>
+            <button id="btnClearSel" class="rounded-lg border border-rose-300 text-rose-700 px-3 py-2 text-sm bg-rose-50 hover:bg-rose-100">Quitar selección</button>
+          </div>
+        </div>
+        <div id="prestList" class="max-h-[50vh] overflow-auto rounded-xl border border-slate-200"></div>
+      </div>
+      <div class="px-5 py-4 border-t border-slate-200 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div class="text-sm text-slate-600">
+          Seleccionados: <span id="selCount" class="font-semibold">0</span><br>
+          <span class="text-xs">Total seleccionado: <span id="selTotal" class="num font-semibold">0</span></span>
+        </div>
 
-  <!-- ... aquí siguen tus modales de préstamos y viajes (no los repito para no hacer esto interminable) ... -->
+        <div class="flex items-center gap-2">
+          <label class="text-sm flex items-center gap-1">
+            <span>Valor a aplicar:</span>
+            <input id="selTotalManual" type="text"
+                   class="w-32 rounded-lg border border-slate-300 px-2 py-1 text-right num"
+                   value="0">
+          </label>
+          <button id="btnCancel" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
+          <button id="btnAssign" class="rounded-lg border border-blue-600 px-4 py-2 bg-blue-600 text-white hover:bg-blue-700">Asignar</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
-  <!-- Modal GUARDAR CUENTA -->
+  <!-- ===== Modal VIAJES ===== -->
+  <div id="viajesModal" class="viajes-backdrop">
+    <div class="viajes-card">
+      <div class="viajes-header">
+        <div class="flex flex-col gap-2 w-full md:flex-row md:items-center md:justify-between">
+          <div class="flex flex-col gap-1">
+            <h3 class="text-lg font-semibold flex items-center gap-2">
+              🧳 Viajes — <span id="viajesTitle" class="font-normal"></span>
+            </h3>
+            <div class="text-[11px] text-slate-500 leading-tight">
+              <span id="viajesRango"></span>
+              <span class="mx-1">•</span>
+              <span id="viajesEmpresa"></span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="text-xs text-slate-600 whitespace-nowrap">Conductor:</label>
+            <select id="viajesSelectConductor"
+              class="rounded-lg border border-slate-300 px-2 py-1 text-sm min-w-[200px] focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500">
+            </select>
+            <button class="viajes-close text-slate-600 hover:bg-slate-100 border border-slate-300 px-2 py-1 rounded-lg text-sm" id="viajesCloseBtn" title="Cerrar">
+              ✕
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="viajes-body" id="viajesContent"></div>
+    </div>
+  </div>
+
+  <!-- ===== Modal GUARDAR CUENTA ===== -->
   <div id="saveCuentaModal" class="hidden fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-10 w-full max-w-lg bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
@@ -625,7 +659,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             <input id="cuenta_facturado" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
           </label>
           <label class="block">
-            <span class="block text-xs font-medium mb-1">% Ajuste</span>
+            <span class="block text-xs font-medium mb-1">Porcentaje ajuste</span>
             <input id="cuenta_porcentaje" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
           </label>
         </div>
@@ -637,7 +671,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
   </div>
 
-  <!-- Modal GESTOR DE CUENTAS -->
+  <!-- ===== Modal GESTOR DE CUENTAS ===== -->
   <div id="gestorCuentasModal" class="hidden fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-10 w-full max-w-3xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
@@ -672,7 +706,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   </div>
 
 <script>
-  /* ===== util ===== */
+  const SCRIPT_URL = '<?= basename($_SERVER["PHP_SELF"]) ?>';
+
+  // ===== Claves de persistencia =====
   const COMPANY_SCOPE = <?= json_encode(($empresaFiltro ?: '__todas__')) ?>;
   const ACC_KEY   = 'cuentas:'+COMPANY_SCOPE;
   const SS_KEY    = 'seg_social:'+COMPANY_SCOPE;
@@ -697,14 +733,572 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const tbody = document.getElementById('tbody');
   const btnAddManual = document.getElementById('btnAddManual');
 
-  /* ===== aquí iría todo tu JS de filas manuales, préstamos, viajes, recalc, etc
-     (igual que ya lo tenías, no lo reescribo para no hacer esto infinito)
-     SOLO cambio la parte de gestor de cuentas, que viene al final
-  ===== */
+  // ===== FUNCIÓN PARA AGREGAR FILA MANUAL =====
+  function agregarFilaManual(manualIdFromLS=null) {
+    const manualId = manualIdFromLS || ('manual_' + Date.now());
+    const nuevaFila = document.createElement('tr');
+    nuevaFila.className = 'fila-manual';
+    nuevaFila.dataset.manualId = manualId;
+    
+    nuevaFila.innerHTML = `
+      <td class="px-3 py-2">
+        <select class="conductor-select w-full max-w-[200px] rounded-lg border border-slate-300 px-2 py-1">
+          <option value="">-- Seleccionar conductor --</option>
+          ${CONDUCTORES_LIST.map(c => `<option value="${c}">${c}</option>`).join('')}
+        </select>
+      </td>
+      <td class="px-3 py-2 text-right">
+        <input type="text" class="base-manual w-full max-w-[120px] rounded-lg border border-slate-300 px-2 py-1 text-right num" value="0" placeholder="0">
+      </td>
+      <td class="px-3 py-2 text-right num ajuste">0</td>
+      <td class="px-3 py-2 text-right num llego">0</td>
+      <td class="px-3 py-2 text-right num ret">0</td>
+      <td class="px-3 py-2 text-right num mil4">0</td>
+      <td class="px-3 py-2 text-right num apor">0</td>
+      <td class="px-3 py-2 text-right">
+        <input type="text" class="ss w-full max-w-[120px] rounded-lg border border-slate-300 px-2 py-1 text-right num" value="">
+      </td>
+      <td class="px-3 py-2 text-right">
+        <div class="flex items-center justify-end gap-2">
+          <span class="num prest">0</span>
+          <button type="button" class="btn-prest text-xs px-2 py-1 rounded border border-slate-300 bg-slate-50 hover:bg-slate-100">
+            Seleccionar
+          </button>
+        </div>
+        <div class="text-[11px] text-slate-500 text-right selected-deudor"></div>
+      </td>
+      <td class="px-3 py-2">
+        <input type="text" class="cta w-full max-w-[180px] rounded-lg border border-slate-300 px-2 py-1" value="" placeholder="N° cuenta">
+      </td>
+      <td class="px-3 py-2 text-right num pagar">0</td>
+      <td class="px-3 py-2 text-center">
+        <select class="estado-pago w-full max-w-[140px] rounded-lg border border-slate-300 px-2 py-1 text-sm">
+          <option value="">Sin estado</option>
+          <option value="pagado">✅ Pagado</option>
+          <option value="pendiente">❌ Pendiente</option>
+          <option value="procesando">🔄 Procesando</option>
+          <option value="parcial">⚠️ Parcial</option>
+        </select>
+      </td>
+      <td class="px-3 py-2 text-center">
+        <button type="button" class="btn-eliminar-manual text-xs px-2 py-1 rounded border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700">
+          🗑️
+        </button>
+      </td>
+    `;
 
-  /* =======================================================================
-     GESTOR DE CUENTAS (BD)
-  ======================================================================= */
+    tbody.appendChild(nuevaFila);
+
+    if (!manualIdFromLS) {
+      manualRows.push(manualId);
+      localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
+    }
+
+    configurarEventosFila(nuevaFila);
+    recalc();
+  }
+
+  // ===== CONFIGURAR EVENTOS PARA FILA =====
+  function configurarEventosFila(tr) {
+    const baseInput = tr.querySelector('.base-manual');
+    const cta = tr.querySelector('input.cta');
+    const ss = tr.querySelector('input.ss');
+    const estadoPago = tr.querySelector('select.estado-pago');
+    const btnEliminar = tr.querySelector('.btn-eliminar-manual');
+    const btnPrest = tr.querySelector('.btn-prest');
+    const conductorSelect = tr.querySelector('.conductor-select');
+
+    let baseName = '';
+    if (conductorSelect) {
+      baseName = conductorSelect.value || '';
+    } else {
+      baseName = tr.children[0].innerText.trim();
+    }
+
+    // Base manual
+    if (baseInput) {
+      baseInput.addEventListener('input', () => {
+        baseInput.value = fmt(toInt(baseInput.value));
+        recalc();
+      });
+    }
+
+    // Cuenta bancaria
+    if (cta) {
+      if (baseName && accMap[baseName]) cta.value = accMap[baseName];
+      cta.addEventListener('change', () => { 
+        const name = conductorSelect ? conductorSelect.value : tr.children[0].innerText.trim();
+        if (!name) return;
+        accMap[name] = cta.value.trim(); 
+        setLS(ACC_KEY, accMap); 
+      });
+    }
+
+    // Seguridad social
+    if (ss) {
+      if (baseName && ssMap[baseName]) ss.value = fmt(toInt(ssMap[baseName]));
+      ss.addEventListener('input', () => { 
+        const name = conductorSelect ? conductorSelect.value : tr.children[0].innerText.trim();
+        if (!name) return;
+        ssMap[name] = toInt(ss.value); 
+        setLS(SS_KEY, ssMap); 
+        recalc(); 
+      });
+    }
+
+    // Estado de pago
+    if (estadoPago) {
+      if (baseName && estadoPagoMap[baseName]) {
+        estadoPago.value = estadoPagoMap[baseName];
+        aplicarEstadoFila(tr, estadoPagoMap[baseName]);
+      }
+      estadoPago.addEventListener('change', () => { 
+        const name = conductorSelect ? conductorSelect.value : tr.children[0].innerText.trim();
+        if (!name) return;
+        estadoPagoMap[name] = estadoPago.value; 
+        setLS(ESTADO_PAGO_KEY, estadoPagoMap); 
+        aplicarEstadoFila(tr, estadoPago.value);
+      });
+    }
+
+    // Eliminar fila manual
+    if (btnEliminar) {
+      btnEliminar.addEventListener('click', () => {
+        const manualId = tr.dataset.manualId;
+        manualRows = manualRows.filter(id => id !== manualId);
+        localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
+        tr.remove();
+        recalc();
+      });
+    }
+
+    // Botón préstamos
+    if (btnPrest) {
+      btnPrest.addEventListener('click', () => openPrestModalForRow(tr));
+    }
+
+    // Cambio de conductor en fila manual
+    if (conductorSelect) {
+      conductorSelect.addEventListener('change', () => {
+        const newBaseName = conductorSelect.value;
+        baseName = newBaseName;
+
+        if (cta && accMap[newBaseName]) cta.value = accMap[newBaseName];
+        if (ss && ssMap[newBaseName]) ss.value = fmt(toInt(ssMap[newBaseName]));
+        if (estadoPago && estadoPagoMap[newBaseName]) {
+          estadoPago.value = estadoPagoMap[newBaseName];
+          aplicarEstadoFila(tr, estadoPagoMap[newBaseName]);
+        }
+        
+        const prestSpan = tr.querySelector('.prest');
+        const selLabel = tr.querySelector('.selected-deudor');
+        const chosen = prestSel[newBaseName] || [];
+        prestSpan.textContent = fmt(sumTotals(chosen));
+        selLabel.textContent = summarizeNames(chosen);
+        
+        recalc();
+      });
+    }
+
+    // Configurar préstamos existentes
+    const prestSpan = tr.querySelector('.prest');
+    const selLabel = tr.querySelector('.selected-deudor');
+    const chosen = prestSel[baseName] || [];
+    if (prestSpan) prestSpan.textContent = fmt(sumTotals(chosen));
+    if (selLabel) selLabel.textContent = summarizeNames(chosen);
+  }
+
+  // ===== CARGAR FILAS MANUALES EXISTENTES (de localStorage) =====
+  function cargarFilasManuales() {
+    manualRows.forEach(manualId => {
+      agregarFilaManual(manualId);
+    });
+  }
+
+  // ===== INICIALIZAR FILAS EXISTENTES =====
+  function initializeExistingRows() {
+    [...tbody.querySelectorAll('tr')].forEach(tr => {
+      if (!tr.classList.contains('fila-manual')) {
+        configurarEventosFila(tr);
+      }
+    });
+  }
+
+  // ===== FUNCIONES AUXILIARES =====
+  function summarizeNames(arr){ 
+    if(!arr||arr.length===0) return ''; 
+    const n=arr.map(x=>x.name); 
+    return n.length<=2 ? n.join(', ') : n.slice(0,2).join(', ')+' +'+(n.length-2)+' más'; 
+  }
+  
+  function sumTotals(arr){ 
+    return (arr||[]).reduce((a,b)=> a+(toInt(b.total)||0),0); 
+  }
+
+  function aplicarEstadoFila(tr, estado) {
+    tr.classList.remove('estado-pagado', 'estado-pendiente', 'estado-procesando', 'estado-parcial');
+    if (estado) tr.classList.add(`estado-${estado}`);
+  }
+
+  // ===== EVENTO BOTÓN AGREGAR MANUAL =====
+  btnAddManual.addEventListener('click', ()=> agregarFilaManual());
+
+  // ===== Modal préstamos =====
+  const prestModal   = document.getElementById('prestModal');
+  const btnAssign    = document.getElementById('btnAssign');
+  const btnCancel    = document.getElementById('btnCancel');
+  const btnClose     = document.getElementById('btnCloseModal');
+  const btnSelectAll = document.getElementById('btnSelectAll');
+  const btnUnselectAll = document.getElementById('btnUnselectAll');
+  const btnClearSel  = document.getElementById('btnClearSel');
+  const prestSearch  = document.getElementById('prestSearch');
+  const prestList    = document.getElementById('prestList');
+  const selCount     = document.getElementById('selCount');
+  const selTotal     = document.getElementById('selTotal');
+  const selTotalManual = document.getElementById('selTotalManual');
+
+  let currentRow=null, selectedIds=new Set(), filteredIdx=[];
+
+  selTotalManual.addEventListener('input', ()=>{ selTotalManual.dataset.touched = '1'; });
+
+  function renderPrestList(filter=''){
+    prestList.innerHTML='';
+    const nf=(filter||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+    filteredIdx=[];
+    const frag=document.createDocumentFragment();
+    PRESTAMOS_LIST.forEach((item,idx)=>{
+      if(nf && !item.key.includes(nf)) return;
+      filteredIdx.push(idx);
+
+      const row=document.createElement('label');
+      row.className='flex items-center justify-between gap-3 px-3 py-2 border-b border-slate-200';
+      const left=document.createElement('div'); left.className='flex items-center gap-3';
+      const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=selectedIds.has(item.id); cb.dataset.id=item.id;
+      const nm=document.createElement('span'); nm.className='truncate max-w-[360px]'; nm.textContent=item.name;
+      left.append(cb,nm);
+      const val=document.createElement('span'); val.className='num font-semibold'; val.textContent=(item.total||0).toLocaleString('es-CO');
+      row.append(left,val);
+      cb.addEventListener('change',()=>{ if(cb.checked)selectedIds.add(item.id); else selectedIds.delete(item.id); updateSelSummary(); });
+      frag.append(row);
+    });
+    prestList.append(frag);
+    updateSelSummary();
+  }
+  
+  function updateSelSummary(){
+    const arr=PRESTAMOS_LIST.filter(it=>selectedIds.has(it.id));
+    const total = arr.reduce((a,b)=>a+(b.total||0),0);
+    selCount.textContent=arr.length;
+    selTotal.textContent=fmt(total);
+
+    if (!selTotalManual.dataset.touched) {
+      selTotalManual.value = fmt(total);
+    }
+  }
+  
+  function openPrestModalForRow(tr){
+    currentRow = tr;
+    selectedIds = new Set();
+    let baseName;
+
+    if (tr.classList.contains('fila-manual')) {
+      const select = tr.querySelector('.conductor-select');
+      if (!select || !select.value.trim()) {
+        alert('Primero selecciona el conductor en la fila antes de elegir préstamos.');
+        return;
+      }
+      baseName = select.value.trim();
+    } else {
+      baseName = tr.children[0].innerText.trim();
+    }
+
+    (prestSel[baseName] || []).forEach(x => selectedIds.add(Number(x.id)));
+
+    prestSearch.value = '';
+    delete selTotalManual.dataset.touched;
+    renderPrestList('');
+
+    const currentPrestVal = toInt(tr.querySelector('.prest').textContent || '0');
+    const totalSeleccionado = PRESTAMOS_LIST
+      .filter(it => selectedIds.has(it.id))
+      .reduce((a, b) => a + (b.total || 0), 0);
+
+    const baseValor = currentPrestVal > 0 ? currentPrestVal : totalSeleccionado;
+    selTotalManual.value = fmt(baseValor);
+
+    prestModal.classList.remove('hidden');
+    requestAnimationFrame(() => {
+      prestSearch.focus();
+      prestSearch.select();
+    });
+  }
+  
+  function closePrest(){ 
+    prestModal.classList.add('hidden'); 
+    currentRow=null; selectedIds=new Set(); filteredIdx=[]; 
+    selTotalManual.value='0';
+    delete selTotalManual.dataset.touched;
+  }
+  
+  btnCancel.addEventListener('click',closePrest); 
+  btnClose.addEventListener('click',closePrest);
+  btnSelectAll.addEventListener('click',()=>{ filteredIdx.forEach(i=>selectedIds.add(PRESTAMOS_LIST[i].id)); renderPrestList(prestSearch.value); });
+  btnUnselectAll.addEventListener('click',()=>{ filteredIdx.forEach(i=>selectedIds.delete(PRESTAMOS_LIST[i].id)); renderPrestList(prestSearch.value); });
+  
+  btnClearSel.addEventListener('click',()=>{
+    if(!currentRow) return;
+    let baseName;
+    
+    if (currentRow.classList.contains('fila-manual')) {
+      const select = currentRow.querySelector('.conductor-select');
+      baseName = select ? select.value.trim() : '';
+    } else {
+      baseName = currentRow.children[0].innerText.trim();
+    }
+    
+    currentRow.querySelector('.prest').textContent='0';
+    currentRow.querySelector('.selected-deudor').textContent='';
+    if (baseName) {
+      delete prestSel[baseName]; 
+      setLS(PREST_SEL_KEY, prestSel); 
+    }
+    recalc();
+    selectedIds.clear(); 
+    delete selTotalManual.dataset.touched;
+    selTotalManual.value='0';
+    renderPrestList(prestSearch.value);
+  });
+  
+  btnAssign.addEventListener('click', () => {
+    if (!currentRow) return;
+    let baseName;
+
+    if (currentRow.classList.contains('fila-manual')) {
+      const select = currentRow.querySelector('.conductor-select');
+      baseName = select ? select.value.trim() : '';
+    } else {
+      baseName = currentRow.children[0].innerText.trim();
+    }
+
+    const chosen = PRESTAMOS_LIST
+      .filter(it => selectedIds.has(it.id))
+      .map(it => ({ id: it.id, name: it.name, total: it.total }));
+
+    if (baseName) {
+      prestSel[baseName] = chosen;
+      setLS(PREST_SEL_KEY, prestSel);
+    }
+
+    const totalReal = sumTotals(chosen);
+    let manualVal = toInt(selTotalManual.value);
+
+    if (manualVal < 0) manualVal = 0;
+
+    if (totalReal > 0) {
+      if (manualVal === 0) manualVal = totalReal;
+      if (manualVal > totalReal) manualVal = totalReal;
+    }
+
+    currentRow.querySelector('.prest').textContent = fmt(manualVal);
+    currentRow.querySelector('.selected-deudor').textContent = summarizeNames(chosen);
+    recalc();
+    closePrest();
+  });
+  
+  prestSearch.addEventListener('input',()=>renderPrestList(prestSearch.value));
+
+  // ===== Datos para el modal de viajes =====
+  const RANGO_DESDE = <?= json_encode($desde) ?>;
+  const RANGO_HASTA = <?= json_encode($hasta) ?>;
+  const RANGO_EMP   = <?= json_encode($empresaFiltro) ?>;
+
+  const viajesModal            = document.getElementById('viajesModal');
+  const viajesContent          = document.getElementById('viajesContent');
+  const viajesTitle            = document.getElementById('viajesTitle');
+  const viajesClose            = document.getElementById('viajesCloseBtn');
+  const viajesSelectConductor  = document.getElementById('viajesSelectConductor');
+  const viajesRango            = document.getElementById('viajesRango');
+  const viajesEmpresa          = document.getElementById('viajesEmpresa');
+
+  let viajesConductorActual = null;
+
+  function initViajesSelect(selectedName) {
+    viajesSelectConductor.innerHTML = "";
+    CONDUCTORES_LIST.forEach(nombre => {
+      const opt = document.createElement('option');
+      opt.value = nombre;
+      opt.textContent = nombre;
+      if (nombre === selectedName) opt.selected = true;
+      viajesSelectConductor.appendChild(opt);
+    });
+  }
+
+  function attachFiltroViajes(){
+    const pills = viajesContent.querySelectorAll('#legendFilterBar .legend-pill');
+    const rows  = viajesContent.querySelectorAll('#viajesTableBody .row-viaje');
+    if (!pills.length || !rows.length) return;
+
+    let activeCat = null;
+
+    function applyFilter(cat){
+      if (cat === activeCat) {
+        activeCat = null;
+      } else {
+        activeCat = cat;
+      }
+
+      pills.forEach(p => {
+        const pcat = p.getAttribute('data-tipo');
+        if (activeCat && pcat === activeCat) {
+          p.classList.add('ring-2','ring-blue-500','ring-offset-1','ring-offset-white');
+        } else {
+          p.classList.remove('ring-2','ring-blue-500','ring-offset-1','ring-offset-white');
+        }
+      });
+
+      rows.forEach(r => {
+        if (!activeCat) {
+          r.style.display = '';
+        } else {
+          if (r.classList.contains('cat-' + activeCat)) {
+            r.style.display = '';
+          } else {
+            r.style.display = 'none';
+          }
+        }
+      });
+    }
+
+    pills.forEach(p => {
+      p.addEventListener('click', ()=>{
+        const cat = p.getAttribute('data-tipo');
+        applyFilter(cat);
+      });
+    });
+  }
+
+  function loadViajes(nombre) {
+    viajesContent.innerHTML = '<p class="text-center m-0 animate-pulse">Cargando…</p>';
+    viajesConductorActual = nombre;
+    viajesTitle.textContent = nombre;
+
+    const qs = new URLSearchParams({
+      viajes_conductor: nombre,
+      desde: RANGO_DESDE,
+      hasta: RANGO_HASTA,
+      empresa: RANGO_EMP
+    });
+
+    fetch(SCRIPT_URL + '?' + qs.toString())
+      .then(r => r.text())
+      .then(html => {
+        viajesContent.innerHTML = html;
+        attachFiltroViajes();
+      })
+      .catch(() => {
+        viajesContent.innerHTML = '<p class="text-center text-rose-600">Error cargando viajes.</p>';
+      });
+  }
+
+  function abrirModalViajes(nombreInicial){
+    viajesRango.textContent   = RANGO_DESDE + " → " + RANGO_HASTA;
+    viajesEmpresa.textContent = (RANGO_EMP && RANGO_EMP !== "") ? RANGO_EMP : "Todas las empresas";
+
+    initViajesSelect(nombreInicial);
+
+    viajesModal.classList.add('show');
+
+    loadViajes(nombreInicial);
+  }
+
+  function cerrarModalViajes(){
+    viajesModal.classList.remove('show');
+    viajesContent.innerHTML = '';
+    viajesConductorActual = null;
+  }
+
+  viajesClose.addEventListener('click', cerrarModalViajes);
+  viajesModal.addEventListener('click', (e)=>{
+    if(e.target===viajesModal) cerrarModalViajes();
+  });
+
+  viajesSelectConductor.addEventListener('change', ()=>{
+    const nuevo = viajesSelectConductor.value;
+    loadViajes(nuevo);
+  });
+
+  document.querySelectorAll('#tbody .conductor-link').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      abrirModalViajes(btn.textContent.trim());
+    });
+  });
+
+  // ===== CÁLCULOS =====
+  function recalc(){
+    const porcentaje = parseFloat(document.getElementById('inp_porcentaje_ajuste').value) || 0;
+    const rows=[...tbody.querySelectorAll('tr')];
+
+    let sumAjuste=0, sumLleg=0, sumRet=0, sumMil4=0, sumAp=0, sumSS=0, sumPrest=0, sumPagar=0;
+    
+    rows.forEach((tr)=>{
+      let base;
+      if (tr.classList.contains('fila-manual')) {
+        const baseInput = tr.querySelector('.base-manual');
+        base = baseInput ? toInt(baseInput.value) : 0;
+      } else {
+        const baseEl = tr.querySelector('.base');
+        if (!baseEl) return;
+        base = toInt(baseEl.textContent);
+      }
+      
+      const prest=toInt(tr.querySelector('.prest').textContent || '0');
+      const ajuste = Math.round(base * (porcentaje / 100));
+      const llego = base - ajuste;
+      const ret=Math.round(llego*0.035);
+      const mil4=Math.round(llego*0.004);
+      const ap=Math.round(llego*0.10);
+      const ssInput = tr.querySelector('input.ss');
+      const ssVal = ssInput ? toInt(ssInput.value) : 0;
+      const pagar = llego - ret - mil4 - ap - ssVal - prest;
+
+      tr.querySelector('.ajuste').textContent=fmt(ajuste);
+      tr.querySelector('.llego').textContent=fmt(llego);
+      tr.querySelector('.ret').textContent=fmt(ret);
+      tr.querySelector('.mil4').textContent=fmt(mil4);
+      tr.querySelector('.apor').textContent=fmt(ap);
+      tr.querySelector('.pagar').textContent=fmt(pagar);
+
+      sumAjuste += ajuste;
+      sumLleg+=llego; sumRet+=ret; sumMil4+=mil4; sumAp+=ap; sumSS+=ssVal; sumPrest+=prest; sumPagar+=pagar;
+    });
+
+    document.getElementById('lbl_total_ajuste').textContent=fmt(sumAjuste);
+    document.getElementById('tot_valor_llego').textContent=fmt(sumLleg);
+    document.getElementById('tot_retencion').textContent=fmt(sumRet);
+    document.getElementById('tot_4x1000').textContent=fmt(sumMil4);
+    document.getElementById('tot_aporte').textContent=fmt(sumAp);
+    document.getElementById('tot_ss').textContent=fmt(sumSS);
+    document.getElementById('tot_prestamos').textContent=fmt(sumPrest);
+    document.getElementById('tot_pagar').textContent=fmt(sumPagar);
+  }
+
+  const fmtInput=(el)=> el && el.addEventListener('input',()=>{ 
+    const raw=parseFloat(el.value) || 0; 
+    el.value = raw; 
+    recalc(); 
+  });
+  
+  fmtInput(document.getElementById('inp_facturado'));
+  fmtInput(document.getElementById('inp_porcentaje_ajuste'));
+
+  // ===== INICIALIZACIÓN =====
+  document.addEventListener('DOMContentLoaded', function() {
+    initializeExistingRows();
+    cargarFilasManuales();
+    recalc();
+  });
+
+  // ===== Gestor de cuentas (BD) =====
   const formFiltros = document.getElementById('formFiltros');
   const inpDesde = document.getElementById('inp_desde');
   const inpHasta = document.getElementById('inp_hasta');
@@ -724,6 +1318,86 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const iCFact = document.getElementById('cuenta_facturado');
   const iCPorcentaje  = document.getElementById('cuenta_porcentaje');
 
+  let editingCuentaId = null;
+  let CUENTAS = [];
+
+  function openSaveCuenta(item=null){
+    const emp = selEmpresa.value.trim();
+    if (!item && !emp){
+      alert('Selecciona una EMPRESA antes de guardar la cuenta.');
+      return;
+    }
+    editingCuentaId = item ? item.id : null;
+
+    if (item){
+      iEmpresa.value = item.empresa;
+      iRango.value   = `${item.desde} → ${item.hasta}`;
+      iNombre.value  = item.nombre;
+      iCFact.value   = fmt(item.facturado || 0);
+      iCPorcentaje.value = item.porcentaje_ajuste || 0;
+    } else {
+      const d = inpDesde.value;
+      const h = inpHasta.value;
+      iEmpresa.value = emp;
+      iRango.value   = `${d} → ${h}`;
+      iNombre.value  = `${emp} ${d} a ${h}`;
+      iCFact.value   = fmt(toInt(inpFact.value));
+      iCPorcentaje.value = parseFloat(inpPorcentaje.value) || 0;
+    }
+
+    saveCuentaModal.classList.remove('hidden');
+    setTimeout(()=> iNombre.focus(), 0);
+  }
+  function closeSaveCuenta(){ saveCuentaModal.classList.add('hidden'); }
+
+  btnShowSaveCuenta.addEventListener('click', ()=>openSaveCuenta(null));
+  btnCloseSaveCuenta.addEventListener('click', closeSaveCuenta);
+  btnCancelSaveCuenta.addEventListener('click', closeSaveCuenta);
+
+  btnDoSaveCuenta.addEventListener('click', ()=>{
+    const emp = iEmpresa.value.trim();
+    if (!emp){
+      alert('Empresa requerida'); return;
+    }
+    const [d1, d2raw] = iRango.value.split('→');
+    const desde = (d1||'').trim();
+    const hasta = (d2raw||'').trim();
+    const nombre = iNombre.value.trim() || `${emp} ${desde} a ${hasta}`;
+    const facturado = toInt(iCFact.value);
+    const porcentaje  = parseFloat(iCPorcentaje.value) || 0;
+
+    const params = new URLSearchParams();
+    params.append('accion','guardar_cuenta');
+    if (editingCuentaId) params.append('id', editingCuentaId);
+    params.append('nombre', nombre);
+    params.append('empresa', emp);
+    params.append('desde', desde);
+    params.append('hasta', hasta);
+    params.append('facturado', facturado);
+    params.append('porcentaje_ajuste', porcentaje);
+
+    fetch(SCRIPT_URL, {
+      method:'POST',
+      body: params
+    })
+    .then(r => r.json())
+    .then(data=>{
+      if (!data.ok){
+        alert('Error guardando: ' + (data.msg || 'desconocido'));
+        return;
+      }
+      closeSaveCuenta();
+      alert('Cuenta guardada ✔');
+      if (!gestorModal.classList.contains('hidden')) {
+        loadCuentasFromServer();
+      }
+    })
+    .catch(err=>{
+      console.error(err);
+      alert('Error de red guardando la cuenta');
+    });
+  });
+
   const gestorModal = document.getElementById('gestorCuentasModal');
   const btnShowGestor = document.getElementById('btnShowGestorCuentas');
   const btnCloseGestor = document.getElementById('btnCloseGestor');
@@ -732,128 +1406,26 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const buscaCuenta = document.getElementById('buscaCuenta');
   const tbodyCuentas = document.getElementById('tbodyCuentas');
 
-  const CUENTAS_API = '<?= basename(__FILE__) ?>?ajax=cuentas';
-
-  let cuentasCache = [];
-
-  function openSaveCuenta(item=null){
-    const emp = selEmpresa.value.trim();
-    if(!item && !emp){
-      alert('Selecciona una EMPRESA antes de guardar la cuenta.');
-      return;
-    }
-
-    if (item){
-      iEmpresa.value = item.empresa;
-      iRango.value   = `${item.desde} → ${item.hasta || ''}`;
-      iNombre.value  = item.nombre;
-      iCFact.value   = fmt(item.facturado || 0);
-      iCPorcentaje.value = item.porcentaje_ajuste || 0;
-      btnDoSaveCuenta.dataset.editId = item.id;
-    } else {
-      const d = inpDesde.value;
-      const h = inpHasta.value;
-      if (!d || !h) {
-        alert('Debes tener llenas las fechas Desde y Hasta.');
-        return;
-      }
-      iEmpresa.value = emp;
-      iRango.value   = `${d} → ${h}`;
-      iNombre.value  = `${emp} ${d} a ${h}`;
-      iCFact.value   = fmt(toInt(inpFact.value));
-      iCPorcentaje.value = parseFloat(inpPorcentaje.value) || 0;
-      delete btnDoSaveCuenta.dataset.editId;
-    }
-
-    saveCuentaModal.classList.remove('hidden');
-    setTimeout(()=> iNombre.focus(), 0);
-  }
-  function closeSaveCuenta(){ saveCuentaModal.classList.add('hidden'); }
-
-  btnShowSaveCuenta.addEventListener('click', ()=> openSaveCuenta(null));
-  btnCloseSaveCuenta.addEventListener('click', closeSaveCuenta);
-  btnCancelSaveCuenta.addEventListener('click', closeSaveCuenta);
-
-  btnDoSaveCuenta.addEventListener('click', async ()=>{
-    const emp = iEmpresa.value.trim();
-    const rango = iRango.value.split('→');
-    const desde = (rango[0]||'').trim();
-    const hasta = (rango[1]||'').trim();
-    const nombre = iNombre.value.trim() || `${emp} ${desde} a ${hasta}`;
-    const facturado = toInt(iCFact.value);
-    const porcentaje = parseFloat(iCPorcentaje.value) || 0;
-
-    if (!emp || !desde || !hasta){
-      alert('Empresa, rango y fechas son obligatorios.');
-      return;
-    }
-
-    const editId = btnDoSaveCuenta.dataset.editId || null;
-    const accion = editId ? 'actualizar' : 'guardar';
-
-    try{
-      const res = await fetch(`${CUENTAS_API}&accion=${accion}`, {
-        method: 'POST',
-        headers: { 'Content-Type':'application/json' },
-        body: JSON.stringify({
-          id: editId ? parseInt(editId) : undefined,
-          nombre, empresa:emp, desde, hasta,
-          facturado, porcentaje_ajuste:porcentaje
-        })
-      });
-      const js = await res.json();
-      if(!js.ok){
-        alert(js.msg || 'Error al guardar.');
-        return;
-      }
-      closeSaveCuenta();
-      loadCuentas(); // recargar lista
-    }catch(e){
-      console.error(e);
-      alert('Error de red al guardar.');
-    }
-  });
-
-  async function loadCuentas(){
-    const emp = selEmpresa.value.trim();
-    lblEmpresaActual.textContent = emp || '(selecciona empresa)';
-    tbodyCuentas.innerHTML = '<tr><td colspan="5" class="px-3 py-3 text-center text-slate-500">Cargando…</td></tr>';
-    if (!emp){
-      tbodyCuentas.innerHTML = '<tr><td colspan="5" class="px-3 py-3 text-center text-slate-500">Selecciona una empresa en el filtro principal.</td></tr>';
-      return;
-    }
-    try{
-      const res = await fetch(`${CUENTAS_API}&accion=listar&empresa=`+encodeURIComponent(emp));
-      const js = await res.json();
-      if(!js.ok){
-        tbodyCuentas.innerHTML = '<tr><td colspan="5" class="px-3 py-3 text-center text-rose-500">Error al cargar.</td></tr>';
-        return;
-      }
-      cuentasCache = js.items || [];
-      renderCuentas();
-    }catch(e){
-      console.error(e);
-      tbodyCuentas.innerHTML = '<tr><td colspan="5" class="px-3 py-3 text-center text-rose-500">Error de red.</td></tr>';
-    }
-  }
-
   function renderCuentas(){
-    const filtro = (buscaCuenta.value || '').toLowerCase();
+    const emp = selEmpresa.value.trim();
+    const filtro = (buscaCuenta.value||'').toLowerCase();
+    lblEmpresaActual.textContent = emp || '(todas)';
+
+    const arr = CUENTAS.slice().sort((a,b)=> (a.desde>b.desde? -1:1));
     tbodyCuentas.innerHTML = '';
-    if (!cuentasCache.length){
-      tbodyCuentas.innerHTML = '<tr><td colspan="5" class="px-3 py-3 text-center text-slate-500">No hay cuentas guardadas.</td></tr>';
+    if(arr.length===0){
+      tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>No hay cuentas guardadas para esta empresa.</td></tr>";
       return;
     }
     const frag = document.createDocumentFragment();
-    cuentasCache.forEach(item=>{
-      if (filtro && !item.nombre.toLowerCase().includes(filtro)) return;
+    arr.forEach(item=>{
+      if(filtro && !item.nombre.toLowerCase().includes(filtro)) return;
       const tr = document.createElement('tr');
-      const rangoTxt = `${item.desde} → ${item.hasta || ''}`;
       tr.innerHTML = `
         <td class="px-3 py-2">${item.nombre}</td>
-        <td class="px-3 py-2">${rangoTxt}</td>
-        <td class="px-3 py-2 text-right num">${fmt(item.facturado || 0)}</td>
-        <td class="px-3 py-2 text-right num">${item.porcentaje_ajuste || 0}%</td>
+        <td class="px-3 py-2">${item.desde} &rarr; ${item.hasta}</td>
+        <td class="px-3 py-2 text-right num">${fmt(item.facturado||0)}</td>
+        <td class="px-3 py-2 text-right num">${item.porcentaje_ajuste||0}%</td>
         <td class="px-3 py-2 text-right">
           <div class="inline-flex gap-2">
             <button class="btnUsar border px-2 py-1 rounded bg-slate-50 hover:bg-slate-100 text-xs">Usar</button>
@@ -871,49 +1443,71 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     tbodyCuentas.appendChild(frag);
   }
 
+  function loadCuentasFromServer(){
+    const emp = selEmpresa.value.trim();
+    if (!emp){
+      lblEmpresaActual.textContent = '(ninguna)';
+      tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>Selecciona primero una empresa.</td></tr>";
+      return;
+    }
+    lblEmpresaActual.textContent = emp;
+    tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>Cargando…</td></tr>";
+    fetch(SCRIPT_URL + '?accion=listar_cuentas&empresa=' + encodeURIComponent(emp))
+      .then(r => r.json())
+      .then(data=>{
+        if (!data.ok){
+          tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-rose-600'>Error cargando cuentas.</td></tr>";
+          return;
+        }
+        CUENTAS = data.items || [];
+        renderCuentas();
+      })
+      .catch(err=>{
+        console.error(err);
+        tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-rose-600'>Error de red.</td></tr>";
+      });
+  }
+
   function usarCuenta(item, aplicar){
     selEmpresa.value = item.empresa;
     inpDesde.value = item.desde;
-
-    // AQUÍ estaba tu problema: aseguramos que SIEMPRE llenamos HASTA
-    inpHasta.value = item.hasta || '';
-
-    if (item.facturado) {
-      inpFact.value = fmt(item.facturado);
-    }
-    if (item.porcentaje_ajuste !== null && item.porcentaje_ajuste !== undefined) {
-      inpPorcentaje.value = item.porcentaje_ajuste;
-    }
-
-    // Recalcular montos (función recalc que ya tienes definida)
-    if (typeof recalc === 'function') recalc();
-
-    if (aplicar) {
-      gestorModal.classList.add('hidden');
-      formFiltros.submit();
-    }
+    inpHasta.value = item.hasta;
+    if(item.facturado) document.getElementById('inp_facturado').value = fmt(item.facturado);
+    if(item.porcentaje_ajuste)  document.getElementById('inp_porcentaje_ajuste').value  = item.porcentaje_ajuste;
+    recalc();
+    if(aplicar) formFiltros.submit();
   }
 
-  async function eliminarCuenta(item){
-    if (!confirm('¿Eliminar la cuenta "'+item.nombre+'"?')) return;
-    try{
-      const res = await fetch(`${CUENTAS_API}&accion=eliminar&id=${item.id}`);
-      const js = await res.json();
-      if(!js.ok){
-        alert(js.msg || 'Error al eliminar.');
+  function eliminarCuenta(item){
+    const emp = selEmpresa.value.trim();
+    if(!confirm('¿Eliminar esta cuenta?')) return;
+    const params = new URLSearchParams();
+    params.append('accion','eliminar_cuenta');
+    params.append('id', item.id);
+
+    fetch(SCRIPT_URL, {
+      method:'POST',
+      body: params
+    })
+    .then(r=>r.json())
+    .then(data=>{
+      if(!data.ok){
+        alert('Error al eliminar: ' + (data.msg || 'desconocido'));
         return;
       }
-      cuentasCache = cuentasCache.filter(x=> x.id !== item.id);
-      renderCuentas();
-    }catch(e){
-      console.error(e);
-      alert('Error de red al eliminar.');
-    }
+      loadCuentasFromServer();
+    })
+    .catch(err=>{
+      console.error(err);
+      alert('Error de red al eliminar');
+    });
   }
 
   function openGestor(){
     gestorModal.classList.remove('hidden');
-    loadCuentas();
+    buscaCuenta.value = '';
+    loadCuentasFromServer();
+    setTimeout(()=> buscaCuenta.focus(), 0);
   }
   function closeGestor(){ gestorModal.classList.add('hidden'); }
 
@@ -922,6 +1516,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   buscaCuenta.addEventListener('input', renderCuentas);
   btnAddDesdeFiltro.addEventListener('click', ()=>{ closeGestor(); openSaveCuenta(null); });
 
+  const nf1 = el => el && el.addEventListener('input', ()=>{ el.value = fmt(toInt(el.value)); });
+  nf1(document.getElementById('cuenta_facturado'));
 </script>
 </body>
 </html>
