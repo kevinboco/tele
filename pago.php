@@ -1,79 +1,3 @@
-[file name]: cuentas_cobro_guardadas.sql
-[file content begin]
--- phpMyAdmin SQL Dump
--- version 5.2.2
--- https://www.phpmyadmin.net/
---
--- Servidor: 127.0.0.1
--- Tiempo de generación: 29-11-2025 a las 16:19:22
--- Versión del servidor: 11.8.3-MariaDB-log
--- Versión de PHP: 7.2.34
-
-SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
-START TRANSACTION;
-SET time_zone = "+00:00";
-
-
-/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
-/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
-/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
-/*!40101 SET NAMES utf8mb4 */;
-
---
--- Base de datos: `u648222299_viajes`
---
-
--- --------------------------------------------------------
-
---
--- Estructura de tabla para la tabla `cuentas_cobro_guardadas`
---
-
-CREATE TABLE `cuentas_cobro_guardadas` (
-  `id` int(11) NOT NULL,
-  `nombre` varchar(255) NOT NULL,
-  `empresa` varchar(255) NOT NULL,
-  `desde` date NOT NULL,
-  `hasta` date NOT NULL,
-  `facturado` decimal(15,2) DEFAULT 0.00,
-  `porcentaje_ajuste` decimal(5,2) DEFAULT 0.00,
-  `prestamos_data` longtext DEFAULT NULL,
-  `fecha_creacion` timestamp NULL DEFAULT current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Volcado de datos para la tabla `cuentas_cobro_guardadas`
---
-
-INSERT INTO `cuentas_cobro_guardadas` (`id`, `nombre`, `empresa`, `desde`, `hasta`, `facturado`, `porcentaje_ajuste`, `prestamos_data`, `fecha_creacion`) VALUES
-(18, 'Hospital 2025-09-01 a 2025-09-25', 'Hospital', '2025-09-01', '2025-09-25', 116250000.00, 5.00, NULL, '2025-11-29 03:09:35');
-
---
--- Índices para tablas volcadas
---
-
---
--- Indices de la tabla `cuentas_cobro_guardadas`
---
-ALTER TABLE `cuentas_cobro_guardadas`
-  ADD PRIMARY KEY (`id`);
-
---
--- AUTO_INCREMENT de las tablas volcadas
---
-
---
--- AUTO_INCREMENT de la tabla `cuentas_cobro_guardadas`
---
-ALTER TABLE `cuentas_cobro_guardadas`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=19;
-COMMIT;
-
-/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
-/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
-/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
-[file content end]
-
 <?php
 // ==== CONEXIÓN BD ====
 $conn = new mysqli(
@@ -236,7 +160,7 @@ if (isset($_GET['accion']) || isset($_POST['accion'])) {
     $empresa = $conn->real_escape_string($_GET['empresa'] ?? '');
     $data = [];
     if ($empresa !== '') {
-      $sql = "SELECT id, nombre, empresa, desde, hasta, facturado, porcentaje_ajuste, prestamos_data
+      $sql = "SELECT id, nombre, empresa, desde, hasta, facturado, porcentaje_ajuste
               FROM cuentas_cobro_guardadas
               WHERE empresa = '$empresa'
               ORDER BY desde DESC, id DESC";
@@ -250,7 +174,6 @@ if (isset($_GET['accion']) || isset($_POST['accion'])) {
             'hasta' => $r['hasta'],
             'facturado' => (int)$r['facturado'],
             'porcentaje_ajuste' => (float)$r['porcentaje_ajuste'],
-            'prestamos_data' => $r['prestamos_data'] ? json_decode($r['prestamos_data'], true) : null
           ];
         }
       }
@@ -268,7 +191,6 @@ if (isset($_GET['accion']) || isset($_POST['accion'])) {
     $hasta     = $conn->real_escape_string($_POST['hasta'] ?? '');
     $facturado = (int)($_POST['facturado'] ?? 0);
     $porcentaje = (float)($_POST['porcentaje_ajuste'] ?? 0);
-    $prestamos_data = $conn->real_escape_string($_POST['prestamos_data'] ?? '');
 
     if ($empresa === '' || $desde === '' || $hasta === '') {
       echo json_encode(['ok'=>false,'msg'=>'Datos incompletos']); exit;
@@ -276,23 +198,23 @@ if (isset($_GET['accion']) || isset($_POST['accion'])) {
 
     if ($id > 0) {
       $stmt = $conn->prepare("UPDATE cuentas_cobro_guardadas
-                              SET nombre=?, empresa=?, desde=?, hasta=?, facturado=?, porcentaje_ajuste=?, prestamos_data=?
+                              SET nombre=?, empresa=?, desde=?, hasta=?, facturado=?, porcentaje_ajuste=?
                               WHERE id=?");
       if (!$stmt) {
         echo json_encode(['ok'=>false,'msg'=>$conn->error]); exit;
       }
-      $stmt->bind_param("sssiddsi", $nombre, $empresa, $desde, $hasta, $facturado, $porcentaje, $prestamos_data, $id);
+      $stmt->bind_param("sssiddi", $nombre, $empresa, $desde, $hasta, $facturado, $porcentaje, $id);
       $ok = $stmt->execute();
       $stmt->close();
       echo json_encode(['ok'=>$ok, 'id'=>$id]); exit;
     } else {
       $stmt = $conn->prepare("INSERT INTO cuentas_cobro_guardadas
-        (nombre, empresa, desde, hasta, facturado, porcentaje_ajuste, prestamos_data, fecha_creacion)
-        VALUES (?,?,?,?,?,?,?,NOW())");
+        (nombre, empresa, desde, hasta, facturado, porcentaje_ajuste, fecha_creacion)
+        VALUES (?,?,?,?,?,?,NOW())");
       if (!$stmt) {
         echo json_encode(['ok'=>false,'msg'=>$conn->error]); exit;
       }
-      $stmt->bind_param("sssidisi", $nombre, $empresa, $desde, $hasta, $facturado, $porcentaje, $prestamos_data);
+      $stmt->bind_param("sssidi", $nombre, $empresa, $desde, $hasta, $facturado, $porcentaje);
       $ok = $stmt->execute();
       $newId = $stmt->insert_id;
       $stmt->close();
@@ -1404,39 +1326,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   let editingCuentaId = null;
   let CUENTAS = [];
 
-  // ===== FUNCIÓN PARA OBTENER DATOS DE PRÉSTAMOS ACTUALES =====
-  function obtenerDatosPrestamosActuales() {
-    const prestamosData = {};
-    
-    // Recorrer todas las filas de la tabla
-    document.querySelectorAll('#tbody tr').forEach(tr => {
-      let conductorNombre = '';
-      
-      // Obtener el nombre del conductor según el tipo de fila
-      if (tr.classList.contains('fila-manual')) {
-        const select = tr.querySelector('.conductor-select');
-        conductorNombre = select ? select.value.trim() : '';
-      } else {
-        const conductorBtn = tr.querySelector('.conductor-link');
-        conductorNombre = conductorBtn ? conductorBtn.textContent.trim() : '';
-      }
-      
-      if (conductorNombre) {
-        const prestamoSpan = tr.querySelector('.prest');
-        const prestamoValor = toInt(prestamoSpan ? prestamoSpan.textContent : '0');
-        
-        if (prestamoValor > 0) {
-          prestamosData[conductorNombre] = {
-            valor: prestamoValor,
-            seleccionados: prestSel[conductorNombre] || []
-          };
-        }
-      }
-    });
-    
-    return prestamosData;
-  }
-
   function openSaveCuenta(item=null){
     const emp = selEmpresa.value.trim();
     if (!item && !emp){
@@ -1482,10 +1371,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const nombre = iNombre.value.trim() || `${emp} ${desde} a ${hasta}`;
     const facturado = toInt(iCFact.value);
     const porcentaje  = parseFloat(iCPorcentaje.value) || 0;
-    
-    // Obtener datos actuales de préstamos
-    const prestamosData = obtenerDatosPrestamosActuales();
-    const prestamosDataJSON = JSON.stringify(prestamosData);
 
     if (!desde || !hasta) {
       alert('Las fechas Desde y Hasta son requeridas');
@@ -1502,7 +1387,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     formData.append('hasta', hasta);
     formData.append('facturado', facturado);
     formData.append('porcentaje_ajuste', porcentaje);
-    formData.append('prestamos_data', prestamosDataJSON);
 
     fetch(SCRIPT_URL, {
       method: 'POST',
@@ -1538,51 +1422,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   const lblEmpresaActual = document.getElementById('lblEmpresaActual');
   const buscaCuenta = document.getElementById('buscaCuenta');
   const tbodyCuentas = document.getElementById('tbodyCuentas');
-
-  // ===== FUNCIÓN PARA APLICAR PRÉSTAMOS GUARDADOS =====
-  function aplicarPrestamosGuardados(prestamosData) {
-    if (!prestamosData) return;
-    
-    Object.keys(prestamosData).forEach(conductorNombre => {
-      const data = prestamosData[conductorNombre];
-      
-      // Buscar la fila del conductor
-      let filaConductor = null;
-      
-      document.querySelectorAll('#tbody tr').forEach(tr => {
-        let nombreEnFila = '';
-        
-        if (tr.classList.contains('fila-manual')) {
-          const select = tr.querySelector('.conductor-select');
-          nombreEnFila = select ? select.value.trim() : '';
-        } else {
-          const conductorBtn = tr.querySelector('.conductor-link');
-          nombreEnFila = conductorBtn ? conductorBtn.textContent.trim() : '';
-        }
-        
-        if (nombreEnFila === conductorNombre) {
-          filaConductor = tr;
-        }
-      });
-      
-      if (filaConductor) {
-        // Aplicar el valor del préstamo
-        const prestSpan = filaConductor.querySelector('.prest');
-        const selLabel = filaConductor.querySelector('.selected-deudor');
-        
-        if (prestSpan) prestSpan.textContent = fmt(data.valor);
-        if (selLabel && data.seleccionados && data.seleccionados.length > 0) {
-          selLabel.textContent = summarizeNames(data.seleccionados);
-        }
-        
-        // Actualizar el localStorage de préstamos
-        prestSel[conductorNombre] = data.seleccionados || [];
-      }
-    });
-    
-    setLS(PREST_SEL_KEY, prestSel);
-    recalc();
-  }
 
   function renderCuentas(){
     const emp = selEmpresa.value.trim();
@@ -1657,12 +1496,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     inpHasta.value = item.hasta;
     if(item.facturado) document.getElementById('inp_facturado').value = fmt(item.facturado);
     if(item.porcentaje_ajuste)  document.getElementById('inp_porcentaje_ajuste').value  = item.porcentaje_ajuste;
-    
-    // Aplicar préstamos guardados si existen
-    if (item.prestamos_data) {
-      aplicarPrestamosGuardados(item.prestamos_data);
-    }
-    
     recalc();
     if(aplicar) formFiltros.submit();
   }
