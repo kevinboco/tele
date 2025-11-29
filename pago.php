@@ -1369,18 +1369,17 @@ box-shadow:0 20px 60px rgba(0,0,0,.25); border:1px solid #e5e7eb; }
       alert('Empresa requerida'); return;
     }
     
-    // CORRECCIÓN: Extraer ambas fechas del rango correctamente
-    const rangoParts = iRango.value.split('→');
-    const desde = (rangoParts[0]||'').trim();
-    const hasta = (rangoParts[1]||'').trim();
+    // CORRECCIÓN COMPLETA: Usar directamente las fechas de los inputs del formulario
+    const d = inpDesde.value;
+    const h = inpHasta.value;
     
     // Validar que tengamos ambas fechas
-    if (!desde || !hasta) {
-      alert('Error: No se pudieron extraer las fechas del rango');
+    if (!d || !h) {
+      alert('Error: Fechas desde/hasta no están definidas');
       return;
     }
     
-    const nombre = iNombre.value.trim() || `${emp} ${desde} a ${hasta}`;
+    const nombre = iNombre.value.trim() || `${emp} ${d} a ${h}`;
     const facturado = toInt(iCFact.value);
     const porcentaje  = parseFloat(iCPorcentaje.value) || 0;
 
@@ -1389,8 +1388,8 @@ box-shadow:0 20px 60px rgba(0,0,0,.25); border:1px solid #e5e7eb; }
     if (editingCuentaId) params.append('id', editingCuentaId);
     params.append('nombre', nombre);
     params.append('empresa', emp);
-    params.append('desde', desde);
-    params.append('hasta', hasta);
+    params.append('desde', d);
+    params.append('hasta', h);
     params.append('facturado', facturado);
     params.append('porcentaje_ajuste', porcentaje);
 
