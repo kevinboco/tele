@@ -649,20 +649,24 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             <input id="cuenta_empresa" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" readonly>
           </label>
           <label class="block">
-            <span class="block text-xs font-medium mb-1">Rango</span>
-            <input id="cuenta_rango" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" readonly>
+            <span class="block text-xs font-medium mb-1">Desde</span>
+            <input id="cuenta_desde" type="date" class="w-full rounded-xl border border-slate-300 px-3 py-2">
           </label>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <label class="block">
+            <span class="block text-xs font-medium mb-1">Hasta</span>
+            <input id="cuenta_hasta" type="date" class="w-full rounded-xl border border-slate-300 px-3 py-2">
+          </label>
+          <label class="block">
             <span class="block text-xs font-medium mb-1">Facturado</span>
             <input id="cuenta_facturado" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
           </label>
-          <label class="block">
-            <span class="block text-xs font-medium mb-1">Porcentaje ajuste</span>
-            <input id="cuenta_porcentaje" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
-          </label>
         </div>
+        <label class="block">
+          <span class="block text-xs font-medium mb-1">Porcentaje ajuste</span>
+          <input id="cuenta_porcentaje" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
+        </label>
       </div>
       <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
         <button id="btnCancelSaveCuenta" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
@@ -1314,7 +1318,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
   const iNombre = document.getElementById('cuenta_nombre');
   const iEmpresa = document.getElementById('cuenta_empresa');
-  const iRango = document.getElementById('cuenta_rango');
+  const iDesde = document.getElementById('cuenta_desde');
+  const iHasta = document.getElementById('cuenta_hasta');
   const iCFact = document.getElementById('cuenta_facturado');
   const iCPorcentaje  = document.getElementById('cuenta_porcentaje');
 
@@ -1331,7 +1336,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     if (item){
       iEmpresa.value = item.empresa;
-      iRango.value   = `${item.desde} → ${item.hasta}`;
+      iDesde.value = item.desde;
+      iHasta.value = item.hasta;
       iNombre.value  = item.nombre;
       iCFact.value   = fmt(item.facturado || 0);
       iCPorcentaje.value = item.porcentaje_ajuste || 0;
@@ -1339,7 +1345,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       const d = inpDesde.value;
       const h = inpHasta.value;
       iEmpresa.value = emp;
-      iRango.value   = `${d} → ${h}`;
+      iDesde.value = d;
+      iHasta.value = h;
       iNombre.value  = `${emp} ${d} a ${h}`;
       iCFact.value   = fmt(toInt(inpFact.value));
       iCPorcentaje.value = parseFloat(inpPorcentaje.value) || 0;
@@ -1359,28 +1366,38 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     if (!emp){
       alert('Empresa requerida'); return;
     }
-    const [d1, d2raw] = iRango.value.split('→');
-    const desde = (d1||'').trim();
-    const hasta = (d2raw||'').trim();
+    const desde = iDesde.value.trim();
+    const hasta = iHasta.value.trim();
     const nombre = iNombre.value.trim() || `${emp} ${desde} a ${hasta}`;
     const facturado = toInt(iCFact.value);
     const porcentaje  = parseFloat(iCPorcentaje.value) || 0;
 
-    const params = new URLSearchParams();
-    params.append('accion','guardar_cuenta');
-    if (editingCuentaId) params.append('id', editingCuentaId);
-    params.append('nombre', nombre);
-    params.append('empresa', emp);
-    params.append('desde', desde);
-    params.append('hasta', hasta);
-    params.append('facturado', facturado);
-    params.append('porcentaje_ajuste', porcentaje);
+    if (!desde || !hasta) {
+      alert('Las fechas Desde y Hasta son requeridas');
+      return;
+    }
+
+    // CORRECCIÓN: Usar FormData en lugar de URLSearchParams para evitar problemas de codificación
+    const formData = new FormData();
+    formData.append('accion', 'guardar_cuenta');
+    if (editingCuentaId) formData.append('id', editingCuentaId);
+    formData.append('nombre', nombre);
+    formData.append('empresa', emp);
+    formData.append('desde', desde);
+    formData.append('hasta', hasta);
+    formData.append('facturado', facturado);
+    formData.append('porcentaje_ajuste', porcentaje);
 
     fetch(SCRIPT_URL, {
-      method:'POST',
-      body: params
+      method: 'POST',
+      body: formData
     })
-    .then(r => r.json())
+    .then(r => {
+      if (!r.ok) {
+        throw new Error('Error de red: ' + r.status);
+      }
+      return r.json();
+    })
     .then(data=>{
       if (!data.ok){
         alert('Error guardando: ' + (data.msg || 'desconocido'));
@@ -1393,8 +1410,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       }
     })
     .catch(err=>{
-      console.error(err);
-      alert('Error de red guardando la cuenta');
+      console.error('Error completo:', err);
+      alert('Error de red guardando la cuenta: ' + err.message);
     });
   });
 
@@ -1453,7 +1470,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     lblEmpresaActual.textContent = emp;
     tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>Cargando…</td></tr>";
     fetch(SCRIPT_URL + '?accion=listar_cuentas&empresa=' + encodeURIComponent(emp))
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) {
+          throw new Error('Error de red: ' + r.status);
+        }
+        return r.json();
+      })
       .then(data=>{
         if (!data.ok){
           tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-rose-600'>Error cargando cuentas.</td></tr>";
@@ -1463,8 +1485,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         renderCuentas();
       })
       .catch(err=>{
-        console.error(err);
-        tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-rose-600'>Error de red.</td></tr>";
+        console.error('Error completo:', err);
+        tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-rose-600'>Error de red: " + err.message + "</td></tr>";
       });
   }
 
@@ -1481,15 +1503,21 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   function eliminarCuenta(item){
     const emp = selEmpresa.value.trim();
     if(!confirm('¿Eliminar esta cuenta?')) return;
-    const params = new URLSearchParams();
-    params.append('accion','eliminar_cuenta');
-    params.append('id', item.id);
+    
+    const formData = new FormData();
+    formData.append('accion','eliminar_cuenta');
+    formData.append('id', item.id);
 
     fetch(SCRIPT_URL, {
-      method:'POST',
-      body: params
+      method: 'POST',
+      body: formData
     })
-    .then(r=>r.json())
+    .then(r => {
+      if (!r.ok) {
+        throw new Error('Error de red: ' + r.status);
+      }
+      return r.json();
+    })
     .then(data=>{
       if(!data.ok){
         alert('Error al eliminar: ' + (data.msg || 'desconocido'));
@@ -1498,8 +1526,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       loadCuentasFromServer();
     })
     .catch(err=>{
-      console.error(err);
-      alert('Error de red al eliminar');
+      console.error('Error completo:', err);
+      alert('Error de red al eliminar: ' + err.message);
     });
   }
 
