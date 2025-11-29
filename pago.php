@@ -110,7 +110,6 @@ if (isset($_GET['viajes_conductor'])) {
   }
 
   ?>
-
   <div class='space-y-3'>
     <div class='flex flex-wrap gap-2 text-xs' id="legendFilterBar">
       <?php
@@ -150,109 +149,107 @@ if (isset($_GET['viajes_conductor'])) {
 }
 
 /* =========================================================
-AJAX 2: CRUD CUENTAS_COBRO_GUARDADAS — SOLO JSON
-========================================================= */
+   AJAX 2: CRUD CUENTAS_COBRO_GUARDADAS — SOLO JSON
+   ========================================================= */
 if (isset($_GET['accion']) || isset($_POST['accion'])) {
-$accion = $_GET['accion'] ?? $_POST['accion'];
-header('Content-Type: application/json; charset=utf-8');
+  $accion = $_GET['accion'] ?? $_POST['accion'];
+  header('Content-Type: application/json; charset=utf-8');
 
-// LISTAR
-if ($accion === 'listar_cuentas') {
-$empresa = $conn->real_escape_string($_GET['empresa'] ?? '');
-$data = [];
-if ($empresa !== '') {
-$sql = "SELECT id, nombre, empresa, desde, hasta, facturado, porcentaje_ajuste
-FROM cuentas_cobro_guardadas
-WHERE empresa = '$empresa'
-ORDER BY desde DESC, id DESC";
-if ($res = $conn->query($sql)) {
-while ($r = $res->fetch_assoc()) {
-$data[] = [
-'id' => (int)$r['id'],
-'nombre' => $r['nombre'],
-'empresa' => $r['empresa'],
-'desde' => $r['desde'],
-'hasta' => $r['hasta'],
-'facturado' => (int)$r['facturado'],
-'porcentaje_ajuste' => (float)$r['porcentaje_ajuste'],
-];
-}
-}
-}
-echo json_encode(['ok'=>true,'items'=>$data], JSON_UNESCAPED_UNICODE);
-exit;
-}
-
-// GUARDAR (INSERT / UPDATE)
-if ($accion === 'guardar_cuenta') {
-$id        = (int)($_POST['id'] ?? 0);
-$nombre    = $conn->real_escape_string($_POST['nombre'] ?? '');
-$empresa   = $conn->real_escape_string($_POST['empresa'] ?? '');
-$desde     = $conn->real_escape_string($_POST['desde'] ?? '');
-$hasta     = $conn->real_escape_string($_POST['hasta'] ?? '');
-$facturado = (int)($_POST['facturado'] ?? 0);
-$porcentaje = (float)($_POST['porcentaje_ajuste'] ?? 0);
-
-if ($empresa === '' || $desde === '' || $hasta === '') {
-  echo json_encode(['ok'=>false,'msg'=>'Datos incompletos']); exit;
-}
-
-if ($id > 0) {
-  $stmt = $conn->prepare("UPDATE cuentas_cobro_guardadas
-                          SET nombre=?, empresa=?, desde=?, hasta=?, facturado=?, porcentaje_ajuste=?
-                          WHERE id=?");
-  if (!$stmt) {
-    echo json_encode(['ok'=>false,'msg'=>$conn->error]); exit;
+  // LISTAR
+  if ($accion === 'listar_cuentas') {
+    $empresa = $conn->real_escape_string($_GET['empresa'] ?? '');
+    $data = [];
+    if ($empresa !== '') {
+      $sql = "SELECT id, nombre, empresa, desde, hasta, facturado, porcentaje_ajuste
+              FROM cuentas_cobro_guardadas
+              WHERE empresa = '$empresa'
+              ORDER BY desde DESC, id DESC";
+      if ($res = $conn->query($sql)) {
+        while ($r = $res->fetch_assoc()) {
+          $data[] = [
+            'id' => (int)$r['id'],
+            'nombre' => $r['nombre'],
+            'empresa' => $r['empresa'],
+            'desde' => $r['desde'],
+            'hasta' => $r['hasta'],
+            'facturado' => (int)$r['facturado'],
+            'porcentaje_ajuste' => (float)$r['porcentaje_ajuste'],
+          ];
+        }
+      }
+    }
+    echo json_encode(['ok'=>true,'items'=>$data], JSON_UNESCAPED_UNICODE);
+    exit;
   }
-  $stmt->bind_param("sssiddi", $nombre, $empresa, $desde, $hasta, $facturado, $porcentaje, $id);
-  $ok = $stmt->execute();
-  $stmt->close();
-  echo json_encode(['ok'=>$ok, 'id'=>$id]); exit;
-} else {
-  $stmt = $conn->prepare("INSERT INTO cuentas_cobro_guardadas
-    (nombre, empresa, desde, hasta, facturado, porcentaje_ajuste, fecha_creacion)
-    VALUES (?,?,?,?,?,?,NOW())");
-  if (!$stmt) {
-    echo json_encode(['ok'=>false,'msg'=>$conn->error]); exit;
+
+  // GUARDAR (INSERT / UPDATE)
+  if ($accion === 'guardar_cuenta') {
+    $id        = (int)($_POST['id'] ?? 0);
+    $nombre    = $conn->real_escape_string($_POST['nombre'] ?? '');
+    $empresa   = $conn->real_escape_string($_POST['empresa'] ?? '');
+    $desde     = $conn->real_escape_string($_POST['desde'] ?? '');
+    $hasta     = $conn->real_escape_string($_POST['hasta'] ?? '');
+    $facturado = (int)($_POST['facturado'] ?? 0);
+    $porcentaje = (float)($_POST['porcentaje_ajuste'] ?? 0);
+
+    if ($empresa === '' || $desde === '' || $hasta === '') {
+      echo json_encode(['ok'=>false,'msg'=>'Datos incompletos']); exit;
+    }
+
+    if ($id > 0) {
+      $stmt = $conn->prepare("UPDATE cuentas_cobro_guardadas
+                              SET nombre=?, empresa=?, desde=?, hasta=?, facturado=?, porcentaje_ajuste=?
+                              WHERE id=?");
+      if (!$stmt) {
+        echo json_encode(['ok'=>false,'msg'=>$conn->error]); exit;
+      }
+      $stmt->bind_param("sssiddi", $nombre, $empresa, $desde, $hasta, $facturado, $porcentaje, $id);
+      $ok = $stmt->execute();
+      $stmt->close();
+      echo json_encode(['ok'=>$ok, 'id'=>$id]); exit;
+    } else {
+      $stmt = $conn->prepare("INSERT INTO cuentas_cobro_guardadas
+        (nombre, empresa, desde, hasta, facturado, porcentaje_ajuste, fecha_creacion)
+        VALUES (?,?,?,?,?,?,NOW())");
+      if (!$stmt) {
+        echo json_encode(['ok'=>false,'msg'=>$conn->error]); exit;
+      }
+      $stmt->bind_param("sssidi", $nombre, $empresa, $desde, $hasta, $facturado, $porcentaje);
+      $ok = $stmt->execute();
+      $newId = $stmt->insert_id;
+      $stmt->close();
+      echo json_encode(['ok'=>$ok, 'id'=>$newId]); exit;
+    }
   }
-  $stmt->bind_param("sssidi", $nombre, $empresa, $desde, $hasta, $facturado, $porcentaje);
-  $ok = $stmt->execute();
-  $newId = $stmt->insert_id;
-  $stmt->close();
-  echo json_encode(['ok'=>$ok, 'id'=>$newId]); exit;
-}
-}
 
-// ELIMINAR
-if ($accion === 'eliminar_cuenta') {
-$id = (int)($_POST['id'] ?? 0);
-if ($id <= 0) { echo json_encode(['ok'=>false,'msg'=>'ID inválido']); exit; }
-$stmt = $conn->prepare("DELETE FROM cuentas_cobro_guardadas WHERE id=?");
-if (!$stmt) { echo json_encode(['ok'=>false,'msg'=>$conn->error]); exit; }
-$stmt->bind_param("i",$id);
-$ok = $stmt->execute();
-$stmt->close();
-echo json_encode(['ok'=>$ok]); exit;
-}
+  // ELIMINAR
+  if ($accion === 'eliminar_cuenta') {
+    $id = (int)($_POST['id'] ?? 0);
+    if ($id <= 0) { echo json_encode(['ok'=>false,'msg'=>'ID inválido']); exit; }
+    $stmt = $conn->prepare("DELETE FROM cuentas_cobro_guardadas WHERE id=?");
+    if (!$stmt) { echo json_encode(['ok'=>false,'msg'=>$conn->error]); exit; }
+    $stmt->bind_param("i",$id);
+    $ok = $stmt->execute();
+    $stmt->close();
+    echo json_encode(['ok'=>$ok]); exit;
+  }
 
-echo json_encode(['ok'=>false,'msg'=>'Acción no reconocida']);
-exit;
+  echo json_encode(['ok'=>false,'msg'=>'Acción no reconocida']);
+  exit;
 }
 
 /* =========================================================
-DESDE AQUÍ ES SOLO LA PÁGINA NORMAL (INCLUYE nav.php)
-========================================================= */
+   DESDE AQUÍ ES SOLO LA PÁGINA NORMAL (INCLUYE nav.php)
+   ========================================================= */
 include("nav.php");
 
 /* ====== SI FALTAN FECHAS: FORMULARIO SIMPLE ====== */
 if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
-$empresas = [];
-$resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
-if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
-?>
-
+  $empresas = [];
+  $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
+  if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
+  ?>
   <!DOCTYPE html>
-
   <html lang="es"><head>
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>Ajuste de Pago</title><script src="https://cdn.tailwindcss.com"></script>
@@ -291,94 +288,92 @@ $empresaFiltro = $_GET['empresa'] ?? "";
 
 /* ================= Viajes del rango (para totales) ================= */
 $sqlV = "SELECT nombre, ruta, empresa, tipo_vehiculo
-FROM viajes
-WHERE fecha BETWEEN '$desde' AND '$hasta'";
+         FROM viajes
+         WHERE fecha BETWEEN '$desde' AND '$hasta'";
 if ($empresaFiltro !== "") {
-$empresaFiltroEsc = $conn->real_escape_string($empresaFiltro);
-$sqlV .= " AND empresa = '$empresaFiltroEsc'";
+  $empresaFiltroEsc = $conn->real_escape_string($empresaFiltro);
+  $sqlV .= " AND empresa = '$empresaFiltroEsc'";
 }
 $resV = $conn->query($sqlV);
 
 $contadores = [];
 if ($resV) {
-while ($row = $resV->fetch_assoc()) {
-$nombre = $row['nombre'];
-if (!isset($contadores[$nombre])) {
-$contadores[$nombre] = [
-'vehiculo' => $row['tipo_vehiculo'],
-'completos'=>0, 'medios'=>0, 'extras'=>0, 'carrotanques'=>0, 'siapana'=>0
-];
-}
-$ruta = (string)$row['ruta'];
-$guiones = substr_count($ruta,'-');
-if ($row['tipo_vehiculo']==='Carrotanque' && $guiones==0) {
-$contadores[$nombre]['carrotanques']++;
-} elseif (stripos($ruta,'Siapana') !== false) {
-$contadores[$nombre]['siapana']++;
-} elseif (stripos($ruta,'Maicao') === false) {
-$contadores[$nombre]['extras']++;
-} elseif ($guiones==2) {
-$contadores[$nombre]['completos']++;
-} elseif ($guiones==1) {
-$contadores[$nombre]['medios']++;
-}
-}
+  while ($row = $resV->fetch_assoc()) {
+    $nombre = $row['nombre'];
+    if (!isset($contadores[$nombre])) {
+      $contadores[$nombre] = [
+        'vehiculo' => $row['tipo_vehiculo'],
+        'completos'=>0, 'medios'=>0, 'extras'=>0, 'carrotanques'=>0, 'siapana'=>0
+      ];
+    }
+    $ruta = (string)$row['ruta'];
+    $guiones = substr_count($ruta,'-');
+    if ($row['tipo_vehiculo']==='Carrotanque' && $guiones==0) {
+      $contadores[$nombre]['carrotanques']++;
+    } elseif (stripos($ruta,'Siapana') !== false) {
+      $contadores[$nombre]['siapana']++;
+    } elseif (stripos($ruta,'Maicao') === false) {
+      $contadores[$nombre]['extras']++;
+    } elseif ($guiones==2) {
+      $contadores[$nombre]['completos']++;
+    } elseif ($guiones==1) {
+      $contadores[$nombre]['medios']++;
+    }
+  }
 }
 
 /* ================= Tarifas ================= */
 $tarifas = [];
 if ($empresaFiltro !== "") {
-$resT = $conn->query("SELECT * FROM tarifas WHERE empresa='".$conn->real_escape_string($empresaFiltro)."'");
-if ($resT) while($r=$resT->fetch_assoc()) $tarifas[$r['tipo_vehiculo']] = $r;
+  $resT = $conn->query("SELECT * FROM tarifas WHERE empresa='".$conn->real_escape_string($empresaFiltro)."'");
+  if ($resT) while($r=$resT->fetch_assoc()) $tarifas[$r['tipo_vehiculo']] = $r;
 }
 
 /* ================= Préstamos: listado multiselección ================= */
 $prestamosList = [];
 $i = 0;
 $qPrest = "
-SELECT deudor,
-SUM(
-monto +
-monto *
-CASE
-WHEN fecha >= '2025-10-29' THEN 0.13
-ELSE 0.10
-END *
-CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
-) AS total
-FROM prestamos
-WHERE (pagado IS NULL OR pagado = 0)
-GROUP BY deudor
+  SELECT deudor,
+         SUM(
+           monto + 
+           monto * 
+           CASE 
+             WHEN fecha >= '2025-10-29' THEN 0.13
+             ELSE 0.10
+           END *
+           CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
+         ) AS total
+  FROM prestamos
+  WHERE (pagado IS NULL OR pagado = 0)
+  GROUP BY deudor
 ";
 if ($rP = $conn->query($qPrest)) {
-while($r = $rP->fetch_assoc()){
-$name = $r['deudor'];
-$key  = norm_person($name);
-$total = (int)round($r['total']);
-$prestamosList[] = ['id'=>$i++, 'name'=>$name, 'key'=>$key, 'total'=>$total];
-}
+  while($r = $rP->fetch_assoc()){
+    $name = $r['deudor'];
+    $key  = norm_person($name);
+    $total = (int)round($r['total']);
+    $prestamosList[] = ['id'=>$i++, 'name'=>$name, 'key'=>$key, 'total'=>$total];
+  }
 }
 
 /* ================= Filas base (viajes) ================= */
 $filas = []; $total_facturado = 0;
 foreach ($contadores as $nombre => $v) {
-$veh = $v['vehiculo'];
-$t = $tarifas[$veh] ?? ["completo"=>0,"medio"=>0,"extra"=>0,"carrotanque"=>0,"siapana"=>0];
+  $veh = $v['vehiculo'];
+  $t = $tarifas[$veh] ?? ["completo"=>0,"medio"=>0,"extra"=>0,"carrotanque"=>0,"siapana"=>0];
 
-$total = $v['completos']   * (int)($t['completo']    ?? 0)
-+ $v['medios']      * (int)($t['medio']       ?? 0)
-+ $v['extras']      * (int)($t['extra']       ?? 0)
-+ $v['carrotanques']* (int)($t['carrotanque'] ?? 0)
-+ $v['siapana']     * (int)($t['siapana']     ?? 0);
+  $total = $v['completos']   * (int)($t['completo']    ?? 0)
+         + $v['medios']      * (int)($t['medio']       ?? 0)
+         + $v['extras']      * (int)($t['extra']       ?? 0)
+         + $v['carrotanques']* (int)($t['carrotanque'] ?? 0)
+         + $v['siapana']     * (int)($t['siapana']     ?? 0);
 
-$filas[] = ['nombre'=>$nombre, 'total_bruto'=>(int)$total];
-$total_facturado += (int)$total;
+  $filas[] = ['nombre'=>$nombre, 'total_bruto'=>(int)$total];
+  $total_facturado += (int)$total;
 }
 usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 ?>
-
 <!DOCTYPE html>
-
 <html lang="es">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -390,25 +385,25 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   .table-sticky thead th { position: sticky; top: 0; z-index: 31; background-color: #2563eb !important; color: #fff !important; }
   .table-sticky thead { box-shadow: 0 2px 0 rgba(0,0,0,0.06); }
 
-.viajes-backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:10000; }
-.viajes-backdrop.show{ display:flex; }
-.viajes-card{ width:min(720px,94vw); max-height:90vh; overflow:hidden; border-radius:16px; background:#fff;
-box-shadow:0 20px 60px rgba(0,0,0,.25); border:1px solid #e5e7eb; }
-.viajes-header{padding:14px 16px;border-bottom:1px solid #eef2f7}
-.viajes-body{padding:14px 16px;overflow:auto; max-height:70vh}
-.viajes-close{padding:6px 10px; border-radius:10px; cursor:pointer;}
-.viajes-close:hover{background:#f1f5f9;}
+  .viajes-backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:10000; }
+  .viajes-backdrop.show{ display:flex; }
+  .viajes-card{ width:min(720px,94vw); max-height:90vh; overflow:hidden; border-radius:16px; background:#fff;
+                box-shadow:0 20px 60px rgba(0,0,0,.25); border:1px solid #e5e7eb; }
+  .viajes-header{padding:14px 16px;border-bottom:1px solid #eef2f7}
+  .viajes-body{padding:14px 16px;overflow:auto; max-height:70vh}
+  .viajes-close{padding:6px 10px; border-radius:10px; cursor:pointer;}
+  .viajes-close:hover{background:#f3f4f6}
 
-.conductor-link{cursor:pointer; color:#0d6efd; text-decoration:underline;}
+  .conductor-link{cursor:pointer; color:#0d6efd; text-decoration:underline;}
 
-.estado-pagado { background-color: #f0fdf4 !important; border-left: 4px solid #22c55e; }
-.estado-pendiente { background-color: #fef2f2 !important; border-left: 4px solid #ef4444; }
-.estado-procesando { background-color: #fffbeb !important; border-left: 4px solid #f59e0b; }
-.estado-parcial { background-color: #eff6ff !important; border-left: 4px solid #3b82f6; }
+  .estado-pagado { background-color: #f0fdf4 !important; border-left: 4px solid #22c55e; }
+  .estado-pendiente { background-color: #fef2f2 !important; border-left: 4px solid #ef4444; }
+  .estado-procesando { background-color: #fffbeb !important; border-left: 4px solid #f59e0b; }
+  .estado-parcial { background-color: #eff6ff !important; border-left: 4px solid #3b82f6; }
 
-.fila-manual { background-color: #f0f9ff !important; border-left: 4px solid #0ea5e9; }
-.fila-manual td { background-color: #f0f9ff !important; } </style>
-
+  .fila-manual { background-color: #f0f9ff !important; border-left: 4px solid #0ea5e9; }
+  .fila-manual td { background-color: #f0f9ff !important; }
+</style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
   <header class="max-w-[1600px] mx-auto px-3 md:px-4 pt-6">
@@ -566,7 +561,6 @@ box-shadow:0 20px 60px rgba(0,0,0,.25); border:1px solid #e5e7eb; }
   </main>
 
   <!-- ===== Modal PRÉSTAMOS (multi) ===== -->
-
   <div id="prestModal" class="hidden fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-8 max-w-2xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
@@ -606,7 +600,6 @@ box-shadow:0 20px 60px rgba(0,0,0,.25); border:1px solid #e5e7eb; }
   </div>
 
   <!-- ===== Modal VIAJES ===== -->
-
   <div id="viajesModal" class="viajes-backdrop">
     <div class="viajes-card">
       <div class="viajes-header">
@@ -638,7 +631,6 @@ box-shadow:0 20px 60px rgba(0,0,0,.25); border:1px solid #e5e7eb; }
   </div>
 
   <!-- ===== Modal GUARDAR CUENTA ===== -->
-
   <div id="saveCuentaModal" class="hidden fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-10 w-full max-w-lg bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
@@ -680,7 +672,6 @@ box-shadow:0 20px 60px rgba(0,0,0,.25); border:1px solid #e5e7eb; }
   </div>
 
   <!-- ===== Modal GESTOR DE CUENTAS ===== -->
-
   <div id="gestorCuentasModal" class="hidden fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-10 w-full max-w-3xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
@@ -1368,18 +1359,10 @@ box-shadow:0 20px 60px rgba(0,0,0,.25); border:1px solid #e5e7eb; }
     if (!emp){
       alert('Empresa requerida'); return;
     }
-    
-    // CORRECCIÓN COMPLETA: Usar directamente las fechas de los inputs del formulario
-    const d = inpDesde.value;
-    const h = inpHasta.value;
-    
-    // Validar que tengamos ambas fechas
-    if (!d || !h) {
-      alert('Error: Fechas desde/hasta no están definidas');
-      return;
-    }
-    
-    const nombre = iNombre.value.trim() || `${emp} ${d} a ${h}`;
+    const [d1, d2raw] = iRango.value.split('→');
+    const desde = (d1||'').trim();
+    const hasta = (d2raw||'').trim();
+    const nombre = iNombre.value.trim() || `${emp} ${desde} a ${hasta}`;
     const facturado = toInt(iCFact.value);
     const porcentaje  = parseFloat(iCPorcentaje.value) || 0;
 
@@ -1388,8 +1371,8 @@ box-shadow:0 20px 60px rgba(0,0,0,.25); border:1px solid #e5e7eb; }
     if (editingCuentaId) params.append('id', editingCuentaId);
     params.append('nombre', nombre);
     params.append('empresa', emp);
-    params.append('desde', d);
-    params.append('hasta', h);
+    params.append('desde', desde);
+    params.append('hasta', hasta);
     params.append('facturado', facturado);
     params.append('porcentaje_ajuste', porcentaje);
 
@@ -1536,6 +1519,5 @@ box-shadow:0 20px 60px rgba(0,0,0,.25); border:1px solid #e5e7eb; }
   const nf1 = el => el && el.addEventListener('input', ()=>{ el.value = fmt(toInt(el.value)); });
   nf1(document.getElementById('cuenta_facturado'));
 </script>
-
 </body>
 </html>
