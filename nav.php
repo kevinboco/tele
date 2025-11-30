@@ -13,7 +13,7 @@ $url_pago = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago
 <style>
 :root {
   --bg: #0a0a0a;
-  --br: #1f1f1f;
+  --br: #11f1f1f;
   --btn: #111;
   --z-rail: 1000;
   --z-overlay: 999;
@@ -65,7 +65,7 @@ $url_pago = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago
 }
 .menu-toggle.is-open .bars::after {
   top: 0;
-  transform: rotate(-45deg);
+ transform: rotate(-45deg);
 }
 
 /* === OVERLAY === */
@@ -170,27 +170,37 @@ $url_pago = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago
     <img src="https://img.icons8.com/color/48/bill.png" alt="Liquidación">
     <span>Liquidación</span>
   </a>
+
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/prueba.php?view=graph" title="Mapa préstamos">
     <img src="https://img.icons8.com/color/48/share-3.png" alt="Mapa">
     <span>Mapa</span>
   </a>
 
-  <!-- Nuevo: Pago -->
+  <!-- Pago -->
   <a class="rail-item" href="<?= $url_pago ?>" title="Pago">
     <img src="https://img.icons8.com/color/48/paid.png" alt="Pago">
     <span>Pago</span>
   </a>
+
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/admin_prestamos.php?view=cards" title="Editar préstamos">
     <img src="https://img.icons8.com/color/48/edit-file.png" alt="Editar">
     <span>Editar</span>
   </a>
-  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/urgente.php" title="Días">
+
+  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/urgente.php" title="Liquidación prestamistas">
     <img src="https://img.icons8.com/color/64/loan.png" alt="Días">
     <span>liquidacion prestamistas</span>
   </a>
+
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/tatiana.php" title="Días">
     <img src="https://img.icons8.com/color/48/planner.png" alt="Días">
     <span>Días</span>
+  </a>
+
+  <!-- === NUEVO BOTÓN: VER CUENTAS GUARDADAS === -->
+  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/ver_foto_cuenta.php" title="Cuentas guardadas">
+    <img src="https://img.icons8.com/color/48/picture.png" alt="Foto">
+    <span>Cuentas de cobro guardadas</span>
   </a>
 
 </nav>
