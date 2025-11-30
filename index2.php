@@ -1,4 +1,58 @@
-<?php include("conexion.php"); ?>
+<?php
+include("conexion.php");
+
+// ================== LISTAS PARA SELECTS ==================
+$listaNombres  = [];
+$listaCedulas  = [];
+$listaRutas    = [];
+$listaVehiculos= [];
+$listaEmpresas = [];
+
+// Nombres
+$res = $conexion->query("SELECT DISTINCT nombre FROM viajes WHERE nombre <> '' ORDER BY nombre ASC");
+if ($res) {
+  while($r = $res->fetch_assoc()){
+    $listaNombres[] = $r['nombre'];
+  }
+  $res->free();
+}
+
+// Cédulas
+$res = $conexion->query("SELECT DISTINCT cedula FROM viajes WHERE cedula <> '' ORDER BY cedula ASC");
+if ($res) {
+  while($r = $res->fetch_assoc()){
+    $listaCedulas[] = $r['cedula'];
+  }
+  $res->free();
+}
+
+// Rutas
+$res = $conexion->query("SELECT DISTINCT ruta FROM viajes WHERE ruta <> '' ORDER BY ruta ASC");
+if ($res) {
+  while($r = $res->fetch_assoc()){
+    $listaRutas[] = $r['ruta'];
+  }
+  $res->free();
+}
+
+// Vehículos
+$res = $conexion->query("SELECT DISTINCT tipo_vehiculo FROM viajes WHERE tipo_vehiculo <> '' ORDER BY tipo_vehiculo ASC");
+if ($res) {
+  while($r = $res->fetch_assoc()){
+    $listaVehiculos[] = $r['tipo_vehiculo'];
+  }
+  $res->free();
+}
+
+// Empresas
+$res = $conexion->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa <> '' ORDER BY empresa ASC");
+if ($res) {
+  while($r = $res->fetch_assoc()){
+    $listaEmpresas[] = $r['empresa'];
+  }
+  $res->free();
+}
+?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -19,34 +73,104 @@
     </div>
     <div class="card-body">
       <form method="GET" class="row g-3">
+        <!-- NOMBRE -->
         <div class="col-md-3">
           <label class="form-label">Nombre</label>
-          <input type="text" name="nombre" value="<?= isset($_GET['nombre']) ? htmlspecialchars($_GET['nombre']) : '' ?>" class="form-control">
+          <select name="nombre" class="form-select">
+            <option value="">-- Todos --</option>
+            <?php
+            $nombreSel = isset($_GET['nombre']) ? $_GET['nombre'] : '';
+            foreach($listaNombres as $nom):
+              $sel = ($nombreSel === $nom) ? 'selected' : '';
+            ?>
+              <option value="<?= htmlspecialchars($nom) ?>" <?= $sel ?>>
+                <?= htmlspecialchars($nom) ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
         </div>
+
+        <!-- CÉDULA -->
         <div class="col-md-3">
           <label class="form-label">Cédula</label>
-          <input type="text" name="cedula" value="<?= isset($_GET['cedula']) ? htmlspecialchars($_GET['cedula']) : '' ?>" class="form-control">
+          <select name="cedula" class="form-select">
+            <option value="">-- Todas --</option>
+            <?php
+            $cedSel = isset($_GET['cedula']) ? $_GET['cedula'] : '';
+            foreach($listaCedulas as $ced):
+              $sel = ($cedSel === $ced) ? 'selected' : '';
+            ?>
+              <option value="<?= htmlspecialchars($ced) ?>" <?= $sel ?>>
+                <?= htmlspecialchars($ced) ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
         </div>
+
+        <!-- FECHA DESDE -->
         <div class="col-md-3">
           <label class="form-label">Fecha desde</label>
           <input type="date" name="desde" value="<?= isset($_GET['desde']) ? htmlspecialchars($_GET['desde']) : '' ?>" class="form-control">
         </div>
+
+        <!-- FECHA HASTA -->
         <div class="col-md-3">
           <label class="form-label">Fecha hasta</label>
           <input type="date" name="hasta" value="<?= isset($_GET['hasta']) ? htmlspecialchars($_GET['hasta']) : '' ?>" class="form-control">
         </div>
+
+        <!-- RUTA -->
         <div class="col-md-3">
           <label class="form-label">Ruta</label>
-          <input type="text" name="ruta" value="<?= isset($_GET['ruta']) ? htmlspecialchars($_GET['ruta']) : '' ?>" class="form-control">
+          <select name="ruta" class="form-select">
+            <option value="">-- Todas --</option>
+            <?php
+            $rutaSel = isset($_GET['ruta']) ? $_GET['ruta'] : '';
+            foreach($listaRutas as $ruta):
+              $sel = ($rutaSel === $ruta) ? 'selected' : '';
+            ?>
+              <option value="<?= htmlspecialchars($ruta) ?>" <?= $sel ?>>
+                <?= htmlspecialchars($ruta) ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
         </div>
+
+        <!-- VEHÍCULO -->
         <div class="col-md-3">
           <label class="form-label">Vehículo</label>
-          <input type="text" name="vehiculo" value="<?= isset($_GET['vehiculo']) ? htmlspecialchars($_GET['vehiculo']) : '' ?>" class="form-control">
+          <select name="vehiculo" class="form-select">
+            <option value="">-- Todos --</option>
+            <?php
+            $vehSel = isset($_GET['vehiculo']) ? $_GET['vehiculo'] : '';
+            foreach($listaVehiculos as $veh):
+              $sel = ($vehSel === $veh) ? 'selected' : '';
+            ?>
+              <option value="<?= htmlspecialchars($veh) ?>" <?= $sel ?>>
+                <?= htmlspecialchars($veh) ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
         </div>
+
+        <!-- EMPRESA -->
         <div class="col-md-3">
           <label class="form-label">Empresa</label>
-          <input type="text" name="empresa" value="<?= isset($_GET['empresa']) ? htmlspecialchars($_GET['empresa']) : '' ?>" class="form-control">
+          <select name="empresa" class="form-select">
+            <option value="">-- Todas --</option>
+            <?php
+            $empSel = isset($_GET['empresa']) ? $_GET['empresa'] : '';
+            foreach($listaEmpresas as $emp):
+              $sel = ($empSel === $emp) ? 'selected' : '';
+            ?>
+              <option value="<?= htmlspecialchars($emp) ?>" <?= $sel ?>>
+                <?= htmlspecialchars($emp) ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
         </div>
+
+        <!-- BOTONES -->
         <div class="col-md-3 align-self-end">
           <button type="submit" class="btn btn-success w-100">🔎 Buscar</button>
         </div>
@@ -58,15 +182,16 @@
   </div>
 
   <?php
-  // Construir la consulta dinámica
+  // ================== CONSTRUIR CONSULTA DINÁMICA ==================
   $where = [];
+
   if (!empty($_GET['nombre'])) {
     $nombre = $conexion->real_escape_string($_GET['nombre']);
-    $where[] = "nombre LIKE '%$nombre%'";
+    $where[] = "nombre = '$nombre'";
   }
   if (!empty($_GET['cedula'])) {
     $cedula = $conexion->real_escape_string($_GET['cedula']);
-    $where[] = "cedula LIKE '%$cedula%'";
+    $where[] = "cedula = '$cedula'";
   }
   if (!empty($_GET['desde']) && !empty($_GET['hasta'])) {
     $desde = $conexion->real_escape_string($_GET['desde']);
@@ -81,30 +206,30 @@
   }
   if (!empty($_GET['ruta'])) {
     $ruta = $conexion->real_escape_string($_GET['ruta']);
-    $where[] = "ruta LIKE '%$ruta%'";
+    $where[] = "ruta = '$ruta'";
   }
   if (!empty($_GET['vehiculo'])) {
     $vehiculo = $conexion->real_escape_string($_GET['vehiculo']);
-    $where[] = "tipo_vehiculo LIKE '%$vehiculo%'";
+    $where[] = "tipo_vehiculo = '$vehiculo'";
   }
   if (!empty($_GET['empresa'])) {
     $empresa = $conexion->real_escape_string($_GET['empresa']);
-    $where[] = "empresa LIKE '%$empresa%'";
+    $where[] = "empresa = '$empresa'";
   }
 
-  // Consulta principal ordenada de la más antigua a la más reciente
+  // Consulta principal ORDENADA DEL MÁS RECIENTE AL MÁS ANTIGUO
   $sql = "SELECT * FROM viajes";
   if (count($where) > 0) {
     $sql .= " WHERE " . implode(" AND ", $where);
   }
-  $sql .= " ORDER BY fecha ASC, id ASC";
+  $sql .= " ORDER BY fecha DESC, id DESC";
 
   $resultado = $conexion->query($sql);
 
   // Aviso de cantidad de viajes por nombre (si se filtró por nombre)
   if (!empty($_GET['nombre'])):
       $nombreFiltro = $conexion->real_escape_string($_GET['nombre']);
-      $sqlContar = "SELECT COUNT(*) AS total FROM viajes WHERE nombre LIKE '%$nombreFiltro%'";
+      $sqlContar = "SELECT COUNT(*) AS total FROM viajes WHERE nombre = '$nombreFiltro'";
       $resContar = $conexion->query($sqlContar);
       $totalViajes = $resContar ? (int)$resContar->fetch_assoc()['total'] : 0;
   ?>
