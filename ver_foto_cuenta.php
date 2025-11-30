@@ -44,33 +44,69 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     
     // Convertir array de fotos a string separado por comas
     $fotos_string = implode(',', $fotos_paths);
+
+    // Subir comprobante Bancolombia (UN SOLO ARCHIVO)
+    $comprobante_path = '';
+    if (isset($_FILES['comprobante']) && $_FILES['comprobante']['error'] == 0) {
+        $upload_dir_comp = 'uploads/comprobantes/';
+        if (!is_dir($upload_dir_comp)) {
+            mkdir($upload_dir_comp, 0777, true);
+        }
+
+        $name_comp        = $_FILES['comprobante']['name'];
+        $file_extension_c = pathinfo($name_comp, PATHINFO_EXTENSION);
+        $file_name_c      = 'comp_' . uniqid() . '_' . date('Ymd_His') . '.' . $file_extension_c;
+        $ruta_comprobante = $upload_dir_comp . $file_name_c;
+
+        if (move_uploaded_file($_FILES['comprobante']['tmp_name'], $ruta_comprobante)) {
+            $comprobante_path = $conn->real_escape_string($ruta_comprobante);
+        }
+    }
     
     if ($editar_id) {
         // ACTUALIZAR registro existente
-        // Si hay fotos nuevas, agregarlas a las existentes
-        $sql_existing = "SELECT foto_path FROM cuentas_cobro WHERE id = $editar_id";
+        // Obtener fotos y comprobante existentes
+        $sql_existing = "SELECT foto_path, comprobante_path FROM cuentas_cobro WHERE id = $editar_id";
         $result = $conn->query($sql_existing);
         $existing_fotos = '';
+        $existing_comprobante = '';
         if ($row = $result->fetch_assoc()) {
-            $existing_fotos = $row['foto_path'];
+            $existing_fotos       = $row['foto_path'];
+            $existing_comprobante = $row['comprobante_path'];
         }
 
+        // FOTOS: si hay nuevas, las agregamos; si no, mantenemos las existentes
         if (!empty($fotos_string)) {
             $fotos_string = ($existing_fotos ? $existing_fotos . ',' : '') . $fotos_string;
         } else {
-            // Mantener fotos existentes
             $fotos_string = $existing_fotos;
+        }
+
+        // COMPROBANTE:
+        // - Si se subió uno nuevo, reemplaza el anterior (y se podría borrar el archivo viejo si quieres)
+        // - Si no se subió uno nuevo, se conserva el existente
+        if (!empty($comprobante_path)) {
+            // Si quieres borrar el anterior del servidor, descomenta esto:
+            // if ($existing_comprobante && file_exists($existing_comprobante)) {
+            //     unlink($existing_comprobante);
+            // }
+        } else {
+            $comprobante_path = $existing_comprobante;
         }
         
         $sql = "UPDATE cuentas_cobro 
-                SET titulo='$titulo', empresa='$empresa', 
-                    fecha_inicio='$fecha_inicio', fecha_fin='$fecha_fin', foto_path='$fotos_string' 
+                SET titulo='$titulo', 
+                    empresa='$empresa', 
+                    fecha_inicio='$fecha_inicio', 
+                    fecha_fin='$fecha_fin', 
+                    foto_path='$fotos_string',
+                    comprobante_path='$comprobante_path'
                 WHERE id=$editar_id";
         $accion = "actualizada";
     } else {
         // INSERTAR nuevo registro
-        $sql = "INSERT INTO cuentas_cobro (titulo, empresa, fecha_inicio, fecha_fin, foto_path) 
-                VALUES ('$titulo', '$empresa', '$fecha_inicio', '$fecha_fin', '$fotos_string')";
+        $sql = "INSERT INTO cuentas_cobro (titulo, empresa, fecha_inicio, fecha_fin, foto_path, comprobante_path) 
+                VALUES ('$titulo', '$empresa', '$fecha_inicio', '$fecha_fin', '$fotos_string', '$comprobante_path')";
         $accion = "guardada";
     }
     
@@ -85,6 +121,26 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 // ELIMINAR CUENTA
 if (isset($_GET['eliminar'])) {
     $eliminar_id = intval($_GET['eliminar']);
+
+    // Borrar también archivos (fotos y comprobante) si quieres
+    $sql_files = "SELECT foto_path, comprobante_path FROM cuentas_cobro WHERE id = $eliminar_id";
+    $res_files = $conn->query($sql_files);
+    if ($rowf = $res_files->fetch_assoc()) {
+        // borrar fotos
+        if (!empty($rowf['foto_path'])) {
+            $fotos_borrar = explode(',', $rowf['foto_path']);
+            foreach ($fotos_borrar as $fb) {
+                if ($fb && file_exists($fb)) {
+                    @unlink($fb);
+                }
+            }
+        }
+        // borrar comprobante
+        if (!empty($rowf['comprobante_path']) && file_exists($rowf['comprobante_path'])) {
+            @unlink($rowf['comprobante_path']);
+        }
+    }
+
     $sql = "DELETE FROM cuentas_cobro WHERE id = $eliminar_id";
     if ($conn->query($sql) === TRUE) {
         $mensaje = "✅ Cuenta eliminada exitosamente";
@@ -172,7 +228,7 @@ $result_cuentas = $conn->query($sql_cuentas);
         .form-section, .list-section { margin: 30px 0; padding: 20px; border: 1px solid #ddd; border-radius: 5px; }
         .form-group { margin-bottom: 15px; }
         label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; }
-        input[type="text"], input[type="date"], select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        input[type="text"], input[type="date"], select, input[list] { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
         button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px; }
         button:hover { background: #0056b3; }
         .btn-cancelar { background: #6c757d; }
@@ -324,6 +380,19 @@ $result_cuentas = $conn->query($sql_cuentas);
                         </div>
                     <?php endif; ?>
                 </div>
+
+                <div class="form-group">
+                    <label for="comprobante">Comprobante Bancolombia:</label>
+                    <input type="file" id="comprobante" name="comprobante" accept="image/*,application/pdf">
+                    <small>Puedes subir imagen o PDF del comprobante.</small>
+                    <?php if ($datos_edicion && !empty($datos_edicion['comprobante_path'])): ?>
+                        <div style="margin-top: 10px;">
+                            <a href="<?php echo htmlspecialchars($datos_edicion['comprobante_path']); ?>" target="_blank">
+                                🔎 Ver comprobante actual
+                            </a>
+                        </div>
+                    <?php endif; ?>
+                </div>
                 
                 <button type="submit"><?php echo $editar_id ? '💾 Actualizar' : '💾 Guardar Cuenta'; ?></button>
                 
@@ -387,6 +456,15 @@ $result_cuentas = $conn->query($sql_cuentas);
                                 <p><strong>Fecha Inicio:</strong> <?php echo date('d/m/Y', strtotime($cuenta['fecha_inicio'])); ?></p>
                                 <p><strong>Fecha Fin:</strong> <?php echo date('d/m/Y', strtotime($cuenta['fecha_fin'])); ?></p>
                                 <p><small>Creado: <?php echo date('d/m/Y H:i', strtotime($cuenta['created_at'])); ?></small></p>
+
+                                <?php if (!empty($cuenta['comprobante_path'])): ?>
+                                    <p>
+                                        <strong>Comprobante Bancolombia:</strong><br>
+                                        <a href="<?php echo htmlspecialchars($cuenta['comprobante_path']); ?>" target="_blank">
+                                            🔗 Ver comprobante Bancolombia
+                                        </a>
+                                    </p>
+                                <?php endif; ?>
                                 
                                 <div class="acciones">
                                     <a href="?editar=<?php echo $cuenta['id']; ?>">
