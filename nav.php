@@ -97,14 +97,15 @@ $url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/te
   border-radius: 16px;
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
 
-  /* 🌟 Que nunca se salga de la pantalla y tenga scroll */
-  max-height: calc(100vh - 110px); /* margen para el botón y parte baja */
+  /* que nunca se salga de la pantalla y tenga scroll */
+  max-height: calc(100vh - 110px);
   overflow-y: auto;
   overflow-x: hidden;
 
-  /* scroll finito */
-  scrollbar-width: thin;
-  scrollbar-color: #333 #0a0a0a;
+  /* scroll suave en iOS / móviles */
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
 
   transform: translateX(-90px);
   transition: transform 0.26s ease;
@@ -112,7 +113,7 @@ $url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/te
 }
 .mini-rail.is-open { transform: translateX(0); }
 
-/* Scrollbar para navegadores WebKit (Chrome, Edge, etc.) */
+/* Scrollbar para navegadores WebKit */
 .mini-rail::-webkit-scrollbar {
   width: 6px;
 }
@@ -145,7 +146,7 @@ $url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/te
   color: #eaeaea;
   font-size: 12px;
   transition: transform 0.15s ease, border-color 0.2s ease;
-  flex-shrink: 0; /* importante: que no se aplasten al hacer scroll */
+  flex-shrink: 0; /* que no se aplasten con el scroll */
 }
 .rail-item img {
   width: 30px;
@@ -262,32 +263,51 @@ $url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/te
     if (e.key === 'Escape' && rail.classList.contains('is-open')) closeRail();
   });
 
-  // === EFECTO DE MAGNIFICACIÓN ===
+  // === EFECTO DE MAGNIFICACIÓN SOLO EN PC (no en táctil) ===
+  const isTouch = (
+    'ontouchstart' in window ||
+    navigator.maxTouchPoints > 0 ||
+    window.matchMedia('(pointer: coarse)').matches
+  );
+
   const items = [...rail.querySelectorAll('.rail-item')];
-  rail.addEventListener('mousemove', e => {
-    const max = 140, base = 70, y = e.clientY;
-    items.forEach(it => {
-      const r = it.getBoundingClientRect();
-      const d = Math.abs(y - (r.top + r.height/2));
-      if (d < max) {
-        const scale = 1 + (1 - d/max) * 0.3;
-        const s = base * scale;
-        it.style.width  = s + 'px';
-        it.style.height = s + 'px';
-        it.style.zIndex = 1000 - d;
-      } else {
-        it.style.width  = base + 'px';
-        it.style.height = base + 'px';
-        it.style.zIndex = 'auto';
-      }
+
+  if (!isTouch) {
+    // Solo escritorio: efecto de agrandar según la posición del mouse
+    rail.addEventListener('mousemove', e => {
+      const max  = 140;
+      const base = 70;
+      const y    = e.clientY;
+      items.forEach(it => {
+        const r = it.getBoundingClientRect();
+        const d = Math.abs(y - (r.top + r.height/2));
+        if (d < max) {
+          const scale = 1 + (1 - d/max) * 0.3;
+          const s = base * scale;
+          it.style.width  = s + 'px';
+          it.style.height = s + 'px';
+          it.style.zIndex = 1000 - d;
+        } else {
+          it.style.width  = base + 'px';
+          it.style.height = base + 'px';
+          it.style.zIndex = 'auto';
+        }
+      });
     });
-  });
-  rail.addEventListener('mouseleave', () =>
+    rail.addEventListener('mouseleave', () =>
+      items.forEach(i => {
+        i.style.width  = '70px';
+        i.style.height = '70px';
+        i.style.zIndex = 'auto';
+      })
+    );
+  } else {
+    // En móviles, asegurar tamaño fijo
     items.forEach(i => {
       i.style.width  = '70px';
       i.style.height = '70px';
       i.style.zIndex = 'auto';
-    })
-  );
+    });
+  }
 })();
 </script>
