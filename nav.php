@@ -220,6 +220,10 @@ $url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/te
     <img src="https://img.icons8.com/color/64/loan.png" alt="Días">
     <span>liquidacion prestamistas</span>
   </a>
+  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/ver_foto_cuenta.php" title="Cuentas guardadas">
+    <img src="https://img.icons8.com/color/48/picture.png" alt="Foto">
+    <span>Cuentas de cobro guardadas</span>
+  </a>
 
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/tatiana.php" title="Días">
     <img src="https://img.icons8.com/color/48/planner.png" alt="Días">
@@ -227,10 +231,7 @@ $url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/te
   </a>
 
   <!-- === NUEVO BOTÓN: VER CUENTAS GUARDADAS === -->
-  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/ver_foto_cuenta.php" title="Cuentas guardadas">
-    <img src="https://img.icons8.com/color/48/picture.png" alt="Foto">
-    <span>Cuentas de cobro guardadas</span>
-  </a>
+  
 
 </nav>
 
