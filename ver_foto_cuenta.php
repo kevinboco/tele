@@ -1,5 +1,4 @@
 <?php
-include("nav.php");
 // Conexión a la base de datos
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
 
@@ -22,16 +21,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $fecha_fin    = $_POST['fecha_fin'];
     $editar_id    = isset($_POST['editar_id']) ? intval($_POST['editar_id']) : null;
     
-    // Subir MÚLTIPLES fotos
+    /* ========== FOTOS PRINCIPALES (MÚLTIPLES) ========== */
     $fotos_paths = [];
-    if (isset($_FILES['fotos']) && count($_FILES['fotos']['name']) > 0) {
+    if (isset($_FILES['fotos']) && isset($_FILES['fotos']['name']) && count($_FILES['fotos']['name']) > 0) {
         $upload_dir = 'uploads/';
         if (!is_dir($upload_dir)) {
             mkdir($upload_dir, 0777, true);
         }
         
         foreach ($_FILES['fotos']['name'] as $key => $name) {
-            if ($_FILES['fotos']['error'][$key] == 0) {
+            if ($_FILES['fotos']['error'][$key] == 0 && $name !== '') {
                 $file_extension = pathinfo($name, PATHINFO_EXTENSION);
                 $file_name = uniqid() . '_' . date('Ymd_His') . '_' . $key . '.' . $file_extension;
                 $foto_path = $upload_dir . $file_name;
@@ -42,57 +41,69 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
         }
     }
-    
-    // Convertir array de fotos a string separado por comas
     $fotos_string = implode(',', $fotos_paths);
 
-    // Subir comprobante Bancolombia (UN SOLO ARCHIVO)
-    $comprobante_path = '';
-    if (isset($_FILES['comprobante']) && $_FILES['comprobante']['error'] == 0) {
+    /* ========== COMPROBANTE BANCOLOMBIA (MÚLTIPLES) ========== */
+    $comprobantes_paths = [];
+    if (isset($_FILES['comprobante']) && isset($_FILES['comprobante']['name']) && count((array)$_FILES['comprobante']['name']) > 0) {
         $upload_dir_comp = 'uploads/comprobantes/';
         if (!is_dir($upload_dir_comp)) {
             mkdir($upload_dir_comp, 0777, true);
         }
 
-        $name_comp        = $_FILES['comprobante']['name'];
-        $file_extension_c = pathinfo($name_comp, PATHINFO_EXTENSION);
-        $file_name_c      = 'comp_' . uniqid() . '_' . date('Ymd_His') . '.' . $file_extension_c;
-        $ruta_comprobante = $upload_dir_comp . $file_name_c;
+        // Cuando el input es name="comprobante[]" multiple
+        if (is_array($_FILES['comprobante']['name'])) {
+            foreach ($_FILES['comprobante']['name'] as $k => $name_comp) {
+                if ($_FILES['comprobante']['error'][$k] == 0 && $name_comp !== '') {
+                    $ext = pathinfo($name_comp, PATHINFO_EXTENSION);
+                    $file_name_c = 'comp_' . uniqid() . '_' . date('Ymd_His') . '_' . $k . '.' . $ext;
+                    $ruta_comprobante = $upload_dir_comp . $file_name_c;
 
-        if (move_uploaded_file($_FILES['comprobante']['tmp_name'], $ruta_comprobante)) {
-            $comprobante_path = $conn->real_escape_string($ruta_comprobante);
+                    if (move_uploaded_file($_FILES['comprobante']['tmp_name'][$k], $ruta_comprobante)) {
+                        $comprobantes_paths[] = $conn->real_escape_string($ruta_comprobante);
+                    }
+                }
+            }
+        } else {
+            // Por si acaso el navegador lo manda como un solo archivo
+            if ($_FILES['comprobante']['error'] == 0 && $_FILES['comprobante']['name'] !== '') {
+                $name_comp = $_FILES['comprobante']['name'];
+                $ext = pathinfo($name_comp, PATHINFO_EXTENSION);
+                $file_name_c = 'comp_' . uniqid() . '_' . date('Ymd_His') . '.' . $ext;
+                $ruta_comprobante = $upload_dir_comp . $file_name_c;
+
+                if (move_uploaded_file($_FILES['comprobante']['tmp_name'], $ruta_comprobante)) {
+                    $comprobantes_paths[] = $conn->real_escape_string($ruta_comprobante);
+                }
+            }
         }
     }
+    $comprobantes_string = implode(',', $comprobantes_paths);
     
+    /* ========== INSERT / UPDATE ========== */
     if ($editar_id) {
-        // ACTUALIZAR registro existente
-        // Obtener fotos y comprobante existentes
+        // Obtener fotos y comprobantes existentes
         $sql_existing = "SELECT foto_path, comprobante_path FROM cuentas_cobro WHERE id = $editar_id";
         $result = $conn->query($sql_existing);
-        $existing_fotos = '';
-        $existing_comprobante = '';
+        $existing_fotos        = '';
+        $existing_comprobantes = '';
         if ($row = $result->fetch_assoc()) {
-            $existing_fotos       = $row['foto_path'];
-            $existing_comprobante = $row['comprobante_path'];
+            $existing_fotos        = $row['foto_path'];
+            $existing_comprobantes = $row['comprobante_path'];
         }
 
-        // FOTOS: si hay nuevas, las agregamos; si no, mantenemos las existentes
+        // FOTOS: anexar nuevas si hay, si no mantener
         if (!empty($fotos_string)) {
             $fotos_string = ($existing_fotos ? $existing_fotos . ',' : '') . $fotos_string;
         } else {
             $fotos_string = $existing_fotos;
         }
 
-        // COMPROBANTE:
-        // - Si se subió uno nuevo, reemplaza el anterior (y se podría borrar el archivo viejo si quieres)
-        // - Si no se subió uno nuevo, se conserva el existente
-        if (!empty($comprobante_path)) {
-            // Si quieres borrar el anterior del servidor, descomenta esto:
-            // if ($existing_comprobante && file_exists($existing_comprobante)) {
-            //     unlink($existing_comprobante);
-            // }
+        // COMPROBANTES: anexar nuevas si hay, si no mantener
+        if (!empty($comprobantes_string)) {
+            $comprobantes_string = ($existing_comprobantes ? $existing_comprobantes . ',' : '') . $comprobantes_string;
         } else {
-            $comprobante_path = $existing_comprobante;
+            $comprobantes_string = $existing_comprobantes;
         }
         
         $sql = "UPDATE cuentas_cobro 
@@ -101,13 +112,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     fecha_inicio='$fecha_inicio', 
                     fecha_fin='$fecha_fin', 
                     foto_path='$fotos_string',
-                    comprobante_path='$comprobante_path'
+                    comprobante_path='$comprobantes_string'
                 WHERE id=$editar_id";
         $accion = "actualizada";
     } else {
         // INSERTAR nuevo registro
         $sql = "INSERT INTO cuentas_cobro (titulo, empresa, fecha_inicio, fecha_fin, foto_path, comprobante_path) 
-                VALUES ('$titulo', '$empresa', '$fecha_inicio', '$fecha_fin', '$fotos_string', '$comprobante_path')";
+                VALUES ('$titulo', '$empresa', '$fecha_inicio', '$fecha_fin', '$fotos_string', '$comprobantes_string')";
         $accion = "guardada";
     }
     
@@ -123,7 +134,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 if (isset($_GET['eliminar'])) {
     $eliminar_id = intval($_GET['eliminar']);
 
-    // Borrar también archivos (fotos y comprobante) si quieres
+    // Borrar también archivos (fotos y comprobantes)
     $sql_files = "SELECT foto_path, comprobante_path FROM cuentas_cobro WHERE id = $eliminar_id";
     $res_files = $conn->query($sql_files);
     if ($rowf = $res_files->fetch_assoc()) {
@@ -136,9 +147,14 @@ if (isset($_GET['eliminar'])) {
                 }
             }
         }
-        // borrar comprobante
-        if (!empty($rowf['comprobante_path']) && file_exists($rowf['comprobante_path'])) {
-            @unlink($rowf['comprobante_path']);
+        // borrar comprobantes
+        if (!empty($rowf['comprobante_path'])) {
+            $comps_borrar = explode(',', $rowf['comprobante_path']);
+            foreach ($comps_borrar as $cb) {
+                if ($cb && file_exists($cb)) {
+                    @unlink($cb);
+                }
+            }
         }
     }
 
@@ -297,9 +313,6 @@ $result_cuentas = $conn->query($sql_cuentas);
         .nav-next { right: 20px; }
         
         /* Estilos para múltiples archivos */
-        .file-input-container { position: relative; }
-        .file-input-label { display: inline-block; padding: 8px 15px; background: #007bff; color: white; border-radius: 4px; cursor: pointer; }
-        .file-input-label:hover { background: #0056b3; }
         .file-list { margin-top: 10px; }
         .file-item { background: #f8f9fa; padding: 5px 10px; margin: 5px 0; border-radius: 4px; border-left: 4px solid #007bff; }
     </style>
@@ -383,14 +396,27 @@ $result_cuentas = $conn->query($sql_cuentas);
                 </div>
 
                 <div class="form-group">
-                    <label for="comprobante">Comprobante Bancolombia:</label>
-                    <input type="file" id="comprobante" name="comprobante" accept="image/*,application/pdf">
-                    <small>Puedes subir imagen o PDF del comprobante.</small>
+                    <label for="comprobante">Comprobante Bancolombia (una o varias fotos / PDFs):</label>
+                    <input type="file" id="comprobante" name="comprobante[]" multiple accept="image/*,application/pdf">
+                    <small>Puedes subir uno o varios archivos.</small>
                     <?php if ($datos_edicion && !empty($datos_edicion['comprobante_path'])): ?>
-                        <div style="margin-top: 10px;">
-                            <a href="<?php echo htmlspecialchars($datos_edicion['comprobante_path']); ?>" target="_blank">
-                                🔎 Ver comprobante actual
-                            </a>
+                        <div class="file-list">
+                            <strong>Comprobantes actuales:</strong>
+                            <?php
+                                $comps = explode(',', $datos_edicion['comprobante_path']);
+                                foreach ($comps as $cp):
+                                    if (!$cp) continue;
+                                    $ext = strtolower(pathinfo($cp, PATHINFO_EXTENSION));
+                            ?>
+                                <div class="file-item">
+                                    <?php if (in_array($ext, ['jpg','jpeg','png','gif','webp'])): ?>
+                                        <img src="<?php echo htmlspecialchars($cp); ?>" style="height:40px;vertical-align:middle;border-radius:4px;margin-right:8px;">
+                                    <?php else: ?>
+                                        📄
+                                    <?php endif; ?>
+                                    <a href="<?php echo htmlspecialchars($cp); ?>" target="_blank">Ver comprobante</a>
+                                </div>
+                            <?php endforeach; ?>
                         </div>
                     <?php endif; ?>
                 </div>
@@ -460,11 +486,25 @@ $result_cuentas = $conn->query($sql_cuentas);
 
                                 <?php if (!empty($cuenta['comprobante_path'])): ?>
                                     <p>
-                                        <strong>Comprobante Bancolombia:</strong><br>
-                                        <a href="<?php echo htmlspecialchars($cuenta['comprobante_path']); ?>" target="_blank">
-                                            🔗 Ver comprobante Bancolombia
-                                        </a>
+                                        <strong>Comprobantes Bancolombia:</strong>
                                     </p>
+                                    <div class="file-list">
+                                        <?php 
+                                            $comps = explode(',', $cuenta['comprobante_path']);
+                                            foreach ($comps as $cp):
+                                                if (!$cp) continue;
+                                                $ext = strtolower(pathinfo($cp, PATHINFO_EXTENSION));
+                                        ?>
+                                            <div class="file-item">
+                                                <?php if (in_array($ext, ['jpg','jpeg','png','gif','webp'])): ?>
+                                                    <img src="<?php echo htmlspecialchars($cp); ?>" style="height:32px;vertical-align:middle;border-radius:4px;margin-right:8px;">
+                                                <?php else: ?>
+                                                    📄
+                                                <?php endif; ?>
+                                                <a href="<?php echo htmlspecialchars($cp); ?>" target="_blank">Ver comprobante</a>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
                                 <?php endif; ?>
                                 
                                 <div class="acciones">
