@@ -6,6 +6,8 @@ if ($conn->connect_error) {
     die("Error de conexión: " . $conn->connect_error);
 }
 
+$conn->set_charset('utf8mb4');
+
 // Variables
 $mensaje = "";
 $editar_id = null;
@@ -13,11 +15,11 @@ $datos_edicion = null;
 
 // PROCESAR FORMULARIO - Guardar o Actualizar
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $titulo = $conn->real_escape_string($_POST['titulo']);
-    $empresa = $conn->real_escape_string($_POST['empresa']);
+    $titulo       = $conn->real_escape_string($_POST['titulo']);
+    $empresa      = $conn->real_escape_string($_POST['empresa']);
     $fecha_inicio = $_POST['fecha_inicio'];
-    $fecha_fin = $_POST['fecha_fin'];
-    $editar_id = isset($_POST['editar_id']) ? intval($_POST['editar_id']) : null;
+    $fecha_fin    = $_POST['fecha_fin'];
+    $editar_id    = isset($_POST['editar_id']) ? intval($_POST['editar_id']) : null;
     
     // Subir MÚLTIPLES fotos
     $fotos_paths = [];
@@ -46,25 +48,23 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     if ($editar_id) {
         // ACTUALIZAR registro existente
         // Si hay fotos nuevas, agregarlas a las existentes
+        $sql_existing = "SELECT foto_path FROM cuentas_cobro WHERE id = $editar_id";
+        $result = $conn->query($sql_existing);
+        $existing_fotos = '';
+        if ($row = $result->fetch_assoc()) {
+            $existing_fotos = $row['foto_path'];
+        }
+
         if (!empty($fotos_string)) {
-            // Obtener fotos existentes
-            $sql_existing = "SELECT foto_path FROM cuentas_cobro WHERE id = $editar_id";
-            $result = $conn->query($sql_existing);
-            if ($row = $result->fetch_assoc()) {
-                $existing_fotos = $row['foto_path'] ? $row['foto_path'] . ',' : '';
-                $fotos_string = $existing_fotos . $fotos_string;
-            }
+            $fotos_string = ($existing_fotos ? $existing_fotos . ',' : '') . $fotos_string;
         } else {
             // Mantener fotos existentes
-            $sql_existing = "SELECT foto_path FROM cuentas_cobro WHERE id = $editar_id";
-            $result = $conn->query($sql_existing);
-            if ($row = $result->fetch_assoc()) {
-                $fotos_string = $row['foto_path'];
-            }
+            $fotos_string = $existing_fotos;
         }
         
-        $sql = "UPDATE cuentas_cobro SET titulo='$titulo', empresa='$empresa', 
-                fecha_inicio='$fecha_inicio', fecha_fin='$fecha_fin', foto_path='$fotos_string' 
+        $sql = "UPDATE cuentas_cobro 
+                SET titulo='$titulo', empresa='$empresa', 
+                    fecha_inicio='$fecha_inicio', fecha_fin='$fecha_fin', foto_path='$fotos_string' 
                 WHERE id=$editar_id";
         $accion = "actualizada";
     } else {
@@ -95,11 +95,11 @@ if (isset($_GET['eliminar'])) {
 
 // ELIMINAR FOTO INDIVIDUAL
 if (isset($_GET['eliminar_foto'])) {
-    $cuenta_id = intval($_GET['cuenta_id']);
+    $cuenta_id     = intval($_GET['cuenta_id']);
     $foto_eliminar = $conn->real_escape_string($_GET['eliminar_foto']);
     
     // Obtener fotos actuales
-    $sql = "SELECT foto_path FROM cuentas_cobro WHERE id = $cuenta_id";
+    $sql   = "SELECT foto_path FROM cuentas_cobro WHERE id = $cuenta_id";
     $result = $conn->query($sql);
     if ($row = $result->fetch_assoc()) {
         $fotos = explode(',', $row['foto_path']);
@@ -114,7 +114,9 @@ if (isset($_GET['eliminar_foto'])) {
         
         // Actualizar base de datos
         $nuevas_fotos_string = implode(',', $nuevas_fotos);
-        $sql_update = "UPDATE cuentas_cobro SET foto_path = '$nuevas_fotos_string' WHERE id = $cuenta_id";
+        $sql_update = "UPDATE cuentas_cobro 
+                       SET foto_path = '$nuevas_fotos_string' 
+                       WHERE id = $cuenta_id";
         $conn->query($sql_update);
         
         $mensaje = "✅ Foto eliminada exitosamente";
@@ -133,11 +135,11 @@ if (isset($_GET['editar'])) {
 
 // CANCELAR EDICIÓN
 if (isset($_GET['cancelar'])) {
-    $editar_id = null;
+    $editar_id    = null;
     $datos_edicion = null;
 }
 
-// OBTENER EMPRESAS PARA FILTRO
+// OBTENER EMPRESAS PARA FILTRO Y DATOSLIST
 $sql_empresas = "SELECT DISTINCT empresa FROM cuentas_cobro ORDER BY empresa";
 $result_empresas = $conn->query($sql_empresas);
 $empresas = [];
@@ -192,10 +194,50 @@ $result_cuentas = $conn->query($sql_cuentas);
         .empresa-badge { background: #007bff; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px; }
         
         /* Modal para ver foto en grande */
-        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.9); }
-        .modal-content { margin: auto; display: block; width: 80%; max-width: 700px; margin-top: 50px; }
-        .close { position: absolute; top: 15px; right: 35px; color: #f1f1f1; font-size: 40px; font-weight: bold; cursor: pointer; }
+        .modal { 
+            display: none; 
+            position: fixed; 
+            z-index: 1000; 
+            left: 0; 
+            top: 0; 
+            width: 100%; 
+            height: 100%; 
+            background-color: rgba(0,0,0,0.9); 
+        }
+        .modal-content { 
+            margin: auto; 
+            display: block; 
+            width: 90%; 
+            max-width: 90%; 
+            max-height: 90vh;
+            object-fit: contain;
+            margin-top: 40px; 
+        }
+        .close { 
+            position: absolute; 
+            top: 15px; 
+            right: 35px; 
+            color: #f1f1f1; 
+            font-size: 40px; 
+            font-weight: bold; 
+            cursor: pointer; 
+        }
         .close:hover { color: #bbb; }
+
+        .nav-arrow {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 50px;
+            font-weight: bold;
+            color: #f1f1f1;
+            cursor: pointer;
+            user-select: none;
+            padding: 10px;
+        }
+        .nav-arrow:hover { color: #bbb; }
+        .nav-prev { left: 20px; }
+        .nav-next { right: 20px; }
         
         /* Estilos para múltiples archivos */
         .file-input-container { position: relative; }
@@ -224,13 +266,20 @@ $result_cuentas = $conn->query($sql_cuentas);
                 <div class="form-group">
                     <label for="titulo">Título Cuenta de Cobro:</label>
                     <input type="text" id="titulo" name="titulo" required 
-                           value="<?php echo $datos_edicion ? $datos_edicion['titulo'] : ''; ?>">
+                           value="<?php echo $datos_edicion ? htmlspecialchars($datos_edicion['titulo']) : ''; ?>">
                 </div>
                 
                 <div class="form-group">
                     <label for="empresa">Empresa:</label>
-                    <input type="text" id="empresa" name="empresa" required 
-                           value="<?php echo $datos_edicion ? $datos_edicion['empresa'] : ''; ?>">
+                    <!-- Input con datalist para buscar empresas existentes o escribir una nueva -->
+                    <input list="lista_empresas" id="empresa" name="empresa" required
+                           value="<?php echo $datos_edicion ? htmlspecialchars($datos_edicion['empresa']) : ''; ?>">
+                    <datalist id="lista_empresas">
+                        <?php foreach ($empresas as $emp): ?>
+                            <option value="<?php echo htmlspecialchars($emp); ?>"></option>
+                        <?php endforeach; ?>
+                    </datalist>
+                    <small>Selecciona una empresa existente o escribe una nueva.</small>
                 </div>
                 
                 <div class="form-group">
@@ -256,12 +305,12 @@ $result_cuentas = $conn->query($sql_cuentas);
                             <div class="cuenta-fotos">
                                 <?php 
                                 $fotos = explode(',', $datos_edicion['foto_path']);
-                                foreach ($fotos as $foto): 
+                                foreach ($fotos as $idx => $foto): 
                                     if (!empty($foto)):
                                 ?>
                                     <div style="text-align: center; margin: 5px;">
                                         <img src="<?php echo $foto; ?>" alt="Foto" class="foto-miniatura" 
-                                             onclick="verFoto('<?php echo $foto; ?>')">
+                                             onclick="abrirGaleria('<?php echo htmlspecialchars($datos_edicion['foto_path'], ENT_QUOTES); ?>', <?php echo $idx; ?>)">
                                         <br>
                                         <a href="?eliminar_foto=<?php echo urlencode($foto); ?>&cuenta_id=<?php echo $editar_id; ?>" 
                                            onclick="return confirm('¿Eliminar esta foto?')" 
@@ -297,9 +346,9 @@ $result_cuentas = $conn->query($sql_cuentas);
                         <select id="filtro_empresa" name="empresa" onchange="this.form.submit()">
                             <option value="">Todas las empresas</option>
                             <?php foreach ($empresas as $emp): ?>
-                                <option value="<?php echo $emp; ?>" 
+                                <option value="<?php echo htmlspecialchars($emp); ?>" 
                                     <?php echo $filtro_empresa == $emp ? 'selected' : ''; ?>>
-                                    <?php echo $emp; ?>
+                                    <?php echo htmlspecialchars($emp); ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>
@@ -316,11 +365,11 @@ $result_cuentas = $conn->query($sql_cuentas);
                                 <div class="cuenta-fotos">
                                     <?php 
                                     $fotos = explode(',', $cuenta['foto_path']);
-                                    foreach ($fotos as $foto): 
+                                    foreach ($fotos as $index => $foto): 
                                         if (!empty($foto)):
                                     ?>
                                         <img src="<?php echo $foto; ?>" alt="Foto" class="foto-miniatura" 
-                                             onclick="verFoto('<?php echo $foto; ?>')">
+                                             onclick="abrirGaleria('<?php echo htmlspecialchars($cuenta['foto_path'], ENT_QUOTES); ?>', <?php echo $index; ?>)">
                                     <?php 
                                         endif;
                                     endforeach; 
@@ -341,14 +390,15 @@ $result_cuentas = $conn->query($sql_cuentas);
                                 
                                 <div class="acciones">
                                     <a href="?editar=<?php echo $cuenta['id']; ?>">
-                                        <button class="btn-editar">✏️ Editar</button>
+                                        <button class="btn-editar" type="button">✏️ Editar</button>
                                     </a>
                                     <a href="?eliminar=<?php echo $cuenta['id']; ?>" 
                                        onclick="return confirm('¿Estás seguro de eliminar esta cuenta?')">
-                                        <button class="btn-eliminar">🗑️ Eliminar</button>
+                                        <button class="btn-eliminar" type="button">🗑️ Eliminar</button>
                                     </a>
                                     <?php if ($cuenta['foto_path']): ?>
-                                        <button class="btn-ver" onclick="verTodasFotos('<?php echo $cuenta['foto_path']; ?>')">
+                                        <button class="btn-ver" type="button"
+                                            onclick="abrirGaleria('<?php echo htmlspecialchars($cuenta['foto_path'], ENT_QUOTES); ?>', 0)">
                                             👁️ Ver Fotos
                                         </button>
                                     <?php endif; ?>
@@ -368,26 +418,44 @@ $result_cuentas = $conn->query($sql_cuentas);
     <!-- Modal para ver fotos en grande -->
     <div id="modalFoto" class="modal">
         <span class="close" onclick="cerrarModal()">&times;</span>
+        <span class="nav-arrow nav-prev" onclick="cambiarFoto(-1)">&#10094;</span>
         <img class="modal-content" id="imgModal">
+        <span class="nav-arrow nav-next" onclick="cambiarFoto(1)">&#10095;</span>
     </div>
 
     <script>
-        // Función para ver una foto en grande
-        function verFoto(fotoPath) {
-            document.getElementById('imgModal').src = fotoPath;
+        // Variables globales para la galería
+        let fotosActuales = [];
+        let indiceFoto = 0;
+
+        // Abre la galería con un conjunto de fotos y una posición inicial
+        function abrirGaleria(fotosString, indexInicial = 0) {
+            fotosActuales = fotosString.split(',').filter(f => f.trim() !== '');
+            if (!fotosActuales.length) return;
+            indiceFoto = indexInicial;
+            mostrarFotoActual();
+        }
+
+        // Muestra la foto actual en el modal
+        function mostrarFotoActual() {
+            const imgModal = document.getElementById('imgModal');
+            imgModal.src = fotosActuales[indiceFoto];
             document.getElementById('modalFoto').style.display = 'block';
         }
-        
-        // Función para ver todas las fotos de una cuenta
-        function verTodasFotos(fotosString) {
-            // Por ahora mostramos la primera foto
-            const fotos = fotosString.split(',');
-            if (fotos.length > 0) {
-                verFoto(fotos[0]);
-            }
+
+        // Cambia de foto (delta = +1 siguiente, -1 anterior)
+        function cambiarFoto(delta) {
+            if (!fotosActuales.length) return;
+            indiceFoto = (indiceFoto + delta + fotosActuales.length) % fotosActuales.length;
+            mostrarFotoActual();
         }
-        
-        // Función para cerrar el modal
+
+        // Compatibilidad: llamada antigua verFoto(path)
+        function verFoto(fotoPath) {
+            abrirGaleria(fotoPath, 0);
+        }
+
+        // Cerrar el modal
         function cerrarModal() {
             document.getElementById('modalFoto').style.display = 'none';
         }
@@ -395,7 +463,7 @@ $result_cuentas = $conn->query($sql_cuentas);
         // Cerrar modal al hacer click fuera de la imagen
         window.onclick = function(event) {
             const modal = document.getElementById('modalFoto');
-            if (event.target == modal) {
+            if (event.target === modal) {
                 cerrarModal();
             }
         }
@@ -406,6 +474,10 @@ $result_cuentas = $conn->query($sql_cuentas);
             if (modal.style.display === 'block') {
                 if (event.key === 'Escape') {
                     cerrarModal();
+                } else if (event.key === 'ArrowRight') {
+                    cambiarFoto(1);
+                } else if (event.key === 'ArrowLeft') {
+                    cambiarFoto(-1);
                 }
             }
         });
