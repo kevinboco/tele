@@ -2,13 +2,13 @@
 // nav_color.php — Menú lateral con íconos a color, texto fijo y magnificación
 
 // === Fechas dinámicas ===
-$desde = "2025-09-26"; // <-- puedes cambiarla manualmente cuando necesites
-$hasta = date("Y-m-d"); // fecha actual automática
+$desde   = "2025-09-26"; // <-- puedes cambiarla manualmente cuando necesites
+$hasta   = date("Y-m-d"); // fecha actual automática
 $empresa = "Hospital";
 
 // URL dinámica con las fechas
 $url_liquidacion = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=$desde&hasta=$hasta&empresa=$empresa";
-$url_pago = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago.php?desde=$desde&hasta=$hasta&empresa=$empresa";
+$url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago.php?desde=$desde&hasta=$hasta&empresa=$empresa";
 ?>
 <style>
 :root {
@@ -57,7 +57,7 @@ $url_pago = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago
   transition: transform 0.22s ease, top 0.22s ease;
 }
 .menu-toggle .bars::before { top: -8px; }
-.menu-toggle .bars::after { top: 8px; }
+.menu-toggle .bars::after  { top:  8px; }
 .menu-toggle.is-open .bars { background: transparent; }
 .menu-toggle.is-open .bars::before {
   top: 0;
@@ -65,7 +65,7 @@ $url_pago = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago
 }
 .menu-toggle.is-open .bars::after {
   top: 0;
- transform: rotate(-45deg);
+  transform: rotate(-45deg);
 }
 
 /* === OVERLAY === */
@@ -80,26 +80,53 @@ $url_pago = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago
 }
 .nav-overlay.is-visible { opacity: 1; pointer-events: auto; }
 
-/* === RIEL LATERAL === */
+/* === RIEL LATERAL (RESPONSIVO + SCROLL) === */
 .mini-rail {
   position: fixed;
   left: 10px;
   top: 84px;
+
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 12px;
+
   padding: 10px 8px;
   background: var(--bg);
   border: 1px solid var(--br);
   border-radius: 16px;
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
-  height: auto;
+
+  /* 🌟 Que nunca se salga de la pantalla y tenga scroll */
+  max-height: calc(100vh - 110px); /* margen para el botón y parte baja */
+  overflow-y: auto;
+  overflow-x: hidden;
+
+  /* scroll finito */
+  scrollbar-width: thin;
+  scrollbar-color: #333 #0a0a0a;
+
   transform: translateX(-90px);
   transition: transform 0.26s ease;
   z-index: var(--z-rail);
 }
 .mini-rail.is-open { transform: translateX(0); }
+
+/* Scrollbar para navegadores WebKit (Chrome, Edge, etc.) */
+.mini-rail::-webkit-scrollbar {
+  width: 6px;
+}
+.mini-rail::-webkit-scrollbar-track {
+  background: #050505;
+  border-radius: 10px;
+}
+.mini-rail::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 10px;
+}
+.mini-rail::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
 
 /* === BOTONES === */
 .rail-item {
@@ -118,6 +145,7 @@ $url_pago = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago
   color: #eaeaea;
   font-size: 12px;
   transition: transform 0.15s ease, border-color 0.2s ease;
+  flex-shrink: 0; /* importante: que no se aplasten al hacer scroll */
 }
 .rail-item img {
   width: 30px;
@@ -132,15 +160,15 @@ $url_pago = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago
   box-shadow: inset 0 0 0 2px #1a1a1a;
   transform: scale(1.07);
 }
-.rail-item:hover img {
-  filter: saturate(1.6);
-  transform: translateY(-2px);
-}
-.rail-item:hover span {
-  color: #00e0a0;
-}
+.rail-item:hover img { filter: saturate(1.6); transform: translateY(-2px); }
+.rail-item:hover span { color: #00e0a0; }
+
 @media (max-width: 480px) {
-  .mini-rail { left: 8px; }
+  .mini-rail {
+    left: 8px;
+    top: 72px;
+    max-height: calc(100vh - 90px);
+  }
 }
 </style>
 
@@ -207,8 +235,8 @@ $url_pago = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago
 
 <script>
 (function(){
-  const btn = document.getElementById('menuToggle');
-  const rail = document.getElementById('miniRail');
+  const btn     = document.getElementById('menuToggle');
+  const rail    = document.getElementById('miniRail');
   const overlay = document.getElementById('navOverlay');
 
   function openRail() {
@@ -226,7 +254,7 @@ $url_pago = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago
     setTimeout(() => overlay.hidden = true, 180);
   }
 
-  btn.addEventListener('click', () => 
+  btn.addEventListener('click', () =>
     rail.classList.contains('is-open') ? closeRail() : openRail()
   );
   overlay.addEventListener('click', closeRail);
@@ -244,19 +272,19 @@ $url_pago = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago
       if (d < max) {
         const scale = 1 + (1 - d/max) * 0.3;
         const s = base * scale;
-        it.style.width = s + 'px';
+        it.style.width  = s + 'px';
         it.style.height = s + 'px';
         it.style.zIndex = 1000 - d;
       } else {
-        it.style.width = base + 'px';
+        it.style.width  = base + 'px';
         it.style.height = base + 'px';
         it.style.zIndex = 'auto';
       }
     });
   });
-  rail.addEventListener('mouseleave', () => 
+  rail.addEventListener('mouseleave', () =>
     items.forEach(i => {
-      i.style.width = '70px';
+      i.style.width  = '70px';
       i.style.height = '70px';
       i.style.zIndex = 'auto';
     })
