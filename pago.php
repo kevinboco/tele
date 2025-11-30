@@ -1,24 +1,14 @@
 <?php
-// ==== CONEXIÓN BD ====
-$conn = new mysqli(
-  "mysql.hostinger.com",
-  "u648222299_keboco5",
-  "Bucaramanga3011",
-  "u648222299_viajes"
-);
-if ($conn->connect_error) {
-  die("Error conexión BD: " . $conn->connect_error);
-}
+include("nav.php");
+$conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
+if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); }
 $conn->set_charset('utf8mb4');
 
 /* ================= Helpers ================= */
 function strip_accents($s){
   $t = @iconv('UTF-8','ASCII//TRANSLIT//IGNORE',$s);
   if ($t !== false) return $t;
-  $repl = [
-    'á'=>'a','é'=>'e','í'=>'i','ó'=>'o','ú'=>'u','ñ'=>'n',
-    'Á'=>'A','É'=>'E','Í'=>'I','Ó'=>'O','Ú'=>'U','Ñ'=>'N'
-  ];
+  $repl = ['á'=>'a','é'=>'e','í'=>'i','ó'=>'o','ú'=>'u','ñ'=>'n','Á'=>'A','É'=>'E','Í'=>'I','Ó'=>'O','Ú'=>'U','Ñ'=>'N'];
   return strtr($s,$repl);
 }
 function norm_person($s){
@@ -29,9 +19,7 @@ function norm_person($s){
   return $s;
 }
 
-/* =========================================================
-   AJAX 1: VIAJES POR CONDUCTOR (modal) — SOLO JSON/HTML
-   ========================================================= */
+/* ================= AJAX: Viajes por conductor (leyenda con contadores y soporte de filtro) ================= */
 if (isset($_GET['viajes_conductor'])) {
   $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
   $desde   = $conn->real_escape_string($_GET['desde'] ?? '');
@@ -70,9 +58,10 @@ if (isset($_GET['viajes_conductor'])) {
 
   if ($res && $res->num_rows > 0) {
     while ($r = $res->fetch_assoc()) {
-      $ruta    = (string)$r['ruta'];
+      $ruta = (string)$r['ruta'];
       $guiones = substr_count($ruta,'-');
 
+      // Clasificación
       if ($r['tipo_vehiculo']==='Carrotanque' && $guiones==0) {
         $cat = 'carrotanque';
       } elseif (stripos($ruta,'Siapana') !== false) {
@@ -87,30 +76,37 @@ if (isset($_GET['viajes_conductor'])) {
         $cat = 'otro';
       }
 
-      if (isset($counts[$cat])) $counts[$cat]++; else $counts[$cat]=1;
+      if (isset($counts[$cat])) {
+        $counts[$cat]++;
+      } else {
+        $counts[$cat] = 1;
+      }
 
       $l = $legend[$cat];
       $badge = "<span class='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold {$l['badge']}'>".$l['label']."</span>";
       $rowCls = trim("row-viaje hover:bg-blue-50 transition-colors {$l['row']} cat-$cat");
 
       $rowsHTML .= "<tr class='{$rowCls}'>
-          <td class='px-3 py-2'>".htmlspecialchars($r['fecha'])."</td>
-          <td class='px-3 py-2'>
-            <div class='flex items-center gap-2'>
-              {$badge}
-              <span>".htmlspecialchars($ruta)."</span>
-            </div>
-          </td>
-          <td class='px-3 py-2'>".htmlspecialchars($r['empresa'])."</td>
-          <td class='px-3 py-2'>".htmlspecialchars($r['tipo_vehiculo'])."</td>
-        </tr>";
+              <td class='px-3 py-2'>".htmlspecialchars($r['fecha'])."</td>
+              <td class='px-3 py-2'>
+                <div class='flex items-center gap-2'>
+                  {$badge}
+                  <span>".htmlspecialchars($ruta)."</span>
+                </div>
+              </td>
+              <td class='px-3 py-2'>".htmlspecialchars($r['empresa'])."</td>
+              <td class='px-3 py-2'>".htmlspecialchars($r['tipo_vehiculo'])."</td>
+            </tr>";
     }
   } else {
     $rowsHTML .= "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresa.</td></tr>";
   }
 
+  // lo que devolvemos al fetch (sin <script>, el JS global hará el filtro)
   ?>
   <div class='space-y-3'>
+
+    <!-- Leyenda con contadores y filtro -->
     <div class='flex flex-wrap gap-2 text-xs' id="legendFilterBar">
       <?php
       foreach (['completo','medio','extra','siapana','carrotanque'] as $k) {
@@ -128,6 +124,7 @@ if (isset($_GET['viajes_conductor'])) {
       ?>
     </div>
 
+    <!-- Tabla -->
     <div class='overflow-x-auto'>
       <table class='min-w-full text-sm text-left'>
         <thead class='bg-blue-600 text-white'>
@@ -148,102 +145,7 @@ if (isset($_GET['viajes_conductor'])) {
   exit;
 }
 
-/* =========================================================
-   AJAX 2: CRUD CUENTAS_COBRO_GUARDADAS — SOLO JSON
-   ========================================================= */
-if (isset($_GET['accion']) || isset($_POST['accion'])) {
-  $accion = $_GET['accion'] ?? $_POST['accion'];
-  header('Content-Type: application/json; charset=utf-8');
-
-  // LISTAR
-  if ($accion === 'listar_cuentas') {
-    $empresa = $conn->real_escape_string($_GET['empresa'] ?? '');
-    $data = [];
-    if ($empresa !== '') {
-      $sql = "SELECT id, nombre, empresa, desde, hasta, facturado, porcentaje_ajuste
-              FROM cuentas_cobro_guardadas
-              WHERE empresa = '$empresa'
-              ORDER BY desde DESC, id DESC";
-      if ($res = $conn->query($sql)) {
-        while ($r = $res->fetch_assoc()) {
-          $data[] = [
-            'id' => (int)$r['id'],
-            'nombre' => $r['nombre'],
-            'empresa' => $r['empresa'],
-            'desde' => $r['desde'],
-            'hasta' => $r['hasta'],
-            'facturado' => (int)$r['facturado'],
-            'porcentaje_ajuste' => (float)$r['porcentaje_ajuste'],
-          ];
-        }
-      }
-    }
-    echo json_encode(['ok'=>true,'items'=>$data], JSON_UNESCAPED_UNICODE);
-    exit;
-  }
-
-  // GUARDAR (INSERT / UPDATE)
-  if ($accion === 'guardar_cuenta') {
-    $id        = (int)($_POST['id'] ?? 0);
-    $nombre    = $conn->real_escape_string($_POST['nombre'] ?? '');
-    $empresa   = $conn->real_escape_string($_POST['empresa'] ?? '');
-    $desde     = $conn->real_escape_string($_POST['desde'] ?? '');
-    $hasta     = $conn->real_escape_string($_POST['hasta'] ?? '');
-    $facturado = (int)($_POST['facturado'] ?? 0);
-    $porcentaje = (float)($_POST['porcentaje_ajuste'] ?? 0);
-
-    if ($empresa === '' || $desde === '' || $hasta === '') {
-      echo json_encode(['ok'=>false,'msg'=>'Datos incompletos']); exit;
-    }
-
-    if ($id > 0) {
-      $stmt = $conn->prepare("UPDATE cuentas_cobro_guardadas
-                              SET nombre=?, empresa=?, desde=?, hasta=?, facturado=?, porcentaje_ajuste=?
-                              WHERE id=?");
-      if (!$stmt) {
-        echo json_encode(['ok'=>false,'msg'=>$conn->error]); exit;
-      }
-      $stmt->bind_param("sssiddi", $nombre, $empresa, $desde, $hasta, $facturado, $porcentaje, $id);
-      $ok = $stmt->execute();
-      $stmt->close();
-      echo json_encode(['ok'=>$ok, 'id'=>$id]); exit;
-    } else {
-      $stmt = $conn->prepare("INSERT INTO cuentas_cobro_guardadas
-        (nombre, empresa, desde, hasta, facturado, porcentaje_ajuste, fecha_creacion)
-        VALUES (?,?,?,?,?,?,NOW())");
-      if (!$stmt) {
-        echo json_encode(['ok'=>false,'msg'=>$conn->error]); exit;
-      }
-      $stmt->bind_param("sssidi", $nombre, $empresa, $desde, $hasta, $facturado, $porcentaje);
-      $ok = $stmt->execute();
-      $newId = $stmt->insert_id;
-      $stmt->close();
-      echo json_encode(['ok'=>$ok, 'id'=>$newId]); exit;
-    }
-  }
-
-  // ELIMINAR
-  if ($accion === 'eliminar_cuenta') {
-    $id = (int)($_POST['id'] ?? 0);
-    if ($id <= 0) { echo json_encode(['ok'=>false,'msg'=>'ID inválido']); exit; }
-    $stmt = $conn->prepare("DELETE FROM cuentas_cobro_guardadas WHERE id=?");
-    if (!$stmt) { echo json_encode(['ok'=>false,'msg'=>$conn->error]); exit; }
-    $stmt->bind_param("i",$id);
-    $ok = $stmt->execute();
-    $stmt->close();
-    echo json_encode(['ok'=>$ok]); exit;
-  }
-
-  echo json_encode(['ok'=>false,'msg'=>'Acción no reconocida']);
-  exit;
-}
-
-/* =========================================================
-   DESDE AQUÍ ES SOLO LA PÁGINA NORMAL (INCLUYE nav.php)
-   ========================================================= */
-include("nav.php");
-
-/* ====== SI FALTAN FECHAS: FORMULARIO SIMPLE ====== */
+/* ================= Form si faltan fechas ================= */
 if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
   $empresas = [];
   $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
@@ -307,7 +209,7 @@ if ($resV) {
       ];
     }
     $ruta = (string)$row['ruta'];
-    $guiones = substr_count($ruta,'-');
+    $guiones = substr_count($ruta, '-');
     if ($row['tipo_vehiculo']==='Carrotanque' && $guiones==0) {
       $contadores[$nombre]['carrotanques']++;
     } elseif (stripos($ruta,'Siapana') !== false) {
@@ -332,6 +234,8 @@ if ($empresaFiltro !== "") {
 /* ================= Préstamos: listado multiselección ================= */
 $prestamosList = [];
 $i = 0;
+
+// CONSULTA ACTUALIZADA: 13% desde 29-oct-2025, 10% para préstamos anteriores Y SOLO PRÉSTAMOS NO PAGADOS
 $qPrest = "
   SELECT deudor,
          SUM(
@@ -385,6 +289,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   .table-sticky thead th { position: sticky; top: 0; z-index: 31; background-color: #2563eb !important; color: #fff !important; }
   .table-sticky thead { box-shadow: 0 2px 0 rgba(0,0,0,0.06); }
 
+  /* Modal Viajes */
   .viajes-backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:10000; }
   .viajes-backdrop.show{ display:flex; }
   .viajes-card{ width:min(720px,94vw); max-height:90vh; overflow:hidden; border-radius:16px; background:#fff;
@@ -396,11 +301,13 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
   .conductor-link{cursor:pointer; color:#0d6efd; text-decoration:underline;}
 
+  /* Estados de pago */
   .estado-pagado { background-color: #f0fdf4 !important; border-left: 4px solid #22c55e; }
   .estado-pendiente { background-color: #fef2f2 !important; border-left: 4px solid #ef4444; }
   .estado-procesando { background-color: #fffbeb !important; border-left: 4px solid #f59e0b; }
   .estado-parcial { background-color: #eff6ff !important; border-left: 4px solid #3b82f6; }
 
+  /* Fila manual */
   .fila-manual { background-color: #f0f9ff !important; border-left: 4px solid #0ea5e9; }
   .fila-manual td { background-color: #f0f9ff !important; }
 </style>
@@ -649,24 +556,20 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             <input id="cuenta_empresa" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" readonly>
           </label>
           <label class="block">
-            <span class="block text-xs font-medium mb-1">Desde</span>
-            <input id="cuenta_desde" type="date" class="w-full rounded-xl border border-slate-300 px-3 py-2">
+            <span class="block text-xs font-medium mb-1">Rango</span>
+            <input id="cuenta_rango" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" readonly>
           </label>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <label class="block">
-            <span class="block text-xs font-medium mb-1">Hasta</span>
-            <input id="cuenta_hasta" type="date" class="w-full rounded-xl border border-slate-300 px-3 py-2">
-          </label>
-          <label class="block">
             <span class="block text-xs font-medium mb-1">Facturado</span>
             <input id="cuenta_facturado" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
           </label>
+          <label class="block">
+            <span class="block text-xs font-medium mb-1">Porcentaje ajuste</span>
+            <input id="cuenta_porcentaje" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
+          </label>
         </div>
-        <label class="block">
-          <span class="block text-xs font-medium mb-1">Porcentaje ajuste</span>
-          <input id="cuenta_porcentaje" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
-        </label>
       </div>
       <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
         <button id="btnCancelSaveCuenta" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
@@ -710,14 +613,13 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   </div>
 
 <script>
-  const SCRIPT_URL = '<?= basename($_SERVER["PHP_SELF"]) ?>';
-
   // ===== Claves de persistencia =====
   const COMPANY_SCOPE = <?= json_encode(($empresaFiltro ?: '__todas__')) ?>;
   const ACC_KEY   = 'cuentas:'+COMPANY_SCOPE;
   const SS_KEY    = 'seg_social:'+COMPANY_SCOPE;
   const PREST_SEL_KEY = 'prestamo_sel_multi:v2:'+COMPANY_SCOPE;
   const ESTADO_PAGO_KEY = 'estado_pago:'+COMPANY_SCOPE;
+  const PERIODOS_KEY  = 'cuentas_cobro_periodos:v1';
   const MANUAL_ROWS_KEY = 'filas_manuales:'+COMPANY_SCOPE;
 
   const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
@@ -1005,6 +907,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     selectedIds = new Set();
     let baseName;
 
+    // Determinar el nombre base según si es fila manual o normal
     if (tr.classList.contains('fila-manual')) {
       const select = tr.querySelector('.conductor-select');
       if (!select || !select.value.trim()) {
@@ -1088,6 +991,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       .filter(it => selectedIds.has(it.id))
       .map(it => ({ id: it.id, name: it.name, total: it.total }));
 
+    // Guardar en localStorage solo si tenemos nombre
     if (baseName) {
       prestSel[baseName] = chosen;
       setLS(PREST_SEL_KEY, prestSel);
@@ -1099,9 +1003,11 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     if (manualVal < 0) manualVal = 0;
 
     if (totalReal > 0) {
+      // Si hay préstamos seleccionados, no dejamos pasar del total real
       if (manualVal === 0) manualVal = totalReal;
       if (manualVal > totalReal) manualVal = totalReal;
     }
+    // Si totalReal == 0, se respeta manualVal como está
 
     currentRow.querySelector('.prest').textContent = fmt(manualVal);
     currentRow.querySelector('.selected-deudor').textContent = summarizeNames(chosen);
@@ -1193,7 +1099,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       empresa: RANGO_EMP
     });
 
-    fetch(SCRIPT_URL + '?' + qs.toString())
+    fetch('<?= basename(__FILE__) ?>?' + qs.toString())
       .then(r => r.text())
       .then(html => {
         viajesContent.innerHTML = html;
@@ -1246,6 +1152,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     
     rows.forEach((tr)=>{
       let base;
+      
+      // Determinar si es fila manual o normal
       if (tr.classList.contains('fila-manual')) {
         const baseInput = tr.querySelector('.base-manual');
         base = baseInput ? toInt(baseInput.value) : 0;
@@ -1256,6 +1164,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
       }
       
       const prest=toInt(tr.querySelector('.prest').textContent || '0');
+      
+      // Calcular ajuste como porcentaje del base
       const ajuste = Math.round(base * (porcentaje / 100));
       const llego = base - ajuste;
       const ret=Math.round(llego*0.035);
@@ -1302,7 +1212,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     recalc();
   });
 
-  // ===== Gestor de cuentas (BD) =====
+  // ===== Gestor de cuentas =====
   const formFiltros = document.getElementById('formFiltros');
   const inpDesde = document.getElementById('inp_desde');
   const inpHasta = document.getElementById('inp_hasta');
@@ -1318,101 +1228,47 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
   const iNombre = document.getElementById('cuenta_nombre');
   const iEmpresa = document.getElementById('cuenta_empresa');
-  const iDesde = document.getElementById('cuenta_desde');
-  const iHasta = document.getElementById('cuenta_hasta');
+  const iRango = document.getElementById('cuenta_rango');
   const iCFact = document.getElementById('cuenta_facturado');
   const iCPorcentaje  = document.getElementById('cuenta_porcentaje');
 
-  let editingCuentaId = null;
-  let CUENTAS = [];
+  const PERIODOS = getLS(PERIODOS_KEY);
 
-  function openSaveCuenta(item=null){
+  function openSaveCuenta(){
     const emp = selEmpresa.value.trim();
-    if (!item && !emp){
-      alert('Selecciona una EMPRESA antes de guardar la cuenta.');
-      return;
-    }
-    editingCuentaId = item ? item.id : null;
+    if(!emp){ alert('Selecciona una EMPRESA antes de guardar la cuenta.'); return; }
+    const d = inpDesde.value; const h = inpHasta.value;
 
-    if (item){
-      iEmpresa.value = item.empresa;
-      iDesde.value = item.desde;
-      iHasta.value = item.hasta;
-      iNombre.value  = item.nombre;
-      iCFact.value   = fmt(item.facturado || 0);
-      iCPorcentaje.value = item.porcentaje_ajuste || 0;
-    } else {
-      const d = inpDesde.value;
-      const h = inpHasta.value;
-      iEmpresa.value = emp;
-      iDesde.value = d;
-      iHasta.value = h;
-      iNombre.value  = `${emp} ${d} a ${h}`;
-      iCFact.value   = fmt(toInt(inpFact.value));
-      iCPorcentaje.value = parseFloat(inpPorcentaje.value) || 0;
-    }
+    iEmpresa.value = emp;
+    iRango.value = `${d} → ${h}`;
+    iNombre.value = `${emp} ${d} a ${h}`;
+    iCFact.value = fmt(toInt(inpFact.value));
+    iCPorcentaje.value = parseFloat(inpPorcentaje.value) || 0;
 
     saveCuentaModal.classList.remove('hidden');
     setTimeout(()=> iNombre.focus(), 0);
   }
   function closeSaveCuenta(){ saveCuentaModal.classList.add('hidden'); }
 
-  btnShowSaveCuenta.addEventListener('click', ()=>openSaveCuenta(null));
+  btnShowSaveCuenta.addEventListener('click', openSaveCuenta);
   btnCloseSaveCuenta.addEventListener('click', closeSaveCuenta);
   btnCancelSaveCuenta.addEventListener('click', closeSaveCuenta);
 
   btnDoSaveCuenta.addEventListener('click', ()=>{
     const emp = iEmpresa.value.trim();
-    if (!emp){
-      alert('Empresa requerida'); return;
-    }
-    const desde = iDesde.value.trim();
-    const hasta = iHasta.value.trim();
+    const [d1, d2raw] = iRango.value.split('→');
+    const desde = (d1||'').trim();
+    const hasta = (d2raw||'').trim();
     const nombre = iNombre.value.trim() || `${emp} ${desde} a ${hasta}`;
     const facturado = toInt(iCFact.value);
     const porcentaje  = parseFloat(iCPorcentaje.value) || 0;
 
-    if (!desde || !hasta) {
-      alert('Las fechas Desde y Hasta son requeridas');
-      return;
-    }
-
-    // CORRECCIÓN: Usar FormData en lugar de URLSearchParams para evitar problemas de codificación
-    const formData = new FormData();
-    formData.append('accion', 'guardar_cuenta');
-    if (editingCuentaId) formData.append('id', editingCuentaId);
-    formData.append('nombre', nombre);
-    formData.append('empresa', emp);
-    formData.append('desde', desde);
-    formData.append('hasta', hasta);
-    formData.append('facturado', facturado);
-    formData.append('porcentaje_ajuste', porcentaje);
-
-    fetch(SCRIPT_URL, {
-      method: 'POST',
-      body: formData
-    })
-    .then(r => {
-      if (!r.ok) {
-        throw new Error('Error de red: ' + r.status);
-      }
-      return r.json();
-    })
-    .then(data=>{
-      if (!data.ok){
-        alert('Error guardando: ' + (data.msg || 'desconocido'));
-        return;
-      }
-      closeSaveCuenta();
-      alert('Cuenta guardada ✔');
-      if (!gestorModal.classList.contains('hidden')) {
-        loadCuentasFromServer();
-      }
-    })
-    .catch(err=>{
-      console.error('Error completo:', err);
-      alert('Error de red guardando la cuenta: ' + err.message);
-    });
+    const item = { id: Date.now(), nombre, desde, hasta, facturado, porcentaje };
+    if(!PERIODOS[emp]) PERIODOS[emp] = [];
+    PERIODOS[emp].push(item);
+    setLS(PERIODOS_KEY, PERIODOS);
+    closeSaveCuenta();
+    alert('Cuenta guardada ✔');
   });
 
   const gestorModal = document.getElementById('gestorCuentasModal');
@@ -1428,7 +1284,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const filtro = (buscaCuenta.value||'').toLowerCase();
     lblEmpresaActual.textContent = emp || '(todas)';
 
-    const arr = CUENTAS.slice().sort((a,b)=> (a.desde>b.desde? -1:1));
+    const arr = (PERIODOS[emp]||[]).slice().sort((a,b)=> (a.desde>b.desde? -1:1));
     tbodyCuentas.innerHTML = '';
     if(arr.length===0){
       tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>No hay cuentas guardadas para esta empresa.</td></tr>";
@@ -1442,7 +1298,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         <td class="px-3 py-2">${item.nombre}</td>
         <td class="px-3 py-2">${item.desde} &rarr; ${item.hasta}</td>
         <td class="px-3 py-2 text-right num">${fmt(item.facturado||0)}</td>
-        <td class="px-3 py-2 text-right num">${item.porcentaje_ajuste||0}%</td>
+        <td class="px-3 py-2 text-right num">${item.porcentaje||0}%</td>
         <td class="px-3 py-2 text-right">
           <div class="inline-flex gap-2">
             <button class="btnUsar border px-2 py-1 rounded bg-slate-50 hover:bg-slate-100 text-xs">Usar</button>
@@ -1453,88 +1309,53 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         </td>`;
       tr.querySelector('.btnUsar').addEventListener('click', ()=> usarCuenta(item,false));
       tr.querySelector('.btnUsarAplicar').addEventListener('click', ()=> usarCuenta(item,true));
-      tr.querySelector('.btnEditar').addEventListener('click', ()=> openSaveCuenta(item));
+      tr.querySelector('.btnEditar').addEventListener('click', ()=> editarCuenta(item));
       tr.querySelector('.btnEliminar').addEventListener('click', ()=> eliminarCuenta(item));
       frag.appendChild(tr);
     });
     tbodyCuentas.appendChild(frag);
   }
 
-  function loadCuentasFromServer(){
-    const emp = selEmpresa.value.trim();
-    if (!emp){
-      lblEmpresaActual.textContent = '(ninguna)';
-      tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>Selecciona primero una empresa.</td></tr>";
-      return;
-    }
-    lblEmpresaActual.textContent = emp;
-    tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>Cargando…</td></tr>";
-    fetch(SCRIPT_URL + '?accion=listar_cuentas&empresa=' + encodeURIComponent(emp))
-      .then(r => {
-        if (!r.ok) {
-          throw new Error('Error de red: ' + r.status);
-        }
-        return r.json();
-      })
-      .then(data=>{
-        if (!data.ok){
-          tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-rose-600'>Error cargando cuentas.</td></tr>";
-          return;
-        }
-        CUENTAS = data.items || [];
-        renderCuentas();
-      })
-      .catch(err=>{
-        console.error('Error completo:', err);
-        tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-rose-600'>Error de red: " + err.message + "</td></tr>";
-      });
-  }
-
   function usarCuenta(item, aplicar){
-    selEmpresa.value = item.empresa;
+    selEmpresa.value = selEmpresa.value;
     inpDesde.value = item.desde;
     inpHasta.value = item.hasta;
     if(item.facturado) document.getElementById('inp_facturado').value = fmt(item.facturado);
-    if(item.porcentaje_ajuste)  document.getElementById('inp_porcentaje_ajuste').value  = item.porcentaje_ajuste;
+    if(item.porcentaje)  document.getElementById('inp_porcentaje_ajuste').value  = item.porcentaje;
     recalc();
     if(aplicar) formFiltros.submit();
+  }
+
+  function editarCuenta(item){
+    saveCuentaModal.classList.remove('hidden');
+    iEmpresa.value = selEmpresa.value;
+    iRango.value = `${item.desde} → ${item.hasta}`;
+    iNombre.value = item.nombre;
+    iCFact.value = fmt(item.facturado||0);
+    iCPorcentaje.value  = item.porcentaje || 0;
+    btnDoSaveCuenta.onclick = ()=>{
+      const [d,h] = iRango.value.split('→').map(s=>s.trim());
+      item.nombre = iNombre.value.trim() || item.nombre;
+      item.desde  = d || item.desde;
+      item.hasta  = h || item.hasta;
+      item.facturado = toInt(iCFact.value);
+      item.porcentaje  = parseFloat(iCPorcentaje.value) || 0;
+      setLS(PERIODOS_KEY, PERIODOS);
+      closeSaveCuenta(); renderCuentas();
+    };
   }
 
   function eliminarCuenta(item){
     const emp = selEmpresa.value.trim();
     if(!confirm('¿Eliminar esta cuenta?')) return;
-    
-    const formData = new FormData();
-    formData.append('accion','eliminar_cuenta');
-    formData.append('id', item.id);
-
-    fetch(SCRIPT_URL, {
-      method: 'POST',
-      body: formData
-    })
-    .then(r => {
-      if (!r.ok) {
-        throw new Error('Error de red: ' + r.status);
-      }
-      return r.json();
-    })
-    .then(data=>{
-      if(!data.ok){
-        alert('Error al eliminar: ' + (data.msg || 'desconocido'));
-        return;
-      }
-      loadCuentasFromServer();
-    })
-    .catch(err=>{
-      console.error('Error completo:', err);
-      alert('Error de red al eliminar: ' + err.message);
-    });
+    PERIODOS[emp] = (PERIODOS[emp]||[]).filter(x=> x.id!==item.id);
+    setLS(PERIODOS_KEY, PERIODOS);
+    renderCuentas();
   }
 
   function openGestor(){
+    renderCuentas();
     gestorModal.classList.remove('hidden');
-    buscaCuenta.value = '';
-    loadCuentasFromServer();
     setTimeout(()=> buscaCuenta.focus(), 0);
   }
   function closeGestor(){ gestorModal.classList.add('hidden'); }
@@ -1542,7 +1363,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   btnShowGestor.addEventListener('click', openGestor);
   btnCloseGestor.addEventListener('click', closeGestor);
   buscaCuenta.addEventListener('input', renderCuentas);
-  btnAddDesdeFiltro.addEventListener('click', ()=>{ closeGestor(); openSaveCuenta(null); });
+  btnAddDesdeFiltro.addEventListener('click', ()=>{ closeGestor(); openSaveCuenta(); });
 
   const nf1 = el => el && el.addEventListener('input', ()=>{ el.value = fmt(toInt(el.value)); });
   nf1(document.getElementById('cuenta_facturado'));
