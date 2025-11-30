@@ -344,15 +344,14 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  .resumen-valor { font-size: 18px; font-weight: 800; color: #0369a1; }
  .resumen-label { font-size: 12px; color: #6b7280; margin-top: 4px; }
 
- /* NUEVO: Estilos para switch de estado de pago */
+ /* NUEVO: Estilos para switch de estado de pago (3 estados) */
  .switch-container { display: flex; align-items: center; gap: 8px; background: #f8f9fa; padding: 8px 12px; border-radius: 12px; border: 1px solid #e5e7eb; }
- .switch { position: relative; display: inline-block; width: 50px; height: 24px; }
- .switch input { opacity: 0; width: 0; height: 0; }
- .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 24px; }
- .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
- input:checked + .slider { background-color: #0b5ed7; }
- input:checked + .slider:before { transform: translateX(26px); }
  .switch-label { font-size: 14px; font-weight: 600; color: #374151; }
+ .switch-group { display:flex; gap:6px; }
+ .switch-pill { display:flex; align-items:center; }
+ .switch-pill input { display:none; }
+ .switch-pill span { font-size:12px; padding:4px 10px; border-radius:999px; border:1px solid #e5e7eb; background:#fff; cursor:pointer; }
+ .switch-pill input:checked + span { background:#0b5ed7; color:#fff; border-color:#0b5ed7; }
 
  /* NUEVO: Estilos para préstamos pagados */
  .card-pagado { border-left: 4px solid #10b981; background: #f0fdf4 !important; opacity: 0.8; }
@@ -578,18 +577,29 @@ else:
           <input name="fecha_hasta" type="date" value="<?= h($fecha_hasta) ?>">
         </div>
         
-        <!-- NUEVO: Switch de estado de pago -->
+        <!-- SWITCH 3 ESTADOS: No pagados / Pagados / Todos -->
         <div class="switch-container">
           <span class="switch-label">Estado:</span>
-          <label class="switch">
-            <input type="checkbox" name="estado_pago" value="todos" 
-                   <?= $estado_pago === 'todos' ? 'checked' : '' ?>
-                   onchange="this.form.submit()">
-            <span class="slider"></span>
-          </label>
-          <span class="switch-label">
-            <?= $estado_pago === 'todos' ? 'Todos' : ($estado_pago === 'pagados' ? 'Pagados' : 'No pagados') ?>
-          </span>
+          <div class="switch-group">
+            <label class="switch-pill">
+              <input type="radio" name="estado_pago" value="no_pagados"
+                     <?= $estado_pago === 'no_pagados' ? 'checked' : '' ?>
+                     onchange="this.form.submit()">
+              <span>No pagados</span>
+            </label>
+            <label class="switch-pill">
+              <input type="radio" name="estado_pago" value="pagados"
+                     <?= $estado_pago === 'pagados' ? 'checked' : '' ?>
+                     onchange="this.form.submit()">
+              <span>Pagados</span>
+            </label>
+            <label class="switch-pill">
+              <input type="radio" name="estado_pago" value="todos"
+                     <?= $estado_pago === 'todos' ? 'checked' : '' ?>
+                     onchange="this.form.submit()">
+              <span>Todos</span>
+            </label>
+          </div>
         </div>
 
         <button class="btn" type="submit">Filtrar</button>
@@ -885,18 +895,29 @@ else:
           <?php foreach($prestMap as $norm=>$label): ?><option value="<?= h($norm) ?>" <?= $fpNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option><?php endforeach; ?>
         </select>
         
-        <!-- NUEVO: Switch de estado de pago para vista gráfica -->
+        <!-- SWITCH 3 ESTADOS: No pagados / Pagados / Todos (vista gráfica) -->
         <div class="switch-container">
           <span class="switch-label">Estado:</span>
-          <label class="switch">
-            <input type="checkbox" name="estado_pago" value="todos" 
-                   <?= $estado_pago === 'todos' ? 'checked' : '' ?>
-                   onchange="this.form.submit()">
-            <span class="slider"></span>
-          </label>
-          <span class="switch-label">
-            <?= $estado_pago === 'todos' ? 'Todos' : ($estado_pago === 'pagados' ? 'Pagados' : 'No pagados') ?>
-          </span>
+          <div class="switch-group">
+            <label class="switch-pill">
+              <input type="radio" name="estado_pago" value="no_pagados"
+                     <?= $estado_pago === 'no_pagados' ? 'checked' : '' ?>
+                     onchange="this.form.submit()">
+              <span>No pagados</span>
+            </label>
+            <label class="switch-pill">
+              <input type="radio" name="estado_pago" value="pagados"
+                     <?= $estado_pago === 'pagados' ? 'checked' : '' ?>
+                     onchange="this.form.submit()">
+              <span>Pagados</span>
+            </label>
+            <label class="switch-pill">
+              <input type="radio" name="estado_pago" value="todos"
+                     <?= $estado_pago === 'todos' ? 'checked' : '' ?>
+                     onchange="this.form.submit()">
+              <span>Todos</span>
+            </label>
+          </div>
         </div>
 
         <button class="btn" type="submit">Filtrar</button>
@@ -1003,7 +1024,7 @@ else:
   }
 
   $conn->close();
-endif; 
+endif; // list / graph
 ?>
 
 <!-- JS: selección múltiple + eliminar sin anidar formularios -->
