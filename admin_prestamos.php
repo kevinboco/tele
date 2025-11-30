@@ -1003,7 +1003,7 @@ else:
   }
 
   $conn->close();
-endif; // list / graph
+endif; 
 ?>
 
 <!-- JS: selección múltiple + eliminar sin anidar formularios -->
