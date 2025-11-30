@@ -1,4 +1,5 @@
 <?php
+include("nav.php");
 // Conexión a la base de datos
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
 
