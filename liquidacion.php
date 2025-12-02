@@ -343,45 +343,61 @@ if ($empresaFiltro !== "") {
       <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
         <div class="flex items-center justify-between gap-3">
           <h3 class="text-lg font-semibold">🧑‍✈️ Resumen por Conductor</h3>
-          <span id="total_chip_container"
-                class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-700 font-semibold text-sm">
-            🔢 Total General: <span id="total_general">0</span>
-          </span>
+          <div id="total_chip_container" class="inline-flex items-center gap-3">
+            <span class="inline-flex items-center gap-2 rounded-full border border-green-200 bg-green-50 px-3 py-1 text-green-700 font-semibold text-sm">
+              📅 Mensual: <span id="total_mensual">0</span>
+            </span>
+            <span class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-700 font-semibold text-sm">
+              🔢 Viajes: <span id="total_viajes">0</span>
+            </span>
+            <span class="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-purple-700 font-semibold text-sm">
+              💰 Total: <span id="total_general">0</span>
+            </span>
+          </div>
         </div>
 
         <div class="mt-4 w-full rounded-xl border border-slate-200">
           <table id="tabla_conductores" class="w-full text-sm table-fixed">
             <colgroup>
-              <col style="width:26%">
-              <col style="width:14%">
+              <col style="width:22%">
+              <col style="width:12%">
+              <col style="width:7%">
+              <col style="width:7%">
+              <col style="width:7%">
+              <col style="width:7%">  <!-- Siapana -->
               <col style="width:8%">
-              <col style="width:8%">
-              <col style="width:8%">
-              <col style="width:8%">  <!-- Siapana -->
-              <col style="width:8%">
+              <col style="width:10%">
               <col style="width:20%">
             </colgroup>
             <thead class="bg-blue-600 text-white">
               <tr>
                 <th class="px-3 py-2 text-left">Conductor</th>
-                <th class="px-3 py-2 text-center">Tipo Vehículo</th>
-                <th class="px-3 py-2 text-center">Completos</th>
-                <th class="px-3 py-2 text-center">Medios</th>
-                <th class="px-3 py-2 text-center">Extras</th>
-                <th class="px-3 py-2 text-center">Siapana</th>
-                <th class="px-3 py-2 text-center">Carrotanques</th>
+                <th class="px-3 py-2 text-center">Tipo</th>
+                <th class="px-3 py-2 text-center">C</th>
+                <th class="px-3 py-2 text-center">M</th>
+                <th class="px-3 py-2 text-center">E</th>
+                <th class="px-3 py-2 text-center">S</th>
+                <th class="px-3 py-2 text-center">CT</th>
+                <th class="px-3 py-2 text-center">Mensual</th>
                 <th class="px-3 py-2 text-center">Total</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 bg-white">
             <?php foreach ($datos as $conductor => $viajes): ?>
-              <tr data-vehiculo="<?= htmlspecialchars($viajes['vehiculo']) ?>" class="hover:bg-blue-50/40 transition-colors">
+              <tr data-vehiculo="<?= htmlspecialchars($viajes['vehiculo']) ?>" data-conductor="<?= htmlspecialchars($conductor) ?>" class="hover:bg-blue-50/40 transition-colors">
                 <td class="px-3 py-2">
-                  <button type="button"
-                          class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition"
-                          title="Ver viajes">
-                    <?= htmlspecialchars($conductor) ?>
-                  </button>
+                  <div class="flex items-center gap-2">
+                    <button type="button"
+                            class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition"
+                            title="Ver viajes">
+                      <?= htmlspecialchars($conductor) ?>
+                    </button>
+                    <button type="button" 
+                            class="btn-mensual text-xs px-2 py-0.5 rounded-full border border-gray-300 hover:border-blue-500 hover:bg-blue-50 transition"
+                            title="Marcar como mensual">
+                      📅
+                    </button>
+                  </div>
                 </td>
                 <td class="px-3 py-2 text-center"><?= htmlspecialchars($viajes['vehiculo']) ?></td>
                 <td class="px-3 py-2 text-center"><?= (int)$viajes["completos"] ?></td>
@@ -390,9 +406,28 @@ if ($empresaFiltro !== "") {
                 <td class="px-3 py-2 text-center"><?= (int)$viajes["siapana"] ?></td>
                 <td class="px-3 py-2 text-center"><?= (int)$viajes["carrotanques"] ?></td>
                 <td class="px-3 py-2">
-                  <input type="text"
-                         class="totales w-full min-w-[160px] rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none whitespace-nowrap tabular-nums"
-                         readonly dir="ltr">
+                  <div class="mensual-info hidden flex-col gap-1">
+                    <input type="date" 
+                           class="fecha-inicio w-full rounded border border-gray-300 px-2 py-1 text-xs"
+                           placeholder="Desde...">
+                    <input type="number" 
+                           class="monto-mensual w-full rounded border border-gray-300 px-2 py-1 text-xs"
+                           placeholder="$ Mensual"
+                           step="1000"
+                           oninput="calcularMensual(this)">
+                    <div class="text-xs text-gray-500 dias-calculados"></div>
+                  </div>
+                  <button type="button" class="btn-agregar-mensual text-xs text-blue-600 hover:text-blue-800">
+                    + Agregar
+                  </button>
+                </td>
+                <td class="px-3 py-2">
+                  <div class="flex flex-col">
+                    <input type="text"
+                           class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none whitespace-nowrap tabular-nums"
+                           readonly dir="ltr">
+                    <div class="text-xs text-gray-500 text-right mt-1 mensual-detalle hidden"></div>
+                  </div>
                 </td>
               </tr>
             <?php endforeach; ?>
@@ -401,12 +436,53 @@ if ($empresaFiltro !== "") {
         </div>
       </section>
 
-      <!-- Columna 3: Panel viajes -->
-      <aside class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-        <h4 class="text-base font-semibold mb-3">🧳 Viajes</h4>
-        <div id="contenidoPanel"
-             class="min-h-[220px] rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600 flex items-center justify-center">
-          <p class="m-0 text-center">Selecciona un conductor para ver sus viajes aquí.</p>
+      <!-- Columna 3: Panel viajes + Conductores Mensuales -->
+      <aside class="space-y-5">
+        <!-- Panel viajes -->
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+          <h4 class="text-base font-semibold mb-3">🧳 Viajes del Conductor</h4>
+          <div id="contenidoPanel"
+               class="min-h-[220px] max-h-[400px] overflow-y-auto rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600 flex items-center justify-center">
+            <p class="m-0 text-center">Selecciona un conductor para ver sus viajes aquí.</p>
+          </div>
+        </div>
+
+        <!-- Panel Conductores Mensuales -->
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+          <h4 class="text-base font-semibold mb-3 flex items-center justify-between">
+            <span>📅 Conductores Mensuales</span>
+            <button type="button" onclick="guardarMensuales()" 
+                    class="text-xs bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700 transition">
+              💾 Guardar
+            </button>
+          </h4>
+          
+          <div class="mb-3">
+            <p class="text-xs text-gray-600 mb-2">Conductores activos este periodo:</p>
+            <div id="lista-mensuales" class="space-y-2 max-h-[300px] overflow-y-auto p-2 border border-gray-100 rounded-lg">
+              <!-- Se llena con JavaScript -->
+            </div>
+          </div>
+          
+          <div class="border-t pt-3">
+            <div class="grid grid-cols-2 gap-2 text-sm">
+              <div class="text-gray-600">Total por viajes:</div>
+              <div class="text-right font-semibold" id="resumen_viajes">$0</div>
+              
+              <div class="text-gray-600">Total por mensuales:</div>
+              <div class="text-right font-semibold text-green-600" id="resumen_mensual">$0</div>
+              
+              <div class="text-gray-600 font-medium border-t pt-1">TOTAL GENERAL:</div>
+              <div class="text-right font-bold text-purple-600 border-t pt-1" id="resumen_total">$0</div>
+            </div>
+          </div>
+          
+          <div class="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <p class="text-xs text-yellow-800 font-medium">💡 Recordatorio:</p>
+            <p class="text-xs text-yellow-700">• Los conductores mensuales se guardan automáticamente en tu navegador<br>
+            • Puedes tener diferentes configuraciones por empresa<br>
+            • La fecha "hasta" siempre es el final del rango seleccionado</p>
+          </div>
         </div>
       </aside>
 
@@ -414,6 +490,138 @@ if ($empresaFiltro !== "") {
   </main>
 
   <script>
+    // Configuración inicial
+    const CONFIG_KEY = 'config_mensuales_<?= htmlspecialchars($empresaFiltro) ?>';
+    const RANGO_HASTA = '<?= htmlspecialchars($hasta) ?>';
+    let configMensuales = JSON.parse(localStorage.getItem(CONFIG_KEY)) || {};
+
+    // Cargar configuración al iniciar
+    function cargarConfiguracion() {
+      Object.entries(configMensuales).forEach(([conductor, datos]) => {
+        const fila = document.querySelector(`tr[data-conductor="${conductor}"]`);
+        if (fila) {
+          const btnAgregar = fila.querySelector('.btn-agregar-mensual');
+          const divInfo = fila.querySelector('.mensual-info');
+          const detalle = fila.querySelector('.mensual-detalle');
+          
+          btnAgregar.classList.add('hidden');
+          divInfo.classList.remove('hidden');
+          
+          const fechaInput = divInfo.querySelector('.fecha-inicio');
+          const montoInput = divInfo.querySelector('.monto-mensual');
+          const diasSpan = divInfo.querySelector('.dias-calculados');
+          
+          fechaInput.value = datos.desde;
+          montoInput.value = datos.monto;
+          
+          // Calcular días y monto
+          calcularDiasYMonto(fechaInput, montoInput, diasSpan, detalle);
+          
+          // Marcar botón como activo
+          const btnMensual = fila.querySelector('.btn-mensual');
+          btnMensual.classList.remove('border-gray-300');
+          btnMensual.classList.add('border-green-500', 'bg-green-100');
+        }
+      });
+      actualizarListaMensuales();
+      recalcular();
+    }
+
+    // Calcular días y monto proporcional
+    function calcularDiasYMonto(fechaInput, montoInput, diasSpan, detalle) {
+      const fechaDesde = new Date(fechaInput.value);
+      const fechaHasta = new Date(RANGO_HASTA);
+      
+      if (!fechaInput.value || !montoInput.value) return;
+      
+      // Calcular diferencia en días
+      const diffTime = Math.abs(fechaHasta - fechaDesde);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+      
+      // Calcular monto proporcional (asumiendo 30 días por mes)
+      const montoDiario = parseFloat(montoInput.value) / 30;
+      const montoProporcional = Math.round(montoDiario * diffDays);
+      
+      diasSpan.textContent = `${diffDays} días`;
+      if (detalle) {
+        detalle.textContent = `Mensual: $${montoProporcional.toLocaleString('es-CO')}`;
+        detalle.classList.remove('hidden');
+      }
+      
+      return montoProporcional;
+    }
+
+    function calcularMensual(input) {
+      const fila = input.closest('tr');
+      const fechaInput = fila.querySelector('.fecha-inicio');
+      const montoInput = fila.querySelector('.monto-mensual');
+      const diasSpan = fila.querySelector('.dias-calculados');
+      const detalle = fila.querySelector('.mensual-detalle');
+      
+      const montoProporcional = calcularDiasYMonto(fechaInput, montoInput, diasSpan, detalle);
+      
+      // Guardar en configuración
+      const conductor = fila.dataset.conductor;
+      if (fechaInput.value && montoInput.value) {
+        configMensuales[conductor] = {
+          desde: fechaInput.value,
+          monto: parseFloat(montoInput.value),
+          hasta: RANGO_HASTA
+        };
+      }
+      
+      actualizarListaMensuales();
+      recalcular();
+    }
+
+    function actualizarListaMensuales() {
+      const lista = document.getElementById('lista-mensuales');
+      lista.innerHTML = '';
+      
+      let totalMensual = 0;
+      
+      Object.entries(configMensuales).forEach(([conductor, datos]) => {
+        const fila = document.querySelector(`tr[data-conductor="${conductor}"]`);
+        if (fila) {
+          const fechaInput = fila.querySelector('.fecha-inicio');
+          const montoInput = fila.querySelector('.monto-mensual');
+          const diasSpan = fila.querySelector('.dias-calculados');
+          const detalle = fila.querySelector('.mensual-detalle');
+          
+          const montoProporcional = calcularDiasYMonto(fechaInput, montoInput, diasSpan, detalle);
+          totalMensual += montoProporcional;
+          
+          // Calcular días
+          const fechaDesde = new Date(datos.desde);
+          const fechaHasta = new Date(RANGO_HASTA);
+          const diffDays = Math.ceil(Math.abs(fechaHasta - fechaDesde) / (1000 * 60 * 60 * 24)) + 1;
+          
+          const item = document.createElement('div');
+          item.className = 'flex justify-between items-center p-2 bg-gray-50 rounded-lg';
+          item.innerHTML = `
+            <div>
+              <div class="font-medium text-sm">${conductor}</div>
+              <div class="text-xs text-gray-500">
+                ${datos.desde} → ${RANGO_HASTA} (${diffDays} días)
+              </div>
+            </div>
+            <div class="text-right">
+              <div class="text-sm font-semibold text-green-600">$${montoProporcional.toLocaleString('es-CO')}</div>
+              <div class="text-xs text-gray-500">de $${parseInt(datos.monto).toLocaleString('es-CO')}/mes</div>
+            </div>
+          `;
+          lista.appendChild(item);
+        }
+      });
+      
+      if (Object.keys(configMensuales).length === 0) {
+        lista.innerHTML = '<p class="text-center text-gray-500 text-sm py-4">No hay conductores mensuales configurados.</p>';
+      }
+      
+      // Actualizar resumen
+      document.getElementById('resumen_mensual').textContent = `$${totalMensual.toLocaleString('es-CO')}`;
+    }
+
     function getTarifas(){
       const tarifas = {};
       document.querySelectorAll('.tarjeta-tarifa').forEach(card=>{
@@ -438,22 +646,126 @@ if ($empresaFiltro !== "") {
     function recalcular(){
       const tarifas = getTarifas();
       const filas = document.querySelectorAll('#tabla_conductores tbody tr');
-      let totalGeneral = 0;
+      let totalViajes = 0;
+      let totalMensual = 0;
+      
       filas.forEach(f=>{
         const veh = f.dataset.vehiculo;
+        const conductor = f.dataset.conductor;
+        
+        // Calcular por viajes
         const c  = parseInt(f.cells[2].innerText)||0;
         const m  = parseInt(f.cells[3].innerText)||0;
         const e  = parseInt(f.cells[4].innerText)||0;
-        const s  = parseInt(f.cells[5].innerText)||0; // siapana
+        const s  = parseInt(f.cells[5].innerText)||0;
         const ca = parseInt(f.cells[6].innerText)||0;
         const t  = tarifas[veh] || {completo:0,medio:0,extra:0,carrotanque:0,siapana:0};
-        const totalFila = c*t.completo + m*t.medio + e*t.extra + s*t.siapana + ca*t.carrotanque;
+        const totalViajesFila = c*t.completo + m*t.medio + e*t.extra + s*t.siapana + ca*t.carrotanque;
+        
+        // Calcular por mensualidad (si aplica)
+        let totalMensualFila = 0;
+        if (configMensuales[conductor]) {
+          const fechaInput = f.querySelector('.fecha-inicio');
+          const montoInput = f.querySelector('.monto-mensual');
+          const diasSpan = f.querySelector('.dias-calculados');
+          const detalle = f.querySelector('.mensual-detalle');
+          
+          totalMensualFila = calcularDiasYMonto(fechaInput, montoInput, diasSpan, detalle) || 0;
+        }
+        
+        // Mostrar total combinado
+        const totalFila = totalViajesFila + totalMensualFila;
         const inp = f.querySelector('input.totales');
         if (inp) inp.value = formatNumber(totalFila);
-        totalGeneral += totalFila;
+        
+        totalViajes += totalViajesFila;
+        totalMensual += totalMensualFila;
       });
-      document.getElementById('total_general').innerText = formatNumber(totalGeneral);
+      
+      // Actualizar todos los totales
+      document.getElementById('total_viajes').innerText = formatNumber(totalViajes);
+      document.getElementById('total_mensual').innerText = formatNumber(totalMensual);
+      document.getElementById('total_general').innerText = formatNumber(totalViajes + totalMensual);
+      
+      document.getElementById('resumen_viajes').textContent = `$${formatNumber(totalViajes)}`;
+      document.getElementById('resumen_total').textContent = `$${formatNumber(totalViajes + totalMensual)}`;
+      
+      // Actualizar lista de mensuales
+      actualizarListaMensuales();
     }
+
+    function guardarMensuales() {
+      localStorage.setItem(CONFIG_KEY, JSON.stringify(configMensuales));
+      alert('✅ Configuración de conductores mensuales guardada en tu navegador.');
+    }
+
+    // Event Listeners
+    document.addEventListener('DOMContentLoaded', function() {
+      cargarConfiguracion();
+      
+      // Click en botón "Marcar como mensual"
+      document.querySelectorAll('.btn-mensual').forEach(btn => {
+        btn.addEventListener('click', function() {
+          const fila = this.closest('tr');
+          const conductor = fila.dataset.conductor;
+          const btnAgregar = fila.querySelector('.btn-agregar-mensual');
+          const divInfo = fila.querySelector('.mensual-info');
+          
+          if (configMensuales[conductor]) {
+            // Quitar de mensuales
+            delete configMensuales[conductor];
+            btnAgregar.classList.remove('hidden');
+            divInfo.classList.add('hidden');
+            fila.querySelector('.mensual-detalle').classList.add('hidden');
+            this.classList.remove('border-green-500', 'bg-green-100');
+            this.classList.add('border-gray-300');
+          } else {
+            // Agregar a mensuales
+            btnAgregar.classList.add('hidden');
+            divInfo.classList.remove('hidden');
+            this.classList.remove('border-gray-300');
+            this.classList.add('border-green-500', 'bg-green-100');
+            
+            // Establecer fecha por defecto (hoy o rango "desde")
+            const fechaInput = divInfo.querySelector('.fecha-inicio');
+            if (!fechaInput.value) {
+              fechaInput.value = '<?= htmlspecialchars($desde) ?>';
+            }
+          }
+          
+          actualizarListaMensuales();
+          recalcular();
+        });
+      });
+      
+      // Click en "Agregar" mensual
+      document.querySelectorAll('.btn-agregar-mensual').forEach(btn => {
+        btn.addEventListener('click', function() {
+          const fila = this.closest('tr');
+          const conductor = fila.dataset.conductor;
+          
+          this.classList.add('hidden');
+          fila.querySelector('.mensual-info').classList.remove('hidden');
+          
+          // Marcar botón como activo
+          fila.querySelector('.btn-mensual').classList.remove('border-gray-300');
+          fila.querySelector('.btn-mensual').classList.add('border-green-500', 'bg-green-100');
+          
+          // Establecer fecha por defecto
+          const fechaInput = fila.querySelector('.fecha-inicio');
+          if (!fechaInput.value) {
+            fechaInput.value = '<?= htmlspecialchars($desde) ?>';
+          }
+        });
+      });
+      
+      // Cambios en fecha o monto mensual
+      document.querySelectorAll('.fecha-inicio, .monto-mensual').forEach(input => {
+        input.addEventListener('change', function() {
+          calcularMensual(this);
+        });
+      });
+    });
 
     // Guardar tarifas AJAX (incluye 'siapana')
     document.querySelectorAll('.tarjeta-tarifa input').forEach(input=>{
@@ -492,9 +804,6 @@ if ($empresaFiltro !== "") {
           .then(html=>{ panel.innerHTML = html; });
       });
     });
-
-    // Primer cá
-    recalcular();
   </script>
 
 </body>
