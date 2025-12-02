@@ -493,7 +493,7 @@ if ($empresaFiltro !== "") {
       });
     });
 
-    // Primer cálculo
+    // Primer cá
     recalcular();
   </script>
 
