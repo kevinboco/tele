@@ -202,18 +202,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // 3) OTROS DEUDORES (NO SELECCIONADOS) - CUADRO 2
     // ==========================
     if (!empty($prestamista_seleccionado)) {
+        // MODIFICADO: Ahora obtenemos la empresa del deudor desde la tabla viajes
         $sql_otros = "SELECT 
-                        id,
-                        deudor,
-                        prestamista,
-                        monto,
-                        fecha
-                      FROM prestamos
-                      WHERE prestamista = ?
-                        AND pagado = 0
-                        AND deudor IS NOT NULL
-                        AND deudor != ''
-                      ORDER BY deudor, fecha";
+                        p.id,
+                        p.deudor,
+                        p.prestamista,
+                        p.monto,
+                        p.fecha,
+                        GROUP_CONCAT(DISTINCT v.empresa) as empresas
+                      FROM prestamos p
+                      LEFT JOIN viajes v ON p.deudor = v.nombre
+                      WHERE p.prestamista = ?
+                        AND p.pagado = 0
+                        AND p.deudor IS NOT NULL
+                        AND p.deudor != ''
+                      GROUP BY p.deudor
+                      ORDER BY p.deudor, p.fecha";
         $stmt_otros = $conn->prepare($sql_otros);
         $stmt_otros->bind_param("s", $prestamista_seleccionado);
         $stmt_otros->execute();
@@ -254,7 +258,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'total_interes_celene' => 0,
                     'total_comision' => 0,
                     'total_interes_normal' => 0,
-                    'cantidad_prestamos' => 0
+                    'cantidad_prestamos' => 0,
+                    'empresas' => $fila['empresas'] ?? 'Sin empresa' // NUEVO: guardamos las empresas
                 ];
             }
 
@@ -710,6 +715,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             cursor:pointer;
         }
 
+        .empresa-cell {
+            max-width: 150px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .empresa-cell:hover {
+            white-space: normal;
+            overflow: visible;
+            background: var(--bg-card);
+            position: relative;
+            z-index: 10;
+        }
+
         @media (max-width: 900px){
             .container{padding:16px;}
             .page-header{
@@ -915,7 +935,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <strong>Distribución para Celene:</strong><br>
                 • Celene recibe: <strong>Capital + <?php echo $interes_celene; ?>% de interés</strong><br>
                 • Tú recibes: <strong><?php echo $comision_celene; ?>% de comisión</strong> (se muestra aparte)<br>
-                • En la columna “Total a pagar” solo se suma: <strong>Capital + Interés Celene</strong>.
+                • En la columna "Total a pagar" solo se suma: <strong>Capital + Interés Celene</strong>.
             </div>
             <?php else: ?>
             <div class="info-meses">
@@ -1072,6 +1092,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <tr>
                             <th>Incluir en Cuadro 1</th>
                             <th>Deudor</th>
+                            <th>Empresa</th> <!-- NUEVA COLUMNA -->
                             <th>Préstamos</th>
                             <th>Capital</th>
                             <?php if ($prestamista_seleccionado == 'Celene'): ?>
@@ -1096,6 +1117,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $otros_total_general += $datos['total_general'];
                             $otros_total_interes_celene_general += $datos['total_interes_celene'];
                             $otros_total_comision_general += $datos['total_comision'];
+                            
+                            // Obtener las empresas (puede haber varias separadas por comas)
+                            $empresas = $datos['empresas'] ?? 'Sin empresa';
+                            // Limpiar valores NULL y vacíos
+                            $empresas_array = explode(',', $empresas);
+                            $empresas_array = array_filter($empresas_array, function($empresa) {
+                                return !empty($empresa) && $empresa !== 'NULL';
+                            });
+                            $empresas_display = !empty($empresas_array) ? implode(', ', $empresas_array) : 'Sin empresa';
                         ?>
                         <tr>
                             <td class="acciones">
@@ -1105,6 +1135,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                        onchange="toggleOtroDeudor(this)">
                             </td>
                             <td><?php echo htmlspecialchars($deudor); ?></td>
+                            <td class="empresa-cell" title="<?php echo htmlspecialchars($empresas_display); ?>">
+                                <?php echo htmlspecialchars($empresas_display); ?>
+                            </td>
                             <td><?php echo $datos['cantidad_prestamos']; ?></td>
                             <td class="moneda">$ <?php echo number_format($datos['total_capital'], 0, ',', '.'); ?></td>
                             <?php if ($prestamista_seleccionado == 'Celene'): ?>
@@ -1119,7 +1152,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                         <!-- Totales OTROS DEUDORES -->
                         <tr class="totales">
-                            <td colspan="3"><strong>TOTAL GENERAL OTROS DEUDORES</strong></td>
+                            <td colspan="4"><strong>TOTAL GENERAL OTROS DEUDORES</strong></td>
                             <td class="moneda">$ <?php echo number_format($otros_total_capital_general, 0, ',', '.'); ?></td>
                             <?php if ($prestamista_seleccionado == 'Celene'): ?>
                             <td class="moneda">$ <?php echo number_format($otros_total_interes_celene_general, 0, ',', '.'); ?></td>
