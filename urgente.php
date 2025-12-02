@@ -125,6 +125,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!empty($deudores_seleccionados) && !empty($prestamista_seleccionado)) {
         $placeholders = str_repeat('?,', count($deudores_seleccionados) - 1) . '?';
 
+        // Construir consulta con filtro de empresa si existe
         $sql = "SELECT 
                     id,
                     deudor,
@@ -134,12 +135,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 FROM prestamos 
                 WHERE deudor IN ($placeholders) 
                   AND prestamista = ?
-                  AND pagado = 0
-                ORDER BY deudor, fecha";
+                  AND pagado = 0";
+        
+        // Agregar filtro de empresa si se seleccionó una
+        if (!empty($empresa_seleccionada)) {
+            $sql .= " AND empresa = ?";
+        }
+        
+        $sql .= " ORDER BY deudor, fecha";
 
         $stmt = $conn->prepare($sql);
-        $types = str_repeat('s', count($deudores_seleccionados)) . 's';
-        $params = array_merge($deudores_seleccionados, [$prestamista_seleccionado]);
+        
+        // Preparar tipos y parámetros según si hay empresa o no
+        if (!empty($empresa_seleccionada)) {
+            $types = str_repeat('s', count($deudores_seleccionados)) . 'ss';
+            $params = array_merge($deudores_seleccionados, [$prestamista_seleccionado, $empresa_seleccionada]);
+        } else {
+            $types = str_repeat('s', count($deudores_seleccionados)) . 's';
+            $params = array_merge($deudores_seleccionados, [$prestamista_seleccionado]);
+        }
+        
         $stmt->bind_param($types, ...$params);
         $stmt->execute();
         $result_detalle = $stmt->get_result();
@@ -202,6 +217,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // 3) OTROS DEUDORES (NO SELECCIONADOS) - CUADRO 2
     // ==========================
     if (!empty($prestamista_seleccionado)) {
+        // Construir consulta con filtro de empresa si existe
         $sql_otros = "SELECT 
                         id,
                         deudor,
@@ -212,10 +228,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                       WHERE prestamista = ?
                         AND pagado = 0
                         AND deudor IS NOT NULL
-                        AND deudor != ''
-                      ORDER BY deudor, fecha";
+                        AND deudor != ''";
+        
+        // Agregar filtro de empresa si se seleccionó una
+        if (!empty($empresa_seleccionada)) {
+            $sql_otros .= " AND empresa = ?";
+        }
+        
+        $sql_otros .= " ORDER BY deudor, fecha";
+        
         $stmt_otros = $conn->prepare($sql_otros);
-        $stmt_otros->bind_param("s", $prestamista_seleccionado);
+        
+        // Vincular parámetros según si hay empresa o no
+        if (!empty($empresa_seleccionada)) {
+            $stmt_otros->bind_param("ss", $prestamista_seleccionado, $empresa_seleccionada);
+        } else {
+            $stmt_otros->bind_param("s", $prestamista_seleccionado);
+        }
+        
         $stmt_otros->execute();
         $result_otros = $stmt_otros->get_result();
 
@@ -915,7 +945,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <strong>Distribución para Celene:</strong><br>
                 • Celene recibe: <strong>Capital + <?php echo $interes_celene; ?>% de interés</strong><br>
                 • Tú recibes: <strong><?php echo $comision_celene; ?>% de comisión</strong> (se muestra aparte)<br>
-                • En la columna “Total a pagar” solo se suma: <strong>Capital + Interés Celene</strong>.
+                • En la columna "Total a pagar" solo se suma: <strong>Capital + Interés Celene</strong>.
             </div>
             <?php else: ?>
             <div class="info-meses">
@@ -1064,7 +1094,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="cuadro-otros">
             <?php if (empty($otros_prestamos_por_deudor)): ?>
                 <div style="background-color: rgba(148,163,184,0.06); border:1px solid rgba(148,163,184,0.3); padding: 10px; border-radius: 10px; margin: 10px 0; font-size:0.85rem;">
-                    No hay otros deudores con préstamos pendientes diferentes a los ya seleccionados.
+                    <?php if (!empty($empresa_seleccionada)): ?>
+                        No hay otros deudores con préstamos pendientes para la empresa <strong><?php echo htmlspecialchars($empresa_seleccionada); ?></strong> diferentes a los ya seleccionados.
+                    <?php else: ?>
+                        No hay otros deudores con préstamos pendientes diferentes a los ya seleccionados.
+                    <?php endif; ?>
                 </div>
             <?php else: ?>
                 <table>
