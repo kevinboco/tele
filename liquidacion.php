@@ -537,26 +537,30 @@ if ($empresaFiltro !== "") {
     let configMensuales = JSON.parse(localStorage.getItem(CONFIG_KEY)) || {};
     let historialCobros = JSON.parse(localStorage.getItem(COBROS_KEY)) || {};
 
-    // 👉 Helper: calcular número de meses completos entre dos fechas
-    // 5 oct - 5 nov = 1 mes
-    // 5 oct - 5 dic = 2 meses
-    // 5 oct - 4 nov = 0 meses (no llega a cumplirse 1 mes completo)
+    // 👉 Helper: calcular número de meses COMPLETOS por pasos
+    // 15/10 - 15/11 = 1 mes
+    // 15/10 - 15/12 = 2 meses
+    // 15/10 - 14/11 = 0 meses
     function calcularMeses(desdeStr, hastaStr) {
       if (!desdeStr || !hastaStr) return 0;
 
-      const d1 = new Date(desdeStr);
-      const d2 = new Date(hastaStr);
+      let inicio = new Date(desdeStr + 'T00:00:00');
+      const fin  = new Date(hastaStr + 'T00:00:00');
 
-      if (isNaN(d1) || isNaN(d2) || d1 > d2) return 0;
+      if (isNaN(inicio) || isNaN(fin) || inicio > fin) return 0;
 
-      let meses = (d2.getFullYear() - d1.getFullYear()) * 12 + (d2.getMonth() - d1.getMonth());
+      let meses = 0;
+      while (true) {
+        const siguiente = new Date(inicio.getTime());
+        siguiente.setMonth(siguiente.getMonth() + 1);
 
-      // Si el día final es mayor o igual al día inicial, contamos ese mes
-      if (d2.getDate() >= d1.getDate()) {
-        meses += 1;
+        if (siguiente <= fin) {
+          meses++;
+          inicio = siguiente; // avanzamos 1 mes completo
+        } else {
+          break;
+        }
       }
-
-      if (meses < 0) meses = 0;
       return meses;
     }
 
@@ -612,8 +616,8 @@ if ($empresaFiltro !== "") {
       const montoMensual = parseFloat(montoInput.value) || 0;
 
       // Validar orden de fechas
-      const dDesde = new Date(fechaDesde);
-      const dHasta = new Date(fechaHasta);
+      const dDesde = new Date(fechaDesde + 'T00:00:00');
+      const dHasta = new Date(fechaHasta + 'T00:00:00');
       if (dDesde > dHasta) {
         if (diasSpan) diasSpan.textContent = "⚠️ Fecha inválida";
         if (detalle) {
@@ -705,8 +709,8 @@ if ($empresaFiltro !== "") {
         
         // Verificar si ya se cobró este periodo
         if (historialCobros[conductor]) {
-          const ultimoCobro = new Date(historialCobros[conductor]);
-          const nuevoDesde = new Date(datos.desde);
+          const ultimoCobro = new Date(historialCobros[conductor] + 'T00:00:00');
+          const nuevoDesde = new Date(datos.desde + 'T00:00:00');
           
           // Si el último cobro es después o igual al desde actual
           if (ultimoCobro >= nuevoDesde) {
