@@ -14,7 +14,7 @@
  * 
  * - COMISIONES en tarjetas con color azul
  * - Interés 13% para préstamos desde 2025-10-29, 10% para anteriores
- * - FILTRO: No mostrar préstamos con pagado=1
+ * - FILTRO: No mostrar préstamos con pagado=1 (por defecto)
  *********************************************************/
 include("nav.php");
 
@@ -232,31 +232,47 @@ if ($action==='create' && $_SERVER['REQUEST_METHOD']==='POST'){
   $fecha = trim($_POST['fecha']??'');
   $img = save_image($_FILES['imagen']??null);
 
+  // NUEVO: campo empresa en el create (si ya lo manejas en el form, lo puedes leer aquí)
+  $empresa = trim($_POST['empresa'] ?? '');
+
   if ($deudor && $prestamista && is_numeric($monto) && preg_match('/^\d{4}-\d{2}-\d{2}$/',$fecha)){
-    $c=db(); $st=$c->prepare("INSERT INTO prestamos (deudor,prestamista,monto,fecha,imagen,created_at) VALUES (?,?,?,?,?,NOW())");
-    $st->bind_param("ssdss",$deudor,$prestamista,$monto,$fecha,$img); $st->execute();
+    $c=db();
+    // Si ya creaste la columna empresa en la tabla, agrégala aquí:
+    if ($empresa !== '') {
+      $st=$c->prepare("INSERT INTO prestamos (deudor,prestamista,monto,fecha,imagen,empresa,created_at) VALUES (?,?,?,?,?,?,NOW())");
+      $st->bind_param("ssdsss",$deudor,$prestamista,$monto,$fecha,$img,$empresa);
+    } else {
+      // Si prefieres que quede '' cuando no se envía
+      $empresa = '';
+      $st=$c->prepare("INSERT INTO prestamos (deudor,prestamista,monto,fecha,imagen,empresa,created_at) VALUES (?,?,?,?,?,?,NOW())");
+      $st->bind_param("ssdsss",$deudor,$prestamista,$monto,$fecha,$img,$empresa);
+    }
+    $st->execute();
     $st->close(); $c->close(); go('?msg=creado&view='.urlencode($view));
   } else { $err="Completa todos los campos correctamente."; }
 }
 
 if ($action==='edit' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
-  $deudor=trim($_POST['deudor']??''); $prestamista=trim($_POST['prestamista']??'');
-  $monto=trim($_POST['monto']??'');   $fecha=trim($_POST['fecha']??'');
+  $deudor=trim($_POST['deudor']??''); 
+  $prestamista=trim($_POST['prestamista']??'');
+  $monto=trim($_POST['monto']??'');   
+  $fecha=trim($_POST['fecha']??'');
+  $empresa = trim($_POST['empresa'] ?? '');
   $keep = isset($_POST['keep']) ? 1:0;
   $img = save_image($_FILES['imagen']??null);
 
   if ($deudor && $prestamista && is_numeric($monto) && preg_match('/^\d{4}-\d{2}-\d{2}$/',$fecha)){
     $c=db();
     if ($img){
-      $st=$c->prepare("UPDATE prestamos SET deudor=?,prestamista=?,monto=?,fecha=?,imagen=? WHERE id=?");
-      $st->bind_param("ssdssi",$deudor,$prestamista,$monto,$fecha,$img,$id);
+      $st=$c->prepare("UPDATE prestamos SET deudor=?,prestamista=?,monto=?,fecha=?,imagen=?,empresa=? WHERE id=?");
+      $st->bind_param("ssdsssi",$deudor,$prestamista,$monto,$fecha,$img,$empresa,$id);
     } else {
       if ($keep){
-        $st=$c->prepare("UPDATE prestamos SET deudor=?,prestamista=?,monto=?,fecha=? WHERE id=?");
-        $st->bind_param("ssdsi",$deudor,$prestamista,$monto,$fecha,$id);
+        $st=$c->prepare("UPDATE prestamos SET deudor=?,prestamista=?,monto=?,fecha=?,empresa=? WHERE id=?");
+        $st->bind_param("ssds si",$deudor,$prestamista,$monto,$fecha,$empresa,$id);
       } else {
-        $st=$c->prepare("UPDATE prestamos SET deudor=?,prestamista=?,monto=?,fecha=?,imagen=NULL WHERE id=?");
-        $st->bind_param("ssdsi",$deudor,$prestamista,$monto,$fecha,$id);
+        $st=$c->prepare("UPDATE prestamos SET deudor=?,prestamista=?,monto=?,fecha=?,imagen=NULL,empresa=? WHERE id=?");
+        $st->bind_param("ssdssi",$deudor,$prestamista,$monto,$fecha,$empresa,$id);
       }
     }
     $st->execute(); $st->close(); $c->close(); go('?msg=editado&view='.urlencode($view));
@@ -392,10 +408,14 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
 <?php
 // ====== NEW / EDIT FORMS ======
 if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!=='POST')):
-  $row = ['deudor'=>'','prestamista'=>'','monto'=>'','fecha'=>'','imagen'=>null];
+  $row = ['deudor'=>'','prestamista'=>'','monto'=>'','fecha'=>'','imagen'=>null,'empresa'=>''];
   if ($action==='edit'){
-    $c=db(); $st=$c->prepare("SELECT deudor,prestamista,monto,fecha,imagen FROM prestamos WHERE id=?");
-    $st->bind_param("i",$id); $st->execute(); $res=$st->get_result(); $row=$res->fetch_assoc() ?: $row;
+    $c=db(); 
+    $st=$c->prepare("SELECT deudor,prestamista,monto,fecha,imagen,empresa FROM prestamos WHERE id=?");
+    $st->bind_param("i",$id); 
+    $st->execute(); 
+    $res=$st->get_result(); 
+    $row=$res->fetch_assoc() ?: $row;
     $st->close(); $c->close();
   }
 ?>
@@ -406,6 +426,7 @@ if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!
       <div class="row" style="gap:12px;flex-wrap:wrap">
         <div class="field" style="min-width:220px;flex:1"><label>Deudor *</label><input name="deudor" required value="<?= h($row['deudor']) ?>"></div>
         <div class="field" style="min-width:220px;flex:1"><label>Prestamista *</label><input name="prestamista" required value="<?= h($row['prestamista']) ?>"></div>
+        <div class="field" style="min-width:200px;flex:1"><label>Empresa</label><input name="empresa" value="<?= h($row['empresa']) ?>" placeholder="Ej: Hospital"></div>
         <div class="field" style="min-width:160px"><label>Monto *</label><input name="monto" type="number" step="1" min="0" required value="<?= h($row['monto']) ?>"></div>
         <div class="field" style="min-width:160px"><label>Fecha *</label><input name="fecha" type="date" required value="<?= h($row['fecha']) ?>"></div>
         <div class="field" style="min-width:240px;flex:1">
@@ -431,6 +452,7 @@ else:
   $q   = trim($_GET['q']  ?? '');
   $fp  = trim($_GET['fp'] ?? ''); // prestamista (normalizado)
   $fd  = trim($_GET['fd'] ?? ''); // deudor (normalizado)
+  $fe  = trim($_GET['fe'] ?? ''); // empresa (normalizado)
   $fecha_desde = trim($_GET['fecha_desde'] ?? '');
   $fecha_hasta = trim($_GET['fecha_hasta'] ?? '');
   // NUEVO: Filtro de estado de pago
@@ -439,6 +461,7 @@ else:
   $qNorm  = mbnorm($q);
   $fpNorm = mbnorm($fp);
   $fdNorm = mbnorm($fd);
+  $feNorm = mbnorm($fe);
 
   $conn=db();
 
@@ -451,24 +474,47 @@ else:
   }
   // Si es 'todos', no se aplica filtro por pagado
 
+  // Filtro simple por empresa para combos de prestamistas y deudores
+  $empresaCond = '';
+  if ($feNorm !== '') {
+    $esc = $conn->real_escape_string($feNorm);
+    $empresaCond = " AND LOWER(TRIM(empresa)) = '".$esc."'";
+  }
+
+  // Combo empresas
+  $empMap = [];
+  $resEmp = $conn->query("SELECT empresa FROM prestamos WHERE $whereBase GROUP BY empresa");
+  if ($resEmp) {
+    while($rowEmp=$resEmp->fetch_row()){
+      $emp = trim((string)$rowEmp[0]);
+      if ($emp === '') continue;
+      $norm = mbnorm($emp);
+      if (!isset($empMap[$norm])) $empMap[$norm] = $emp;
+    }
+    $resEmp->free();
+  }
+  ksort($empMap, SORT_NATURAL);
+
   // Combo prestamistas
   $prestMap = [];
-  $resPL = $conn->query("SELECT prestamista FROM prestamos WHERE $whereBase");
+  $resPL = $conn->query("SELECT prestamista FROM prestamos WHERE $whereBase".$empresaCond);
   while($rowPL=$resPL->fetch_row()){
     $norm = mbnorm($rowPL[0]);
     if ($norm==='') continue;
     if (!isset($prestMap[$norm])) $prestMap[$norm] = $rowPL[0];
   }
+  $resPL->free();
   ksort($prestMap, SORT_NATURAL);
 
   // Combo deudores
   $deudMap = [];
-  $resDL = $conn->query("SELECT deudor FROM prestamos WHERE $whereBase");
+  $resDL = $conn->query("SELECT deudor FROM prestamos WHERE $whereBase".$empresaCond);
   while($rowDL=$resDL->fetch_row()){
     $norm = mbnorm($rowDL[0]);
     if ($norm==='') continue;
     if (!isset($deudMap[$norm])) $deudMap[$norm] = $rowDL[0];
   }
+  $resDL->free();
   ksort($deudMap, SORT_NATURAL);
 
   if ($view==='cards'){
@@ -477,12 +523,13 @@ else:
     if ($q!==''){ $where.=" AND (LOWER(deudor) LIKE CONCAT('%',?,'%') OR LOWER(prestamista) LIKE CONCAT('%',?,'%'))"; $types.="ss"; $params[]=$qNorm; $params[]=$qNorm; }
     if ($fpNorm!==''){ $where.=" AND LOWER(TRIM(prestamista)) = ?"; $types.="s"; $params[]=$fpNorm; }
     if ($fdNorm!==''){ $where.=" AND LOWER(TRIM(deudor)) = ?"; $types.="s"; $params[]=$fdNorm; }
+    if ($feNorm!==''){ $where.=" AND LOWER(TRIM(empresa)) = ?"; $types.="s"; $params[]=$feNorm; }
     if ($fecha_desde!==''){ $where.=" AND fecha >= ?"; $types.="s"; $params[]=$fecha_desde; }
     if ($fecha_hasta!==''){ $where.=" AND fecha <= ?"; $types.="s"; $params[]=$fecha_hasta; }
 
-    // MODIFICADO: Incluir campo pagado y calcular interés correctamente con tasa variable
+    // MODIFICADO: Incluir campo empresa y cálculos
     $sql = "
-      SELECT id,deudor,prestamista,monto,fecha,imagen,created_at,pagado,pagado_at,
+      SELECT id,deudor,prestamista,empresa,monto,fecha,imagen,created_at,pagado,pagado_at,
              comision_gestor_nombre, comision_gestor_porcentaje, comision_base_monto, 
              comision_origen_prestamista, comision_origen_porcentaje,
              CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS meses,
@@ -525,7 +572,7 @@ else:
 
     // NUEVO: Calcular sumas para el rango de fechas seleccionado
     $sumas = ['capital' => 0, 'interes' => 0, 'total' => 0, 'count' => 0];
-    if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $estado_pago !== 'todos') {
+    if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $feNorm !== '' || $estado_pago !== 'todos') {
       $sqlSumas = "
         SELECT COUNT(*) AS n,
                SUM(monto) AS capital,
@@ -568,6 +615,12 @@ else:
             <option value="<?= h($norm) ?>" <?= $fdNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
           <?php endforeach; ?>
         </select>
+        <select name="fe" title="Empresa">
+          <option value="">Todas las empresas</option>
+          <?php foreach($empMap as $norm=>$label): ?>
+            <option value="<?= h($norm) ?>" <?= $feNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
+          <?php endforeach; ?>
+        </select>
         <div class="field" style="min-width:150px">
           <label>Desde</label>
           <input name="fecha_desde" type="date" value="<?= h($fecha_desde) ?>">
@@ -603,15 +656,15 @@ else:
         </div>
 
         <button class="btn" type="submit">Filtrar</button>
-        <?php if ($q!=='' || $fpNorm!=='' || $fdNorm!=='' || $fecha_desde!=='' || $fecha_hasta!=='' || $estado_pago !== 'no_pagados'): ?>
+        <?php if ($q!=='' || $fpNorm!=='' || $fdNorm!=='' || $feNorm!=='' || $fecha_desde!=='' || $fecha_hasta!=='' || $estado_pago !== 'no_pagados'): ?>
           <a class="btn gray" href="?view=cards">Quitar filtro</a>
         <?php endif; ?>
       </form>
       <div class="subtitle">Interés variable: 13% desde 2025-10-29, 10% para préstamos anteriores.</div>
     </div>
 
-    <!-- NUEVO: Mostrar resumen cuando hay filtros de fecha o persona -->
-    <?php if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $estado_pago !== 'no_pagados'): ?>
+    <!-- NUEVO: Mostrar resumen cuando hay filtros de fecha o persona/empresa -->
+    <?php if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $feNorm !== '' || $estado_pago !== 'no_pagados'): ?>
       <div class="resumen-filtro">
         <div class="title">Resumen del Filtro</div>
         <div class="subtitle">
@@ -621,13 +674,14 @@ else:
             if ($fecha_hasta !== '') $filtros[] = "Hasta: " . h($fecha_hasta);
             if ($fdNorm !== '') $filtros[] = "Deudor: " . h(mbtitle($deudMap[$fdNorm] ?? $fdNorm));
             if ($fpNorm !== '') $filtros[] = "Prestamista: " . h(mbtitle($prestMap[$fpNorm] ?? $fpNorm));
+            if ($feNorm !== '') $filtros[] = "Empresa: " . h(mbtitle($empMap[$feNorm] ?? $feNorm));
             $filtros[] = "Estado: " . ($estado_pago === 'todos' ? 'Todos' : ($estado_pago === 'pagados' ? 'Pagados' : 'No pagados'));
             echo implode(' • ', $filtros);
           ?>
         </div>
         <div class="resumen-grid">
           <div class="resumen-item">
-            <div class="resumen-valor"><?= (int)($sumas['count'] ?? 0) ?></div>
+            <div class="resumen-valor"><?= (int)($sumas['n'] ?? $sumas['count'] ?? 0) ?></div>
             <div class="resumen-label">Préstamos</div>
           </div>
           <div class="resumen-item">
@@ -651,7 +705,7 @@ else:
     <?php else: ?>
       <!-- FORM para selección múltiple + edición en lote (NO forms anidados dentro) -->
       <form id="bulkForm" class="card" method="post" action="?action=bulk_update">
-        <!-- conservar filtros (ya no necesarios para la redirección fija, pero no molestan) -->
+        <!-- conservar filtros (no necesarios para redirección fija, pero no molestan) -->
         <input type="hidden" name="view" value="cards">
 
         <div class="row" style="margin-bottom:8px">
@@ -723,6 +777,9 @@ else:
                 <div>
                   <div class="title"><?= h($r['deudor']) ?></div>
                   <div class="subtitle">Prestamista: <strong><?= h($r['prestamista']) ?></strong></div>
+                  <?php if (!empty($r['empresa'])): ?>
+                    <div class="subtitle">Empresa: <strong><?= h($r['empresa']) ?></strong></div>
+                  <?php endif; ?>
                   <?php if ($esPagado && !empty($r['pagado_at'])): ?>
                     <div class="subtitle text-pagado">Pagado el: <?= h($r['pagado_at']) ?></div>
                   <?php endif; ?>
@@ -819,12 +876,28 @@ else:
     $st->close();
 
   } else {
-    // -------- VISUAL 3-NODOS (CON FILTRO DE ESTADO) --------
+    // -------- VISUAL 3-NODOS (CON FILTRO DE ESTADO y EMPRESA) --------
     $where = $whereBase; $types=""; $params=[];
-    $qNorm = mbnorm($_GET['q'] ?? '');
-    $fpNorm = mbnorm($_GET['fp'] ?? '');
-    if ($qNorm!==''){ $where.=" AND (LOWER(deudor) LIKE CONCAT('%',?,'%') OR LOWER(prestamista) LIKE CONCAT('%',?,'%'))"; $types.="ss"; $params[]=$qNorm; $params[]=$qNorm; }
-    if ($fpNorm!==''){ $where.=" AND LOWER(TRIM(prestamista)) = ?"; $types.="s"; $params[]=$fpNorm; }
+    $qNormGraph = mbnorm($_GET['q'] ?? '');
+    $fpNormGraph = mbnorm($_GET['fp'] ?? '');
+    $feNormGraph = $feNorm; // mismo valor normalizado
+
+    if ($qNormGraph!==''){ 
+      $where.=" AND (LOWER(deudor) LIKE CONCAT('%',?,'%') OR LOWER(prestamista) LIKE CONCAT('%',?,'%'))"; 
+      $types.="ss"; 
+      $params[]=$qNormGraph; 
+      $params[]=$qNormGraph; 
+    }
+    if ($fpNormGraph!==''){ 
+      $where.=" AND LOWER(TRIM(prestamista)) = ?"; 
+      $types.="s"; 
+      $params[]=$fpNormGraph; 
+    }
+    if ($feNormGraph!==''){ 
+      $where.=" AND LOWER(TRIM(empresa)) = ?"; 
+      $types.="s"; 
+      $params[]=$feNormGraph; 
+    }
 
     // MODIFICADO: Cálculo correcto de intereses con comisiones y tasa variable
     $sql = "
@@ -894,6 +967,12 @@ else:
         <select name="fp"><option value="">Todos los prestamistas</option>
           <?php foreach($prestMap as $norm=>$label): ?><option value="<?= h($norm) ?>" <?= $fpNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option><?php endforeach; ?>
         </select>
+        <select name="fe" title="Empresa">
+          <option value="">Todas las empresas</option>
+          <?php foreach($empMap as $norm=>$label): ?>
+            <option value="<?= h($norm) ?>" <?= $feNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
+          <?php endforeach; ?>
+        </select>
         
         <!-- SWITCH 3 ESTADOS: No pagados / Pagados / Todos (vista gráfica) -->
         <div class="switch-container">
@@ -921,7 +1000,7 @@ else:
         </div>
 
         <button class="btn" type="submit">Filtrar</button>
-        <?php if (!empty($_GET['q']) || $fpNorm!=='' || $estado_pago !== 'no_pagados'): ?><a class="btn gray" href="?view=graph">Quitar filtro</a><?php endif; ?>
+        <?php if (!empty($_GET['q']) || $fpNorm!=='' || $feNorm!=='' || $estado_pago !== 'no_pagados'): ?><a class="btn gray" href="?view=graph">Quitar filtro</a><?php endif; ?>
       </form>
       <div class="subtitle">
         Diagrama: <strong>Prestamista ➜ Deudores (valor, fecha, interés, total) ➜ Ganancia</strong>.
@@ -946,6 +1025,7 @@ else:
         <input type="hidden" name="view" value="graph">
         <input type="hidden" name="q" value="<?= h($_GET['q'] ?? '') ?>">
         <input type="hidden" name="fp" value="<?= h($fpNorm) ?>">
+        <input type="hidden" name="fe" value="<?= h($feNorm) ?>">
         <input type="hidden" name="estado_pago" value="<?= h($estado_pago) ?>">
 
         <div class="title" style="margin:6px 10px 10px">Prestamista: <?= h($prestLabel) ?></div>
