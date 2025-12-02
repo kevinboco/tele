@@ -55,6 +55,7 @@ if (isset($_GET['viajes_conductor'])) {
     'carrotanque'=>0,
     'otro'=>0
   ];
+
   if ($res && $res->num_rows > 0) {
     while ($r = $res->fetch_assoc()) {
       $ruta = (string)$r['ruta'];
@@ -186,13 +187,13 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
 $empresaFiltro = $_GET['empresa'] ?? "";
+$empresaFiltroEsc = $conn->real_escape_string($empresaFiltro);
 
 /* ================= Viajes del rango (para totales) ================= */
 $sqlV = "SELECT nombre, ruta, empresa, tipo_vehiculo
          FROM viajes
          WHERE fecha BETWEEN '$desde' AND '$hasta'";
 if ($empresaFiltro !== "") {
-  $empresaFiltroEsc = $conn->real_escape_string($empresaFiltro);
   $sqlV .= " AND empresa = '$empresaFiltroEsc'";
 }
 $resV = $conn->query($sqlV);
@@ -226,7 +227,7 @@ if ($resV) {
 /* ================= Tarifas ================= */
 $tarifas = [];
 if ($empresaFiltro !== "") {
-  $resT = $conn->query("SELECT * FROM tarifas WHERE empresa='".$conn->real_escape_string($empresaFiltro)."'");
+  $resT = $conn->query("SELECT * FROM tarifas WHERE empresa='".$empresaFiltroEsc."'");
   if ($resT) while($r=$resT->fetch_assoc()) $tarifas[$r['tipo_vehiculo']] = $r;
 }
 
@@ -234,7 +235,12 @@ if ($empresaFiltro !== "") {
 $prestamosList = [];
 $i = 0;
 
-// CONSULTA ACTUALIZADA: 13% desde 29-oct-2025, 10% para préstamos anteriores Y SOLO PRÉSTAMOS NO PAGADOS
+/*
+  CONSULTA ACTUALIZADA:
+  - 13% desde 29-oct-2025, 10% para préstamos anteriores
+  - SOLO PRÉSTAMOS NO PAGADOS
+  - Y AHORA: FILTRADOS POR EMPRESA SI HAY EMPRESA EN EL FILTRO
+*/
 $qPrest = "
   SELECT deudor,
          SUM(
@@ -248,8 +254,14 @@ $qPrest = "
          ) AS total
   FROM prestamos
   WHERE (pagado IS NULL OR pagado = 0)
-  GROUP BY deudor
 ";
+
+if ($empresaFiltro !== "") {
+  $qPrest .= " AND empresa = '".$empresaFiltroEsc."'";
+}
+
+$qPrest .= " GROUP BY deudor";
+
 if ($rP = $conn->query($qPrest)) {
   while($r = $rP->fetch_assoc()){
     $name = $r['deudor'];
