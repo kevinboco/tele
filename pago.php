@@ -55,7 +55,6 @@ if (isset($_GET['viajes_conductor'])) {
     'carrotanque'=>0,
     'otro'=>0
   ];
-
   if ($res && $res->num_rows > 0) {
     while ($r = $res->fetch_assoc()) {
       $ruta = (string)$r['ruta'];
