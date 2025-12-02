@@ -537,6 +537,29 @@ if ($empresaFiltro !== "") {
     let configMensuales = JSON.parse(localStorage.getItem(CONFIG_KEY)) || {};
     let historialCobros = JSON.parse(localStorage.getItem(COBROS_KEY)) || {};
 
+    // 👉 Helper: calcular número de meses completos entre dos fechas
+    // 5 oct - 5 nov = 1 mes
+    // 5 oct - 5 dic = 2 meses
+    // 5 oct - 4 nov = 0 meses (no llega a cumplirse 1 mes completo)
+    function calcularMeses(desdeStr, hastaStr) {
+      if (!desdeStr || !hastaStr) return 0;
+
+      const d1 = new Date(desdeStr);
+      const d2 = new Date(hastaStr);
+
+      if (isNaN(d1) || isNaN(d2) || d1 > d2) return 0;
+
+      let meses = (d2.getFullYear() - d1.getFullYear()) * 12 + (d2.getMonth() - d1.getMonth());
+
+      // Si el día final es mayor o igual al día inicial, contamos ese mes
+      if (d2.getDate() >= d1.getDate()) {
+        meses += 1;
+      }
+
+      if (meses < 0) meses = 0;
+      return meses;
+    }
+
     // Cargar configuración al iniciar
     function cargarConfiguracion() {
       Object.entries(configMensuales).forEach(([conductor, datos]) => {
@@ -566,7 +589,7 @@ if ($empresaFiltro !== "") {
           fechaHastaInput.value = datos.hasta || RANGO_HASTA;
           montoInput.value = datos.monto;
           
-          // Calcular días y monto
+          // Calcular meses y monto
           calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle);
           
           // Marcar botón como activo
@@ -580,38 +603,40 @@ if ($empresaFiltro !== "") {
       recalcular();
     }
 
-    // Calcular días y monto proporcional
+    // 🔁 Calcular MESES y monto (ya NO por días)
     function calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle) {
-      const fechaDesde = new Date(fechaDesdeInput.value);
-      const fechaHasta = new Date(fechaHastaInput.value);
-      
       if (!fechaDesdeInput.value || !fechaHastaInput.value || !montoInput.value) return 0;
-      
-      // Validar que fechaDesde no sea mayor que fechaHasta
-      if (fechaDesde > fechaHasta) {
-        diasSpan.textContent = "⚠️ Fecha inválida";
+
+      const fechaDesde = fechaDesdeInput.value;
+      const fechaHasta = fechaHastaInput.value;
+      const montoMensual = parseFloat(montoInput.value) || 0;
+
+      // Validar orden de fechas
+      const dDesde = new Date(fechaDesde);
+      const dHasta = new Date(fechaHasta);
+      if (dDesde > dHasta) {
+        if (diasSpan) diasSpan.textContent = "⚠️ Fecha inválida";
         if (detalle) {
           detalle.textContent = "Error: Fecha desde > hasta";
           detalle.classList.remove('hidden');
         }
         return 0;
       }
-      
-      // Calcular diferencia en días
-      const diffTime = Math.abs(fechaHasta - fechaDesde);
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-      
-      // Calcular monto proporcional (asumiendo 30 días por mes)
-      const montoDiario = parseFloat(montoInput.value) / 30;
-      const montoProporcional = Math.round(montoDiario * diffDays);
-      
-      diasSpan.textContent = `${diffDays} días`;
+
+      const meses = calcularMeses(fechaDesde, fechaHasta);
+      const montoTotal = Math.round(montoMensual * meses);
+
+      if (diasSpan) {
+        diasSpan.textContent = meses === 1 ? "1 mes" : `${meses} meses`;
+      }
+
       if (detalle) {
-        detalle.textContent = `Periodo: ${diffDays} días = $${montoProporcional.toLocaleString('es-CO')}`;
+        const textoPeriodo = meses === 1 ? "1 mes" : `${meses} meses`;
+        detalle.textContent = `Periodo: ${textoPeriodo} = $${montoTotal.toLocaleString('es-CO')}`;
         detalle.classList.remove('hidden');
       }
-      
-      return montoProporcional;
+
+      return montoTotal;
     }
 
     function calcularMensual(input) {
@@ -734,13 +759,13 @@ if ($empresaFiltro !== "") {
           const diasSpan = fila.querySelector('.dias-calculados');
           const detalle = fila.querySelector('.mensual-detalle');
           
+          // Este cálculo ahora es por MESES completos
           const montoProporcional = calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle);
           totalMensual += montoProporcional;
           
-          // Calcular días
-          const fechaDesde = new Date(datos.desde);
-          const fechaHasta = new Date(datos.hasta);
-          const diffDays = Math.ceil(Math.abs(fechaHasta - fechaDesde) / (1000 * 60 * 60 * 24)) + 1;
+          // Calcular meses solo para mostrar en la lista
+          const meses = calcularMeses(datos.desde, datos.hasta);
+          const textoMeses = meses === 1 ? '1 mes' : `${meses} meses`;
           
           // Verificar si ya fue cobrado
           const yaCobrado = historialCobros[conductor] ? 
@@ -753,7 +778,7 @@ if ($empresaFiltro !== "") {
             <div>
               <div class="font-medium text-sm">${conductor}</div>
               <div class="text-xs text-gray-500">
-                ${datos.desde} → ${datos.hasta} (${diffDays} días)
+                ${datos.desde} → ${datos.hasta} (${textoMeses})
                 ${yaCobrado}
               </div>
             </div>
