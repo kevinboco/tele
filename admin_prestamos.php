@@ -4,7 +4,7 @@
  * - Normaliza nombres (no distingue mayúsc/minúsc)
  * - Interés variable según comision_origen_porcentaje + comisión gestor
  * - Deudor: valor prestado + fecha + interés + total
- * - Filtro por Deudor + resumen de sumas del deudor
+ * - Filtro por Deudor, Prestamista, Empresa + resumen de sumas
  * - Selección múltiple en Tarjetas + Edición en lote
  * - COMISIONES en tarjetas con color azul
  * - Interés 13% para préstamos desde 2025-10-29, 10% para anteriores
@@ -299,11 +299,6 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  .chip{display:inline-block;background:var(--chip);padding:4px 8px;border-radius:999px;font-size:12px;font-weight:600}
  @media (max-width:760px){ .pairs{grid-template-columns:1fr} }
 
- /* Colores por meses */
- .nodeRect.m1{ fill:#FFF8DB; }  /* 1 mes - amarillo suave */
- .nodeRect.m2{ fill:#FFE9D6; }  /* 2 meses - naranja suave */
- .nodeRect.m3{ fill:#FFE1E1; }  /* 3+ meses - rojo suave */
-
  /* NUEVO: controles de selección múltiple en tarjetas */
  .bulkbar{display:flex;gap:10px;align-items:center;margin:8px 0 0;flex-wrap:wrap}
  .bulkpanel{display:none;margin-top:10px;border:1px dashed #e5e7eb;border-radius:12px;padding:12px;background:#fafafa}
@@ -311,20 +306,20 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  .cardSel{display:flex;align-items:center;gap:8px;margin-bottom:6px}
  .sticky-actions{position:sticky; top:10px; align-self:flex-start}
 
- /* NUEVO: Estilos para comisiones en tarjetas */
+ /* Estilos para comisiones en tarjetas */
  .card-comision { border-left: 4px solid #0b5ed7; background: #F0F9FF !important; }
  .comision-badge { background: #0b5ed7 !important; color: white !important; }
  .comision-info { background: #EAF5FF !important; border: 1px solid #BAE6FD !important; }
  .comision-text { color: #0369A1 !important; font-weight: 600; }
 
- /* NUEVO: Estilos para resumen de filtros */
+ /* Estilos para resumen de filtros */
  .resumen-filtro { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
  .resumen-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 12px; }
  .resumen-item { background: white; border-radius: 8px; padding: 12px; text-align: center; }
  .resumen-valor { font-size: 18px; font-weight: 800; color: #0369a1; }
  .resumen-label { font-size: 12px; color: #6b7280; margin-top: 4px; }
 
- /* NUEVO: Estilos para switch de estado de pago (3 estados) */
+ /* Estilos para switch de estado de pago (3 estados) */
  .switch-container { display: flex; align-items: center; gap: 8px; background: #f8f9fa; padding: 8px 12px; border-radius: 12px; border: 1px solid #e5e7eb; }
  .switch-label { font-size: 14px; font-weight: 600; color: #374151; }
  .switch-group { display:flex; gap:6px; }
@@ -333,7 +328,7 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  .switch-pill span { font-size:12px; padding:4px 10px; border-radius:999px; border:1px solid #e5e7eb; background:#fff; cursor:pointer; }
  .switch-pill input:checked + span { background:#0b5ed7; color:#fff; border-color:#0b5ed7; }
 
- /* NUEVO: Estilos para préstamos pagados */
+ /* Estilos para préstamos pagados */
  .card-pagado { border-left: 4px solid #10b981; background: #f0fdf4 !important; opacity: 0.8; }
  .pagado-badge { background: #10b981 !important; color: white !important; }
  .text-pagado { color: #065f46 !important; font-weight: 600; }
@@ -434,6 +429,7 @@ else:
   $q   = trim($_GET['q']  ?? '');
   $fp  = trim($_GET['fp'] ?? ''); // prestamista (normalizado)
   $fd  = trim($_GET['fd'] ?? ''); // deudor (normalizado)
+  $fe  = trim($_GET['fe'] ?? ''); // empresa (normalizado)
   $fecha_desde = trim($_GET['fecha_desde'] ?? '');
   $fecha_hasta = trim($_GET['fecha_hasta'] ?? '');
   // Filtro de estado de pago
@@ -442,6 +438,7 @@ else:
   $qNorm  = mbnorm($q);
   $fpNorm = mbnorm($fp);
   $fdNorm = mbnorm($fd);
+  $feNorm = mbnorm($fe);
 
   $conn=db();
 
@@ -473,6 +470,19 @@ else:
   }
   ksort($deudMap, SORT_NATURAL);
 
+  // Combo empresas
+  $empMap = [];
+  $resEL = $conn->query("SELECT empresa FROM prestamos WHERE $whereBase");
+  if ($resEL) {
+    while($rowEL=$resEL->fetch_row()){
+      $val = $rowEL[0];
+      $norm = mbnorm($val);
+      if ($norm==='') continue;
+      if (!isset($empMap[$norm])) $empMap[$norm] = $val;
+    }
+    ksort($empMap, SORT_NATURAL);
+  }
+
   // -------- TARJETAS --------
   $where = $whereBase; $types=""; $params=[];
   if ($q!==''){
@@ -487,6 +497,10 @@ else:
     $where.=" AND LOWER(TRIM(deudor)) = ?";
     $types.="s"; $params[]=$fdNorm;
   }
+  if ($feNorm!==''){
+    $where.=" AND LOWER(TRIM(empresa)) = ?";
+    $types.="s"; $params[]=$feNorm;
+  }
   if ($fecha_desde!==''){
     $where.=" AND fecha >= ?";
     $types.="s"; $params[]=$fecha_desde;
@@ -499,6 +513,7 @@ else:
   // Incluir campo pagado y calcular interés correctamente con tasa variable
   $sql = "
       SELECT id,deudor,prestamista,monto,fecha,imagen,created_at,pagado,pagado_at,
+             empresa,
              comision_gestor_nombre, comision_gestor_porcentaje, comision_base_monto, 
              comision_origen_prestamista, comision_origen_porcentaje,
              CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS meses,
@@ -544,7 +559,7 @@ else:
 
   // Calcular sumas para el rango de fechas / filtros seleccionado
   $sumas = ['capital' => 0, 'interes' => 0, 'total' => 0, 'count' => 0];
-  if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $estado_pago !== 'todos') {
+  if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $feNorm !== '' || $estado_pago !== 'todos') {
     $sqlSumas = "
         SELECT COUNT(*) AS n,
                SUM(monto) AS capital,
@@ -577,18 +592,29 @@ else:
       <form class="toolbar" method="get">
         <input type="hidden" name="view" value="cards">
         <input name="q" placeholder="🔎 Buscar (deudor / prestamista)" value="<?= h($q) ?>" style="flex:1;min-width:220px">
+        
         <select name="fp" title="Prestamista">
           <option value="">Todos los prestamistas</option>
           <?php foreach($prestMap as $norm=>$label): ?>
             <option value="<?= h($norm) ?>" <?= $fpNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
           <?php endforeach; ?>
         </select>
+
         <select name="fd" title="Deudor">
           <option value="">Todos los deudores</option>
           <?php foreach($deudMap as $norm=>$label): ?>
             <option value="<?= h($norm) ?>" <?= $fdNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
           <?php endforeach; ?>
         </select>
+
+        <!-- NUEVO: Filtro por empresa -->
+        <select name="fe" title="Empresa">
+          <option value="">Todas las empresas</option>
+          <?php foreach($empMap as $norm=>$label): ?>
+            <option value="<?= h($norm) ?>" <?= $feNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
+          <?php endforeach; ?>
+        </select>
+
         <div class="field" style="min-width:150px">
           <label>Desde</label>
           <input name="fecha_desde" type="date" value="<?= h($fecha_desde) ?>">
@@ -624,7 +650,7 @@ else:
         </div>
 
         <button class="btn" type="submit">Filtrar</button>
-        <?php if ($q!=='' || $fpNorm!=='' || $fdNorm!=='' || $fecha_desde!=='' || $fecha_hasta!=='' || $estado_pago !== 'no_pagados'): ?>
+        <?php if ($q!=='' || $fpNorm!=='' || $fdNorm!=='' || $feNorm!=='' || $fecha_desde!=='' || $fecha_hasta!=='' || $estado_pago !== 'no_pagados'): ?>
           <a class="btn gray" href="?view=cards">Quitar filtro</a>
         <?php endif; ?>
       </form>
@@ -632,7 +658,7 @@ else:
     </div>
 
     <!-- Resumen cuando hay filtros -->
-    <?php if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $estado_pago !== 'no_pagados'): ?>
+    <?php if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $feNorm!=='' || $estado_pago !== 'no_pagados'): ?>
       <div class="resumen-filtro">
         <div class="title">Resumen del Filtro</div>
         <div class="subtitle">
@@ -642,6 +668,7 @@ else:
             if ($fecha_hasta !== '') $filtros[] = "Hasta: " . h($fecha_hasta);
             if ($fdNorm !== '') $filtros[] = "Deudor: " . h(mbtitle($deudMap[$fdNorm] ?? $fdNorm));
             if ($fpNorm !== '') $filtros[] = "Prestamista: " . h(mbtitle($prestMap[$fpNorm] ?? $fpNorm));
+            if ($feNorm !== '') $filtros[] = "Empresa: " . h(mbtitle($empMap[$feNorm] ?? $feNorm));
             $filtros[] = "Estado: " . ($estado_pago === 'todos' ? 'Todos' : ($estado_pago === 'pagados' ? 'Pagados' : 'No pagados'));
             echo implode(' • ', $filtros);
           ?>
@@ -745,6 +772,9 @@ else:
                 <div>
                   <div class="title"><?= h($r['deudor']) ?></div>
                   <div class="subtitle">Prestamista: <strong><?= h($r['prestamista']) ?></strong></div>
+                  <?php if (!empty($r['empresa'])): ?>
+                    <div class="subtitle">Empresa: <strong><?= h($r['empresa']) ?></strong></div>
+                  <?php endif; ?>
                   <?php if ($esPagado && !empty($r['pagado_at'])): ?>
                     <div class="subtitle text-pagado">Pagado el: <?= h($r['pagado_at']) ?></div>
                   <?php endif; ?>
