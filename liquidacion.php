@@ -204,6 +204,14 @@ if ($empresaFiltro !== "") {
   ::-webkit-scrollbar-thumb:hover{background:#9ca3af}
   input[type=number]::-webkit-inner-spin-button,
   input[type=number]::-webkit-outer-spin-button{ -webkit-appearance: none; margin: 0; }
+  .alert-cobro { 
+    animation: pulse 2s infinite;
+    border-left: 4px solid #f59e0b;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.8; }
+  }
 </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
@@ -360,14 +368,14 @@ if ($empresaFiltro !== "") {
           <table id="tabla_conductores" class="w-full text-sm table-fixed">
             <colgroup>
               <col style="width:22%">
-              <col style="width:12%">
-              <col style="width:7%">
-              <col style="width:7%">
-              <col style="width:7%">
-              <col style="width:7%">  <!-- Siapana -->
-              <col style="width:8%">
               <col style="width:10%">
-              <col style="width:20%">
+              <col style="width:6%">
+              <col style="width:6%">
+              <col style="width:6%">
+              <col style="width:6%">  <!-- Siapana -->
+              <col style="width:7%">
+              <col style="width:23%">
+              <col style="width:14%">
             </colgroup>
             <thead class="bg-blue-600 text-white">
               <tr>
@@ -378,7 +386,7 @@ if ($empresaFiltro !== "") {
                 <th class="px-3 py-2 text-center">E</th>
                 <th class="px-3 py-2 text-center">S</th>
                 <th class="px-3 py-2 text-center">CT</th>
-                <th class="px-3 py-2 text-center">Mensual</th>
+                <th class="px-3 py-2 text-center">Mensualidad</th>
                 <th class="px-3 py-2 text-center">Total</th>
               </tr>
             </thead>
@@ -407,15 +415,31 @@ if ($empresaFiltro !== "") {
                 <td class="px-3 py-2 text-center"><?= (int)$viajes["carrotanques"] ?></td>
                 <td class="px-3 py-2">
                   <div class="mensual-info hidden flex-col gap-1">
-                    <input type="date" 
-                           class="fecha-inicio w-full rounded border border-gray-300 px-2 py-1 text-xs"
-                           placeholder="Desde...">
+                    <div class="grid grid-cols-2 gap-1">
+                      <div>
+                        <label class="text-xs">Desde:</label>
+                        <input type="date" 
+                               class="fecha-desde w-full rounded border border-gray-300 px-2 py-1 text-xs"
+                               placeholder="Inicio">
+                      </div>
+                      <div>
+                        <label class="text-xs">Hasta:</label>
+                        <input type="date" 
+                               class="fecha-hasta w-full rounded border border-gray-300 px-2 py-1 text-xs"
+                               placeholder="Fin">
+                      </div>
+                    </div>
                     <input type="number" 
                            class="monto-mensual w-full rounded border border-gray-300 px-2 py-1 text-xs"
                            placeholder="$ Mensual"
                            step="1000"
                            oninput="calcularMensual(this)">
                     <div class="text-xs text-gray-500 dias-calculados"></div>
+                    <button type="button" 
+                            class="btn-registrar-cobro text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 mt-1"
+                            onclick="registrarCobro(this)">
+                      ✅ Registrar Cobro
+                    </button>
                   </div>
                   <button type="button" class="btn-agregar-mensual text-xs text-blue-600 hover:text-blue-800">
                     + Agregar
@@ -451,11 +475,25 @@ if ($empresaFiltro !== "") {
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
           <h4 class="text-base font-semibold mb-3 flex items-center justify-between">
             <span>📅 Conductores Mensuales</span>
-            <button type="button" onclick="guardarMensuales()" 
-                    class="text-xs bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700 transition">
-              💾 Guardar
-            </button>
+            <div class="flex gap-2">
+              <button type="button" onclick="mostrarAlertasCobro()" 
+                      class="text-xs bg-yellow-600 text-white px-3 py-1 rounded-lg hover:bg-yellow-700 transition">
+                ⚠️ Alertas
+              </button>
+              <button type="button" onclick="guardarMensuales()" 
+                      class="text-xs bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700 transition">
+                💾 Guardar
+              </button>
+            </div>
           </h4>
+          
+          <!-- Alertas de cobro -->
+          <div id="alertas-cobro" class="hidden mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg alert-cobro">
+            <p class="text-sm font-medium text-yellow-800 mb-2">⚠️ Recordatorios de Cobro:</p>
+            <div id="lista-alertas" class="space-y-1">
+              <!-- Se llena con JavaScript -->
+            </div>
+          </div>
           
           <div class="mb-3">
             <p class="text-xs text-gray-600 mb-2">Conductores activos este periodo:</p>
@@ -477,11 +515,11 @@ if ($empresaFiltro !== "") {
             </div>
           </div>
           
-          <div class="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-            <p class="text-xs text-yellow-800 font-medium">💡 Recordatorio:</p>
-            <p class="text-xs text-yellow-700">• Los conductores mensuales se guardan automáticamente en tu navegador<br>
-            • Puedes tener diferentes configuraciones por empresa<br>
-            • La fecha "hasta" siempre es el final del rango seleccionado</p>
+          <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <p class="text-xs text-blue-800 font-medium">💡 Instrucciones:</p>
+            <p class="text-xs text-blue-700">1. Configura fecha DESDE y HASTA para cada conductor mensual<br>
+            2. Haz click en "✅ Registrar Cobro" cuando termines<br>
+            3. En la próxima liquidación, el sistema usará automáticamente la última fecha cobrada</p>
           </div>
         </div>
       </aside>
@@ -492,8 +530,12 @@ if ($empresaFiltro !== "") {
   <script>
     // Configuración inicial
     const CONFIG_KEY = 'config_mensuales_<?= htmlspecialchars($empresaFiltro) ?>';
+    const COBROS_KEY = 'historial_cobros_<?= htmlspecialchars($empresaFiltro) ?>';
+    const RANGO_DESDE = '<?= htmlspecialchars($desde) ?>';
     const RANGO_HASTA = '<?= htmlspecialchars($hasta) ?>';
+    
     let configMensuales = JSON.parse(localStorage.getItem(CONFIG_KEY)) || {};
+    let historialCobros = JSON.parse(localStorage.getItem(COBROS_KEY)) || {};
 
     // Cargar configuración al iniciar
     function cargarConfiguracion() {
@@ -507,15 +549,25 @@ if ($empresaFiltro !== "") {
           btnAgregar.classList.add('hidden');
           divInfo.classList.remove('hidden');
           
-          const fechaInput = divInfo.querySelector('.fecha-inicio');
+          const fechaDesdeInput = divInfo.querySelector('.fecha-desde');
+          const fechaHastaInput = divInfo.querySelector('.fecha-hasta');
           const montoInput = divInfo.querySelector('.monto-mensual');
           const diasSpan = divInfo.querySelector('.dias-calculados');
           
-          fechaInput.value = datos.desde;
+          // Si hay historial de cobro, usar la última fecha cobrada + 1 día como DESDE
+          if (historialCobros[conductor]) {
+            const ultimoCobro = new Date(historialCobros[conductor]);
+            ultimoCobro.setDate(ultimoCobro.getDate() + 1);
+            fechaDesdeInput.value = ultimoCobro.toISOString().split('T')[0];
+          } else {
+            fechaDesdeInput.value = datos.desde || RANGO_DESDE;
+          }
+          
+          fechaHastaInput.value = datos.hasta || RANGO_HASTA;
           montoInput.value = datos.monto;
           
           // Calcular días y monto
-          calcularDiasYMonto(fechaInput, montoInput, diasSpan, detalle);
+          calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle);
           
           // Marcar botón como activo
           const btnMensual = fila.querySelector('.btn-mensual');
@@ -524,15 +576,26 @@ if ($empresaFiltro !== "") {
         }
       });
       actualizarListaMensuales();
+      mostrarAlertasCobro();
       recalcular();
     }
 
     // Calcular días y monto proporcional
-    function calcularDiasYMonto(fechaInput, montoInput, diasSpan, detalle) {
-      const fechaDesde = new Date(fechaInput.value);
-      const fechaHasta = new Date(RANGO_HASTA);
+    function calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle) {
+      const fechaDesde = new Date(fechaDesdeInput.value);
+      const fechaHasta = new Date(fechaHastaInput.value);
       
-      if (!fechaInput.value || !montoInput.value) return;
+      if (!fechaDesdeInput.value || !fechaHastaInput.value || !montoInput.value) return 0;
+      
+      // Validar que fechaDesde no sea mayor que fechaHasta
+      if (fechaDesde > fechaHasta) {
+        diasSpan.textContent = "⚠️ Fecha inválida";
+        if (detalle) {
+          detalle.textContent = "Error: Fecha desde > hasta";
+          detalle.classList.remove('hidden');
+        }
+        return 0;
+      }
       
       // Calcular diferencia en días
       const diffTime = Math.abs(fechaHasta - fechaDesde);
@@ -544,7 +607,7 @@ if ($empresaFiltro !== "") {
       
       diasSpan.textContent = `${diffDays} días`;
       if (detalle) {
-        detalle.textContent = `Mensual: $${montoProporcional.toLocaleString('es-CO')}`;
+        detalle.textContent = `Periodo: ${diffDays} días = $${montoProporcional.toLocaleString('es-CO')}`;
         detalle.classList.remove('hidden');
       }
       
@@ -553,25 +616,107 @@ if ($empresaFiltro !== "") {
 
     function calcularMensual(input) {
       const fila = input.closest('tr');
-      const fechaInput = fila.querySelector('.fecha-inicio');
+      const fechaDesdeInput = fila.querySelector('.fecha-desde');
+      const fechaHastaInput = fila.querySelector('.fecha-hasta');
       const montoInput = fila.querySelector('.monto-mensual');
       const diasSpan = fila.querySelector('.dias-calculados');
       const detalle = fila.querySelector('.mensual-detalle');
       
-      const montoProporcional = calcularDiasYMonto(fechaInput, montoInput, diasSpan, detalle);
+      const montoProporcional = calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle);
       
       // Guardar en configuración
       const conductor = fila.dataset.conductor;
-      if (fechaInput.value && montoInput.value) {
+      if (fechaDesdeInput.value && fechaHastaInput.value && montoInput.value) {
         configMensuales[conductor] = {
-          desde: fechaInput.value,
-          monto: parseFloat(montoInput.value),
-          hasta: RANGO_HASTA
+          desde: fechaDesdeInput.value,
+          hasta: fechaHastaInput.value,
+          monto: parseFloat(montoInput.value)
         };
       }
       
       actualizarListaMensuales();
       recalcular();
+    }
+
+    // Registrar cobro (guardar fecha HASTA como último cobro)
+    function registrarCobro(btn) {
+      const fila = btn.closest('tr');
+      const conductor = fila.dataset.conductor;
+      const fechaHastaInput = fila.querySelector('.fecha-hasta');
+      
+      if (!fechaHastaInput.value) {
+        alert('❌ Debes especificar la fecha HASTA para registrar el cobro');
+        return;
+      }
+      
+      // Guardar en historial de cobros
+      historialCobros[conductor] = fechaHastaInput.value;
+      localStorage.setItem(COBROS_KEY, JSON.stringify(historialCobros));
+      
+      // Mostrar confirmación
+      btn.innerHTML = '✅ Cobro Registrado';
+      btn.classList.remove('bg-green-600');
+      btn.classList.add('bg-gray-600');
+      
+      setTimeout(() => {
+        btn.innerHTML = '✅ Registrar Cobro';
+        btn.classList.remove('bg-gray-600');
+        btn.classList.add('bg-green-600');
+      }, 2000);
+      
+      mostrarAlertasCobro();
+    }
+
+    function mostrarAlertasCobro() {
+      const alertasDiv = document.getElementById('alertas-cobro');
+      const listaAlertas = document.getElementById('lista-alertas');
+      listaAlertas.innerHTML = '';
+      
+      let hayAlertas = false;
+      
+      Object.entries(configMensuales).forEach(([conductor, datos]) => {
+        let mensaje = '';
+        let tipo = 'info';
+        
+        // Verificar si ya se cobró este periodo
+        if (historialCobros[conductor]) {
+          const ultimoCobro = new Date(historialCobros[conductor]);
+          const nuevoDesde = new Date(datos.desde);
+          
+          // Si el último cobro es después o igual al desde actual
+          if (ultimoCobro >= nuevoDesde) {
+            mensaje = `✅ ${conductor}: Ya cobrado hasta ${historialCobros[conductor]}`;
+            tipo = 'success';
+          } else {
+            // Calcular días pendientes
+            const diffTime = Math.abs(nuevoDesde - ultimoCobro);
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            
+            if (diffDays > 1) {
+              mensaje = `⚠️ ${conductor}: ${diffDays} días sin cobrar desde ${historialCobros[conductor]}`;
+              tipo = 'warning';
+              hayAlertas = true;
+            }
+          }
+        } else {
+          // No hay historial de cobro para este conductor
+          mensaje = `ℹ️ ${conductor}: Primer cobro registrado`;
+          tipo = 'info';
+        }
+        
+        if (mensaje) {
+          const item = document.createElement('div');
+          item.className = `text-xs ${tipo === 'warning' ? 'text-yellow-700 font-medium' : tipo === 'success' ? 'text-green-700' : 'text-blue-700'}`;
+          item.textContent = mensaje;
+          listaAlertas.appendChild(item);
+        }
+      });
+      
+      if (hayAlertas) {
+        alertasDiv.classList.remove('hidden');
+      } else {
+        alertasDiv.classList.add('hidden');
+      }
     }
 
     function actualizarListaMensuales() {
@@ -583,18 +728,24 @@ if ($empresaFiltro !== "") {
       Object.entries(configMensuales).forEach(([conductor, datos]) => {
         const fila = document.querySelector(`tr[data-conductor="${conductor}"]`);
         if (fila) {
-          const fechaInput = fila.querySelector('.fecha-inicio');
+          const fechaDesdeInput = fila.querySelector('.fecha-desde');
+          const fechaHastaInput = fila.querySelector('.fecha-hasta');
           const montoInput = fila.querySelector('.monto-mensual');
           const diasSpan = fila.querySelector('.dias-calculados');
           const detalle = fila.querySelector('.mensual-detalle');
           
-          const montoProporcional = calcularDiasYMonto(fechaInput, montoInput, diasSpan, detalle);
+          const montoProporcional = calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle);
           totalMensual += montoProporcional;
           
           // Calcular días
           const fechaDesde = new Date(datos.desde);
-          const fechaHasta = new Date(RANGO_HASTA);
+          const fechaHasta = new Date(datos.hasta);
           const diffDays = Math.ceil(Math.abs(fechaHasta - fechaDesde) / (1000 * 60 * 60 * 24)) + 1;
+          
+          // Verificar si ya fue cobrado
+          const yaCobrado = historialCobros[conductor] ? 
+            ` (✅ Cobrado hasta: ${historialCobros[conductor]})` : 
+            ' (⚠️ Pendiente de cobro)';
           
           const item = document.createElement('div');
           item.className = 'flex justify-between items-center p-2 bg-gray-50 rounded-lg';
@@ -602,7 +753,8 @@ if ($empresaFiltro !== "") {
             <div>
               <div class="font-medium text-sm">${conductor}</div>
               <div class="text-xs text-gray-500">
-                ${datos.desde} → ${RANGO_HASTA} (${diffDays} días)
+                ${datos.desde} → ${datos.hasta} (${diffDays} días)
+                ${yaCobrado}
               </div>
             </div>
             <div class="text-right">
@@ -665,12 +817,13 @@ if ($empresaFiltro !== "") {
         // Calcular por mensualidad (si aplica)
         let totalMensualFila = 0;
         if (configMensuales[conductor]) {
-          const fechaInput = f.querySelector('.fecha-inicio');
+          const fechaDesdeInput = f.querySelector('.fecha-desde');
+          const fechaHastaInput = f.querySelector('.fecha-hasta');
           const montoInput = f.querySelector('.monto-mensual');
           const diasSpan = f.querySelector('.dias-calculados');
           const detalle = f.querySelector('.mensual-detalle');
           
-          totalMensualFila = calcularDiasYMonto(fechaInput, montoInput, diasSpan, detalle) || 0;
+          totalMensualFila = calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle) || 0;
         }
         
         // Mostrar total combinado
@@ -726,14 +879,28 @@ if ($empresaFiltro !== "") {
             this.classList.remove('border-gray-300');
             this.classList.add('border-green-500', 'bg-green-100');
             
-            // Establecer fecha por defecto (hoy o rango "desde")
-            const fechaInput = divInfo.querySelector('.fecha-inicio');
-            if (!fechaInput.value) {
-              fechaInput.value = '<?= htmlspecialchars($desde) ?>';
+            // Establecer fechas por defecto
+            const fechaDesdeInput = divInfo.querySelector('.fecha-desde');
+            const fechaHastaInput = divInfo.querySelector('.fecha-hasta');
+            
+            if (!fechaDesdeInput.value) {
+              // Si hay historial de cobro, usar fecha siguiente
+              if (historialCobros[conductor]) {
+                const ultimoCobro = new Date(historialCobros[conductor]);
+                ultimoCobro.setDate(ultimoCobro.getDate() + 1);
+                fechaDesdeInput.value = ultimoCobro.toISOString().split('T')[0];
+              } else {
+                fechaDesdeInput.value = RANGO_DESDE;
+              }
+            }
+            
+            if (!fechaHastaInput.value) {
+              fechaHastaInput.value = RANGO_HASTA;
             }
           }
           
           actualizarListaMensuales();
+          mostrarAlertasCobro();
           recalcular();
         });
       });
@@ -751,16 +918,29 @@ if ($empresaFiltro !== "") {
           fila.querySelector('.btn-mensual').classList.remove('border-gray-300');
           fila.querySelector('.btn-mensual').classList.add('border-green-500', 'bg-green-100');
           
-          // Establecer fecha por defecto
-          const fechaInput = fila.querySelector('.fecha-inicio');
-          if (!fechaInput.value) {
-            fechaInput.value = '<?= htmlspecialchars($desde) ?>';
+          // Establecer fechas por defecto
+          const fechaDesdeInput = fila.querySelector('.fecha-desde');
+          const fechaHastaInput = fila.querySelector('.fecha-hasta');
+          
+          if (!fechaDesdeInput.value) {
+            // Si hay historial de cobro, usar fecha siguiente
+            if (historialCobros[conductor]) {
+              const ultimoCobro = new Date(historialCobros[conductor]);
+              ultimoCobro.setDate(ultimoCobro.getDate() + 1);
+              fechaDesdeInput.value = ultimoCobro.toISOString().split('T')[0];
+            } else {
+              fechaDesdeInput.value = RANGO_DESDE;
+            }
+          }
+          
+          if (!fechaHastaInput.value) {
+            fechaHastaInput.value = RANGO_HASTA;
           }
         });
       });
       
       // Cambios en fecha o monto mensual
-      document.querySelectorAll('.fecha-inicio, .monto-mensual').forEach(input => {
+      document.querySelectorAll('.fecha-desde, .fecha-hasta, .monto-mensual').forEach(input => {
         input.addEventListener('change', function() {
           calcularMensual(this);
         });
