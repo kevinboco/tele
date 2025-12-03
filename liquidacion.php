@@ -2,6 +2,7 @@
 include("nav.php");
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
 if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); }
+$conn->set_charset("utf8mb4");
 
 /* =======================================================
    🔹 Guardar tarifas por vehículo y empresa (AJAX)
@@ -13,13 +14,35 @@ if (isset($_POST['guardar_tarifa'])) {
     $campo    = $conn->real_escape_string($_POST['campo']); // completo|medio|extra|carrotanque|siapana
     $valor    = (int)$_POST['valor'];
 
-    // ⚠️ Recomendado: validar $campo contra allowlist
+    // ⚠️ Validar campo
     $allow = ['completo','medio','extra','carrotanque','siapana'];
     if (!in_array($campo, $allow, true)) { echo "error: campo inválido"; exit; }
 
     $conn->query("INSERT IGNORE INTO tarifas (empresa, tipo_vehiculo) VALUES ('$empresa', '$vehiculo')");
     $sql = "UPDATE tarifas SET $campo = $valor WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'";
     echo $conn->query($sql) ? "ok" : "error: " . $conn->error;
+    exit;
+}
+
+/* =======================================================
+   🔹 Guardar CLASIFICACIÓN de rutas (manual) - AJAX
+   (completo/medio/extra/siapana/carrotanque)
+======================================================= */
+if (isset($_POST['guardar_clasificacion'])) {
+    $ruta       = $conn->real_escape_string($_POST['ruta']);
+    $vehiculo   = $conn->real_escape_string($_POST['tipo_vehiculo']);
+    $clasif     = $conn->real_escape_string($_POST['clasificacion']);
+
+    $allowClasif = ['completo','medio','extra','siapana','carrotanque'];
+    if (!in_array($clasif, $allowClasif, true)) {
+        echo "error: clasificación inválida";
+        exit;
+    }
+
+    $sql = "INSERT INTO ruta_clasificacion (ruta, tipo_vehiculo, clasificacion)
+            VALUES ('$ruta', '$vehiculo', '$clasif')
+            ON DUPLICATE KEY UPDATE clasificacion = VALUES(clasificacion)";
+    echo $conn->query($sql) ? "ok" : ("error: " . $conn->error);
     exit;
 }
 
@@ -129,11 +152,23 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
 
 /* =======================================================
    🔹 Cálculo y armado de tablas
+   AHORA usando CLASIFICACIÓN MANUAL DE RUTAS
 ======================================================= */
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
 $empresaFiltro = $_GET['empresa'] ?? "";
 
+/* --- Cargar clasificaciones de rutas desde BD --- */
+$clasif_rutas = [];
+$resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
+if ($resClasif) {
+    while ($r = $resClasif->fetch_assoc()) {
+        $key = mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo']), 'UTF-8');
+        $clasif_rutas[$key] = $r['clasificacion']; // completo|medio|extra|siapana|carrotanque
+    }
+}
+
+/* --- Traer viajes --- */
 $sql = "SELECT nombre, ruta, empresa, tipo_vehiculo FROM viajes
         WHERE fecha BETWEEN '$desde' AND '$hasta'";
 if ($empresaFiltro !== "") {
@@ -144,34 +179,67 @@ $res = $conn->query($sql);
 
 $datos = [];
 $vehiculos = [];
+$rutasUnicas = []; // para mostrar todas las rutas y clasificarlas
+
 if ($res) {
     while ($row = $res->fetch_assoc()) {
         $nombre   = $row['nombre'];
         $ruta     = $row['ruta'];
         $vehiculo = $row['tipo_vehiculo'];
-        $guiones  = substr_count($ruta, '-');
 
+        // clave normalizada ruta+vehículo
+        $keyRuta = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
+
+        // Guardar lista de rutas únicas (para el panel de clasificación)
+        if (!isset($rutasUnicas[$keyRuta])) {
+            $rutasUnicas[$keyRuta] = [
+                'ruta'          => $ruta,
+                'vehiculo'      => $vehiculo,
+                'clasificacion' => $clasif_rutas[$keyRuta] ?? ''
+            ];
+        }
+
+        // Lista de tipos de vehículo (para las tarjetas de tarifas)
+        if (!in_array($vehiculo, $vehiculos, true)) {
+            $vehiculos[] = $vehiculo;
+        }
+
+        // Inicializar datos del conductor
         if (!isset($datos[$nombre])) {
-            // ahora con 'siapana'
-            $datos[$nombre] = ["vehiculo"=>$vehiculo,"completos"=>0,"medios"=>0,"extras"=>0,"carrotanques"=>0,"siapana"=>0];
+            $datos[$nombre] = [
+                "vehiculo"     => $vehiculo,
+                "completos"    => 0,
+                "medios"       => 0,
+                "extras"       => 0,
+                "carrotanques" => 0,
+                "siapana"      => 0
+            ];
         }
-        if (!in_array($vehiculo, $vehiculos, true)) $vehiculos[] = $vehiculo;
 
-        // 1) Carrotanque "puro"
-        if ($vehiculo === "Carrotanque" && $guiones == 0) {
-            $datos[$nombre]["carrotanques"]++;
+        // 🔹 Clasificación MANUAL de la ruta
+        $clasifRuta = $clasif_rutas[$keyRuta] ?? '';
+
+        // Si la ruta todavía no tiene clasificación, NO se suma a ninguna columna
+        if ($clasifRuta === '') {
+            continue;
         }
-        // 2) Si la ruta menciona Siapana → cuenta como 'siapana' (tarifa especial)
-        elseif (stripos($ruta, "Siapana") !== false) {
-            $datos[$nombre]["siapana"]++;
-        }
-        // 3) Resto de reglas previas
-        elseif (stripos($ruta, "Maicao") === false) {
-            $datos[$nombre]["extras"]++;
-        } elseif ($guiones == 2) {
-            $datos[$nombre]["completos"]++;
-        } elseif ($guiones == 1) {
-            $datos[$nombre]["medios"]++;
+
+        switch ($clasifRuta) {
+            case 'completo':
+                $datos[$nombre]["completos"]++;
+                break;
+            case 'medio':
+                $datos[$nombre]["medios"]++;
+                break;
+            case 'extra':
+                $datos[$nombre]["extras"]++;
+                break;
+            case 'siapana':
+                $datos[$nombre]["siapana"]++;
+                break;
+            case 'carrotanque':
+                $datos[$nombre]["carrotanques"]++;
+                break;
         }
     }
 }
@@ -237,7 +305,7 @@ if ($empresaFiltro !== "") {
   <main class="max-w-[1600px] mx-auto px-3 md:px-4 py-6">
     <div class="grid grid-cols-1 xl:grid-cols-[1fr_2.6fr_0.9fr] gap-5 items-start">
 
-      <!-- Columna 1: Tarifas + Filtro -->
+      <!-- Columna 1: Tarifas + Filtro + Clasificación de rutas -->
       <section class="space-y-5">
 
         <!-- Tarjetas de tarifas (con SIAPANA) -->
@@ -248,7 +316,6 @@ if ($empresaFiltro !== "") {
 
           <div id="tarifas_grid" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <?php foreach ($vehiculos as $veh):
-              // si no hay registro guardado, ponemos 0; añadimos 'siapana'
               $t = $tarifas_guardadas[$veh] ?? ["completo"=>0,"medio"=>0,"extra"=>0,"carrotanque"=>0,"siapana"=>0];
             ?>
             <div class="tarjeta-tarifa rounded-2xl border border-slate-200 p-4 shadow-sm bg-slate-50"
@@ -344,6 +411,85 @@ if ($empresaFiltro !== "") {
               </button>
             </div>
           </form>
+        </div>
+
+        <!-- 🔹 Panel de CLASIFICACIÓN de RUTAS -->
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+          <h5 class="text-base font-semibold mb-3 flex items-center justify-between">
+            <span>🧭 Clasificación de Rutas</span>
+            <span class="text-xs text-slate-500">Se guarda en BD</span>
+          </h5>
+          <p class="text-xs text-slate-500 mb-3">
+            Ajusta qué tipo es cada ruta. Si aparece una ruta nueva, la verás aquí y la clasificas una vez.
+          </p>
+
+          <div class="flex flex-col gap-2 mb-3 md:flex-row md:items-end">
+            <div class="flex-1">
+              <label class="block text-xs font-medium mb-1">Texto que debe contener la ruta</label>
+              <input id="txt_patron_ruta" type="text"
+                     class="w-full rounded-xl border border-slate-300 px-3 py-1.5 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
+                     placeholder="Ej: Riohacha, Uribia-Nazareth, Siapana...">
+            </div>
+            <div>
+              <label class="block text-xs font-medium mb-1">Clasificación</label>
+              <select id="sel_clasif_masiva"
+                      class="rounded-xl border border-slate-300 px-3 py-1.5 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500">
+                <option value="">-- Selecciona --</option>
+                <option value="completo">Completo</option>
+                <option value="medio">Medio</option>
+                <option value="extra">Extra</option>
+                <option value="siapana">Siapana</option>
+                <option value="carrotanque">Carrotanque</option>
+              </select>
+            </div>
+            <button type="button"
+                    onclick="aplicarClasificacionMasiva()"
+                    class="mt-2 md:mt-0 inline-flex items-center justify-center rounded-xl bg-purple-600 text-white px-4 py-2 text-sm font-semibold hover:bg-purple-700 active:bg-purple-800 focus:ring-4 focus:ring-purple-200">
+              ⚙️ Aplicar a coincidentes
+            </button>
+          </div>
+
+          <div class="max-h-[260px] overflow-y-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-xs">
+              <thead class="bg-slate-100 text-slate-600">
+                <tr>
+                  <th class="px-2 py-1 text-left">Ruta</th>
+                  <th class="px-2 py-1 text-center">Vehículo</th>
+                  <th class="px-2 py-1 text-center">Clasificación</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+              <?php foreach($rutasUnicas as $info): ?>
+                <tr class="fila-ruta hover:bg-slate-50"
+                    data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
+                    data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>">
+                  <td class="px-2 py-1 whitespace-nowrap text-left">
+                    <?= htmlspecialchars($info['ruta']) ?>
+                  </td>
+                  <td class="px-2 py-1 text-center">
+                    <?= htmlspecialchars($info['vehiculo']) ?>
+                  </td>
+                  <td class="px-2 py-1 text-center">
+                    <select class="select-clasif-ruta rounded-lg border border-slate-300 px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-blue-100"
+                            data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
+                            data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>">
+                      <option value="">Sin clasificar</option>
+                      <option value="completo"    <?= $info['clasificacion']==='completo'    ? 'selected' : '' ?>>Completo</option>
+                      <option value="medio"       <?= $info['clasificacion']==='medio'       ? 'selected' : '' ?>>Medio</option>
+                      <option value="extra"       <?= $info['clasificacion']==='extra'       ? 'selected' : '' ?>>Extra</option>
+                      <option value="siapana"     <?= $info['clasificacion']==='siapana'     ? 'selected' : '' ?>>Siapana</option>
+                      <option value="carrotanque" <?= $info['clasificacion']==='carrotanque' ? 'selected' : '' ?>>Carrotanque</option>
+                    </select>
+                  </td>
+                </tr>
+              <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+
+          <p class="text-[11px] text-slate-500 mt-2">
+            Después de cambiar clasificaciones, vuelve a darle <strong>Filtrar</strong> para recalcular la tabla de conductores.
+          </p>
         </div>
       </section>
 
@@ -537,10 +683,7 @@ if ($empresaFiltro !== "") {
     let configMensuales = JSON.parse(localStorage.getItem(CONFIG_KEY)) || {};
     let historialCobros = JSON.parse(localStorage.getItem(COBROS_KEY)) || {};
 
-    // 👉 Helper: calcular número de meses COMPLETOS por pasos
-    // 15/10 - 15/11 = 1 mes
-    // 15/10 - 15/12 = 2 meses
-    // 15/10 - 14/11 = 0 meses
+    // 👉 Helper: calcular número de meses COMPLETOS
     function calcularMeses(desdeStr, hastaStr) {
       if (!desdeStr || !hastaStr) return 0;
 
@@ -556,7 +699,7 @@ if ($empresaFiltro !== "") {
 
         if (siguiente <= fin) {
           meses++;
-          inicio = siguiente; // avanzamos 1 mes completo
+          inicio = siguiente;
         } else {
           break;
         }
@@ -581,7 +724,6 @@ if ($empresaFiltro !== "") {
           const montoInput = divInfo.querySelector('.monto-mensual');
           const diasSpan = divInfo.querySelector('.dias-calculados');
           
-          // Si hay historial de cobro, usar la última fecha cobrada + 1 día como DESDE
           if (historialCobros[conductor]) {
             const ultimoCobro = new Date(historialCobros[conductor]);
             ultimoCobro.setDate(ultimoCobro.getDate() + 1);
@@ -593,10 +735,8 @@ if ($empresaFiltro !== "") {
           fechaHastaInput.value = datos.hasta || RANGO_HASTA;
           montoInput.value = datos.monto;
           
-          // Calcular meses y monto
           calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle);
           
-          // Marcar botón como activo
           const btnMensual = fila.querySelector('.btn-mensual');
           btnMensual.classList.remove('border-gray-300');
           btnMensual.classList.add('border-green-500', 'bg-green-100');
@@ -607,7 +747,7 @@ if ($empresaFiltro !== "") {
       recalcular();
     }
 
-    // 🔁 Calcular MESES y monto (ya NO por días)
+    // Calcular MESES y monto
     function calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle) {
       if (!fechaDesdeInput.value || !fechaHastaInput.value || !montoInput.value) return 0;
 
@@ -615,7 +755,6 @@ if ($empresaFiltro !== "") {
       const fechaHasta = fechaHastaInput.value;
       const montoMensual = parseFloat(montoInput.value) || 0;
 
-      // Validar orden de fechas
       const dDesde = new Date(fechaDesde + 'T00:00:00');
       const dHasta = new Date(fechaHasta + 'T00:00:00');
       if (dDesde > dHasta) {
@@ -653,7 +792,6 @@ if ($empresaFiltro !== "") {
       
       const montoProporcional = calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle);
       
-      // Guardar en configuración
       const conductor = fila.dataset.conductor;
       if (fechaDesdeInput.value && fechaHastaInput.value && montoInput.value) {
         configMensuales[conductor] = {
@@ -667,7 +805,6 @@ if ($empresaFiltro !== "") {
       recalcular();
     }
 
-    // Registrar cobro (guardar fecha HASTA como último cobro)
     function registrarCobro(btn) {
       const fila = btn.closest('tr');
       const conductor = fila.dataset.conductor;
@@ -678,11 +815,9 @@ if ($empresaFiltro !== "") {
         return;
       }
       
-      // Guardar en historial de cobros
       historialCobros[conductor] = fechaHastaInput.value;
       localStorage.setItem(COBROS_KEY, JSON.stringify(historialCobros));
       
-      // Mostrar confirmación
       btn.innerHTML = '✅ Cobro Registrado';
       btn.classList.remove('bg-green-600');
       btn.classList.add('bg-gray-600');
@@ -707,17 +842,14 @@ if ($empresaFiltro !== "") {
         let mensaje = '';
         let tipo = 'info';
         
-        // Verificar si ya se cobró este periodo
         if (historialCobros[conductor]) {
           const ultimoCobro = new Date(historialCobros[conductor] + 'T00:00:00');
           const nuevoDesde = new Date(datos.desde + 'T00:00:00');
           
-          // Si el último cobro es después o igual al desde actual
           if (ultimoCobro >= nuevoDesde) {
             mensaje = `✅ ${conductor}: Ya cobrado hasta ${historialCobros[conductor]}`;
             tipo = 'success';
           } else {
-            // Calcular días pendientes
             const diffTime = Math.abs(nuevoDesde - ultimoCobro);
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
             
@@ -728,7 +860,6 @@ if ($empresaFiltro !== "") {
             }
           }
         } else {
-          // No hay historial de cobro para este conductor
           mensaje = `ℹ️ ${conductor}: Primer cobro registrado`;
           tipo = 'info';
         }
@@ -763,15 +894,12 @@ if ($empresaFiltro !== "") {
           const diasSpan = fila.querySelector('.dias-calculados');
           const detalle = fila.querySelector('.mensual-detalle');
           
-          // Este cálculo ahora es por MESES completos
           const montoProporcional = calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle);
           totalMensual += montoProporcional;
           
-          // Calcular meses solo para mostrar en la lista
           const meses = calcularMeses(datos.desde, datos.hasta);
           const textoMeses = meses === 1 ? '1 mes' : `${meses} meses`;
           
-          // Verificar si ya fue cobrado
           const yaCobrado = historialCobros[conductor] ? 
             ` (✅ Cobrado hasta: ${historialCobros[conductor]})` : 
             ' (⚠️ Pendiente de cobro)';
@@ -799,7 +927,6 @@ if ($empresaFiltro !== "") {
         lista.innerHTML = '<p class="text-center text-gray-500 text-sm py-4">No hay conductores mensuales configurados.</p>';
       }
       
-      // Actualizar resumen
       document.getElementById('resumen_mensual').textContent = `$${totalMensual.toLocaleString('es-CO')}`;
     }
 
@@ -834,7 +961,6 @@ if ($empresaFiltro !== "") {
         const veh = f.dataset.vehiculo;
         const conductor = f.dataset.conductor;
         
-        // Calcular por viajes
         const c  = parseInt(f.cells[2].innerText)||0;
         const m  = parseInt(f.cells[3].innerText)||0;
         const e  = parseInt(f.cells[4].innerText)||0;
@@ -843,7 +969,6 @@ if ($empresaFiltro !== "") {
         const t  = tarifas[veh] || {completo:0,medio:0,extra:0,carrotanque:0,siapana:0};
         const totalViajesFila = c*t.completo + m*t.medio + e*t.extra + s*t.siapana + ca*t.carrotanque;
         
-        // Calcular por mensualidad (si aplica)
         let totalMensualFila = 0;
         if (configMensuales[conductor]) {
           const fechaDesdeInput = f.querySelector('.fecha-desde');
@@ -855,7 +980,6 @@ if ($empresaFiltro !== "") {
           totalMensualFila = calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle) || 0;
         }
         
-        // Mostrar total combinado
         const totalFila = totalViajesFila + totalMensualFila;
         const inp = f.querySelector('input.totales');
         if (inp) inp.value = formatNumber(totalFila);
@@ -864,7 +988,6 @@ if ($empresaFiltro !== "") {
         totalMensual += totalMensualFila;
       });
       
-      // Actualizar todos los totales
       document.getElementById('total_viajes').innerText = formatNumber(totalViajes);
       document.getElementById('total_mensual').innerText = formatNumber(totalMensual);
       document.getElementById('total_general').innerText = formatNumber(totalViajes + totalMensual);
@@ -872,13 +995,60 @@ if ($empresaFiltro !== "") {
       document.getElementById('resumen_viajes').textContent = `$${formatNumber(totalViajes)}`;
       document.getElementById('resumen_total').textContent = `$${formatNumber(totalViajes + totalMensual)}`;
       
-      // Actualizar lista de mensuales
       actualizarListaMensuales();
     }
 
     function guardarMensuales() {
       localStorage.setItem(CONFIG_KEY, JSON.stringify(configMensuales));
       alert('✅ Configuración de conductores mensuales guardada en tu navegador.');
+    }
+
+    // 🔹 Guardar CLASIFICACIÓN de una ruta (AJAX)
+    function guardarClasificacionRuta(ruta, vehiculo, clasificacion) {
+      if (!clasificacion) return; // si la deja "sin clasificar" no guardamos nada nuevo
+      fetch('<?= basename(__FILE__) ?>', {
+        method:'POST',
+        headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:new URLSearchParams({
+          guardar_clasificacion:1,
+          ruta:ruta,
+          tipo_vehiculo:vehiculo,
+          clasificacion:clasificacion
+        })
+      })
+      .then(r=>r.text())
+      .then(t=>{
+        if (t.trim() !== 'ok') {
+          console.error('Error guardando clasificación:', t);
+        }
+      });
+    }
+
+    // 🔹 Aplicar clasificación masiva según texto
+    function aplicarClasificacionMasiva() {
+      const patron = document.getElementById('txt_patron_ruta').value.trim().toLowerCase();
+      const clasif = document.getElementById('sel_clasif_masiva').value;
+
+      if (!patron || !clasif) {
+        alert('Escribe un texto y elige una clasificación.');
+        return;
+      }
+
+      const filas = document.querySelectorAll('.fila-ruta');
+      let contador = 0;
+
+      filas.forEach(row => {
+        const ruta = row.dataset.ruta.toLowerCase();
+        const vehiculo = row.dataset.vehiculo;
+        if (ruta.includes(patron)) {
+          const sel = row.querySelector('.select-clasif-ruta');
+          sel.value = clasif;
+          guardarClasificacionRuta(row.dataset.ruta, vehiculo, clasif);
+          contador++;
+        }
+      });
+
+      alert('✅ Se aplicó la clasificación a ' + contador + ' rutas. Vuelve a darle "Filtrar" para recalcular la liquidación.');
     }
 
     // Event Listeners
@@ -894,7 +1064,6 @@ if ($empresaFiltro !== "") {
           const divInfo = fila.querySelector('.mensual-info');
           
           if (configMensuales[conductor]) {
-            // Quitar de mensuales
             delete configMensuales[conductor];
             btnAgregar.classList.remove('hidden');
             divInfo.classList.add('hidden');
@@ -902,18 +1071,15 @@ if ($empresaFiltro !== "") {
             this.classList.remove('border-green-500', 'bg-green-100');
             this.classList.add('border-gray-300');
           } else {
-            // Agregar a mensuales
             btnAgregar.classList.add('hidden');
             divInfo.classList.remove('hidden');
             this.classList.remove('border-gray-300');
             this.classList.add('border-green-500', 'bg-green-100');
             
-            // Establecer fechas por defecto
-            const fechaDesdeInput = divInfo.querySelector('.fecha-desde');
-            const fechaHastaInput = divInfo.querySelector('.fecha-hasta');
+            const fechaDesdeInput = fila.querySelector('.fecha-desde');
+            const fechaHastaInput = fila.querySelector('.fecha-hasta');
             
             if (!fechaDesdeInput.value) {
-              // Si hay historial de cobro, usar fecha siguiente
               if (historialCobros[conductor]) {
                 const ultimoCobro = new Date(historialCobros[conductor]);
                 ultimoCobro.setDate(ultimoCobro.getDate() + 1);
@@ -943,16 +1109,13 @@ if ($empresaFiltro !== "") {
           this.classList.add('hidden');
           fila.querySelector('.mensual-info').classList.remove('hidden');
           
-          // Marcar botón como activo
           fila.querySelector('.btn-mensual').classList.remove('border-gray-300');
           fila.querySelector('.btn-mensual').classList.add('border-green-500', 'bg-green-100');
           
-          // Establecer fechas por defecto
           const fechaDesdeInput = fila.querySelector('.fecha-desde');
           const fechaHastaInput = fila.querySelector('.fecha-hasta');
           
           if (!fechaDesdeInput.value) {
-            // Si hay historial de cobro, usar fecha siguiente
             if (historialCobros[conductor]) {
               const ultimoCobro = new Date(historialCobros[conductor]);
               ultimoCobro.setDate(ultimoCobro.getDate() + 1);
@@ -974,45 +1137,58 @@ if ($empresaFiltro !== "") {
           calcularMensual(this);
         });
       });
-    });
 
-    // Guardar tarifas AJAX (incluye 'siapana')
-    document.querySelectorAll('.tarjeta-tarifa input').forEach(input=>{
-      input.addEventListener('change', ()=>{
-        const card = input.closest('.tarjeta-tarifa');
-        const tipoVehiculo = card.dataset.vehiculo;
-        const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
-        const campo = input.dataset.campo; // completo|medio|extra|carrotanque|siapana
-        const valor = parseInt(input.value)||0;
+      // Guardar tarifas AJAX (incluye 'siapana')
+      document.querySelectorAll('.tarjeta-tarifa input').forEach(input=>{
+        input.addEventListener('change', ()=>{
+          const card = input.closest('.tarjeta-tarifa');
+          const tipoVehiculo = card.dataset.vehiculo;
+          const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
+          const campo = input.dataset.campo;
+          const valor = parseInt(input.value)||0;
 
-        fetch(`<?= basename(__FILE__) ?>`, {
-          method:'POST',
-          headers:{'Content-Type':'application/x-www-form-urlencoded'},
-          body:new URLSearchParams({guardar_tarifa:1, empresa, tipo_vehiculo:tipoVehiculo, campo, valor})
-        })
-        .then(r=>r.text())
-        .then(t=>{
-          if (t.trim() !== 'ok') console.error('Error guardando tarifa:', t);
-          recalcular();
+          fetch('<?= basename(__FILE__) ?>', {
+            method:'POST',
+            headers:{'Content-Type':'application/x-www-form-urlencoded'},
+            body:new URLSearchParams({guardar_tarifa:1, empresa, tipo_vehiculo:tipoVehiculo, campo, valor})
+          })
+          .then(r=>r.text())
+          .then(t=>{
+            if (t.trim() !== 'ok') console.error('Error guardando tarifa:', t);
+            recalcular();
+          });
+        });
+      });
+
+      // Click en conductor → carga viajes (AJAX)
+      document.querySelectorAll('.conductor-link').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const nombre = btn.textContent.trim();
+          const desde  = "<?= htmlspecialchars($desde) ?>";
+          const hasta  = "<?= htmlspecialchars($hasta) ?>";
+          const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
+          const panel = document.getElementById('contenidoPanel');
+          panel.innerHTML = "<p class='text-center animate-pulse'>Cargando…</p>";
+
+          fetch('<?= basename(__FILE__) ?>?viajes_conductor='+encodeURIComponent(nombre)+'&desde='+desde+'&hasta='+hasta+'&empresa='+encodeURIComponent(empresa))
+            .then(r=>r.text())
+            .then(html=>{ panel.innerHTML = html; });
+        });
+      });
+
+      // Cambios en selects de clasificación de rutas
+      document.querySelectorAll('.select-clasif-ruta').forEach(sel=>{
+        sel.addEventListener('change', ()=>{
+          const ruta = sel.dataset.ruta;
+          const vehiculo = sel.dataset.vehiculo;
+          const clasif = sel.value;
+          if (clasif) {
+            guardarClasificacionRuta(ruta, vehiculo, clasif);
+          }
         });
       });
     });
-
-    // Click en conductor → carga viajes (AJAX)
-    document.querySelectorAll('.conductor-link').forEach(btn=>{
-      btn.addEventListener('click', ()=>{
-        const nombre = btn.textContent.trim();
-        const desde  = "<?= htmlspecialchars($desde) ?>";
-        const hasta  = "<?= htmlspecialchars($hasta) ?>";
-        const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
-        const panel = document.getElementById('contenidoPanel');
-        panel.innerHTML = "<p class='text-center animate-pulse'>Cargando…</p>";
-
-        fetch(`<?= basename(__FILE__) ?>?viajes_conductor=${encodeURIComponent(nombre)}&desde=${desde}&hasta=${hasta}&empresa=${encodeURIComponent(empresa)}`)
-          .then(r=>r.text())
-          .then(html=>{ panel.innerHTML = html; });
-      });
-    });
   </script>
+
 </body>
 </html>
