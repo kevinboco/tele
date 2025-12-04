@@ -1375,7 +1375,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   btnCloseGestor.addEventListener('click', closeGestor);
   buscaCuenta.addEventListener('input', renderCuentas);
   btnAddDesdeFiltro.addEventListener('click', ()=>{ closeGestor(); openSaveCuenta(); });
-
   const nf1 = el => el && el.addEventListener('input', ()=>{ el.value = fmt(toInt(el.value)); });
   nf1(document.getElementById('cuenta_facturado'));
 </script>
