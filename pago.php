@@ -375,9 +375,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 <main class="max-w-[1600px] mx-auto px-3 md:px-4 py-6 space-y-5">
     <!-- Panel montos -->
     <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-        <div class="grid grid-cols-1 md:grid-cols-6 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-7 gap-4">
             <div>
-                <div class="text-xs text-slate-500 mb-1">Conductores en rango</div>
+                <div class="text-xs text-slate-500 mb-1">Conductores</div>
                 <div class="text-lg font-semibold"><?= count($filas) ?></div>
             </div>
             <label class="block md:col-span-2">
@@ -386,6 +386,10 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                        value="<?= number_format($total_facturado,0,',','.') ?>">
             </label>
             <label class="block md:col-span-2">
+                <span class="block text-xs font-medium mb-1">Viajes manuales agregados</span>
+                <input id="inp_viajes_manuales" type="text" class="w-full rounded-xl border border-green-200 px-3 py-2 text-right num bg-green-50" value="0" readonly>
+            </label>
+            <label class="block">
                 <span class="block text-xs font-medium mb-1">Porcentaje de ajuste (%)</span>
                 <input id="inp_porcentaje_ajuste" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num"
                        value="5" placeholder="Ej: 5">
@@ -1163,67 +1167,80 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         });
     });
 
-    // ===== CÁLCULOS =====
+    // ===== CÁLCULOS PRINCIPALES =====
     function recalc(){
         const porcentaje = parseFloat(document.getElementById('inp_porcentaje_ajuste').value) || 0;
-        const rows=[...tbody.querySelectorAll('tr')];
-
-        let sumAjuste=0, sumLleg=0, sumRet=0, sumMil4=0, sumAp=0, sumSS=0, sumPrest=0, sumPagar=0;
+        const rows = [...tbody.querySelectorAll('tr')];
         
-        rows.forEach((tr)=>{
+        // 1. CALCULAR TOTALES PARA EL PANEL SUPERIOR
+        let totalAutomaticos = <?= $total_facturado ?>;  // Viajes PHP iniciales
+        let totalManuales = 0;  // Suma de viajes manuales
+        
+        // 2. CALCULOS INDIVIDUALES DE CADA FILA
+        let sumLleg = 0, sumRet = 0, sumMil4 = 0, sumAp = 0, sumSS = 0, sumPrest = 0, sumPagar = 0;
+        
+        rows.forEach((tr) => {
             let base;
             
-            // Determinar si es fila manual o normal
             if (tr.classList.contains('fila-manual')) {
+                // FILA MANUAL: usa el valor del input
                 const baseInput = tr.querySelector('.base-manual');
                 base = baseInput ? toInt(baseInput.value) : 0;
+                totalManuales += base;  // Sumar a manuales
             } else {
+                // FILA AUTOMÁTICA: usa el texto de la celda
                 const baseEl = tr.querySelector('.base');
                 if (!baseEl) return;
                 base = toInt(baseEl.textContent);
             }
             
-            const prest=toInt(tr.querySelector('.prest').textContent || '0');
-            
-            // Calcular ajuste como porcentaje del base
+            // CALCULO INDIVIDUAL (igual para automáticos y manuales)
             const ajuste = Math.round(base * (porcentaje / 100));
             const llego = base - ajuste;
-            const ret=Math.round(llego*0.035);
-            const mil4=Math.round(llego*0.004);
-            const ap=Math.round(llego*0.10);
+            const prest = toInt(tr.querySelector('.prest').textContent || '0');
+            const ret = Math.round(llego * 0.035);
+            const mil4 = Math.round(llego * 0.004);
+            const ap = Math.round(llego * 0.10);
             const ssInput = tr.querySelector('input.ss');
             const ssVal = ssInput ? toInt(ssInput.value) : 0;
             const pagar = llego - ret - mil4 - ap - ssVal - prest;
-
-            tr.querySelector('.ajuste').textContent=fmt(ajuste);
-            tr.querySelector('.llego').textContent=fmt(llego);
-            tr.querySelector('.ret').textContent=fmt(ret);
-            tr.querySelector('.mil4').textContent=fmt(mil4);
-            tr.querySelector('.apor').textContent=fmt(ap);
-            tr.querySelector('.pagar').textContent=fmt(pagar);
-
-            sumAjuste += ajuste;
-            sumLleg+=llego; sumRet+=ret; sumMil4+=mil4; sumAp+=ap; sumSS+=ssVal; sumPrest+=prest; sumPagar+=pagar;
+            
+            // Actualizar celdas (igual para todos)
+            tr.querySelector('.ajuste').textContent = fmt(ajuste);
+            tr.querySelector('.llego').textContent = fmt(llego);
+            tr.querySelector('.ret').textContent = fmt(ret);
+            tr.querySelector('.mil4').textContent = fmt(mil4);
+            tr.querySelector('.apor').textContent = fmt(ap);
+            tr.querySelector('.pagar').textContent = fmt(pagar);
+            
+            // Sumar totales para la tabla
+            sumLleg += llego;
+            sumRet += ret;
+            sumMil4 += mil4;
+            sumAp += ap;
+            sumSS += ssVal;
+            sumPrest += prest;
+            sumPagar += pagar;
         });
-
-        document.getElementById('lbl_total_ajuste').textContent=fmt(sumAjuste);
-        document.getElementById('tot_valor_llego').textContent=fmt(sumLleg);
-        document.getElementById('tot_retencion').textContent=fmt(sumRet);
-        document.getElementById('tot_4x1000').textContent=fmt(sumMil4);
-        document.getElementById('tot_aporte').textContent=fmt(sumAp);
-        document.getElementById('tot_ss').textContent=fmt(sumSS);
-        document.getElementById('tot_prestamos').textContent=fmt(sumPrest);
-        document.getElementById('tot_pagar').textContent=fmt(sumPagar);
+        
+        // 3. ACTUALIZAR PANEL SUPERIOR
+        const totalFacturado = totalAutomaticos + totalManuales;
+        document.getElementById('inp_facturado').value = fmt(totalFacturado);
+        document.getElementById('inp_viajes_manuales').value = fmt(totalManuales);
+        
+        // Calcular ajuste total (5% del total facturado)
+        const ajusteTotal = Math.round(totalFacturado * (porcentaje / 100));
+        document.getElementById('lbl_total_ajuste').textContent = fmt(ajusteTotal);
+        
+        // 4. ACTUALIZAR TOTALES TABLA
+        document.getElementById('tot_valor_llego').textContent = fmt(sumLleg);
+        document.getElementById('tot_retencion').textContent = fmt(sumRet);
+        document.getElementById('tot_4x1000').textContent = fmt(sumMil4);
+        document.getElementById('tot_aporte').textContent = fmt(sumAp);
+        document.getElementById('tot_ss').textContent = fmt(sumSS);
+        document.getElementById('tot_prestamos').textContent = fmt(sumPrest);
+        document.getElementById('tot_pagar').textContent = fmt(sumPagar);
     }
-
-    const fmtInput=(el)=> el && el.addEventListener('input',()=>{ 
-        const raw=parseFloat(el.value) || 0; 
-        el.value = raw; 
-        recalc(); 
-    });
-    
-    fmtInput(document.getElementById('inp_facturado'));
-    fmtInput(document.getElementById('inp_porcentaje_ajuste'));
 
     // ===== INICIALIZACIÓN =====
     document.addEventListener('DOMContentLoaded', function() {
@@ -1384,8 +1401,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     btnCloseGestor.addEventListener('click', closeGestor);
     buscaCuenta.addEventListener('input', renderCuentas);
     btnAddDesdeFiltro.addEventListener('click', ()=>{ closeGestor(); openSaveCuenta(); });
-    const nf1 = el => el && el.addEventListener('input', ()=>{ el.value = fmt(toInt(el.value)); });
-    nf1(document.getElementById('cuenta_facturado'));
 </script>
 </body>
 </html>
