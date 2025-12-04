@@ -30,12 +30,11 @@ if (isset($_POST['toggle_seleccion'])) {
 
 // Seleccionar/deseleccionar todos los visibles
 if (isset($_POST['seleccionar_todos']) && isset($_POST['ids_visibles'])) {
-    $ids_visibles = $_POST['ids_visibles'];
+    $ids_visibles = array_map('intval', $_POST['ids_visibles']);
     
     if ($_POST['seleccionar_todos'] == '1') {
         // Agregar todos los visibles a la selección
         foreach ($ids_visibles as $id_visible) {
-            $id_visible = (int)$id_visible;
             if (!in_array($id_visible, $_SESSION['seleccionados'])) {
                 $_SESSION['seleccionados'][] = $id_visible;
             }
@@ -153,7 +152,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
     }
     
-    // EDITAR VIAJE
+    // EDITAR VIAJE INDIVIDUAL
     elseif (isset($_POST['editar'])) {
         $id = (int)$_POST['id'];
         $nombre = $conexion->real_escape_string($_POST['nombre'] ?? '');
@@ -207,7 +206,96 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
     }
     
-    // ACCIONES MÚLTIPLES
+    // EDITAR MÚLTIPLES VIAJES (COMPLETO)
+    elseif (isset($_POST['editar_multiple_completo'])) {
+        if (empty($_SESSION['seleccionados'])) {
+            header("Location: ?error=no_ids");
+            exit();
+        }
+        
+        $ids = $_SESSION['seleccionados'];
+        $actualizados = 0;
+        
+        foreach ($ids as $id_viaje) {
+            $id_viaje = (int)$id_viaje;
+            
+            // Obtener los datos específicos para este ID si existen
+            $nombre_key = "nombre_$id_viaje";
+            $cedula_key = "cedula_$id_viaje";
+            $fecha_key = "fecha_$id_viaje";
+            $ruta_key = "ruta_$id_viaje";
+            $vehiculo_key = "tipo_vehiculo_$id_viaje";
+            $empresa_key = "empresa_$id_viaje";
+            
+            // Usar valores específicos o los generales
+            $nombre = isset($_POST[$nombre_key]) && trim($_POST[$nombre_key]) !== '' 
+                ? "'" . $conexion->real_escape_string($_POST[$nombre_key]) . "'"
+                : (isset($_POST['nombre_general']) && trim($_POST['nombre_general']) !== ''
+                    ? "'" . $conexion->real_escape_string($_POST['nombre_general']) . "'"
+                    : NULL);
+            
+            $cedula = isset($_POST[$cedula_key]) && trim($_POST[$cedula_key]) !== '' 
+                ? "'" . $conexion->real_escape_string($_POST[$cedula_key]) . "'"
+                : (isset($_POST['cedula_general']) && trim($_POST['cedula_general']) !== ''
+                    ? "'" . $conexion->real_escape_string($_POST['cedula_general']) . "'"
+                    : "NULL");
+            
+            $fecha = isset($_POST[$fecha_key]) && trim($_POST[$fecha_key]) !== '' 
+                ? "'" . $conexion->real_escape_string($_POST[$fecha_key]) . "'"
+                : (isset($_POST['fecha_general']) && trim($_POST['fecha_general']) !== ''
+                    ? "'" . $conexion->real_escape_string($_POST['fecha_general']) . "'"
+                    : NULL);
+            
+            $ruta = isset($_POST[$ruta_key]) && trim($_POST[$ruta_key]) !== '' 
+                ? "'" . $conexion->real_escape_string($_POST[$ruta_key]) . "'"
+                : (isset($_POST['ruta_general']) && trim($_POST['ruta_general']) !== ''
+                    ? "'" . $conexion->real_escape_string($_POST['ruta_general']) . "'"
+                    : NULL);
+            
+            $tipo_vehiculo = isset($_POST[$vehiculo_key]) && trim($_POST[$vehiculo_key]) !== '' 
+                ? "'" . $conexion->real_escape_string($_POST[$vehiculo_key]) . "'"
+                : (isset($_POST['tipo_vehiculo_general']) && trim($_POST['tipo_vehiculo_general']) !== ''
+                    ? "'" . $conexion->real_escape_string($_POST['tipo_vehiculo_general']) . "'"
+                    : NULL);
+            
+            $empresa = isset($_POST[$empresa_key]) && trim($_POST[$empresa_key]) !== '' 
+                ? "'" . $conexion->real_escape_string($_POST[$empresa_key]) . "'"
+                : (isset($_POST['empresa_general']) && trim($_POST['empresa_general']) !== ''
+                    ? "'" . $conexion->real_escape_string($_POST['empresa_general']) . "'"
+                    : "NULL");
+            
+            // Si algún campo obligatorio está vacío, saltar este registro
+            if (!$nombre || !$fecha || !$ruta || !$tipo_vehiculo) {
+                continue;
+            }
+            
+            // Remover comillas para NULL
+            $nombre = ($nombre === NULL) ? "NULL" : $nombre;
+            $fecha = ($fecha === NULL) ? "NULL" : $fecha;
+            $ruta = ($ruta === NULL) ? "NULL" : $ruta;
+            $tipo_vehiculo = ($tipo_vehiculo === NULL) ? "NULL" : $tipo_vehiculo;
+            
+            $sql = "UPDATE viajes SET 
+                    nombre = $nombre,
+                    cedula = $cedula,
+                    fecha = $fecha,
+                    ruta = $ruta,
+                    tipo_vehiculo = $tipo_vehiculo,
+                    empresa = $empresa
+                    WHERE id = $id_viaje";
+            
+            if ($conexion->query($sql)) {
+                $actualizados++;
+            }
+        }
+        
+        // Limpiar selección después de editar
+        $_SESSION['seleccionados'] = [];
+        header("Location: ?msg=multi_editado&count=$actualizados");
+        exit();
+    }
+    
+    // ACCIONES MÚLTIPLES DESDE LISTADO
     elseif (isset($_POST['accion_multiple'])) {
         if (empty($_SESSION['seleccionados'])) {
             header("Location: ?error=no_ids");
@@ -215,10 +303,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
         
         $ids = $_SESSION['seleccionados'];
-        $ids_str = implode(',', array_map('intval', $ids));
         
         if ($_POST['accion_multiple'] == 'eliminar') {
             // Eliminar múltiples registros
+            $ids_str = implode(',', array_map('intval', $ids));
             $sql = "DELETE FROM viajes WHERE id IN ($ids_str)";
             if ($conexion->query($sql)) {
                 // Limpiar selección después de eliminar
@@ -229,36 +317,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
             exit();
         }
-        elseif ($_POST['accion_multiple'] == 'editar_empresa') {
-            // Redirigir a edición de empresa múltiple
-            header("Location: ?accion=editar_multi");
+        elseif ($_POST['accion_multiple'] == 'editar') {
+            // Redirigir a edición múltiple completa
+            header("Location: ?accion=editar_multiple");
             exit();
-        }
-    }
-    
-    // EDITAR EMPRESA MÚLTIPLE
-    elseif (isset($_POST['editar_multi_empresa'])) {
-        if (empty($_SESSION['seleccionados'])) {
-            header("Location: ?error=no_ids");
-            exit();
-        }
-        
-        $ids = $_SESSION['seleccionados'];
-        $empresa = isset($_POST['empresa']) && trim($_POST['empresa']) !== '' 
-            ? "'" . $conexion->real_escape_string($_POST['empresa']) . "'" 
-            : "NULL";
-        
-        $ids_str = implode(',', array_map('intval', $ids));
-        $sql = "UPDATE viajes SET empresa = $empresa WHERE id IN ($ids_str)";
-        
-        if ($conexion->query($sql)) {
-            // Limpiar selección después de editar
-            $_SESSION['seleccionados'] = [];
-            header("Location: ?msg=multi_editado&count=" . count($ids));
-            exit();
-        } else {
-            $_SESSION['error'] = "Error al actualizar: " . $conexion->error;
-            $accion = 'editar_multi';
         }
     }
 }
@@ -291,6 +353,18 @@ if ($accion == 'editar' && $id > 0) {
     }
 }
 
+// ================== OBTENER DATOS PARA EDICIÓN MÚLTIPLE ==================
+$viajes_seleccionados = [];
+if ($accion == 'editar_multiple' && !empty($_SESSION['seleccionados'])) {
+    $ids_str = implode(',', array_map('intval', $_SESSION['seleccionados']));
+    $res = $conexion->query("SELECT * FROM viajes WHERE id IN ($ids_str) ORDER BY id ASC");
+    if ($res) {
+        while($row = $res->fetch_assoc()) {
+            $viajes_seleccionados[] = $row;
+        }
+    }
+}
+
 // ================== OBTENER LISTAS PARA FILTROS ==================
 $listas = obtenerListas($conexion);
 $error_msg = $_SESSION['error'] ?? null;
@@ -308,11 +382,14 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         .required:after { content: " *"; color: red; }
         .seleccionado { background-color: rgba(25, 135, 84, 0.1) !important; }
         .checkbox-seleccion { cursor: pointer; }
+        .sticky-actions { position: sticky; top: 0; z-index: 1000; background: white; padding: 15px; margin: -15px -15px 15px -15px; border-bottom: 1px solid #dee2e6; box-shadow: 0 2px 4px rgba(0,0,0,.1); }
+        .table-container { max-height: 600px; overflow-y: auto; }
+        .form-control-sm { padding: 0.25rem 0.5rem; font-size: 0.875rem; }
     </style>
 </head>
 <body class="bg-light">
 <!-- NAVEGACIÓN -->
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top">
     <div class="container">
         <a class="navbar-brand" href="?">🚗 Sistema de Viajes</a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
@@ -500,42 +577,177 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             </div>
         </div>
 
-    <!-- ================== EDITAR MÚLTIPLES EMPRESAS ================== -->
-    <?php elseif ($accion == 'editar_multi' && !empty($_SESSION['seleccionados'])): ?>
-        <?php $ids = $_SESSION['seleccionados']; ?>
-        <div class="row justify-content-center">
-            <div class="col-md-8">
+    <!-- ================== EDITAR MÚLTIPLES VIAJES (COMPLETO) ================== -->
+    <?php elseif ($accion == 'editar_multiple' && !empty($_SESSION['seleccionados'])): ?>
+        <?php $total_seleccionados = count($_SESSION['seleccionados']); ?>
+        <div class="row">
+            <div class="col-12">
                 <div class="card shadow">
                     <div class="card-header bg-warning text-dark">
-                        <h3 class="mb-0">✏ Editar Empresa para Múltiples Viajes (<?= count($ids) ?> seleccionados)</h3>
+                        <h3 class="mb-0">✏ Editar Múltiples Viajes (<?= $total_seleccionados ?> seleccionados)</h3>
                     </div>
                     <div class="card-body">
-                        <form method="POST">
-                            <input type="hidden" name="editar_multi_empresa" value="1">
+                        <form method="POST" id="formEditarMultiple">
+                            <input type="hidden" name="editar_multiple_completo" value="1">
                             
                             <div class="alert alert-info">
-                                <strong>Nota:</strong> Solo puedes editar el campo empresa para múltiples registros a la vez.
-                                Para editar otros campos, edita cada registro individualmente.
+                                <strong>Instrucciones:</strong> 
+                                <ul class="mb-0">
+                                    <li>Puedes editar campos individuales para cada registro</li>
+                                    <li>También puedes usar los campos "Aplicar a todos" para cambiar un campo en todos los registros</li>
+                                    <li>Los campos con <span class="required"></span> son obligatorios</li>
+                                    <li>Dejar un campo en blanco mantiene su valor actual</li>
+                                </ul>
                             </div>
                             
-                            <!-- Empresa -->
-                            <div class="mb-4">
-                                <label class="form-label"><strong>Empresa</strong></label>
-                                <select name="empresa" class="form-select">
-                                    <option value="">-- Mantener valor actual --</option>
-                                    <?php foreach($listas['empresas'] as $empItem): ?>
-                                        <option value="<?= htmlspecialchars($empItem) ?>">
-                                            <?= htmlspecialchars($empItem) ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
-                                <small class="text-muted">Selecciona una empresa para asignarla a todos los registros seleccionados</small>
+                            <!-- CAMPOS GENERALES (APLICAR A TODOS) -->
+                            <div class="card mb-4">
+                                <div class="card-header bg-light">
+                                    <h5 class="mb-0">🔧 Campos generales (aplicar a todos)</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row g-3">
+                                        <div class="col-md-4">
+                                            <label class="form-label">Nombre (general)</label>
+                                            <input type="text" name="nombre_general" class="form-control form-control-sm" 
+                                                   placeholder="Dejar vacío para no cambiar">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Cédula (general)</label>
+                                            <input type="text" name="cedula_general" class="form-control form-control-sm" 
+                                                   placeholder="Dejar vacío para no cambiar">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Fecha (general)</label>
+                                            <input type="date" name="fecha_general" class="form-control form-control-sm">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Ruta (general)</label>
+                                            <select name="ruta_general" class="form-select form-select-sm">
+                                                <option value="">-- No cambiar --</option>
+                                                <?php foreach($listas['rutas'] as $rutaItem): ?>
+                                                    <option value="<?= htmlspecialchars($rutaItem) ?>">
+                                                        <?= htmlspecialchars($rutaItem) ?>
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Vehículo (general)</label>
+                                            <select name="tipo_vehiculo_general" class="form-select form-select-sm">
+                                                <option value="">-- No cambiar --</option>
+                                                <?php foreach($listas['vehiculos'] as $vehItem): ?>
+                                                    <option value="<?= htmlspecialchars($vehItem) ?>">
+                                                        <?= htmlspecialchars($vehItem) ?>
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Empresa (general)</label>
+                                            <select name="empresa_general" class="form-select form-select-sm">
+                                                <option value="">-- No cambiar --</option>
+                                                <?php foreach($listas['empresas'] as $empItem): ?>
+                                                    <option value="<?= htmlspecialchars($empItem) ?>">
+                                                        <?= htmlspecialchars($empItem) ?>
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- TABLA DE EDICIÓN INDIVIDUAL -->
+                            <div class="table-container mb-4">
+                                <table class="table table-bordered table-striped table-sm align-middle">
+                                    <thead class="table-dark sticky-top" style="top: 0;">
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Nombre</th>
+                                            <th>Cédula</th>
+                                            <th>Fecha</th>
+                                            <th>Ruta</th>
+                                            <th>Vehículo</th>
+                                            <th>Empresa</th>
+                                            <th>Imagen</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach($viajes_seleccionados as $viaje_multi): 
+                                            $id_multi = (int)$viaje_multi['id'];
+                                        ?>
+                                            <tr>
+                                                <td class="fw-bold"><?= $id_multi ?></td>
+                                                <td>
+                                                    <input type="text" name="nombre_<?= $id_multi ?>" 
+                                                           class="form-control form-control-sm" 
+                                                           value="<?= htmlspecialchars($viaje_multi['nombre']) ?>">
+                                                </td>
+                                                <td>
+                                                    <input type="text" name="cedula_<?= $id_multi ?>" 
+                                                           class="form-control form-control-sm" 
+                                                           value="<?= htmlspecialchars($viaje_multi['cedula'] ?? '') ?>">
+                                                </td>
+                                                <td>
+                                                    <input type="date" name="fecha_<?= $id_multi ?>" 
+                                                           class="form-control form-control-sm" 
+                                                           value="<?= htmlspecialchars($viaje_multi['fecha']) ?>">
+                                                </td>
+                                                <td>
+                                                    <select name="ruta_<?= $id_multi ?>" class="form-select form-select-sm">
+                                                        <option value="">-- Seleccionar --</option>
+                                                        <?php foreach($listas['rutas'] as $rutaItem): ?>
+                                                            <option value="<?= htmlspecialchars($rutaItem) ?>"
+                                                                <?= ($rutaItem == $viaje_multi['ruta']) ? 'selected' : '' ?>>
+                                                                <?= htmlspecialchars($rutaItem) ?>
+                                                            </option>
+                                                        <?php endforeach; ?>
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <select name="tipo_vehiculo_<?= $id_multi ?>" class="form-select form-select-sm">
+                                                        <option value="">-- Seleccionar --</option>
+                                                        <?php foreach($listas['vehiculos'] as $vehItem): ?>
+                                                            <option value="<?= htmlspecialchars($vehItem) ?>"
+                                                                <?= ($vehItem == $viaje_multi['tipo_vehiculo']) ? 'selected' : '' ?>>
+                                                                <?= htmlspecialchars($vehItem) ?>
+                                                            </option>
+                                                        <?php endforeach; ?>
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <select name="empresa_<?= $id_multi ?>" class="form-select form-select-sm">
+                                                        <option value="">-- Ninguna --</option>
+                                                        <?php foreach($listas['empresas'] as $empItem): ?>
+                                                            <option value="<?= htmlspecialchars($empItem) ?>"
+                                                                <?= (isset($viaje_multi['empresa']) && $empItem == $viaje_multi['empresa']) ? 'selected' : '' ?>>
+                                                                <?= htmlspecialchars($empItem) ?>
+                                                            </option>
+                                                        <?php endforeach; ?>
+                                                    </select>
+                                                </td>
+                                                <td class="text-center">
+                                                    <?php if(!empty($viaje_multi['imagen'])): ?>
+                                                        <img src="uploads/<?= htmlspecialchars($viaje_multi['imagen']) ?>" 
+                                                             width="50" class="rounded img-thumb"
+                                                             data-bs-toggle="tooltip" title="<?= htmlspecialchars($viaje_multi['imagen']) ?>">
+                                                    <?php else: ?>
+                                                        <span class="text-muted">—</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
                             </div>
                             
                             <!-- Botones -->
                             <div class="d-flex justify-content-between">
                                 <a href="?" class="btn btn-secondary">Cancelar</a>
-                                <button type="submit" class="btn btn-warning">Actualizar <?= count($ids) ?> Registros</button>
+                                <button type="submit" class="btn btn-warning">
+                                    Guardar Cambios en <?= $total_seleccionados ?> Registros
+                                </button>
                             </div>
                         </form>
                     </div>
@@ -551,6 +763,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
                         <strong>✅ Seleccionados:</strong> <?= count($_SESSION['seleccionados']) ?> viaje(s)
+                        <span class="ms-3">IDs: <?= implode(', ', $_SESSION['seleccionados']) ?></span>
                     </div>
                     <div class="d-flex gap-2">
                         <form method="POST" class="d-inline">
@@ -749,6 +962,33 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                     <a href="?accion=crear" class="btn btn-success">➕ Nuevo Viaje</a>
                 </div>
             </div>
+            
+            <!-- ACCIONES MÚLTIPLES STICKY (ARRIBA) -->
+            <?php if (!empty($_SESSION['seleccionados'])): ?>
+                <div class="sticky-actions">
+                    <h5>📋 Acciones para los <?= count($_SESSION['seleccionados']) ?> viajes seleccionados:</h5>
+                    <div class="d-flex gap-2 mt-2">
+                        <form method="POST">
+                            <button type="submit" name="accion_multiple" value="editar" class="btn btn-warning">
+                                ✏ Editar Seleccionados (Completo)
+                            </button>
+                        </form>
+                        <form method="POST">
+                            <button type="submit" name="accion_multiple" value="eliminar" class="btn btn-danger"
+                                    onclick="return confirm('¿Eliminar los <?= count($_SESSION['seleccionados']) ?> registros seleccionados?')">
+                                🗑 Eliminar Seleccionados
+                            </button>
+                        </form>
+                        <form method="POST" class="ms-auto">
+                            <input type="hidden" name="limpiar_seleccion" value="1">
+                            <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                Limpiar selección
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            <?php endif; ?>
+            
             <div class="card-body">
                 <!-- CONTROLES DE SELECCIÓN -->
                 <div class="mb-3 d-flex justify-content-between align-items-center bg-light p-3 rounded">
@@ -769,17 +1009,9 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                             </button>
                         </form>
                     </div>
-                    <?php if (!empty($_SESSION['seleccionados'])): ?>
-                        <form method="POST" class="d-inline">
-                            <input type="hidden" name="limpiar_seleccion" value="1">
-                            <button type="submit" class="btn btn-sm btn-outline-danger">
-                                🗑 Limpiar toda la selección
-                            </button>
-                        </form>
-                    <?php endif; ?>
                 </div>
 
-                <div class="table-responsive">
+                <div class="table-container">
                     <table class="table table-bordered table-striped table-hover align-middle">
                         <thead class="table-dark">
                             <tr>
@@ -851,29 +1083,6 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                         </tbody>
                     </table>
                 </div>
-
-                <!-- ACCIONES MÚLTIPLES -->
-                <?php if (!empty($_SESSION['seleccionados'])): ?>
-                    <div class="mt-3 p-3 border rounded bg-light">
-                        <h5>📋 Acciones para los <?= count($_SESSION['seleccionados']) ?> viajes seleccionados:</h5>
-                        <div class="d-flex gap-2 mt-2">
-                            <form method="POST">
-                                <button type="submit" name="accion_multiple" value="editar_empresa" class="btn btn-warning">
-                                    ✏ Editar Empresa de Seleccionados
-                                </button>
-                            </form>
-                            <form method="POST">
-                                <button type="submit" name="accion_multiple" value="eliminar" class="btn btn-danger"
-                                        onclick="return confirm('¿Eliminar los <?= count($_SESSION['seleccionados']) ?> registros seleccionados?')">
-                                    🗑 Eliminar Seleccionados
-                                </button>
-                            </form>
-                        </div>
-                        <small class="text-muted d-block mt-2">
-                            IDs seleccionados: <?= implode(', ', $_SESSION['seleccionados']) ?>
-                        </small>
-                    </div>
-                <?php endif; ?>
             </div>
         </div>
     <?php endif; ?>
@@ -889,35 +1098,25 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('idsVisibles').value = idsVisibles.join(',');
     document.getElementById('idsVisibles2').value = idsVisibles.join(',');
     
-    // Actualizar contador en tiempo real
-    function actualizarContador() {
-        const seleccionados = document.querySelectorAll('.checkbox-seleccion:checked').length;
-        const total = document.querySelectorAll('.checkbox-seleccion').length;
-        
-        // Actualizar badge si existe
-        const badge = document.querySelector('.badge.bg-success');
-        if (badge) {
-            badge.textContent = `✅ ${seleccionados} seleccionado(s)`;
-        }
-    }
-    
-    // Escuchar cambios en checkboxes
-    document.querySelectorAll('.checkbox-seleccion').forEach(checkbox => {
-        checkbox.addEventListener('change', actualizarContador);
+    // Inicializar tooltips de Bootstrap
+    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl);
     });
-    
-    actualizarContador();
 });
 
-// Confirmación para acciones múltiples
-document.addEventListener('submit', function(e) {
-    if (e.target && e.target.querySelector('button[name="accion_multiple"]')) {
-        const seleccionados = <?= count($_SESSION['seleccionados']) ?>;
-        if (seleccionados === 0) {
-            e.preventDefault();
-            alert('Por favor, selecciona al menos un registro.');
-            return false;
-        }
+// Validación para edición múltiple
+document.getElementById('formEditarMultiple')?.addEventListener('submit', function(e) {
+    const totalRegistros = <?= count($viajes_seleccionados) ?? 0 ?>;
+    if (totalRegistros === 0) {
+        e.preventDefault();
+        alert('No hay registros para editar.');
+        return false;
+    }
+    
+    if (!confirm(`¿Estás seguro de editar ${totalRegistros} registros?`)) {
+        e.preventDefault();
+        return false;
     }
 });
 </script>
