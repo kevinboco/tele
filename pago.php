@@ -4,6 +4,14 @@ $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011
 if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); }
 $conn->set_charset('utf8mb4');
 
+/*
+ * IMPORTANTE:
+ * Este archivo asume una tabla para clasificar rutas manualmente:
+ *   viajes_clasificacion(ruta VARCHAR, tipo ENUM('completo','medio','extra','siapana','carrotanque','otro'))
+ * Si en tu otro archivo usaste otro nombre de tabla/columnas, SOLO cambia
+ * "viajes_clasificacion" y/o "tipo" en los SELECT de abajo.
+ */
+
 /* ================= Helpers ================= */
 function strip_accents($s){
   $t = @iconv('UTF-8','ASCII//TRANSLIT//IGNORE',$s);
@@ -35,6 +43,15 @@ if (isset($_GET['viajes_conductor'])) {
   }
   $sql .= " ORDER BY fecha ASC";
 
+  // 🔹 Mapa de clasificación MANUAL de rutas (tabla compartida con la otra vista)
+  $clasifRutas = [];
+  $resCla = $conn->query("SELECT ruta, tipo FROM viajes_clasificacion");
+  if ($resCla) {
+    while ($c = $resCla->fetch_assoc()) {
+      $clasifRutas[$c['ruta']] = $c['tipo']; // completo|medio|extra|siapana|carrotanque|otro
+    }
+  }
+
   $legend = [
     'completo'     => ['label'=>'Completo',     'badge'=>'bg-emerald-100 text-emerald-700 border border-emerald-200', 'row'=>'bg-emerald-50/40'],
     'medio'        => ['label'=>'Medio',        'badge'=>'bg-amber-100 text-amber-800 border border-amber-200',       'row'=>'bg-amber-50/40'],
@@ -58,22 +75,27 @@ if (isset($_GET['viajes_conductor'])) {
 
   if ($res && $res->num_rows > 0) {
     while ($r = $res->fetch_assoc()) {
-      $ruta = (string)$r['ruta'];
+      $ruta    = (string)$r['ruta'];
       $guiones = substr_count($ruta,'-');
 
-      // Clasificación
-      if ($r['tipo_vehiculo']==='Carrotanque' && $guiones==0) {
-        $cat = 'carrotanque';
-      } elseif (stripos($ruta,'Siapana') !== false) {
-        $cat = 'siapana';
-      } elseif (stripos($ruta,'Maicao') === false) {
-        $cat = 'extra';
-      } elseif ($guiones==2) {
-        $cat = 'completo';
-      } elseif ($guiones==1) {
-        $cat = 'medio';
-      } else {
-        $cat = 'otro';
+      // 1) Intentar usar clasificación MANUAL de viajes_clasificacion
+      $cat = $clasifRutas[$ruta] ?? null;
+
+      // 2) Si NO hay clasificación manual, se usan las reglas de respaldo
+      if ($cat === null || $cat === '') {
+        if ($r['tipo_vehiculo']==='Carrotanque' && $guiones==0) {
+          $cat = 'carrotanque';
+        } elseif (stripos($ruta,'Siapana') !== false) {
+          $cat = 'siapana';
+        } elseif (stripos($ruta,'Maicao') === false) {
+          $cat = 'extra';
+        } elseif ($guiones==2) {
+          $cat = 'completo';
+        } elseif ($guiones==1) {
+          $cat = 'medio';
+        } else {
+          $cat = 'otro';
+        }
       }
 
       if (isset($counts[$cat])) {
@@ -102,7 +124,7 @@ if (isset($_GET['viajes_conductor'])) {
     $rowsHTML .= "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresa.</td></tr>";
   }
 
-  // lo que devolvemos al fetch (sin <script>, el JS global hará el filtro)
+  // Respuesta al fetch (sin <script>)
   ?>
   <div class='space-y-3'>
 
@@ -198,28 +220,72 @@ if ($empresaFiltro !== "") {
 }
 $resV = $conn->query($sqlV);
 
+/* 🔹 Cargar clasificación manual de rutas para este cálculo */
+$clasifRutasTot = [];
+$resClaTot = $conn->query("SELECT ruta, tipo FROM viajes_clasificacion");
+if ($resClaTot) {
+  while ($c = $resClaTot->fetch_assoc()) {
+    $clasifRutasTot[$c['ruta']] = $c['tipo'];
+  }
+}
+
 $contadores = [];
 if ($resV) {
   while ($row = $resV->fetch_assoc()) {
     $nombre = $row['nombre'];
+
     if (!isset($contadores[$nombre])) {
       $contadores[$nombre] = [
-        'vehiculo' => $row['tipo_vehiculo'],
-        'completos'=>0, 'medios'=>0, 'extras'=>0, 'carrotanques'=>0, 'siapana'=>0
+        'vehiculo'      => $row['tipo_vehiculo'],
+        'completos'     => 0,
+        'medios'        => 0,
+        'extras'        => 0,
+        'carrotanques'  => 0,
+        'siapana'       => 0
       ];
     }
-    $ruta = (string)$row['ruta'];
+
+    $ruta    = (string)$row['ruta'];
     $guiones = substr_count($ruta, '-');
-    if ($row['tipo_vehiculo']==='Carrotanque' && $guiones==0) {
-      $contadores[$nombre]['carrotanques']++;
-    } elseif (stripos($ruta,'Siapana') !== false) {
-      $contadores[$nombre]['siapana']++;
-    } elseif (stripos($ruta,'Maicao') === false) {
-      $contadores[$nombre]['extras']++;
-    } elseif ($guiones==2) {
-      $contadores[$nombre]['completos']++;
-    } elseif ($guiones==1) {
-      $contadores[$nombre]['medios']++;
+
+    // 1) Intentar usar clasificación MANUAL
+    $cat = $clasifRutasTot[$ruta] ?? null;
+
+    // 2) Si no hay, usar reglas automáticas como respaldo
+    if ($cat === null || $cat === '') {
+      if ($row['tipo_vehiculo'] === 'Carrotanque' && $guiones == 0) {
+        $cat = 'carrotanque';
+      } elseif (stripos($ruta, 'Siapana') !== false) {
+        $cat = 'siapana';
+      } elseif (stripos($ruta, 'Maicao') === false) {
+        $cat = 'extra';
+      } elseif ($guiones == 2) {
+        $cat = 'completo';
+      } elseif ($guiones == 1) {
+        $cat = 'medio';
+      } else {
+        $cat = null; // sin clasificar
+      }
+    }
+
+    // 3) Sumar al contador según la categoría final
+    switch ($cat) {
+      case 'completo':
+        $contadores[$nombre]['completos']++;
+        break;
+      case 'medio':
+        $contadores[$nombre]['medios']++;
+        break;
+      case 'extra':
+        $contadores[$nombre]['extras']++;
+        break;
+      case 'carrotanque':
+        $contadores[$nombre]['carrotanques']++;
+        break;
+      case 'siapana':
+        $contadores[$nombre]['siapana']++;
+        break;
+      // 'otro' o null: no suma a ninguno
     }
   }
 }
@@ -1375,6 +1441,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
   btnCloseGestor.addEventListener('click', closeGestor);
   buscaCuenta.addEventListener('input', renderCuentas);
   btnAddDesdeFiltro.addEventListener('click', ()=>{ closeGestor(); openSaveCuenta(); });
+
   const nf1 = el => el && el.addEventListener('input', ()=>{ el.value = fmt(toInt(el.value)); });
   nf1(document.getElementById('cuenta_facturado'));
 </script>
