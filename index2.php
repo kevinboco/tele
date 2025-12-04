@@ -1,4 +1,5 @@
 <?php
+include("nav.php");
 // index2.php - Sistema completo de gestión de viajes
 session_start();
 include("conexion.php");
