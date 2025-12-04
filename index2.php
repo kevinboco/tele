@@ -9,6 +9,49 @@ $id = $_GET['id'] ?? 0;
 $mensaje = $_GET['msg'] ?? '';
 $error = $_GET['error'] ?? '';
 
+// Inicializar array de selección si no existe
+if (!isset($_SESSION['seleccionados'])) {
+    $_SESSION['seleccionados'] = [];
+}
+
+// ================== MANEJO DE SELECCIÓN ==================
+// Agregar/eliminar IDs de la selección
+if (isset($_POST['toggle_seleccion'])) {
+    $id_toggle = (int)$_POST['toggle_seleccion'];
+    if (in_array($id_toggle, $_SESSION['seleccionados'])) {
+        // Eliminar de la selección
+        $_SESSION['seleccionados'] = array_diff($_SESSION['seleccionados'], [$id_toggle]);
+    } else {
+        // Agregar a la selección
+        $_SESSION['seleccionados'][] = $id_toggle;
+    }
+    $_SESSION['seleccionados'] = array_values(array_unique($_SESSION['seleccionados']));
+}
+
+// Seleccionar/deseleccionar todos los visibles
+if (isset($_POST['seleccionar_todos']) && isset($_POST['ids_visibles'])) {
+    $ids_visibles = $_POST['ids_visibles'];
+    
+    if ($_POST['seleccionar_todos'] == '1') {
+        // Agregar todos los visibles a la selección
+        foreach ($ids_visibles as $id_visible) {
+            $id_visible = (int)$id_visible;
+            if (!in_array($id_visible, $_SESSION['seleccionados'])) {
+                $_SESSION['seleccionados'][] = $id_visible;
+            }
+        }
+    } else {
+        // Quitar todos los visibles de la selección
+        $_SESSION['seleccionados'] = array_diff($_SESSION['seleccionados'], $ids_visibles);
+    }
+    $_SESSION['seleccionados'] = array_values(array_unique($_SESSION['seleccionados']));
+}
+
+// Limpiar selección
+if (isset($_POST['limpiar_seleccion'])) {
+    $_SESSION['seleccionados'] = [];
+}
+
 // ================== FUNCIONES AUXILIARES ==================
 function obtenerListas($conexion) {
     $listas = [
@@ -166,18 +209,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     
     // ACCIONES MÚLTIPLES
     elseif (isset($_POST['accion_multiple'])) {
-        if (!isset($_POST['ids']) || empty($_POST['ids'])) {
+        if (empty($_SESSION['seleccionados'])) {
             header("Location: ?error=no_ids");
             exit();
         }
         
-        $ids = array_map('intval', $_POST['ids']);
-        $ids_str = implode(',', $ids);
+        $ids = $_SESSION['seleccionados'];
+        $ids_str = implode(',', array_map('intval', $ids));
         
         if ($_POST['accion_multiple'] == 'eliminar') {
             // Eliminar múltiples registros
             $sql = "DELETE FROM viajes WHERE id IN ($ids_str)";
             if ($conexion->query($sql)) {
+                // Limpiar selección después de eliminar
+                $_SESSION['seleccionados'] = [];
                 header("Location: ?msg=multi_eliminado&count=" . count($ids));
             } else {
                 header("Location: ?error=eliminar");
@@ -186,7 +231,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
         elseif ($_POST['accion_multiple'] == 'editar_empresa') {
             // Redirigir a edición de empresa múltiple
-            $_SESSION['editar_multi_ids'] = $ids;
             header("Location: ?accion=editar_multi");
             exit();
         }
@@ -194,12 +238,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     
     // EDITAR EMPRESA MÚLTIPLE
     elseif (isset($_POST['editar_multi_empresa'])) {
-        if (!isset($_SESSION['editar_multi_ids']) || empty($_SESSION['editar_multi_ids'])) {
+        if (empty($_SESSION['seleccionados'])) {
             header("Location: ?error=no_ids");
             exit();
         }
         
-        $ids = $_SESSION['editar_multi_ids'];
+        $ids = $_SESSION['seleccionados'];
         $empresa = isset($_POST['empresa']) && trim($_POST['empresa']) !== '' 
             ? "'" . $conexion->real_escape_string($_POST['empresa']) . "'" 
             : "NULL";
@@ -208,7 +252,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $sql = "UPDATE viajes SET empresa = $empresa WHERE id IN ($ids_str)";
         
         if ($conexion->query($sql)) {
-            unset($_SESSION['editar_multi_ids']);
+            // Limpiar selección después de editar
+            $_SESSION['seleccionados'] = [];
             header("Location: ?msg=multi_editado&count=" . count($ids));
             exit();
         } else {
@@ -222,6 +267,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 if ($accion == 'eliminar' && $id > 0) {
     $sql = "DELETE FROM viajes WHERE id = $id";
     if ($conexion->query($sql)) {
+        // Remover de la selección si estaba seleccionado
+        if (($key = array_search($id, $_SESSION['seleccionados'])) !== false) {
+            unset($_SESSION['seleccionados'][$key]);
+            $_SESSION['seleccionados'] = array_values($_SESSION['seleccionados']);
+        }
         header("Location: ?msg=eliminado");
         exit();
     } else {
@@ -256,6 +306,8 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         .table-hover tbody tr:hover { background-color: rgba(0,0,0,.025); }
         .img-thumb { max-width: 70px; height: auto; }
         .required:after { content: " *"; color: red; }
+        .seleccionado { background-color: rgba(25, 135, 84, 0.1) !important; }
+        .checkbox-seleccion { cursor: pointer; }
     </style>
 </head>
 <body class="bg-light">
@@ -449,8 +501,8 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         </div>
 
     <!-- ================== EDITAR MÚLTIPLES EMPRESAS ================== -->
-    <?php elseif ($accion == 'editar_multi' && isset($_SESSION['editar_multi_ids'])): ?>
-        <?php $ids = $_SESSION['editar_multi_ids']; ?>
+    <?php elseif ($accion == 'editar_multi' && !empty($_SESSION['seleccionados'])): ?>
+        <?php $ids = $_SESSION['seleccionados']; ?>
         <div class="row justify-content-center">
             <div class="col-md-8">
                 <div class="card shadow">
@@ -493,13 +545,31 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
 
     <!-- ================== LISTADO PRINCIPAL ================== -->
     <?php else: ?>
+        <!-- CONTADOR DE SELECCIONADOS -->
+        <?php if (!empty($_SESSION['seleccionados'])): ?>
+            <div class="alert alert-info alert-dismissible fade show">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>✅ Seleccionados:</strong> <?= count($_SESSION['seleccionados']) ?> viaje(s)
+                    </div>
+                    <div class="d-flex gap-2">
+                        <form method="POST" class="d-inline">
+                            <input type="hidden" name="limpiar_seleccion" value="1">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Limpiar selección</button>
+                        </form>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                </div>
+            </div>
+        <?php endif; ?>
+
         <!-- FILTROS -->
         <div class="card shadow mb-4">
             <div class="card-header bg-primary text-white">
                 <h3 class="mb-0">🔍 Filtros de búsqueda</h3>
             </div>
             <div class="card-body">
-                <form method="GET" class="row g-3">
+                <form method="GET" class="row g-3" id="filtrosForm">
                     <!-- NOMBRE -->
                     <div class="col-md-2">
                         <label class="form-label">Nombre</label>
@@ -600,7 +670,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                         <button type="submit" class="btn btn-success w-100">🔎 Buscar</button>
                     </div>
                     <div class="col-md-2 align-self-end">
-                        <a href="?" class="btn btn-secondary w-100">❌ Limpiar</a>
+                        <a href="?" class="btn btn-secondary w-100">❌ Limpiar filtros</a>
                     </div>
                 </form>
             </div>
@@ -609,6 +679,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         <?php
         // ================== CONSTRUIR CONSULTA CON FILTROS ==================
         $where = [];
+        $ids_visibles = []; // Para guardar los IDs visibles actualmente
 
         if (!empty($_GET['nombre'])) {
             $nombre = $conexion->real_escape_string($_GET['nombre']);
@@ -663,83 +734,146 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         <!-- LISTADO -->
         <div class="card shadow">
             <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
-                <h3 class="mb-0">📋 Listado de Viajes</h3>
-                <a href="?accion=crear" class="btn btn-success">➕ Nuevo Viaje</a>
+                <div>
+                    <h3 class="mb-0">📋 Listado de Viajes</h3>
+                    <?php if ($resultado): ?>
+                        <small class="text-light">Mostrando <?= $resultado->num_rows ?> resultado(s)</small>
+                    <?php endif; ?>
+                </div>
+                <div class="d-flex gap-2">
+                    <?php if (!empty($_SESSION['seleccionados'])): ?>
+                        <span class="badge bg-success align-self-center">
+                            ✅ <?= count($_SESSION['seleccionados']) ?> seleccionado(s)
+                        </span>
+                    <?php endif; ?>
+                    <a href="?accion=crear" class="btn btn-success">➕ Nuevo Viaje</a>
+                </div>
             </div>
             <div class="card-body">
-                <form method="post" action="">
-                    <div class="table-responsive">
-                        <table class="table table-bordered table-striped table-hover align-middle">
-                            <thead class="table-dark">
-                                <tr>
-                                    <th style="width:32px;"><input type="checkbox" id="selectAll"></th>
-                                    <th>ID</th>
-                                    <th>Nombre</th>
-                                    <th>Cédula</th>
-                                    <th>Fecha</th>
-                                    <th>Ruta</th>
-                                    <th>Vehículo</th>
-                                    <th>Empresa</th>
-                                    <th>Imagen</th>
-                                    <th style="width:160px;">Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                            <?php if ($resultado && $resultado->num_rows > 0): ?>
-                                <?php while($row = $resultado->fetch_assoc()): ?>
-                                    <tr>
-                                        <td><input type="checkbox" name="ids[]" value="<?= (int)$row['id']; ?>"></td>
-                                        <td><?= (int)$row['id']; ?></td>
-                                        <td><?= htmlspecialchars($row['nombre']); ?></td>
-                                        <td><?= !empty($row['cedula']) ? htmlspecialchars($row['cedula']) : '<span class="text-muted">—</span>'; ?></td>
-                                        <td><?= htmlspecialchars($row['fecha']); ?></td>
-                                        <td><?= htmlspecialchars($row['ruta']); ?></td>
-                                        <td><?= htmlspecialchars($row['tipo_vehiculo']); ?></td>
-                                        <td><?= !empty($row['empresa']) ? htmlspecialchars($row['empresa']) : '<span class="text-muted">—</span>'; ?></td>
-                                        <td>
-                                            <?php if(!empty($row['imagen'])): ?>
-                                                <a href="#" data-bs-toggle="modal" data-bs-target="#imgModal<?= (int)$row['id']; ?>">
-                                                    <img src="uploads/<?= htmlspecialchars($row['imagen']); ?>" width="70" class="rounded img-thumb">
-                                                </a>
-                                                <div class="modal fade" id="imgModal<?= (int)$row['id']; ?>" tabindex="-1">
-                                                    <div class="modal-dialog modal-dialog-centered">
-                                                        <div class="modal-content">
-                                                            <div class="modal-body text-center">
-                                                                <img src="uploads/<?= htmlspecialchars($row['imagen']); ?>" class="img-fluid rounded">
-                                                            </div>
+                <!-- CONTROLES DE SELECCIÓN -->
+                <div class="mb-3 d-flex justify-content-between align-items-center bg-light p-3 rounded">
+                    <div>
+                        <strong>Selección múltiple:</strong>
+                        <form method="POST" class="d-inline ms-2">
+                            <input type="hidden" name="seleccionar_todos" value="1">
+                            <input type="hidden" name="ids_visibles" id="idsVisibles" value="">
+                            <button type="submit" class="btn btn-sm btn-outline-primary">
+                                ✅ Seleccionar todos los visibles
+                            </button>
+                        </form>
+                        <form method="POST" class="d-inline ms-2">
+                            <input type="hidden" name="seleccionar_todos" value="0">
+                            <input type="hidden" name="ids_visibles" id="idsVisibles2" value="">
+                            <button type="submit" class="btn btn-sm btn-outline-secondary">
+                                ❌ Deseleccionar todos los visibles
+                            </button>
+                        </form>
+                    </div>
+                    <?php if (!empty($_SESSION['seleccionados'])): ?>
+                        <form method="POST" class="d-inline">
+                            <input type="hidden" name="limpiar_seleccion" value="1">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                🗑 Limpiar toda la selección
+                            </button>
+                        </form>
+                    <?php endif; ?>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-bordered table-striped table-hover align-middle">
+                        <thead class="table-dark">
+                            <tr>
+                                <th style="width:32px;">Sel.</th>
+                                <th>ID</th>
+                                <th>Nombre</th>
+                                <th>Cédula</th>
+                                <th>Fecha</th>
+                                <th>Ruta</th>
+                                <th>Vehículo</th>
+                                <th>Empresa</th>
+                                <th>Imagen</th>
+                                <th style="width:160px;">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        <?php if ($resultado && $resultado->num_rows > 0): ?>
+                            <?php while($row = $resultado->fetch_assoc()): 
+                                $id_registro = (int)$row['id'];
+                                $ids_visibles[] = $id_registro;
+                                $esta_seleccionado = in_array($id_registro, $_SESSION['seleccionados']);
+                            ?>
+                                <tr id="fila_<?= $id_registro ?>" class="<?= $esta_seleccionado ? 'seleccionado' : '' ?>">
+                                    <td>
+                                        <form method="POST" class="d-inline">
+                                            <input type="hidden" name="toggle_seleccion" value="<?= $id_registro ?>">
+                                            <input type="checkbox" 
+                                                   class="form-check-input checkbox-seleccion" 
+                                                   onchange="this.form.submit()"
+                                                   <?= $esta_seleccionado ? 'checked' : '' ?>>
+                                        </form>
+                                    </td>
+                                    <td><?= $id_registro; ?></td>
+                                    <td><?= htmlspecialchars($row['nombre']); ?></td>
+                                    <td><?= !empty($row['cedula']) ? htmlspecialchars($row['cedula']) : '<span class="text-muted">—</span>'; ?></td>
+                                    <td><?= htmlspecialchars($row['fecha']); ?></td>
+                                    <td><?= htmlspecialchars($row['ruta']); ?></td>
+                                    <td><?= htmlspecialchars($row['tipo_vehiculo']); ?></td>
+                                    <td><?= !empty($row['empresa']) ? htmlspecialchars($row['empresa']) : '<span class="text-muted">—</span>'; ?></td>
+                                    <td>
+                                        <?php if(!empty($row['imagen'])): ?>
+                                            <a href="#" data-bs-toggle="modal" data-bs-target="#imgModal<?= $id_registro; ?>">
+                                                <img src="uploads/<?= htmlspecialchars($row['imagen']); ?>" width="70" class="rounded img-thumb">
+                                            </a>
+                                            <div class="modal fade" id="imgModal<?= $id_registro; ?>" tabindex="-1">
+                                                <div class="modal-dialog modal-dialog-centered">
+                                                    <div class="modal-content">
+                                                        <div class="modal-body text-center">
+                                                            <img src="uploads/<?= htmlspecialchars($row['imagen']); ?>" class="img-fluid rounded">
                                                         </div>
                                                     </div>
                                                 </div>
-                                            <?php else: ?>
-                                                <span class="text-muted">—</span>
-                                            <?php endif; ?>
-                                        </td>
-                                        <td>
-                                            <a href="?accion=editar&id=<?= (int)$row['id']; ?>" class="btn btn-warning btn-sm">✏ Editar</a>
-                                            <a href="?accion=eliminar&id=<?= (int)$row['id']; ?>" class="btn btn-danger btn-sm" onclick="return confirm('¿Seguro de eliminar?')">🗑 Eliminar</a>
-                                        </td>
-                                    </tr>
-                                <?php endwhile; ?>
-                            <?php else: ?>
-                                <tr>
-                                    <td colspan="10" class="text-center py-4">No se encontraron resultados.</td>
+                                            </div>
+                                        <?php else: ?>
+                                            <span class="text-muted">—</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <a href="?accion=editar&id=<?= $id_registro; ?>" class="btn btn-warning btn-sm">✏ Editar</a>
+                                        <a href="?accion=eliminar&id=<?= $id_registro; ?>" class="btn btn-danger btn-sm" onclick="return confirm('¿Seguro de eliminar?')">🗑 Eliminar</a>
+                                    </td>
                                 </tr>
-                            <?php endif; ?>
-                            </tbody>
-                        </table>
-                    </div>
+                            <?php endwhile; ?>
+                        <?php else: ?>
+                            <tr>
+                                <td colspan="10" class="text-center py-4">No se encontraron resultados.</td>
+                            </tr>
+                        <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
 
-                    <!-- ACCIONES MÚLTIPLES -->
-                    <div class="mt-3 d-flex gap-2">
-                        <button type="submit" name="accion_multiple" value="eliminar" class="btn btn-danger"
-                                onclick="return confirm('¿Eliminar los registros seleccionados?')">
-                            🗑 Eliminar Seleccionados
-                        </button>
-                        <button type="submit" name="accion_multiple" value="editar_empresa" class="btn btn-warning">
-                            ✏ Editar Empresa
-                        </button>
+                <!-- ACCIONES MÚLTIPLES -->
+                <?php if (!empty($_SESSION['seleccionados'])): ?>
+                    <div class="mt-3 p-3 border rounded bg-light">
+                        <h5>📋 Acciones para los <?= count($_SESSION['seleccionados']) ?> viajes seleccionados:</h5>
+                        <div class="d-flex gap-2 mt-2">
+                            <form method="POST">
+                                <button type="submit" name="accion_multiple" value="editar_empresa" class="btn btn-warning">
+                                    ✏ Editar Empresa de Seleccionados
+                                </button>
+                            </form>
+                            <form method="POST">
+                                <button type="submit" name="accion_multiple" value="eliminar" class="btn btn-danger"
+                                        onclick="return confirm('¿Eliminar los <?= count($_SESSION['seleccionados']) ?> registros seleccionados?')">
+                                    🗑 Eliminar Seleccionados
+                                </button>
+                            </form>
+                        </div>
+                        <small class="text-muted d-block mt-2">
+                            IDs seleccionados: <?= implode(', ', $_SESSION['seleccionados']) ?>
+                        </small>
                     </div>
-                </form>
+                <?php endif; ?>
             </div>
         </div>
     <?php endif; ?>
@@ -747,29 +881,42 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-// Seleccionar/deseleccionar todos los checkboxes
-document.getElementById("selectAll").onclick = function() {
-    const checkboxes = document.getElementsByName("ids[]");
-    for (const checkbox of checkboxes) {
-        checkbox.checked = this.checked;
-    }
-};
-
-// Validar que al menos un checkbox esté seleccionado para acciones múltiples
-document.querySelector('form').addEventListener('submit', function(e) {
-    const accionMultiple = e.submitter && e.submitter.name === 'accion_multiple';
-    if (accionMultiple) {
-        const checkboxes = document.getElementsByName("ids[]");
-        let seleccionado = false;
-        for (const checkbox of checkboxes) {
-            if (checkbox.checked) {
-                seleccionado = true;
-                break;
-            }
+// Pasar los IDs visibles a los formularios de selección
+document.addEventListener('DOMContentLoaded', function() {
+    const idsVisibles = <?= json_encode($ids_visibles) ?>;
+    
+    // Actualizar los campos ocultos con los IDs visibles
+    document.getElementById('idsVisibles').value = idsVisibles.join(',');
+    document.getElementById('idsVisibles2').value = idsVisibles.join(',');
+    
+    // Actualizar contador en tiempo real
+    function actualizarContador() {
+        const seleccionados = document.querySelectorAll('.checkbox-seleccion:checked').length;
+        const total = document.querySelectorAll('.checkbox-seleccion').length;
+        
+        // Actualizar badge si existe
+        const badge = document.querySelector('.badge.bg-success');
+        if (badge) {
+            badge.textContent = `✅ ${seleccionados} seleccionado(s)`;
         }
-        if (!seleccionado) {
+    }
+    
+    // Escuchar cambios en checkboxes
+    document.querySelectorAll('.checkbox-seleccion').forEach(checkbox => {
+        checkbox.addEventListener('change', actualizarContador);
+    });
+    
+    actualizarContador();
+});
+
+// Confirmación para acciones múltiples
+document.addEventListener('submit', function(e) {
+    if (e.target && e.target.querySelector('button[name="accion_multiple"]')) {
+        const seleccionados = <?= count($_SESSION['seleccionados']) ?>;
+        if (seleccionados === 0) {
             e.preventDefault();
             alert('Por favor, selecciona al menos un registro.');
+            return false;
         }
     }
 });
