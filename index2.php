@@ -1,7 +1,9 @@
 <?php
+// ESTO DEBE SER LO PRIMERO - INICIO DE SESIÓN
+session_start();
+
 include("nav.php");
 // index2.php - Sistema completo de gestión de viajes
-session_start();
 include("conexion.php");
 
 // ================== CONFIGURACIÓN INICIAL ==================
@@ -27,29 +29,42 @@ if (isset($_POST['toggle_seleccion'])) {
         $_SESSION['seleccionados'][] = $id_toggle;
     }
     $_SESSION['seleccionados'] = array_values(array_unique($_SESSION['seleccionados']));
+    // Redirigir para evitar reenvío de formulario
+    header("Location: " . $_SERVER['PHP_SELF'] . "?" . http_build_query($_GET));
+    exit();
 }
 
 // Seleccionar/deseleccionar todos los visibles
 if (isset($_POST['seleccionar_todos']) && isset($_POST['ids_visibles'])) {
-    $ids_visibles = array_map('intval', $_POST['ids_visibles']);
+    $ids_visibles_str = $_POST['ids_visibles'];
     
-    if ($_POST['seleccionar_todos'] == '1') {
-        // Agregar todos los visibles a la selección
-        foreach ($ids_visibles as $id_visible) {
-            if (!in_array($id_visible, $_SESSION['seleccionados'])) {
-                $_SESSION['seleccionados'][] = $id_visible;
+    if (!empty($ids_visibles_str)) {
+        $ids_visibles = array_map('intval', explode(',', $ids_visibles_str));
+        
+        if ($_POST['seleccionar_todos'] == '1') {
+            // Agregar todos los visibles a la selección
+            foreach ($ids_visibles as $id_visible) {
+                if (!in_array($id_visible, $_SESSION['seleccionados'])) {
+                    $_SESSION['seleccionados'][] = $id_visible;
+                }
             }
+        } else {
+            // Quitar todos los visibles de la selección
+            $_SESSION['seleccionados'] = array_diff($_SESSION['seleccionados'], $ids_visibles);
         }
-    } else {
-        // Quitar todos los visibles de la selección
-        $_SESSION['seleccionados'] = array_diff($_SESSION['seleccionados'], $ids_visibles);
+        $_SESSION['seleccionados'] = array_values(array_unique($_SESSION['seleccionados']));
     }
-    $_SESSION['seleccionados'] = array_values(array_unique($_SESSION['seleccionados']));
+    // Redirigir para evitar reenvío de formulario
+    header("Location: " . $_SERVER['PHP_SELF'] . "?" . http_build_query($_GET));
+    exit();
 }
 
 // Limpiar selección
 if (isset($_POST['limpiar_seleccion'])) {
     $_SESSION['seleccionados'] = [];
+    // Redirigir para evitar reenvío de formulario
+    header("Location: " . $_SERVER['PHP_SELF'] . "?" . http_build_query($_GET));
+    exit();
 }
 
 // ================== FUNCIONES AUXILIARES ==================
@@ -386,6 +401,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         .sticky-actions { position: sticky; top: 0; z-index: 1000; background: white; padding: 15px; margin: -15px -15px 15px -15px; border-bottom: 1px solid #dee2e6; box-shadow: 0 2px 4px rgba(0,0,0,.1); }
         .table-container { max-height: 600px; overflow-y: auto; }
         .form-control-sm { padding: 0.25rem 0.5rem; font-size: 0.875rem; }
+        .checkbox-col { width: 40px; }
     </style>
 </head>
 <body class="bg-light">
@@ -758,6 +774,50 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
 
     <!-- ================== LISTADO PRINCIPAL ================== -->
     <?php else: ?>
+        <?php
+        // ================== CONSTRUIR CONSULTA CON FILTROS ==================
+        $where = [];
+        $ids_visibles = []; // Inicializar array para IDs visibles
+
+        if (!empty($_GET['nombre'])) {
+            $nombre = $conexion->real_escape_string($_GET['nombre']);
+            $where[] = "nombre = '$nombre'";
+        }
+        if (!empty($_GET['cedula'])) {
+            $cedula = $conexion->real_escape_string($_GET['cedula']);
+            $where[] = "cedula = '$cedula'";
+        }
+        if (!empty($_GET['desde']) && !empty($_GET['hasta'])) {
+            $desde = $conexion->real_escape_string($_GET['desde']);
+            $hasta = $conexion->real_escape_string($_GET['hasta']);
+            $where[] = "fecha BETWEEN '$desde' AND '$hasta'";
+        } elseif (!empty($_GET['desde'])) {
+            $desde = $conexion->real_escape_string($_GET['desde']);
+            $where[] = "fecha >= '$desde'";
+        } elseif (!empty($_GET['hasta'])) {
+            $hasta = $conexion->real_escape_string($_GET['hasta']);
+            $where[] = "fecha <= '$hasta'";
+        }
+        if (!empty($_GET['ruta'])) {
+            $ruta = $conexion->real_escape_string($_GET['ruta']);
+            $where[] = "ruta = '$ruta'";
+        }
+        if (!empty($_GET['vehiculo'])) {
+            $vehiculo = $conexion->real_escape_string($_GET['vehiculo']);
+            $where[] = "tipo_vehiculo = '$vehiculo'";
+        }
+        if (!empty($_GET['empresa'])) {
+            $empresa = $conexion->real_escape_string($_GET['empresa']);
+            $where[] = "empresa = '$empresa'";
+        }
+
+        $sql = "SELECT * FROM viajes";
+        if (count($where) > 0) $sql .= " WHERE " . implode(" AND ", $where);
+        $sql .= " ORDER BY fecha DESC, id DESC";
+        
+        $resultado = $conexion->query($sql);
+        ?>
+
         <!-- CONTADOR DE SELECCIONADOS -->
         <?php if (!empty($_SESSION['seleccionados'])): ?>
             <div class="alert alert-info alert-dismissible fade show">
@@ -890,51 +950,8 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             </div>
         </div>
 
-        <?php
-        // ================== CONSTRUIR CONSULTA CON FILTROS ==================
-        $where = [];
-        $ids_visibles = []; // Para guardar los IDs visibles actualmente
-
-        if (!empty($_GET['nombre'])) {
-            $nombre = $conexion->real_escape_string($_GET['nombre']);
-            $where[] = "nombre = '$nombre'";
-        }
-        if (!empty($_GET['cedula'])) {
-            $cedula = $conexion->real_escape_string($_GET['cedula']);
-            $where[] = "cedula = '$cedula'";
-        }
-        if (!empty($_GET['desde']) && !empty($_GET['hasta'])) {
-            $desde = $conexion->real_escape_string($_GET['desde']);
-            $hasta = $conexion->real_escape_string($_GET['hasta']);
-            $where[] = "fecha BETWEEN '$desde' AND '$hasta'";
-        } elseif (!empty($_GET['desde'])) {
-            $desde = $conexion->real_escape_string($_GET['desde']);
-            $where[] = "fecha >= '$desde'";
-        } elseif (!empty($_GET['hasta'])) {
-            $hasta = $conexion->real_escape_string($_GET['hasta']);
-            $where[] = "fecha <= '$hasta'";
-        }
-        if (!empty($_GET['ruta'])) {
-            $ruta = $conexion->real_escape_string($_GET['ruta']);
-            $where[] = "ruta = '$ruta'";
-        }
-        if (!empty($_GET['vehiculo'])) {
-            $vehiculo = $conexion->real_escape_string($_GET['vehiculo']);
-            $where[] = "tipo_vehiculo = '$vehiculo'";
-        }
-        if (!empty($_GET['empresa'])) {
-            $empresa = $conexion->real_escape_string($_GET['empresa']);
-            $where[] = "empresa = '$empresa'";
-        }
-
-        $sql = "SELECT * FROM viajes";
-        if (count($where) > 0) $sql .= " WHERE " . implode(" AND ", $where);
-        $sql .= " ORDER BY fecha DESC, id DESC";
-        
-        $resultado = $conexion->query($sql);
-
-        // Contar viajes por nombre si hay filtro
-        if (!empty($_GET['nombre'])):
+        <!-- Contar viajes por nombre si hay filtro -->
+        <?php if (!empty($_GET['nombre'])):
             $nombreFiltro = $conexion->real_escape_string($_GET['nombre']);
             $sqlContar = "SELECT COUNT(*) AS total FROM viajes WHERE nombre = '$nombreFiltro'";
             $resContar = $conexion->query($sqlContar);
@@ -1010,6 +1027,14 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                             </button>
                         </form>
                     </div>
+                    <?php if (!empty($_SESSION['seleccionados'])): ?>
+                        <form method="POST" class="d-inline ms-2">
+                            <input type="hidden" name="limpiar_seleccion" value="1">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                🗑️ Limpiar selección (<?= count($_SESSION['seleccionados']) ?>)
+                            </button>
+                        </form>
+                    <?php endif; ?>
                 </div>
 
                 <div class="table-container">
@@ -1095,9 +1120,18 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
 document.addEventListener('DOMContentLoaded', function() {
     const idsVisibles = <?= json_encode($ids_visibles) ?>;
     
-    // Actualizar los campos ocultos con los IDs visibles
-    document.getElementById('idsVisibles').value = idsVisibles.join(',');
-    document.getElementById('idsVisibles2').value = idsVisibles.join(',');
+    if (idsVisibles.length > 0) {
+        // Actualizar los campos ocultos con los IDs visibles
+        const hiddenInput1 = document.getElementById('idsVisibles');
+        const hiddenInput2 = document.getElementById('idsVisibles2');
+        
+        if (hiddenInput1) {
+            hiddenInput1.value = idsVisibles.join(',');
+        }
+        if (hiddenInput2) {
+            hiddenInput2.value = idsVisibles.join(',');
+        }
+    }
     
     // Inicializar tooltips de Bootstrap
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
