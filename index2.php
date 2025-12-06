@@ -1,14 +1,15 @@
 <?php
-include("nav.php");
 // index2.php - Sistema completo de gestión de viajes
+
+// SIEMPRE primero la sesión, sin imprimir nada antes
 session_start();
 include("conexion.php");
 
 // ================== CONFIGURACIÓN INICIAL ==================
-$accion = $_GET['accion'] ?? 'listar';
-$id = $_GET['id'] ?? 0;
+$accion  = $_GET['accion'] ?? 'listar';
+$id      = $_GET['id'] ?? 0;
 $mensaje = $_GET['msg'] ?? '';
-$error = $_GET['error'] ?? '';
+$error   = $_GET['error'] ?? '';
 
 // Inicializar array de selección si no existe
 if (!isset($_SESSION['seleccionados'])) {
@@ -70,11 +71,11 @@ if (isset($_POST['limpiar_seleccion'])) {
 // ================== FUNCIONES AUXILIARES ==================
 function obtenerListas($conexion) {
     $listas = [
-        'nombres' => [],
-        'cedulas' => [],
-        'rutas' => [],
+        'nombres'   => [],
+        'cedulas'   => [],
+        'rutas'     => [],
         'vehiculos' => [],
-        'empresas' => []
+        'empresas'  => []
     ];
     
     // Nombres
@@ -236,12 +237,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $id_viaje = (int)$id_viaje;
             
             // Obtener los datos específicos para este ID si existen
-            $nombre_key = "nombre_$id_viaje";
-            $cedula_key = "cedula_$id_viaje";
-            $fecha_key = "fecha_$id_viaje";
-            $ruta_key = "ruta_$id_viaje";
+            $nombre_key   = "nombre_$id_viaje";
+            $cedula_key   = "cedula_$id_viaje";
+            $fecha_key    = "fecha_$id_viaje";
+            $ruta_key     = "ruta_$id_viaje";
             $vehiculo_key = "tipo_vehiculo_$id_viaje";
-            $empresa_key = "empresa_$id_viaje";
+            $empresa_key  = "empresa_$id_viaje";
             
             // Usar valores específicos o los generales
             $nombre = isset($_POST[$nombre_key]) && trim($_POST[$nombre_key]) !== '' 
@@ -286,10 +287,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
             
             // Remover comillas para NULL
-            $nombre = ($nombre === NULL) ? "NULL" : $nombre;
-            $fecha = ($fecha === NULL) ? "NULL" : $fecha;
-            $ruta = ($ruta === NULL) ? "NULL" : $ruta;
-            $tipo_vehiculo = ($tipo_vehiculo === NULL) ? "NULL" : $tipo_vehiculo;
+            $nombre       = ($nombre === NULL) ? "NULL" : $nombre;
+            $fecha        = ($fecha === NULL) ? "NULL" : $fecha;
+            $ruta         = ($ruta === NULL) ? "NULL" : $ruta;
+            $tipo_vehiculo= ($tipo_vehiculo === NULL) ? "NULL" : $tipo_vehiculo;
             
             $sql = "UPDATE viajes SET 
                     nombre = $nombre,
@@ -382,7 +383,7 @@ if ($accion == 'editar_multiple' && !empty($_SESSION['seleccionados'])) {
 }
 
 // ================== OBTENER LISTAS PARA FILTROS ==================
-$listas = obtenerListas($conexion);
+$listas    = obtenerListas($conexion);
 $error_msg = $_SESSION['error'] ?? null;
 if (isset($_SESSION['error'])) unset($_SESSION['error']);
 ?>
@@ -404,7 +405,13 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
     </style>
 </head>
 <body class="bg-light">
-<!-- NAVEGACIÓN -->
+
+<?php
+// AHORA sí incluimos el menú lateral / nav personalizado
+include("nav.php");
+?>
+
+<!-- NAVEGACIÓN SUPERIOR -->
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top">
     <div class="container">
         <a class="navbar-brand" href="?">🚗 Sistema de Viajes</a>
@@ -481,7 +488,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                     <div class="card-body">
                         <form method="POST" enctype="multipart/form-data">
                             <?php if ($accion == 'editar'): ?>
-                                <input type="hidden" name="id" value="<?= $id ?>">
+                                <input type="hidden" name="id" value="<?= (int)$id ?>">
                                 <input type="hidden" name="editar" value="1">
                             <?php else: ?>
                                 <input type="hidden" name="crear" value="1">
@@ -491,14 +498,14 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                             <div class="mb-3">
                                 <label class="form-label required">Nombre</label>
                                 <input type="text" name="nombre" class="form-control" 
-                                       value="<?= $viaje['nombre'] ?? '' ?>" required>
+                                       value="<?= htmlspecialchars($viaje['nombre'] ?? '') ?>" required>
                             </div>
                             
                             <!-- Cédula (opcional) -->
                             <div class="mb-3">
                                 <label class="form-label">Cédula</label>
                                 <input type="text" name="cedula" class="form-control" 
-                                       value="<?= $viaje['cedula'] ?? '' ?>"
+                                       value="<?= htmlspecialchars($viaje['cedula'] ?? '') ?>"
                                        placeholder="Opcional - puede estar vacío">
                             </div>
                             
@@ -506,7 +513,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                             <div class="mb-3">
                                 <label class="form-label required">Fecha</label>
                                 <input type="date" name="fecha" class="form-control" 
-                                       value="<?= $viaje['fecha'] ?? '' ?>" required>
+                                       value="<?= htmlspecialchars($viaje['fecha'] ?? '') ?>" required>
                             </div>
                             
                             <!-- Ruta -->
@@ -600,7 +607,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             <div class="col-12">
                 <div class="card shadow">
                     <div class="card-header bg-warning text-dark">
-                        <h3 class="mb-0">✏ Editar Múltiples Viajes (<?= $total_seleccionados ?> seleccionados)</h3>
+                        <h3 class="mb-0">✏ Editar Múltiples Viajes (<?= (int)$total_seleccionados ?> seleccionados)</h3>
                     </div>
                     <div class="card-body">
                         <form method="POST" id="formEditarMultiple">
@@ -762,7 +769,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                             <div class="d-flex justify-content-between">
                                 <a href="?" class="btn btn-secondary">Cancelar</a>
                                 <button type="submit" class="btn btn-warning">
-                                    Guardar Cambios en <?= $total_seleccionados ?> Registros
+                                    Guardar Cambios en <?= (int)$total_seleccionados ?> Registros
                                 </button>
                             </div>
                         </form>
@@ -836,11 +843,11 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                     <!-- FECHA DESDE/HASTA -->
                     <div class="col-md-2">
                         <label class="form-label">Fecha desde</label>
-                        <input type="date" name="desde" value="<?= $_GET['desde'] ?? '' ?>" class="form-control">
+                        <input type="date" name="desde" value="<?= htmlspecialchars($_GET['desde'] ?? '') ?>" class="form-control">
                     </div>
                     <div class="col-md-2">
                         <label class="form-label">Fecha hasta</label>
-                        <input type="date" name="hasta" value="<?= $_GET['hasta'] ?? '' ?>" class="form-control">
+                        <input type="date" name="hasta" value="<?= htmlspecialchars($_GET['hasta'] ?? '') ?>" class="form-control">
                     </div>
 
                     <!-- RUTA -->
@@ -907,7 +914,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
 
         <?php
         // ================== CONSTRUIR CONSULTA CON FILTROS ==================
-        $where = [];
+        $where        = [];
         $ids_visibles = []; // Para guardar los IDs visibles actualmente
 
         if (!empty($_GET['nombre'])) {
@@ -943,7 +950,9 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         }
 
         $sql = "SELECT * FROM viajes";
-        if (count($where) > 0) $sql .= " WHERE " . implode(" AND ", $where);
+        if (count($where) > 0) {
+            $sql .= " WHERE " . implode(" AND ", $where);
+        }
         $sql .= " ORDER BY fecha DESC, id DESC";
         
         $resultado = $conexion->query($sql);
@@ -1046,8 +1055,8 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                         <tbody>
                         <?php if ($resultado && $resultado->num_rows > 0): ?>
                             <?php while($row = $resultado->fetch_assoc()): 
-                                $id_registro = (int)$row['id'];
-                                $ids_visibles[] = $id_registro;
+                                $id_registro       = (int)$row['id'];
+                                $ids_visibles[]    = $id_registro;
                                 $esta_seleccionado = in_array($id_registro, $_SESSION['seleccionados']);
                             ?>
                                 <tr id="fila_<?= $id_registro ?>" class="<?= $esta_seleccionado ? 'seleccionado' : '' ?>">
@@ -1108,12 +1117,12 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
 <script>
 // Pasar los IDs visibles a los formularios de selección
 document.addEventListener('DOMContentLoaded', function() {
-    const idsVisibles = <?= json_encode($ids_visibles ?? []) ?>;
+    const idsVisiblesArray = <?= json_encode($ids_visibles ?? []) ?>;
     
     const input1 = document.getElementById('idsVisibles');
     const input2 = document.getElementById('idsVisibles2');
-    if (input1) input1.value = idsVisibles.join(',');
-    if (input2) input2.value = idsVisibles.join(',');
+    if (input1) input1.value = idsVisiblesArray.join(',');
+    if (input2) input2.value = idsVisiblesArray.join(',');
     
     // Inicializar tooltips de Bootstrap
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
@@ -1124,14 +1133,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Validación para edición múltiple
 document.getElementById('formEditarMultiple')?.addEventListener('submit', function(e) {
-    const totalRegistros = <?= count($viajes_seleccionados) ?? 0 ?>;
+    const totalRegistros = <?= count($viajes_seleccionados) ?>;
     if (totalRegistros === 0) {
         e.preventDefault();
         alert('No hay registros para editar.');
         return false;
     }
     
-    if (!confirm(`¿Estás seguro de editar ${totalRegistros} registros?`)) {
+    if (!confirm(`¿Estás segura de editar ${totalRegistros} registros?`)) {
         e.preventDefault();
         return false;
     }
