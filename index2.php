@@ -16,9 +16,10 @@ if (!isset($_SESSION['seleccionados'])) {
 }
 
 // ================== MANEJO DE SELECCIÓN ==================
-// Agregar/eliminar IDs de la selección
+// Agregar/eliminar IDs de la selección (checkbox individual)
 if (isset($_POST['toggle_seleccion'])) {
     $id_toggle = (int)$_POST['toggle_seleccion'];
+
     if (in_array($id_toggle, $_SESSION['seleccionados'])) {
         // Eliminar de la selección
         $_SESSION['seleccionados'] = array_diff($_SESSION['seleccionados'], [$id_toggle]);
@@ -26,25 +27,39 @@ if (isset($_POST['toggle_seleccion'])) {
         // Agregar a la selección
         $_SESSION['seleccionados'][] = $id_toggle;
     }
+
     $_SESSION['seleccionados'] = array_values(array_unique($_SESSION['seleccionados']));
 }
 
 // Seleccionar/deseleccionar todos los visibles
 if (isset($_POST['seleccionar_todos']) && isset($_POST['ids_visibles'])) {
-    $ids_visibles = array_map('intval', $_POST['ids_visibles']);
-    
-    if ($_POST['seleccionar_todos'] == '1') {
-        // Agregar todos los visibles a la selección
-        foreach ($ids_visibles as $id_visible) {
-            if (!in_array($id_visible, $_SESSION['seleccionados'])) {
-                $_SESSION['seleccionados'][] = $id_visible;
-            }
-        }
+    $ids_visibles = [];
+
+    // Puede venir como string "1,2,3" o como array
+    if (is_array($_POST['ids_visibles'])) {
+        $ids_visibles = array_map('intval', $_POST['ids_visibles']);
     } else {
-        // Quitar todos los visibles de la selección
-        $_SESSION['seleccionados'] = array_diff($_SESSION['seleccionados'], $ids_visibles);
+        $raw = trim($_POST['ids_visibles']);
+        if ($raw !== '') {
+            $ids_visibles = array_map('intval', explode(',', $raw));
+        }
     }
-    $_SESSION['seleccionados'] = array_values(array_unique($_SESSION['seleccionados']));
+
+    if (!empty($ids_visibles)) {
+        if ($_POST['seleccionar_todos'] == '1') {
+            // Agregar todos los visibles a la selección
+            foreach ($ids_visibles as $id_visible) {
+                if (!in_array($id_visible, $_SESSION['seleccionados'])) {
+                    $_SESSION['seleccionados'][] = $id_visible;
+                }
+            }
+        } else {
+            // Quitar todos los visibles de la selección
+            $_SESSION['seleccionados'] = array_diff($_SESSION['seleccionados'], $ids_visibles);
+        }
+
+        $_SESSION['seleccionados'] = array_values(array_unique($_SESSION['seleccionados']));
+    }
 }
 
 // Limpiar selección
@@ -1093,11 +1108,12 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
 <script>
 // Pasar los IDs visibles a los formularios de selección
 document.addEventListener('DOMContentLoaded', function() {
-    const idsVisibles = <?= json_encode($ids_visibles) ?>;
+    const idsVisibles = <?= json_encode($ids_visibles ?? []) ?>;
     
-    // Actualizar los campos ocultos con los IDs visibles
-    document.getElementById('idsVisibles').value = idsVisibles.join(',');
-    document.getElementById('idsVisibles2').value = idsVisibles.join(',');
+    const input1 = document.getElementById('idsVisibles');
+    const input2 = document.getElementById('idsVisibles2');
+    if (input1) input1.value = idsVisibles.join(',');
+    if (input2) input2.value = idsVisibles.join(',');
     
     // Inicializar tooltips de Bootstrap
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
