@@ -19,19 +19,27 @@ CREATE TABLE IF NOT EXISTS config_prestamistas (
     id INT PRIMARY KEY AUTO_INCREMENT,
     prestamista VARCHAR(100) UNIQUE NOT NULL,
     interes_prestamista DECIMAL(5,2) DEFAULT 10.00,
-    comision_personal DECIMAL(5,2) DEFAULT 5.00,
+    comision_personal DECIMAL(5,2) DEFAULT 0.00,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 )";
 $conn->query($sql_crear_tabla);
 
 // ============================================
-// 2. PROCESAR GUARDADO DE CONFIGURACIÓN
+// 2. FECHA DE CORTE - CAMBIO DE 10% A 13%
+// ============================================
+$FECHA_CORTE = new DateTime('2025-10-29');
+
+// ============================================
+// 3. PROCESAR GUARDADO DE CONFIGURACIÓN
 // ============================================
 if (isset($_POST['guardar_config'])) {
     $prestamista = $_POST['prestamista_config'];
     $interes_prestamista = floatval($_POST['interes_prestamista']);
     $comision_personal = floatval($_POST['comision_personal']);
+    
+    // Validar que la suma sea 13% para préstamos nuevos
+    $suma_porcentajes = $interes_prestamista + $comision_personal;
     
     // Insertar o actualizar configuración
     $sql = "INSERT INTO config_prestamistas (prestamista, interes_prestamista, comision_personal) 
@@ -47,6 +55,10 @@ if (isset($_POST['guardar_config'])) {
     if ($stmt->execute()) {
         $mensaje_config = "✅ Configuración guardada para <strong>$prestamista</strong>";
         $tipo_mensaje = "success";
+        
+        if (abs($suma_porcentajes - 13.00) > 0.01) {
+            $mensaje_config .= "<br><small>⚠ Nota: La suma de porcentajes es $suma_porcentajes% (debería ser 13% para préstamos nuevos)</small>";
+        }
     } else {
         $mensaje_config = "❌ Error al guardar configuración";
         $tipo_mensaje = "error";
@@ -54,7 +66,7 @@ if (isset($_POST['guardar_config'])) {
 }
 
 // ============================================
-// 3. OBTENER CONFIGURACIÓN ACTUAL DE PRESTAMISTAS
+// 4. OBTENER CONFIGURACIÓN ACTUAL DE PRESTAMISTAS
 // ============================================
 $config_prestamistas = [];
 $sql_config = "SELECT * FROM config_prestamistas ORDER BY prestamista";
@@ -69,7 +81,7 @@ if ($result_config) {
 }
 
 // ============================================
-// 4. FUNCIÓN PARA CALCULAR MESES (SIN CAMBIOS)
+// 5. FUNCIÓN PARA CALCULAR MESES (SIN CAMBIOS)
 // ============================================
 function calcularMesesAutomaticos($fecha_prestamo) {
     $hoy = new DateTime();
@@ -110,9 +122,6 @@ $otros_total_capital_general = 0;
 $otros_total_general = 0;
 $otros_total_interes_prestamista_general = 0;
 $otros_total_comision_personal_general = 0;
-
-// Fecha de corte para 10% / 13% (solo para préstamos sin configuración)
-$FECHA_CORTE = new DateTime('2025-10-29');
 
 // Obtener empresas desde VIAJES
 $sql_empresas = "SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa != '' ORDER BY empresa";
@@ -196,22 +205,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         $stmt->execute();
         $result_detalle = $stmt->get_result();
 
-        // Obtener configuración para este prestamista
+        // Obtener configuración para este prestamista (SOLO PARA PRÉSTAMOS NUEVOS)
         $config_actual = isset($config_prestamistas[$prestamista_seleccionado]) 
             ? $config_prestamistas[$prestamista_seleccionado] 
-            : ['interes' => 10.00, 'comision' => 5.00]; // Valores por defecto
+            : ['interes' => 10.00, 'comision' => 0.00];
 
         while ($fila = $result_detalle->fetch_assoc()) {
             $deudor = $fila['deudor'];
             $meses = calcularMesesAutomaticos($fila['fecha']);
-
-            // USAR CONFIGURACIÓN DEL PRESTAMISTA
-            $interes_prestamista_monto = $fila['monto'] * ($config_actual['interes'] / 100) * $meses;
-            $comision_personal_monto = $fila['monto'] * ($config_actual['comision'] / 100) * $meses;
-            $total_prestamo = $fila['monto'] + $interes_prestamista_monto;
+            $fecha_prestamo_dt = new DateTime($fila['fecha']);
             
-            // Para mostrar en la tabla (solo referencia)
-            $tasa_interes = $config_actual['interes'];
+            // DETERMINAR SI ES PRÉSTAMO VIEJO O NUEVO
+            $es_prestamo_viejo = ($fecha_prestamo_dt < $FECHA_CORTE);
+            
+            if ($es_prestamo_viejo) {
+                // PRÉSTAMOS ANTES DEL 29-10-2025: 10% todo para prestamista, 0% para ti
+                $interes_prestamista_monto = $fila['monto'] * (10 / 100) * $meses;
+                $comision_personal_monto = 0;
+                $tasa_interes = 10;
+                $total_prestamo = $fila['monto'] + $interes_prestamista_monto;
+            } else {
+                // PRÉSTAMOS DESPUÉS DEL 29-10-2025: Usar configuración personalizada
+                $interes_prestamista_monto = $fila['monto'] * ($config_actual['interes'] / 100) * $meses;
+                $comision_personal_monto = $fila['monto'] * ($config_actual['comision'] / 100) * $meses;
+                $tasa_interes = $config_actual['interes'];
+                $total_prestamo = $fila['monto'] + $interes_prestamista_monto;
+            }
 
             if (!isset($prestamos_por_deudor[$deudor])) {
                 $prestamos_por_deudor[$deudor] = [
@@ -220,6 +239,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     'total_interes_prestamista' => 0,
                     'total_comision_personal' => 0,
                     'cantidad_prestamos' => 0,
+                    'cantidad_viejos' => 0,
+                    'cantidad_nuevos' => 0,
                     'prestamos_detalle' => []
                 ];
             }
@@ -229,12 +250,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             $prestamos_por_deudor[$deudor]['total_interes_prestamista'] += $interes_prestamista_monto;
             $prestamos_por_deudor[$deudor]['total_comision_personal'] += $comision_personal_monto;
             $prestamos_por_deudor[$deudor]['cantidad_prestamos']++;
+            
+            if ($es_prestamo_viejo) {
+                $prestamos_por_deudor[$deudor]['cantidad_viejos']++;
+            } else {
+                $prestamos_por_deudor[$deudor]['cantidad_nuevos']++;
+            }
 
             $prestamos_por_deudor[$deudor]['prestamos_detalle'][] = [
                 'id' => $fila['id'],
                 'monto' => $fila['monto'],
                 'fecha' => $fila['fecha'],
                 'meses' => $meses,
+                'tipo' => $es_prestamo_viejo ? 'viejo' : 'nuevo',
                 'tasa_interes' => $tasa_interes,
                 'interes_prestamista' => $interes_prestamista_monto,
                 'comision_personal' => $comision_personal_monto,
@@ -268,7 +296,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         // Obtener configuración para este prestamista
         $config_actual = isset($config_prestamistas[$prestamista_seleccionado]) 
             ? $config_prestamistas[$prestamista_seleccionado] 
-            : ['interes' => 10.00, 'comision' => 5.00];
+            : ['interes' => 10.00, 'comision' => 0.00];
 
         while ($fila = $result_otros->fetch_assoc()) {
             $deudor = $fila['deudor'];
@@ -278,11 +306,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             }
 
             $meses = calcularMesesAutomaticos($fila['fecha']);
+            $fecha_prestamo_dt = new DateTime($fila['fecha']);
+            $es_prestamo_viejo = ($fecha_prestamo_dt < $FECHA_CORTE);
 
-            // USAR CONFIGURACIÓN DEL PRESTAMISTA
-            $interes_prestamista_monto = $fila['monto'] * ($config_actual['interes'] / 100) * $meses;
-            $comision_personal_monto = $fila['monto'] * ($config_actual['comision'] / 100) * $meses;
-            $total_prestamo = $fila['monto'] + $interes_prestamista_monto;
+            if ($es_prestamo_viejo) {
+                // PRÉSTAMOS VIEJOS: 10% todo para prestamista
+                $interes_prestamista_monto = $fila['monto'] * (10 / 100) * $meses;
+                $comision_personal_monto = 0;
+                $total_prestamo = $fila['monto'] + $interes_prestamista_monto;
+            } else {
+                // PRÉSTAMOS NUEVOS: Usar configuración
+                $interes_prestamista_monto = $fila['monto'] * ($config_actual['interes'] / 100) * $meses;
+                $comision_personal_monto = $fila['monto'] * ($config_actual['comision'] / 100) * $meses;
+                $total_prestamo = $fila['monto'] + $interes_prestamista_monto;
+            }
 
             if (!isset($otros_prestamos_por_deudor[$deudor])) {
                 $otros_prestamos_por_deudor[$deudor] = [
@@ -290,7 +327,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     'total_general' => 0,
                     'total_interes_prestamista' => 0,
                     'total_comision_personal' => 0,
-                    'cantidad_prestamos' => 0
+                    'cantidad_prestamos' => 0,
+                    'cantidad_viejos' => 0,
+                    'cantidad_nuevos' => 0
                 ];
             }
 
@@ -299,6 +338,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             $otros_prestamos_por_deudor[$deudor]['total_interes_prestamista'] += $interes_prestamista_monto;
             $otros_prestamos_por_deudor[$deudor]['total_comision_personal'] += $comision_personal_monto;
             $otros_prestamos_por_deudor[$deudor]['cantidad_prestamos']++;
+            
+            if ($es_prestamo_viejo) {
+                $otros_prestamos_por_deudor[$deudor]['cantidad_viejos']++;
+            } else {
+                $otros_prestamos_por_deudor[$deudor]['cantidad_nuevos']++;
+            }
         }
     }
 
@@ -507,6 +552,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             color: #ef4444;
         }
 
+        /* Estilos para mostrar tipo de préstamo */
+        .badge-tipo {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            margin-left: 5px;
+        }
+
+        .badge-viejo {
+            background: rgba(245, 158, 11, 0.2);
+            color: #f59e0b;
+            border: 1px solid rgba(245, 158, 11, 0.4);
+        }
+
+        .badge-nuevo {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+            border: 1px solid rgba(34, 197, 94, 0.4);
+        }
+
         /* Resto de estilos (igual que antes) */
         .nota-pagados{
             background:rgba(34,197,94,0.11);
@@ -552,9 +619,295 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             transition:all .18s ease;
         }
 
-        /* ... resto de estilos igual que antes ... */
+        select:focus,input:focus{
+            border-color:var(--accent);
+            box-shadow:0 0 0 1px rgba(56,189,248,0.4);
+        }
 
-        /* Añadir al final del CSS existente */
+        button{
+            border-radius:999px;
+            background:linear-gradient(135deg,var(--accent),var(--accent-strong));
+            border:none;
+            font-weight:600;
+            text-transform:uppercase;
+            letter-spacing:0.08em;
+            font-size:0.8rem;
+            cursor:pointer;
+            padding:10px 16px;
+            box-shadow:0 10px 18px rgba(56,189,248,0.35);
+        }
+        button:hover{
+            transform:translateY(-1px);
+            box-shadow:0 14px 26px rgba(56,189,248,0.5);
+            filter:brightness(1.05);
+        }
+        button:active{
+            transform:translateY(0);
+            box-shadow:0 8px 14px rgba(56,189,248,0.35);
+        }
+
+        select[multiple]{height:200px;}
+
+        .resultados{margin-top:26px;}
+
+        table{
+            width:100%;
+            border-collapse:collapse;
+            margin-top:12px;
+            font-size:0.85rem;
+            background:var(--bg-card-soft);
+            border-radius:16px;
+            overflow:hidden;
+            border:1px solid var(--border-subtle);
+        }
+
+        th,td{
+            border-bottom:1px solid rgba(31,41,55,0.9);
+            padding:8px 9px;
+            text-align:left;
+        }
+
+        thead th{
+            background:linear-gradient(180deg,var(--table-header),#020617);
+            position:sticky;
+            top:0;
+            z-index:1;
+            font-size:0.78rem;
+            text-transform:uppercase;
+            letter-spacing:0.08em;
+            color:var(--text-soft);
+        }
+
+        tbody tr:nth-child(even){
+            background:#020617;
+        }
+        tbody tr:nth-child(odd){
+            background:#020617;
+        }
+
+        tbody tr:hover{
+            background:rgba(15,23,42,0.9);
+        }
+
+        .totales{
+            background:rgba(15,23,42,0.96);
+            font-weight:600;
+        }
+
+        .moneda{text-align:right;font-variant-numeric:tabular-nums;}
+
+        .form-row{
+            display:flex;
+            flex-wrap:wrap;
+            gap:18px;
+        }
+        .form-col{flex:1 1 280px;}
+
+        .detalle-toggle{
+            cursor:pointer;
+            color:var(--accent);
+            font-weight:500;
+        }
+        .detalle-toggle::before{
+            content:"▸ ";
+            font-size:0.8rem;
+            opacity:0.85;
+        }
+
+        .detalle-prestamo{
+            background:#020617;
+        }
+
+        .header-deudor{
+            background:#020617;
+        }
+
+        .excluido{
+            background:rgba(127,29,29,0.45) !important;
+            text-decoration:line-through;
+            color:#9ca3af;
+        }
+
+        .interes-input,.meses-input,.comision-input{
+            width:72px;
+            padding:4px;
+            font-size:0.78rem;
+            text-align:center;
+            border-radius:8px;
+            background:#020617;
+        }
+
+        .checkbox-excluir{
+            transform:scale(1.2);
+            cursor:pointer;
+        }
+
+        .acciones{text-align:center;}
+
+        .info-meses{
+            background:rgba(251,191,36,0.08);
+            border-radius:14px;
+            padding:10px 12px;
+            margin:10px 0 16px;
+            border:1px solid rgba(245,158,11,0.4);
+            font-size:0.82rem;
+            color:#facc15;
+        }
+
+        .config-celene{
+            background:rgba(56,189,248,0.06);
+            padding:12px 14px;
+            border-radius:14px;
+            margin:10px 0;
+            border:1px solid rgba(56,189,248,0.5);
+        }
+
+        .buscador-container{
+            position:relative;
+            margin-bottom:10px;
+        }
+        .buscador-input{
+            width:100%;
+            padding:8px 30px 8px 10px;
+            border-radius:999px;
+            border:1px solid rgba(148,163,184,0.4);
+            background:#020617;
+            font-size:0.85rem;
+        }
+        .buscador-icon{
+            position:absolute;
+            right:10px;
+            top:50%;
+            transform:translateY(-50%);
+            color:#6b7280;
+            font-size:0.9rem;
+        }
+
+        .contador-deudores{
+            font-size:0.78rem;
+            color:var(--text-soft);
+            margin-top:5px;
+        }
+
+        .deudor-item{
+            padding:7px 9px;
+            cursor:pointer;
+            border-bottom:1px solid rgba(31,41,55,0.9);
+            font-size:0.85rem;
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+        }
+
+        .deudor-item:hover{
+            background:rgba(30,64,175,0.5);
+        }
+
+        .deudor-item.selected{
+            background:linear-gradient(90deg,#1d4ed8,#22c55e);
+            color:white;
+            border-bottom-color:transparent;
+        }
+
+        .deudores-container{
+            border:1px solid var(--border-subtle);
+            border-radius:14px;
+            max-height:220px;
+            overflow-y:auto;
+            background:#020617;
+        }
+
+        .deudor-pill{
+            font-size:0.7rem;
+            padding:2px 7px;
+            border-radius:999px;
+            background:rgba(15,23,42,0.9);
+            border:1px solid rgba(148,163,184,0.4);
+        }
+
+        .botones-seleccion{
+            margin:6px 0 10px;
+            display:flex;
+            flex-wrap:wrap;
+            gap:8px;
+        }
+        .botones-seleccion button{
+            width:auto;
+            padding:6px 10px;
+            font-size:0.75rem;
+            box-shadow:none;
+            background:rgba(15,23,42,0.9);
+            border:1px solid rgba(148,163,184,0.7);
+            text-transform:none;
+            letter-spacing:0.03em;
+        }
+        .botones-seleccion button:hover{
+            box-shadow:0 0 0 1px rgba(148,163,184,0.9);
+            transform:none;
+        }
+
+        .filtro-fechas{
+            background:var(--bg-card);
+            padding:14px 16px;
+            border-radius:16px;
+            margin:12px 0 18px;
+            border:1px solid var(--border-subtle);
+        }
+
+        .filtro-fechas small{
+            font-size:0.78rem;
+            color:var(--text-soft);
+        }
+
+        .fecha-row{
+            display:flex;
+            flex-wrap:wrap;
+            gap:12px;
+        }
+        .fecha-col{
+            flex:1 1 180px;
+        }
+
+        .subtitulo-cuadro{
+            margin-top:20px;
+            font-size:1rem;
+            font-weight:600;
+            display:flex;
+            align-items:center;
+            gap:8px;
+        }
+        .subtitulo-cuadro::before{
+            content:"◆";
+            font-size:0.75rem;
+            color:var(--accent);
+        }
+
+        .cuadro-otros{
+            background:linear-gradient(145deg,#020617,#020617);
+            padding:10px 12px 14px;
+            border-radius:16px;
+            border:1px solid var(--border-subtle);
+            margin-top:8px;
+        }
+
+        .checkbox-otro-deudor{
+            transform:scale(1.2);
+            cursor:pointer;
+        }
+
+        @media (max-width: 900px){
+            .container{padding:16px;}
+            .page-header{
+                flex-direction:column;
+                align-items:flex-start;
+            }
+        }
+
+        small{
+            font-size:0.77rem;
+            color:var(--text-soft);
+        }
+        
         .info-porcentajes {
             background: rgba(56, 189, 248, 0.08);
             border-radius: 14px;
@@ -567,7 +920,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         .info-porcentajes strong {
             color: var(--accent);
         }
-
     </style>
 </head>
 <body>
@@ -592,6 +944,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 </div>
             <?php endif; ?>
             
+            <div class="info-porcentajes">
+                <strong>📅 REGLA DE FECHA DE CORTE:</strong><br>
+                • <span class="badge-tipo badge-viejo">Préstamos VIEJOS</span> (antes del 29-10-2025): <strong>10% todo para el prestamista, 0% comisión para ti</strong><br>
+                • <span class="badge-tipo badge-nuevo">Préstamos NUEVOS</span> (después del 29-10-2025): <strong>Total 13% (configurado abajo)</strong>
+            </div>
+            
             <table class="config-table">
                 <thead>
                     <tr>
@@ -610,7 +968,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                             $prestamista_nombre = $prest['prestamista'];
                             $config = isset($config_prestamistas[$prestamista_nombre]) 
                                 ? $config_prestamistas[$prestamista_nombre] 
-                                : ['interes' => 10.00, 'comision' => 5.00];
+                                : ['interes' => 10.00, 'comision' => 0.00];
                             $total_porcentaje = $config['interes'] + $config['comision'];
                             ?>
                             <tr>
@@ -631,6 +989,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                 </td>
                                 <td style="text-align: center; font-weight: 600; color: var(--accent);">
                                     <?php echo number_format($total_porcentaje, 2); ?>%
+                                    <?php if ($total_porcentaje != 13.00): ?>
+                                        <br><small style="color: #f59e0b;">(debería ser 13%)</small>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                         <button type="submit" name="guardar_config" class="btn-guardar">
@@ -654,8 +1015,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 <strong>💡 ¿Cómo funciona?</strong><br>
                 1. <strong>Interés del Prestamista</strong>: Lo que recibe quien te presta el dinero.<br>
                 2. <strong>Tu Comisión</strong>: Lo que ganas tú por intermediar.<br>
-                3. <strong>Total para Deudor</strong>: Suma de ambos (lo que paga el deudor).<br>
-                Ejemplo: Si pones 8% y 5%, el deudor pagará 13% de interés mensual.
+                3. Para préstamos NUEVOS (después del 29-10-2025): La suma de ambos <strong>debe ser 13%</strong>.<br>
+                Ejemplo: Para Celene, pon 8% interés para ella y 5% comisión para ti.
             </div>
         </div>
         
@@ -784,7 +1145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                     while ($prestamista = $result_prestamistas->fetch_assoc()): 
                                         $config_p = isset($config_prestamistas[$prestamista['prestamista']]) 
                                             ? $config_prestamistas[$prestamista['prestamista']] 
-                                            : ['interes' => 10.00, 'comision' => 5.00];
+                                            : ['interes' => 10.00, 'comision' => 0.00];
                                         $total_p = $config_p['interes'] + $config_p['comision'];
                                 ?>
                                         <option value="<?php echo htmlspecialchars($prestamista['prestamista']); ?>" 
@@ -799,7 +1160,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                 }
                                 ?>
                             </select>
-                            <small>Los porcentajes entre paréntesis son los configurados arriba.</small>
+                            <small>Los porcentajes entre paréntesis son los configurados arriba (para préstamos nuevos).</small>
                         </div>
                         
                         <button type="submit">Generar reporte</button>
@@ -815,10 +1176,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 <?php 
                 $config_actual = isset($config_prestamistas[$prestamista_seleccionado]) 
                     ? $config_prestamistas[$prestamista_seleccionado] 
-                    : ['interes' => 10.00, 'comision' => 5.00];
+                    : ['interes' => 10.00, 'comision' => 0.00];
                 ?>
                 <span style="font-size:0.9rem; color:var(--text-soft); margin-left:10px;">
-                    (Configuración: <?php echo number_format($config_actual['interes'], 1); ?>% interés + <?php echo number_format($config_actual['comision'], 1); ?>% comisión)
+                    (Configuración para préstamos nuevos: <?php echo number_format($config_actual['interes'], 1); ?>% interés + <?php echo number_format($config_actual['comision'], 1); ?>% comisión)
                 </span>
             </h2>
             
@@ -833,17 +1194,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             <?php endif; ?>
             
             <div class="info-meses">
-                <strong>Cálculo de interés y meses:</strong><br>
-                • Los meses se calculan automáticamente según la fecha del préstamo y la fecha actual.<br>
-                • <strong>Interés del prestamista</strong>: <?php echo number_format($config_actual['interes'], 1); ?>% mensual (lo que recibe <?php echo htmlspecialchars($prestamista_seleccionado); ?>).<br>
-                • <strong>Tu comisión</strong>: <?php echo number_format($config_actual['comision'], 1); ?>% mensual (lo que ganas tú).<br>
-                • <strong>Total interés para el deudor</strong>: <?php echo number_format($config_actual['interes'] + $config_actual['comision'], 1); ?>% mensual.
+                <strong>📅 REGLA DE FECHA DE CORTE APLICADA:</strong><br>
+                • <span class="badge-tipo badge-viejo">Préstamos VIEJOS</span> (antes del 29-10-2025): <strong>10% interés todo para <?php echo htmlspecialchars($prestamista_seleccionado); ?>, 0% comisión para ti</strong><br>
+                • <span class="badge-tipo badge-nuevo">Préstamos NUEVOS</span> (después del 29-10-2025): <strong><?php echo number_format($config_actual['interes'], 1); ?>% para <?php echo htmlspecialchars($prestamista_seleccionado); ?> + <?php echo number_format($config_actual['comision'], 1); ?>% comisión para ti</strong>
+                = Total <?php echo number_format($config_actual['interes'] + $config_actual['comision'], 1); ?>% para el deudor
             </div>
 
             <!-- ===================== -->
             <!-- CUADRO 1 -->
             <!-- ===================== -->
-            <div class="subtitulo-cuadro">Cuadro 1: Préstamos de conductores y otros deudores seleccionados</div>
+            <div class="subtitulo-cuadro">
+                Cuadro 1: Préstamos de conductores y otros deudores seleccionados
+                <?php if (!empty($prestamos_por_deudor)): 
+                    $total_viejos = array_sum(array_column($prestamos_por_deudor, 'cantidad_viejos'));
+                    $total_nuevos = array_sum(array_column($prestamos_por_deudor, 'cantidad_nuevos'));
+                ?>
+                    <span style="font-size:0.85rem; color:var(--text-soft); margin-left:15px;">
+                        (<span class="badge-tipo badge-viejo"><?php echo $total_viejos; ?> viejos</span> | 
+                        <span class="badge-tipo badge-nuevo"><?php echo $total_nuevos; ?> nuevos</span>)
+                    </span>
+                <?php endif; ?>
+            </div>
 
             <?php if (empty($prestamos_por_deudor)): ?>
                 <div style="background-color: rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.4); padding: 12px; border-radius: 10px; margin: 15px 0; font-size:0.85rem;">
@@ -856,8 +1227,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         <th>Deudor</th>
                         <th>Préstamos</th>
                         <th>Capital</th>
-                        <th>Interés Prestamista (<?php echo number_format($config_actual['interes'], 1); ?>%)</th>
-                        <th>Tu Comisión (<?php echo number_format($config_actual['comision'], 1); ?>%)</th>
+                        <th>Interés Prestamista</th>
+                        <th>Tu Comisión</th>
                         <th>Total a pagar</th>
                     </tr>
                 </thead>
@@ -867,6 +1238,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     $total_general = 0;
                     $total_interes_prestamista_general = 0;
                     $total_comision_personal_general = 0;
+                    $total_viejos_general = 0;
+                    $total_nuevos_general = 0;
                     ?>
                     <?php foreach ($prestamos_por_deudor as $deudor => $datos): ?>
                     <?php 
@@ -874,12 +1247,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         $total_general += $datos['total_general'];
                         $total_interes_prestamista_general += $datos['total_interes_prestamista'];
                         $total_comision_personal_general += $datos['total_comision_personal'];
+                        $total_viejos_general += $datos['cantidad_viejos'];
+                        $total_nuevos_general += $datos['cantidad_nuevos'];
                     ?>
                     <tr class="header-deudor" id="fila-<?php echo md5($deudor); ?>">
                         <td>
                             <span class="detalle-toggle" onclick="toggleDetalle('<?php echo md5($deudor); ?>')">
                                 <?php echo htmlspecialchars($deudor); ?>
                             </span>
+                            <?php if ($datos['cantidad_viejos'] > 0 || $datos['cantidad_nuevos'] > 0): ?>
+                                <br>
+                                <small style="font-size:0.75rem;">
+                                    <?php if ($datos['cantidad_viejos'] > 0): ?>
+                                        <span class="badge-tipo badge-viejo"><?php echo $datos['cantidad_viejos']; ?> viejos</span>
+                                    <?php endif; ?>
+                                    <?php if ($datos['cantidad_nuevos'] > 0): ?>
+                                        <span class="badge-tipo badge-nuevo"><?php echo $datos['cantidad_nuevos']; ?> nuevos</span>
+                                    <?php endif; ?>
+                                </small>
+                            <?php endif; ?>
                         </td>
                         <td><?php echo $datos['cantidad_prestamos']; ?></td>
                         <td class="moneda capital-deudor">$ <?php echo number_format($datos['total_capital'], 0, ',', '.'); ?></td>
@@ -896,6 +1282,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                     <tr>
                                         <th>Incluir</th>
                                         <th>Fecha</th>
+                                        <th>Tipo</th>
                                         <th>Monto</th>
                                         <th>Meses</th>
                                         <th>Int. Prestamista $</th>
@@ -905,17 +1292,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                 </thead>
                                 <tbody>
                                     <?php foreach ($datos['prestamos_detalle'] as $index => $detalle): ?>
-                                    <tr class="fila-prestamo" data-deudor="<?php echo md5($deudor); ?>" data-id="<?php echo $detalle['id']; ?>">
+                                    <tr class="fila-prestamo <?php echo $detalle['tipo'] == 'viejo' ? 'prestamo-viejo' : 'prestamo-nuevo'; ?>" 
+                                        data-deudor="<?php echo md5($deudor); ?>" data-id="<?php echo $detalle['id']; ?>">
                                         <td class="acciones">
                                             <input type="checkbox" class="checkbox-excluir" checked 
                                                    onchange="togglePrestamo(this)">
                                         </td>
                                         <td><?php echo $detalle['fecha']; ?></td>
+                                        <td>
+                                            <span class="badge-tipo <?php echo $detalle['tipo'] == 'viejo' ? 'badge-viejo' : 'badge-nuevo'; ?>">
+                                                <?php echo $detalle['tipo'] == 'viejo' ? 'Viejo' : 'Nuevo'; ?>
+                                            </span>
+                                        </td>
                                         <td class="moneda monto-prestamo">$ <?php echo number_format($detalle['monto'], 0, ',', '.'); ?></td>
                                         <td class="acciones">
                                             <input type="number" class="meses-input" value="<?php echo $detalle['meses']; ?>" 
                                                    min="1" max="36" onchange="recalcularPrestamo(this)"
-                                                   data-monto="<?php echo $detalle['monto']; ?>">
+                                                   data-monto="<?php echo $detalle['monto']; ?>"
+                                                   data-tipo="<?php echo $detalle['tipo']; ?>">
                                         </td>
                                         <td class="moneda interes-prestamista-prestamo">$ <?php echo number_format($detalle['interes_prestamista'], 0, ',', '.'); ?></td>
                                         <td class="moneda comision-prestamo">$ <?php echo number_format($detalle['comision_personal'], 0, ',', '.'); ?></td>
@@ -930,7 +1324,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     
                     <!-- Totales generales CUADRO 1 -->
                     <tr class="totales">
-                        <td colspan="2"><strong>TOTAL GENERAL CONDUCTORES / DEUDORES SELECCIONADOS</strong></td>
+                        <td colspan="2">
+                            <strong>TOTAL GENERAL</strong>
+                            <br>
+                            <small>
+                                <span class="badge-tipo badge-viejo"><?php echo $total_viejos_general; ?> viejos</span> | 
+                                <span class="badge-tipo badge-nuevo"><?php echo $total_nuevos_general; ?> nuevos</span>
+                            </small>
+                        </td>
                         <td class="moneda" id="total-capital-general">$ <?php echo number_format($total_capital_general, 0, ',', '.'); ?></td>
                         <td class="moneda" id="total-interes-prestamista-general">$ <?php echo number_format($total_interes_prestamista_general, 0, ',', '.'); ?></td>
                         <td class="moneda" id="total-comision-general">$ <?php echo number_format($total_comision_personal_general, 0, ',', '.'); ?></td>
@@ -943,7 +1344,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             <!-- =========================== -->
             <!-- CUADRO 2: OTROS DEUDORES    -->
             <!-- =========================== -->
-            <div class="subtitulo-cuadro">Cuadro 2: Otros deudores (nómina, facturas, etc.)</div>
+            <div class="subtitulo-cuadro">
+                Cuadro 2: Otros deudores (nómina, facturas, etc.)
+                <?php if (!empty($otros_prestamos_por_deudor)): 
+                    $otros_total_viejos = array_sum(array_column($otros_prestamos_por_deudor, 'cantidad_viejos'));
+                    $otros_total_nuevos = array_sum(array_column($otros_prestamos_por_deudor, 'cantidad_nuevos'));
+                ?>
+                    <span style="font-size:0.85rem; color:var(--text-soft); margin-left:15px;">
+                        (<span class="badge-tipo badge-viejo"><?php echo $otros_total_viejos; ?> viejos</span> | 
+                        <span class="badge-tipo badge-nuevo"><?php echo $otros_total_nuevos; ?> nuevos</span>)
+                    </span>
+                <?php endif; ?>
+            </div>
             <div class="cuadro-otros">
             <?php if (empty($otros_prestamos_por_deudor)): ?>
                 <div style="background-color: rgba(148,163,184,0.06); border:1px solid rgba(148,163,184,0.3); padding: 10px; border-radius: 10px; margin: 10px 0; font-size:0.85rem;">
@@ -968,6 +1380,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         $otros_total_general = 0;
                         $otros_total_interes_prestamista_general = 0;
                         $otros_total_comision_personal_general = 0;
+                        $otros_total_viejos_general = 0;
+                        $otros_total_nuevos_general = 0;
                         ?>
                         <?php foreach ($otros_prestamos_por_deudor as $deudor => $datos): ?>
                         <?php
@@ -975,6 +1389,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                             $otros_total_general += $datos['total_general'];
                             $otros_total_interes_prestamista_general += $datos['total_interes_prestamista'];
                             $otros_total_comision_personal_general += $datos['total_comision_personal'];
+                            $otros_total_viejos_general += $datos['cantidad_viejos'];
+                            $otros_total_nuevos_general += $datos['cantidad_nuevos'];
                         ?>
                         <tr>
                             <td class="acciones">
@@ -983,7 +1399,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                        data-deudor="<?php echo htmlspecialchars($deudor); ?>"
                                        onchange="toggleOtroDeudor(this)">
                             </td>
-                            <td><?php echo htmlspecialchars($deudor); ?></td>
+                            <td>
+                                <?php echo htmlspecialchars($deudor); ?>
+                                <?php if ($datos['cantidad_viejos'] > 0 || $datos['cantidad_nuevos'] > 0): ?>
+                                    <br>
+                                    <small style="font-size:0.75rem;">
+                                        <?php if ($datos['cantidad_viejos'] > 0): ?>
+                                            <span class="badge-tipo badge-viejo"><?php echo $datos['cantidad_viejos']; ?> v</span>
+                                        <?php endif; ?>
+                                        <?php if ($datos['cantidad_nuevos'] > 0): ?>
+                                            <span class="badge-tipo badge-nuevo"><?php echo $datos['cantidad_nuevos']; ?> n</span>
+                                        <?php endif; ?>
+                                    </small>
+                                <?php endif; ?>
+                            </td>
                             <td><?php echo $datos['cantidad_prestamos']; ?></td>
                             <td class="moneda">$ <?php echo number_format($datos['total_capital'], 0, ',', '.'); ?></td>
                             <td class="moneda">$ <?php echo number_format($datos['total_interes_prestamista'], 0, ',', '.'); ?></td>
@@ -994,7 +1423,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
 
                         <!-- Totales OTROS DEUDORES -->
                         <tr class="totales">
-                            <td colspan="3"><strong>TOTAL GENERAL OTROS DEUDORES</strong></td>
+                            <td colspan="3">
+                                <strong>TOTAL GENERAL OTROS DEUDORES</strong>
+                                <br>
+                                <small>
+                                    <span class="badge-tipo badge-viejo"><?php echo $otros_total_viejos_general; ?> viejos</span> | 
+                                    <span class="badge-tipo badge-nuevo"><?php echo $otros_total_nuevos_general; ?> nuevos</span>
+                                </small>
+                            </td>
                             <td class="moneda">$ <?php echo number_format($otros_total_capital_general, 0, ',', '.'); ?></td>
                             <td class="moneda">$ <?php echo number_format($otros_total_interes_prestamista_general, 0, ',', '.'); ?></td>
                             <td class="moneda">$ <?php echo number_format($otros_total_comision_personal_general, 0, ',', '.'); ?></td>
@@ -1024,7 +1460,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     const interes = option.getAttribute('data-interes');
                     const comision = option.getAttribute('data-comision');
                     const total = option.getAttribute('data-total');
-                    console.log(`Prestamista seleccionado: Interés ${interes}%, Comisión ${comision}%, Total ${total}%`);
                 }
             });
         });
@@ -1145,24 +1580,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             const monto = parseFloat(fila.querySelector('.monto-prestamo').textContent.replace(/[^\d]/g, ''));
             const inputMeses = fila.querySelector('.meses-input');
             const meses = parseInt(inputMeses.value);
+            const tipo = inputMeses.getAttribute('data-tipo');
             
-            // Obtener configuración del prestamista seleccionado
-            const prestamistaSelect = document.getElementById('prestamista');
-            const selectedOption = prestamistaSelect.options[prestamistaSelect.selectedIndex];
-            const interesPrestamista = parseFloat(selectedOption.getAttribute('data-interes') || 0);
-            const comisionPersonal = parseFloat(selectedOption.getAttribute('data-comision') || 0);
-            
-            const interesPrestamistaMonto = monto * (interesPrestamista / 100) * meses;
-            const comisionPersonalMonto = monto * (comisionPersonal / 100) * meses;
-            const total = monto + interesPrestamistaMonto;
-            
-            const celdaInteresPrestamista = fila.querySelector('.interes-prestamista-prestamo');
-            const celdaComision = fila.querySelector('.comision-prestamo');
-            const celdaTotal = fila.querySelector('.total-prestamo');
-            
-            celdaInteresPrestamista.textContent = '$ ' + formatNumber(interesPrestamistaMonto);
-            celdaComision.textContent = '$ ' + formatNumber(comisionPersonalMonto);
-            celdaTotal.textContent = '$ ' + formatNumber(total);
+            if (tipo === 'viejo') {
+                // PRÉSTAMOS VIEJOS: Siempre 10% para prestamista, 0% para ti
+                const interesPrestamistaMonto = monto * (10 / 100) * meses;
+                const comisionPersonalMonto = 0;
+                const total = monto + interesPrestamistaMonto;
+                
+                const celdaInteresPrestamista = fila.querySelector('.interes-prestamista-prestamo');
+                const celdaComision = fila.querySelector('.comision-prestamo');
+                const celdaTotal = fila.querySelector('.total-prestamo');
+                
+                celdaInteresPrestamista.textContent = '$ ' + formatNumber(interesPrestamistaMonto);
+                celdaComision.textContent = '$ ' + formatNumber(comisionPersonalMonto);
+                celdaTotal.textContent = '$ ' + formatNumber(total);
+            } else {
+                // PRÉSTAMOS NUEVOS: Usar configuración del prestamista
+                const prestamistaSelect = document.getElementById('prestamista');
+                const selectedOption = prestamistaSelect.options[prestamistaSelect.selectedIndex];
+                const interesPrestamista = parseFloat(selectedOption.getAttribute('data-interes') || 0);
+                const comisionPersonal = parseFloat(selectedOption.getAttribute('data-comision') || 0);
+                
+                const interesPrestamistaMonto = monto * (interesPrestamista / 100) * meses;
+                const comisionPersonalMonto = monto * (comisionPersonal / 100) * meses;
+                const total = monto + interesPrestamistaMonto;
+                
+                const celdaInteresPrestamista = fila.querySelector('.interes-prestamista-prestamo');
+                const celdaComision = fila.querySelector('.comision-prestamo');
+                const celdaTotal = fila.querySelector('.total-prestamo');
+                
+                celdaInteresPrestamista.textContent = '$ ' + formatNumber(interesPrestamistaMonto);
+                celdaComision.textContent = '$ ' + formatNumber(comisionPersonalMonto);
+                celdaTotal.textContent = '$ ' + formatNumber(total);
+            }
             
             const checkbox = fila.querySelector('.checkbox-excluir');
             if (checkbox && checkbox.checked) {
