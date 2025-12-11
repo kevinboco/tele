@@ -1176,7 +1176,7 @@ if ($empresaFiltro !== "") {
         });
       });
 
-      // Cambios en selects de clasificación de rutas
+      // Cambio
       document.querySelectorAll('.select-clasif-ruta').forEach(sel=>{
         sel.addEventListener('change', ()=>{
           const ruta = sel.dataset.ruta;
