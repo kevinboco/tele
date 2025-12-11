@@ -330,6 +330,11 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         /* Fila manual */
         .fila-manual { background-color: #f0f9ff !important; border-left: 4px solid #0ea5e9; }
         .fila-manual td { background-color: #f0f9ff !important; }
+        
+        /* Buscador */
+        .buscar-container { position: relative; }
+        .buscar-clear { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #64748b; cursor: pointer; display: none; }
+        .buscar-clear:hover { color: #475569; }
     </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
@@ -403,11 +408,25 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     <!-- Tabla principal -->
     <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-        <div class="flex justify-between items-center mb-4">
-            <h3 class="text-lg font-semibold">Conductores</h3>
-            <button id="btnAddManual" type="button" class="rounded-lg bg-green-600 text-white px-4 py-2 text-sm hover:bg-green-700">
-                ➕ Agregar conductor manual
-            </button>
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+            <div>
+                <h3 class="text-lg font-semibold">Conductores</h3>
+                <div id="contador-conductores" class="text-xs text-slate-500 mt-1">
+                    Mostrando <?= count($filas) ?> de <?= count($filas) ?> conductores
+                </div>
+            </div>
+            <div class="flex flex-col md:flex-row gap-3 w-full md:w-auto">
+                <!-- BUSCADOR DE CONDUCTORES -->
+                <div class="buscar-container w-full md:w-64">
+                    <input id="buscadorConductores" type="text" 
+                           placeholder="Buscar conductor..." 
+                           class="w-full rounded-lg border border-slate-300 px-3 py-2 pl-3 pr-10">
+                    <button id="clearBuscar" class="buscar-clear">✕</button>
+                </div>
+                <button id="btnAddManual" type="button" class="rounded-lg bg-green-600 text-white px-4 py-2 text-sm hover:bg-green-700 whitespace-nowrap">
+                    ➕ Agregar conductor manual
+                </button>
+            </div>
         </div>
 
         <div class="overflow-auto max-h-[70vh] rounded-xl border border-slate-200 table-sticky">
@@ -431,7 +450,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 </thead>
                 <tbody id="tbody" class="divide-y divide-slate-100 bg-white">
                 <?php foreach ($filas as $f): ?>
-                    <tr>
+                    <tr data-conductor="<?= htmlspecialchars(mb_strtolower($f['nombre'])) ?>">
                         <td class="px-3 py-2">
                             <button type="button" class="conductor-link" title="Ver viajes"><?= htmlspecialchars($f['nombre']) ?></button>
                         </td>
@@ -637,6 +656,97 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 </div>
 
 <script>
+    // ===== BUSCADOR DE CONDUCTORES =====
+    const buscadorConductores = document.getElementById('buscadorConductores');
+    const clearBuscar = document.getElementById('clearBuscar');
+    const contadorConductores = document.getElementById('contador-conductores');
+    const tbody = document.getElementById('tbody');
+
+    // Función para normalizar texto para búsqueda
+    function normalizarTexto(texto) {
+        return texto
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '') // Eliminar acentos
+            .trim();
+    }
+
+    // Función para filtrar conductores
+    function filtrarConductores() {
+        const textoBusqueda = normalizarTexto(buscadorConductores.value);
+        const filas = tbody.querySelectorAll('tr');
+        let filasVisibles = 0;
+        
+        if (textoBusqueda === '') {
+            // Mostrar todas las filas
+            filas.forEach(fila => {
+                fila.style.display = '';
+                filasVisibles++;
+            });
+            clearBuscar.style.display = 'none';
+        } else {
+            // Filtrar por nombre
+            filas.forEach(fila => {
+                const nombreConductor = fila.querySelector('.conductor-link').textContent;
+                const nombreNormalizado = normalizarTexto(nombreConductor);
+                
+                if (nombreNormalizado.includes(textoBusqueda)) {
+                    fila.style.display = '';
+                    filasVisibles++;
+                } else {
+                    fila.style.display = 'none';
+                }
+            });
+            clearBuscar.style.display = 'block';
+        }
+        
+        // Actualizar contador
+        const totalConductores = filas.length;
+        contadorConductores.textContent = `Mostrando ${filasVisibles} de ${totalConductores} conductores`;
+        
+        // Resaltar texto coincidente
+        resaltarTextoCoincidente(textoBusqueda);
+    }
+
+    // Función para resaltar texto coincidente
+    function resaltarTextoCoincidente(textoBusqueda) {
+        const enlaces = tbody.querySelectorAll('.conductor-link');
+        
+        enlaces.forEach(enlace => {
+            const textoOriginal = enlace.textContent;
+            const textoNormalizado = normalizarTexto(textoOriginal);
+            const indice = textoNormalizado.indexOf(textoBusqueda);
+            
+            if (textoBusqueda && indice !== -1) {
+                // Crear HTML con resaltado
+                const antes = textoOriginal.substring(0, indice);
+                const coincidencia = textoOriginal.substring(indice, indice + textoBusqueda.length);
+                const despues = textoOriginal.substring(indice + textoBusqueda.length);
+                
+                enlace.innerHTML = `${antes}<span class="bg-yellow-200 px-0.5 rounded">${coincidencia}</span>${despues}`;
+            } else {
+                enlace.innerHTML = textoOriginal;
+            }
+        });
+    }
+
+    // Event listeners para el buscador
+    buscadorConductores.addEventListener('input', filtrarConductores);
+    
+    clearBuscar.addEventListener('click', () => {
+        buscadorConductores.value = '';
+        filtrarConductores();
+        buscadorConductores.focus();
+    });
+    
+    // Limpiar búsqueda al presionar Escape
+    buscadorConductores.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            buscadorConductores.value = '';
+            filtrarConductores();
+        }
+    });
+
     // ===== Claves de persistencia =====
     const COMPANY_SCOPE = <?= json_encode(($empresaFiltro ?: '__todas__')) ?>;
     const ACC_KEY   = 'cuentas:'+COMPANY_SCOPE;
@@ -660,7 +770,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     let estadoPagoMap = getLS(ESTADO_PAGO_KEY) || {};
     let manualRows = JSON.parse(localStorage.getItem(MANUAL_ROWS_KEY) || '[]');
 
-    const tbody = document.getElementById('tbody');
     const btnAddManual = document.getElementById('btnAddManual');
 
     // ===== FUNCIÓN PARA AGREGAR FILA MANUAL =====
@@ -669,6 +778,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         const nuevaFila = document.createElement('tr');
         nuevaFila.className = 'fila-manual';
         nuevaFila.dataset.manualId = manualId;
+        nuevaFila.dataset.conductor = '';
         
         nuevaFila.innerHTML = `
       <td class="px-3 py-2">
@@ -726,6 +836,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
         configurarEventosFila(nuevaFila);
         recalc();
+        
+        // Aplicar filtro si hay búsqueda activa
+        filtrarConductores();
     }
 
     // ===== CONFIGURAR EVENTOS PARA FILA =====
@@ -741,6 +854,13 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         let baseName = '';
         if (conductorSelect) {
             baseName = conductorSelect.value || '';
+            // Actualizar data-conductor cuando cambie la selección
+            conductorSelect.addEventListener('change', () => {
+                tr.dataset.conductor = normalizarTexto(conductorSelect.value);
+                // Aplicar filtro cuando cambia el conductor
+                filtrarConductores();
+            });
+            tr.dataset.conductor = normalizarTexto(baseName);
         } else {
             baseName = tr.children[0].innerText.trim();
         }
@@ -799,6 +919,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
                 tr.remove();
                 recalc();
+                // Actualizar contador después de eliminar
+                filtrarConductores();
             });
         }
 
@@ -1180,6 +1302,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         let sumLleg = 0, sumRet = 0, sumMil4 = 0, sumAp = 0, sumSS = 0, sumPrest = 0, sumPagar = 0;
         
         rows.forEach((tr) => {
+            if (tr.style.display === 'none') return; // Saltar filas ocultas por filtro
+            
             let base;
             
             if (tr.classList.contains('fila-manual')) {
