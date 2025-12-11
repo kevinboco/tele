@@ -280,6 +280,19 @@ if ($empresaFiltro !== "") {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.8; }
   }
+  .buscar-container { position: relative; }
+  .buscar-clear { 
+    position: absolute; 
+    right: 10px; 
+    top: 50%; 
+    transform: translateY(-50%); 
+    background: none; 
+    border: none; 
+    color: #64748b; 
+    cursor: pointer; 
+    display: none; 
+  }
+  .buscar-clear:hover { color: #475569; }
 </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
@@ -495,18 +508,33 @@ if ($empresaFiltro !== "") {
 
       <!-- Columna 2: Resumen por conductor (ahora con Siapana) -->
       <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-        <div class="flex items-center justify-between gap-3">
-          <h3 class="text-lg font-semibold">🧑‍✈️ Resumen por Conductor</h3>
-          <div id="total_chip_container" class="inline-flex items-center gap-3">
-            <span class="inline-flex items-center gap-2 rounded-full border border-green-200 bg-green-50 px-3 py-1 text-green-700 font-semibold text-sm">
-              📅 Mensual: <span id="total_mensual">0</span>
-            </span>
-            <span class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-700 font-semibold text-sm">
-              🔢 Viajes: <span id="total_viajes">0</span>
-            </span>
-            <span class="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-purple-700 font-semibold text-sm">
-              💰 Total: <span id="total_general">0</span>
-            </span>
+        <!-- HEADER CON BUSCADOR -->
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 class="text-lg font-semibold">🧑‍✈️ Resumen por Conductor</h3>
+            <div id="contador-conductores" class="text-xs text-slate-500 mt-1">
+              Mostrando <?= count($datos) ?> de <?= count($datos) ?> conductores
+            </div>
+          </div>
+          <div class="flex flex-col md:flex-row gap-3 w-full md:w-auto">
+            <!-- BUSCADOR DE CONDUCTORES -->
+            <div class="buscar-container w-full md:w-64">
+              <input id="buscadorConductores" type="text" 
+                     placeholder="Buscar conductor..." 
+                     class="w-full rounded-lg border border-slate-300 px-3 py-2 pl-3 pr-10 text-sm">
+              <button id="clearBuscar" class="buscar-clear">✕</button>
+            </div>
+            <div id="total_chip_container" class="flex items-center gap-3">
+              <span class="inline-flex items-center gap-2 rounded-full border border-green-200 bg-green-50 px-3 py-1 text-green-700 font-semibold text-sm">
+                📅 Mensual: <span id="total_mensual">0</span>
+              </span>
+              <span class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-700 font-semibold text-sm">
+                🔢 Viajes: <span id="total_viajes">0</span>
+              </span>
+              <span class="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-purple-700 font-semibold text-sm">
+                💰 Total: <span id="total_general">0</span>
+              </span>
+            </div>
           </div>
         </div>
 
@@ -536,9 +564,12 @@ if ($empresaFiltro !== "") {
                 <th class="px-3 py-2 text-center">Total</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-slate-100 bg-white">
+            <tbody id="tabla_conductores_body" class="divide-y divide-slate-100 bg-white">
             <?php foreach ($datos as $conductor => $viajes): ?>
-              <tr data-vehiculo="<?= htmlspecialchars($viajes['vehiculo']) ?>" data-conductor="<?= htmlspecialchars($conductor) ?>" class="hover:bg-blue-50/40 transition-colors">
+              <tr data-vehiculo="<?= htmlspecialchars($viajes['vehiculo']) ?>" 
+                  data-conductor="<?= htmlspecialchars($conductor) ?>" 
+                  data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
+                  class="hover:bg-blue-50/40 transition-colors">
                 <td class="px-3 py-2">
                   <div class="flex items-center gap-2">
                     <button type="button"
@@ -674,6 +705,97 @@ if ($empresaFiltro !== "") {
   </main>
 
   <script>
+    // ===== BUSCADOR DE CONDUCTORES =====
+    const buscadorConductores = document.getElementById('buscadorConductores');
+    const clearBuscar = document.getElementById('clearBuscar');
+    const contadorConductores = document.getElementById('contador-conductores');
+    const tablaConductoresBody = document.getElementById('tabla_conductores_body');
+
+    // Función para normalizar texto para búsqueda (ignorar acentos)
+    function normalizarTexto(texto) {
+      return texto
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') // Eliminar acentos
+        .trim();
+    }
+
+    // Función para filtrar conductores
+    function filtrarConductores() {
+      const textoBusqueda = normalizarTexto(buscadorConductores.value);
+      const filas = tablaConductoresBody.querySelectorAll('tr');
+      let filasVisibles = 0;
+      
+      if (textoBusqueda === '') {
+        // Mostrar todas las filas
+        filas.forEach(fila => {
+          fila.style.display = '';
+          filasVisibles++;
+        });
+        clearBuscar.style.display = 'none';
+      } else {
+        // Filtrar por nombre
+        filas.forEach(fila => {
+          const nombreConductor = fila.querySelector('.conductor-link').textContent;
+          const nombreNormalizado = normalizarTexto(nombreConductor);
+          
+          if (nombreNormalizado.includes(textoBusqueda)) {
+            fila.style.display = '';
+            filasVisibles++;
+          } else {
+            fila.style.display = 'none';
+          }
+        });
+        clearBuscar.style.display = 'block';
+      }
+      
+      // Actualizar contador
+      const totalConductores = filas.length;
+      contadorConductores.textContent = `Mostrando ${filasVisibles} de ${totalConductores} conductores`;
+      
+      // Resaltar texto coincidente
+      resaltarTextoCoincidente(textoBusqueda);
+    }
+
+    // Función para resaltar texto coincidente
+    function resaltarTextoCoincidente(textoBusqueda) {
+      const enlaces = tablaConductoresBody.querySelectorAll('.conductor-link');
+      
+      enlaces.forEach(enlace => {
+        const textoOriginal = enlace.textContent;
+        const textoNormalizado = normalizarTexto(textoOriginal);
+        const indice = textoNormalizado.indexOf(textoBusqueda);
+        
+        if (textoBusqueda && indice !== -1) {
+          // Crear HTML con resaltado
+          const antes = textoOriginal.substring(0, indice);
+          const coincidencia = textoOriginal.substring(indice, indice + textoBusqueda.length);
+          const despues = textoOriginal.substring(indice + textoBusqueda.length);
+          
+          enlace.innerHTML = `${antes}<span class="bg-yellow-200 px-0.5 rounded">${coincidencia}</span>${despues}`;
+        } else {
+          enlace.innerHTML = textoOriginal;
+        }
+      });
+    }
+
+    // Event listeners para el buscador
+    buscadorConductores.addEventListener('input', filtrarConductores);
+    
+    clearBuscar.addEventListener('click', () => {
+      buscadorConductores.value = '';
+      filtrarConductores();
+      buscadorConductores.focus();
+    });
+    
+    // Limpiar búsqueda al presionar Escape
+    buscadorConductores.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        buscadorConductores.value = '';
+        filtrarConductores();
+      }
+    });
+
     // Configuración inicial
     const CONFIG_KEY = 'config_mensuales_<?= htmlspecialchars($empresaFiltro) ?>';
     const COBROS_KEY = 'historial_cobros_<?= htmlspecialchars($empresaFiltro) ?>';
@@ -953,11 +1075,13 @@ if ($empresaFiltro !== "") {
 
     function recalcular(){
       const tarifas = getTarifas();
-      const filas = document.querySelectorAll('#tabla_conductores tbody tr');
+      const filas = document.querySelectorAll('#tabla_conductores_body tr');
       let totalViajes = 0;
       let totalMensual = 0;
       
       filas.forEach(f=>{
+        if (f.style.display === 'none') return; // Saltar filas ocultas por el buscador
+        
         const veh = f.dataset.vehiculo;
         const conductor = f.dataset.conductor;
         
