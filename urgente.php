@@ -276,18 +276,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
     // 3) OTROS DEUDORES (NO SELECCIONADOS) - CUADRO 2
     // ==========================
     if (!empty($prestamista_seleccionado)) {
+        // Obtener la empresa más reciente de cada deudor desde la tabla VIAJES
         $sql_otros = "SELECT 
-                        id,
-                        deudor,
-                        prestamista,
-                        monto,
-                        fecha
-                      FROM prestamos
-                      WHERE prestamista = ?
-                        AND pagado = 0
-                        AND deudor IS NOT NULL
-                        AND deudor != ''
-                      ORDER BY deudor, fecha";
+                        p.id,
+                        p.deudor,
+                        p.prestamista,
+                        p.monto,
+                        p.fecha,
+                        v.empresa
+                      FROM prestamos p
+                      LEFT JOIN (
+                          SELECT nombre, empresa, MAX(fecha) as ultima_fecha
+                          FROM viajes 
+                          WHERE nombre IS NOT NULL 
+                            AND nombre != ''
+                            AND empresa IS NOT NULL
+                            AND empresa != ''
+                          GROUP BY nombre, empresa
+                      ) v ON p.deudor = v.nombre
+                      WHERE p.prestamista = ?
+                        AND p.pagado = 0
+                        AND p.deudor IS NOT NULL
+                        AND p.deudor != ''
+                      ORDER BY p.deudor, p.fecha";
+        
         $stmt_otros = $conn->prepare($sql_otros);
         $stmt_otros->bind_param("s", $prestamista_seleccionado);
         $stmt_otros->execute();
@@ -321,6 +333,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 $total_prestamo = $fila['monto'] + $interes_prestamista_monto;
             }
 
+            // Determinar tipo de empresa
+            $empresa = $fila['empresa'] ?? '';
+            $tipo_empresa = 'Otro';
+            
+            if (!empty($empresa)) {
+                if (!empty($empresa_seleccionada) && $empresa == $empresa_seleccionada) {
+                    $tipo_empresa = '<span style="color:#22c55e;">' . htmlspecialchars($empresa) . '</span>';
+                } else {
+                    $tipo_empresa = htmlspecialchars($empresa);
+                }
+            } else {
+                $tipo_empresa = '<span style="color:#9ca3af; font-style:italic;">Sin empresa (nómina/facturas)</span>';
+            }
+
             if (!isset($otros_prestamos_por_deudor[$deudor])) {
                 $otros_prestamos_por_deudor[$deudor] = [
                     'total_capital' => 0,
@@ -329,7 +355,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     'total_comision_personal' => 0,
                     'cantidad_prestamos' => 0,
                     'cantidad_viejos' => 0,
-                    'cantidad_nuevos' => 0
+                    'cantidad_nuevos' => 0,
+                    'empresa' => $tipo_empresa  // Guardar empresa con formato
                 ];
             }
 
@@ -572,6 +599,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             background: rgba(34, 197, 94, 0.2);
             color: #22c55e;
             border: 1px solid rgba(34, 197, 94, 0.4);
+        }
+
+        /* NUEVO: Estilo para columna de empresa */
+        .badge-empresa {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 8px;
+            font-size: 0.7rem;
+            background: rgba(56, 189, 248, 0.1);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            color: var(--accent);
+            margin-top: 3px;
+        }
+
+        .empresa-filtrada {
+            background: rgba(34, 197, 94, 0.15) !important;
+            border: 1px solid rgba(34, 197, 94, 0.4) !important;
+            color: #22c55e !important;
         }
 
         /* Resto de estilos (igual que antes) */
@@ -1367,6 +1412,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         <tr>
                             <th>Incluir en Cuadro 1</th>
                             <th>Deudor</th>
+                            <th>Empresa</th>
                             <th>Préstamos</th>
                             <th>Capital</th>
                             <th>Interés Prestamista</th>
@@ -1413,6 +1459,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                     </small>
                                 <?php endif; ?>
                             </td>
+                            <td>
+                                <?php echo $datos['empresa']; ?>
+                            </td>
                             <td><?php echo $datos['cantidad_prestamos']; ?></td>
                             <td class="moneda">$ <?php echo number_format($datos['total_capital'], 0, ',', '.'); ?></td>
                             <td class="moneda">$ <?php echo number_format($datos['total_interes_prestamista'], 0, ',', '.'); ?></td>
@@ -1423,7 +1472,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
 
                         <!-- Totales OTROS DEUDORES -->
                         <tr class="totales">
-                            <td colspan="3">
+                            <td colspan="4">
                                 <strong>TOTAL GENERAL OTROS DEUDORES</strong>
                                 <br>
                                 <small>
