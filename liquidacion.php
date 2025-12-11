@@ -293,6 +293,13 @@ if ($empresaFiltro !== "") {
     display: none; 
   }
   .buscar-clear:hover { color: #475569; }
+  .fila-anticipo { background-color: #fef3c7 !important; }
+  .select-anticipo option[value="100"] { background-color: #d1fae5; }
+  .select-anticipo option[value="80"] { background-color: #fef3c7; }
+  .select-anticipo option[value="70"] { background-color: #fde68a; }
+  .select-anticipo option[value="50"] { background-color: #fed7aa; }
+  .select-anticipo option[value="30"] { background-color: #fecaca; }
+  .select-anticipo option[value="0"] { background-color: #f3f4f6; }
 </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
@@ -538,18 +545,33 @@ if ($empresaFiltro !== "") {
           </div>
         </div>
 
+        <!-- RESUMEN DE ANTICIPOS -->
+        <div id="resumen_anticipos" class="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg hidden">
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-sm font-medium text-amber-800">📋 Resumen de Anticipos</p>
+              <p class="text-xs text-amber-600" id="texto_resumen_anticipos"></p>
+            </div>
+            <button type="button" onclick="guardarAnticipos()" 
+                    class="text-xs bg-amber-600 text-white px-3 py-1 rounded-lg hover:bg-amber-700 transition">
+              💾 Guardar
+            </button>
+          </div>
+        </div>
+
         <div class="mt-4 w-full rounded-xl border border-slate-200">
           <table id="tabla_conductores" class="w-full text-sm table-fixed">
             <colgroup>
-              <col style="width:22%">
-              <col style="width:10%">
+              <col style="width:20%">
+              <col style="width:9%">
+              <col style="width:5%">
+              <col style="width:5%">
+              <col style="width:5%">
+              <col style="width:5%">  <!-- Siapana -->
               <col style="width:6%">
-              <col style="width:6%">
-              <col style="width:6%">
-              <col style="width:6%">  <!-- Siapana -->
-              <col style="width:7%">
-              <col style="width:23%">
-              <col style="width:14%">
+              <col style="width:12%"> <!-- Anticipo -->
+              <col style="width:20%"> <!-- Mensualidad -->
+              <col style="width:13%"> <!-- Total -->
             </colgroup>
             <thead class="bg-blue-600 text-white">
               <tr>
@@ -560,6 +582,7 @@ if ($empresaFiltro !== "") {
                 <th class="px-3 py-2 text-center">E</th>
                 <th class="px-3 py-2 text-center">S</th>
                 <th class="px-3 py-2 text-center">CT</th>
+                <th class="px-3 py-2 text-center">Anticipo</th>
                 <th class="px-3 py-2 text-center">Mensualidad</th>
                 <th class="px-3 py-2 text-center">Total</th>
               </tr>
@@ -590,6 +613,29 @@ if ($empresaFiltro !== "") {
                 <td class="px-3 py-2 text-center"><?= (int)$viajes["extras"] ?></td>
                 <td class="px-3 py-2 text-center"><?= (int)$viajes["siapana"] ?></td>
                 <td class="px-3 py-2 text-center"><?= (int)$viajes["carrotanques"] ?></td>
+                
+                <!-- COLUMNA ANTICIPO -->
+                <td class="px-3 py-2 text-center">
+                  <select class="select-anticipo w-full max-w-[120px] rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-blue-100"
+                          data-conductor="<?= htmlspecialchars($conductor) ?>">
+                    <option value="100">100% (Completo)</option>
+                    <option value="90">90%</option>
+                    <option value="80">80%</option>
+                    <option value="70">70%</option>
+                    <option value="60">60%</option>
+                    <option value="50">50%</option>
+                    <option value="40">40%</option>
+                    <option value="30">30%</option>
+                    <option value="20">20%</option>
+                    <option value="10">10%</option>
+                    <option value="0">0% (Pendiente)</option>
+                  </select>
+                  <div class="text-xs text-gray-500 mt-1">
+                    <span class="pagado text-green-600"></span><br>
+                    <span class="falta text-red-600"></span>
+                  </div>
+                </td>
+                
                 <td class="px-3 py-2">
                   <div class="mensual-info hidden flex-col gap-1">
                     <div class="grid grid-cols-2 gap-1">
@@ -628,6 +674,7 @@ if ($empresaFiltro !== "") {
                            class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none whitespace-nowrap tabular-nums"
                            readonly dir="ltr">
                     <div class="text-xs text-gray-500 text-right mt-1 mensual-detalle hidden"></div>
+                    <div class="text-xs text-amber-600 text-right mt-1 anticipo-detalle hidden"></div>
                   </div>
                 </td>
               </tr>
@@ -687,6 +734,9 @@ if ($empresaFiltro !== "") {
               <div class="text-gray-600">Total por mensuales:</div>
               <div class="text-right font-semibold text-green-600" id="resumen_mensual">$0</div>
               
+              <div class="text-gray-600">Total anticipos:</div>
+              <div class="text-right font-semibold text-amber-600" id="resumen_anticipo_total">$0</div>
+              
               <div class="text-gray-600 font-medium border-t pt-1">TOTAL GENERAL:</div>
               <div class="text-right font-bold text-purple-600 border-t pt-1" id="resumen_total">$0</div>
             </div>
@@ -705,11 +755,17 @@ if ($empresaFiltro !== "") {
   </main>
 
   <script>
+    // ===== CONFIGURACIÓN DE ANTICIPOS =====
+    const ANTICIPOS_KEY = 'anticipos_<?= htmlspecialchars($empresaFiltro) ?>_<?= htmlspecialchars($desde) ?>_<?= htmlspecialchars($hasta) ?>';
+    let anticiposConfig = JSON.parse(localStorage.getItem(ANTICIPOS_KEY)) || {};
+
     // ===== BUSCADOR DE CONDUCTORES =====
     const buscadorConductores = document.getElementById('buscadorConductores');
     const clearBuscar = document.getElementById('clearBuscar');
     const contadorConductores = document.getElementById('contador-conductores');
     const tablaConductoresBody = document.getElementById('tabla_conductores_body');
+    const resumenAnticiposDiv = document.getElementById('resumen_anticipos');
+    const textoResumenAnticipos = document.getElementById('texto_resumen_anticipos');
 
     // Función para normalizar texto para búsqueda (ignorar acentos)
     function normalizarTexto(texto) {
@@ -777,6 +833,123 @@ if ($empresaFiltro !== "") {
           enlace.innerHTML = textoOriginal;
         }
       });
+    }
+
+    // Función para cargar configuración de anticipos
+    function cargarAnticipos() {
+      const selects = document.querySelectorAll('.select-anticipo');
+      selects.forEach(select => {
+        const conductor = select.dataset.conductor;
+        if (anticiposConfig[conductor]) {
+          select.value = anticiposConfig[conductor].porcentaje;
+          
+          // Aplicar estilo visual si no es 100%
+          if (select.value !== '100') {
+            const fila = select.closest('tr');
+            fila.classList.add('fila-anticipo');
+          }
+        }
+      });
+      actualizarResumenAnticipos();
+    }
+
+    // Función para actualizar cálculo de anticipos por fila
+    function actualizarAnticipoPorFila(fila) {
+      const selectAnticipo = fila.querySelector('.select-anticipo');
+      const porcentaje = parseInt(selectAnticipo.value);
+      const conductor = fila.dataset.conductor;
+      
+      // Obtener total de viajes de esta fila
+      const totalViajesFila = parseFloat(fila.querySelector('.totales').value.replace(/\./g, '').replace(',', '.') || 0);
+      
+      // Calcular montos
+      const montoPagado = totalViajesFila * (porcentaje / 100);
+      const montoFalta = totalViajesFila - montoPagado;
+      
+      // Actualizar texto en la columna de anticipo
+      const pagadoSpan = fila.querySelector('.pagado');
+      const faltaSpan = fila.querySelector('.falta');
+      
+      if (pagadoSpan) {
+        pagadoSpan.textContent = `Pagado: $${formatNumber(Math.round(montoPagado))}`;
+      }
+      
+      if (faltaSpan) {
+        if (porcentaje < 100) {
+          faltaSpan.textContent = `Falta: $${formatNumber(Math.round(montoFalta))}`;
+        } else {
+          faltaSpan.textContent = 'Completo';
+        }
+      }
+      
+      // Actualizar detalle en columna total
+      const detalleAnticipo = fila.querySelector('.anticipo-detalle');
+      if (detalleAnticipo) {
+        if (porcentaje < 100) {
+          detalleAnticipo.textContent = `Anticipo ${porcentaje}% = $${formatNumber(Math.round(montoPagado))}`;
+          detalleAnticipo.classList.remove('hidden');
+        } else {
+          detalleAnticipo.classList.add('hidden');
+        }
+      }
+      
+      // Guardar configuración
+      anticiposConfig[conductor] = {
+        porcentaje: porcentaje,
+        montoPagado: montoPagado,
+        montoFalta: montoFalta,
+        fecha: new Date().toISOString().split('T')[0]
+      };
+      
+      // Aplicar estilo visual
+      if (porcentaje < 100) {
+        fila.classList.add('fila-anticipo');
+      } else {
+        fila.classList.remove('fila-anticipo');
+      }
+      
+      return { montoPagado, montoFalta };
+    }
+
+    // Función para actualizar resumen de anticipos
+    function actualizarResumenAnticipos() {
+      let totalPagado = 0;
+      let totalFalta = 0;
+      let conductoresConAnticipo = 0;
+      
+      const filas = tablaConductoresBody.querySelectorAll('tr');
+      filas.forEach(fila => {
+        const selectAnticipo = fila.querySelector('.select-anticipo');
+        if (selectAnticipo && selectAnticipo.value !== '100') {
+          const resultado = actualizarAnticipoPorFila(fila);
+          totalPagado += resultado.montoPagado;
+          totalFalta += resultado.montoFalta;
+          conductoresConAnticipo++;
+        }
+      });
+      
+      // Mostrar/ocultar resumen
+      if (conductoresConAnticipo > 0) {
+        resumenAnticiposDiv.classList.remove('hidden');
+        textoResumenAnticipos.textContent = 
+          `${conductoresConAnticipo} conductores con anticipo | ` +
+          `Pagado: $${formatNumber(Math.round(totalPagado))} | ` +
+          `Falta: $${formatNumber(Math.round(totalFalta))}`;
+        
+        document.getElementById('resumen_anticipo_total').textContent = 
+          `$${formatNumber(Math.round(totalPagado))}`;
+      } else {
+        resumenAnticiposDiv.classList.add('hidden');
+        document.getElementById('resumen_anticipo_total').textContent = '$0';
+      }
+      
+      recalcular();
+    }
+
+    // Función para guardar anticipos en localStorage
+    function guardarAnticipos() {
+      localStorage.setItem(ANTICIPOS_KEY, JSON.stringify(anticiposConfig));
+      alert('✅ Configuración de anticipos guardada.');
     }
 
     // Event listeners para el buscador
@@ -864,6 +1037,10 @@ if ($empresaFiltro !== "") {
           btnMensual.classList.add('border-green-500', 'bg-green-100');
         }
       });
+      
+      // Cargar anticipos
+      cargarAnticipos();
+      
       actualizarListaMensuales();
       mostrarAlertasCobro();
       recalcular();
@@ -1071,13 +1248,21 @@ if ($empresaFiltro !== "") {
       return tarifas;
     }
 
-    function formatNumber(num){ return (num||0).toLocaleString('es-CO'); }
+    function formatNumber(num){ 
+      return (num||0).toLocaleString('es-CO', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0
+      }); 
+    }
 
     function recalcular(){
       const tarifas = getTarifas();
       const filas = document.querySelectorAll('#tabla_conductores_body tr');
-      let totalViajes = 0;
+      let totalViajesBruto = 0;
       let totalMensual = 0;
+      let totalAnticiposPagado = 0;
+      let totalAnticiposFalta = 0;
+      let totalGeneral = 0;
       
       filas.forEach(f=>{
         if (f.style.display === 'none') return; // Saltar filas ocultas por el buscador
@@ -1085,14 +1270,23 @@ if ($empresaFiltro !== "") {
         const veh = f.dataset.vehiculo;
         const conductor = f.dataset.conductor;
         
+        // Calcular total bruto de viajes (100%)
         const c  = parseInt(f.cells[2].innerText)||0;
         const m  = parseInt(f.cells[3].innerText)||0;
         const e  = parseInt(f.cells[4].innerText)||0;
         const s  = parseInt(f.cells[5].innerText)||0;
         const ca = parseInt(f.cells[6].innerText)||0;
         const t  = tarifas[veh] || {completo:0,medio:0,extra:0,carrotanque:0,siapana:0};
-        const totalViajesFila = c*t.completo + m*t.medio + e*t.extra + s*t.siapana + ca*t.carrotanque;
+        const totalViajesBrutoFila = c*t.completo + m*t.medio + e*t.extra + s*t.siapana + ca*t.carrotanque;
+        totalViajesBruto += totalViajesBrutoFila;
         
+        // Calcular anticipo
+        const selectAnticipo = f.querySelector('.select-anticipo');
+        const porcentajeAnticipo = selectAnticipo ? parseInt(selectAnticipo.value) : 100;
+        const montoAnticipoPagado = totalViajesBrutoFila * (porcentajeAnticipo / 100);
+        const montoAnticipoFalta = totalViajesBrutoFila - montoAnticipoPagado;
+        
+        // Calcular mensualidad
         let totalMensualFila = 0;
         if (configMensuales[conductor]) {
           const fechaDesdeInput = f.querySelector('.fecha-desde');
@@ -1104,22 +1298,40 @@ if ($empresaFiltro !== "") {
           totalMensualFila = calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle) || 0;
         }
         
-        const totalFila = totalViajesFila + totalMensualFila;
-        const inp = f.querySelector('input.totales');
-        if (inp) inp.value = formatNumber(totalFila);
+        // Calcular total real (anticipo + mensualidad)
+        const totalRealFila = montoAnticipoPagado + totalMensualFila;
+        totalGeneral += totalRealFila;
         
-        totalViajes += totalViajesFila;
+        // Actualizar totales por fila
+        const inp = f.querySelector('input.totales');
+        if (inp) inp.value = formatNumber(Math.round(totalRealFila));
+        
+        // Acumular totales globales
         totalMensual += totalMensualFila;
+        totalAnticiposPagado += montoAnticipoPagado;
+        totalAnticiposFalta += montoAnticipoFalta;
+        
+        // Actualizar detalles de anticipo
+        if (porcentajeAnticipo < 100) {
+          const detalleAnticipo = f.querySelector('.anticipo-detalle');
+          if (detalleAnticipo) {
+            detalleAnticipo.textContent = `Anticipo ${porcentajeAnticipo}% = $${formatNumber(Math.round(montoAnticipoPagado))}`;
+            detalleAnticipo.classList.remove('hidden');
+          }
+        }
       });
       
-      document.getElementById('total_viajes').innerText = formatNumber(totalViajes);
-      document.getElementById('total_mensual').innerText = formatNumber(totalMensual);
-      document.getElementById('total_general').innerText = formatNumber(totalViajes + totalMensual);
+      // Actualizar panel superior
+      document.getElementById('total_viajes').innerText = formatNumber(Math.round(totalViajesBruto));
+      document.getElementById('total_mensual').innerText = formatNumber(Math.round(totalMensual));
+      document.getElementById('total_general').innerText = formatNumber(Math.round(totalGeneral));
       
-      document.getElementById('resumen_viajes').textContent = `$${formatNumber(totalViajes)}`;
-      document.getElementById('resumen_total').textContent = `$${formatNumber(totalViajes + totalMensual)}`;
+      // Actualizar panel lateral
+      document.getElementById('resumen_viajes').textContent = `$${formatNumber(Math.round(totalViajesBruto))}`;
+      document.getElementById('resumen_total').textContent = `$${formatNumber(Math.round(totalGeneral))}`;
       
       actualizarListaMensuales();
+      actualizarResumenAnticipos();
     }
 
     function guardarMensuales() {
@@ -1178,6 +1390,16 @@ if ($empresaFiltro !== "") {
     // Event Listeners
     document.addEventListener('DOMContentLoaded', function() {
       cargarConfiguracion();
+      
+      // Cambio en porcentaje de anticipo
+      document.querySelectorAll('.select-anticipo').forEach(select => {
+        select.addEventListener('change', function() {
+          const fila = this.closest('tr');
+          actualizarAnticipoPorFila(fila);
+          actualizarResumenAnticipos();
+          recalcular();
+        });
+      });
       
       // Click en botón "Marcar como mensual"
       document.querySelectorAll('.btn-mensual').forEach(btn => {
