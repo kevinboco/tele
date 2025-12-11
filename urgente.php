@@ -1387,7 +1387,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        // Seleccionar otros deudores para pasarlos al cuadro 1
+        // Seleccionar otros deudores para pasarlos al cuad
         function toggleOtroDeudor(checkbox) {
             const deudor = checkbox.getAttribute('data-deudor');
             const index = deudoresSeleccionados.indexOf(deudor);
