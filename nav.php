@@ -2,7 +2,7 @@
 // nav_color.php — Menú lateral con íconos a color, texto fijo y magnificación
 
 // === Fechas dinámicas ===
-$desde   = "2025-09-26"; // <-- puedes cambiarla manualmente cuando necesites
+$desde   = "2025-12-09"; // <-- puedes cambiarla manualmente cuando necesites
 $hasta   = date("Y-m-d"); // fecha actual automática
 $empresa = "Hospital";
 
