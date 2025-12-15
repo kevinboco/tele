@@ -136,6 +136,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             ? "'" . $conexion->real_escape_string($_POST['empresa']) . "'" 
             : "NULL";
         
+        // Pago parcial (nuevo campo)
+        $pago_parcial = isset($_POST['pago_parcial']) && trim($_POST['pago_parcial']) !== '' && is_numeric($_POST['pago_parcial'])
+            ? (int)$_POST['pago_parcial']
+            : "NULL";
+        
         // Manejo de imagen
         $imagen_nombre = "NULL";
         if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
@@ -156,8 +161,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $_SESSION['error'] = "Los campos Nombre, Fecha, Ruta y Vehículo son obligatorios.";
             $accion = 'crear';
         } else {
-            $sql = "INSERT INTO viajes (nombre, cedula, fecha, ruta, tipo_vehiculo, empresa, imagen) 
-                    VALUES ('$nombre', $cedula, '$fecha', '$ruta', '$tipo_vehiculo', $empresa, $imagen_nombre)";
+            $sql = "INSERT INTO viajes (nombre, cedula, fecha, ruta, tipo_vehiculo, empresa, imagen, pago_parcial) 
+                    VALUES ('$nombre', $cedula, '$fecha', '$ruta', '$tipo_vehiculo', $empresa, $imagen_nombre, $pago_parcial)";
             
             if ($conexion->query($sql)) {
                 header("Location: ?msg=creado");
@@ -181,6 +186,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $tipo_vehiculo = $conexion->real_escape_string($_POST['tipo_vehiculo'] ?? '');
         $empresa = isset($_POST['empresa']) && trim($_POST['empresa']) !== '' 
             ? "'" . $conexion->real_escape_string($_POST['empresa']) . "'" 
+            : "NULL";
+        
+        // Pago parcial (nuevo campo)
+        $pago_parcial = isset($_POST['pago_parcial']) && trim($_POST['pago_parcial']) !== '' && is_numeric($_POST['pago_parcial'])
+            ? (int)$_POST['pago_parcial']
             : "NULL";
         
         // Manejo de imagen
@@ -209,7 +219,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     fecha = '$fecha',
                     ruta = '$ruta',
                     tipo_vehiculo = '$tipo_vehiculo',
-                    empresa = $empresa
+                    empresa = $empresa,
+                    pago_parcial = $pago_parcial
                     $imagen_campo
                     WHERE id = $id";
             
@@ -243,6 +254,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $ruta_key     = "ruta_$id_viaje";
             $vehiculo_key = "tipo_vehiculo_$id_viaje";
             $empresa_key  = "empresa_$id_viaje";
+            $pago_key     = "pago_parcial_$id_viaje";
             
             // Usar valores específicos o los generales
             $nombre = isset($_POST[$nombre_key]) && trim($_POST[$nombre_key]) !== '' 
@@ -281,6 +293,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     ? "'" . $conexion->real_escape_string($_POST['empresa_general']) . "'"
                     : "NULL");
             
+            // Pago parcial
+            $pago_parcial = isset($_POST[$pago_key]) && trim($_POST[$pago_key]) !== '' 
+                ? (int)$_POST[$pago_key]
+                : (isset($_POST['pago_parcial_general']) && trim($_POST['pago_parcial_general']) !== '' && is_numeric($_POST['pago_parcial_general'])
+                    ? (int)$_POST['pago_parcial_general']
+                    : "NULL");
+            
             // Si algún campo obligatorio está vacío, saltar este registro
             if (!$nombre || !$fecha || !$ruta || !$tipo_vehiculo) {
                 continue;
@@ -291,6 +310,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $fecha        = ($fecha === NULL) ? "NULL" : $fecha;
             $ruta         = ($ruta === NULL) ? "NULL" : $ruta;
             $tipo_vehiculo= ($tipo_vehiculo === NULL) ? "NULL" : $tipo_vehiculo;
+            $pago_parcial = ($pago_parcial === "NULL") ? "NULL" : (int)$pago_parcial;
             
             $sql = "UPDATE viajes SET 
                     nombre = $nombre,
@@ -298,7 +318,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     fecha = $fecha,
                     ruta = $ruta,
                     tipo_vehiculo = $tipo_vehiculo,
-                    empresa = $empresa
+                    empresa = $empresa,
+                    pago_parcial = $pago_parcial
                     WHERE id = $id_viaje";
             
             if ($conexion->query($sql)) {
@@ -402,6 +423,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         .sticky-actions { position: sticky; top: 0; z-index: 1000; background: white; padding: 15px; margin: -15px -15px 15px -15px; border-bottom: 1px solid #dee2e6; box-shadow: 0 2px 4px rgba(0,0,0,.1); }
         .table-container { max-height: 600px; overflow-y: auto; }
         .form-control-sm { padding: 0.25rem 0.5rem; font-size: 0.875rem; }
+        .pago-parcial { font-weight: bold; color: #198754; }
     </style>
 </head>
 <body class="bg-light">
@@ -558,6 +580,15 @@ include("nav.php");
                                 </select>
                             </div>
                             
+                            <!-- Pago Parcial -->
+                            <div class="mb-3">
+                                <label class="form-label">💰 Pago Parcial</label>
+                                <input type="number" name="pago_parcial" class="form-control" 
+                                       value="<?= htmlspecialchars($viaje['pago_parcial'] ?? '') ?>"
+                                       placeholder="Ej: 1500000 (opcional)">
+                                <small class="text-muted">Dejar en blanco si no hay pago parcial</small>
+                            </div>
+                            
                             <!-- Imagen actual (solo en edición) -->
                             <?php if ($accion == 'editar' && isset($viaje['imagen']) && !empty($viaje['imagen'])): ?>
                                 <div class="mb-3">
@@ -630,19 +661,24 @@ include("nav.php");
                                 </div>
                                 <div class="card-body">
                                     <div class="row g-3">
-                                        <div class="col-md-4">
+                                        <div class="col-md-3">
                                             <label class="form-label">Nombre (general)</label>
                                             <input type="text" name="nombre_general" class="form-control form-control-sm" 
                                                    placeholder="Dejar vacío para no cambiar">
                                         </div>
-                                        <div class="col-md-4">
+                                        <div class="col-md-3">
                                             <label class="form-label">Cédula (general)</label>
                                             <input type="text" name="cedula_general" class="form-control form-control-sm" 
                                                    placeholder="Dejar vacío para no cambiar">
                                         </div>
-                                        <div class="col-md-4">
+                                        <div class="col-md-3">
                                             <label class="form-label">Fecha (general)</label>
                                             <input type="date" name="fecha_general" class="form-control form-control-sm">
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label">Pago Parcial (general)</label>
+                                            <input type="number" name="pago_parcial_general" class="form-control form-control-sm" 
+                                                   placeholder="Ej: 1500000">
                                         </div>
                                         <div class="col-md-4">
                                             <label class="form-label">Ruta (general)</label>
@@ -693,6 +729,7 @@ include("nav.php");
                                             <th>Ruta</th>
                                             <th>Vehículo</th>
                                             <th>Empresa</th>
+                                            <th>💰 Pago Parcial</th>
                                             <th>Imagen</th>
                                         </tr>
                                     </thead>
@@ -749,6 +786,12 @@ include("nav.php");
                                                             </option>
                                                         <?php endforeach; ?>
                                                     </select>
+                                                </td>
+                                                <td>
+                                                    <input type="number" name="pago_parcial_<?= $id_multi ?>" 
+                                                           class="form-control form-control-sm" 
+                                                           value="<?= htmlspecialchars($viaje_multi['pago_parcial'] ?? '') ?>"
+                                                           placeholder="Ej: 1500000">
                                                 </td>
                                                 <td class="text-center">
                                                     <?php if(!empty($viaje_multi['imagen'])): ?>
@@ -1048,6 +1091,7 @@ include("nav.php");
                                 <th>Ruta</th>
                                 <th>Vehículo</th>
                                 <th>Empresa</th>
+                                <th>💰 Pago Parcial</th>
                                 <th>Imagen</th>
                                 <th style="width:160px;">Acciones</th>
                             </tr>
@@ -1058,6 +1102,12 @@ include("nav.php");
                                 $id_registro       = (int)$row['id'];
                                 $ids_visibles[]    = $id_registro;
                                 $esta_seleccionado = in_array($id_registro, $_SESSION['seleccionados']);
+                                
+                                // Función para formatear el pago parcial
+                                function formatearPago($monto) {
+                                    if (empty($monto) || $monto == 0) return '<span class="text-muted">—</span>';
+                                    return '<span class="pago-parcial">$' . number_format($monto, 0, ',', '.') . '</span>';
+                                }
                             ?>
                                 <tr id="fila_<?= $id_registro ?>" class="<?= $esta_seleccionado ? 'seleccionado' : '' ?>">
                                     <td>
@@ -1076,6 +1126,7 @@ include("nav.php");
                                     <td><?= htmlspecialchars($row['ruta']); ?></td>
                                     <td><?= htmlspecialchars($row['tipo_vehiculo']); ?></td>
                                     <td><?= !empty($row['empresa']) ? htmlspecialchars($row['empresa']) : '<span class="text-muted">—</span>'; ?></td>
+                                    <td><?= formatearPago($row['pago_parcial'] ?? ''); ?></td>
                                     <td>
                                         <?php if(!empty($row['imagen'])): ?>
                                             <a href="#" data-bs-toggle="modal" data-bs-target="#imgModal<?= $id_registro; ?>">
@@ -1102,7 +1153,7 @@ include("nav.php");
                             <?php endwhile; ?>
                         <?php else: ?>
                             <tr>
-                                <td colspan="10" class="text-center py-4">No se encontraron resultados.</td>
+                                <td colspan="11" class="text-center py-4">No se encontraron resultados.</td>
                             </tr>
                         <?php endif; ?>
                         </tbody>
