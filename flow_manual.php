@@ -189,6 +189,23 @@ function manual_resend_current_step($chat_id, $estado) {
             break;
         case 'manual_empresa_nuevo_texto':
             sendMessage($chat_id, "✍️ Escribe el *nombre de la empresa*:"); break;
+        case 'manual_pago_parcial_pregunta':
+            $kb = [
+                "inline_keyboard" => [
+                    [
+                        ["text" => "✅ Sí, hay pago parcial", "callback_data" => "manual_pago_si"],
+                        ["text" => "❌ No, sin pago parcial", "callback_data" => "manual_pago_no"]
+                    ],
+                    [
+                        ["text" => "⬅️ Volver", "callback_data" => "manual_back_empresa_menu"]
+                    ]
+                ]
+            ];
+            sendMessage($chat_id, "💵 ¿Hay *pago parcial* para este viaje?", $kb);
+            break;
+        case 'manual_pago_parcial_monto':
+            sendMessage($chat_id, "💰 Escribe el *monto del pago parcial* (ej: 1500000):"); 
+            break;
         default:
             sendMessage($chat_id, "Continuamos donde ibas. Escribe /cancel para reiniciar.");
     }
@@ -368,19 +385,47 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
         sendMessage($chat_id, "✍️ Escribe el *tipo de vehículo*:");
     }
 
-    // Empresa seleccionar / crear y guardar viaje
+    // Empresa seleccionar / crear y preguntar por pago parcial
     if (strpos($cb_data, 'manual_empresa_sel_') === 0) {
         $idEmp = (int)substr($cb_data, strlen('manual_empresa_sel_'));
         $conn = db(); $e = obtenerEmpresaAdminPorId($conn, $idEmp, $chat_id); $conn?->close();
         if (!$e) sendMessage($chat_id, "⚠️ Empresa no encontrada. Vuelve a intentarlo.");
         else {
             $estado['manual_empresa'] = $e['nombre'];
-            manual_insert_viaje_and_close($chat_id, $estado);
+            $estado['paso'] = 'manual_pago_parcial_pregunta'; 
+            saveState($chat_id, $estado);
+            
+            $kb = [
+                "inline_keyboard" => [
+                    [
+                        ["text" => "✅ Sí, hay pago parcial", "callback_data" => "manual_pago_si"],
+                        ["text" => "❌ No, sin pago parcial", "callback_data" => "manual_pago_no"]
+                    ],
+                    [
+                        ["text" => "⬅️ Volver", "callback_data" => "manual_back_empresa_menu"]
+                    ]
+                ]
+            ];
+            sendMessage($chat_id, "💵 ¿Hay *pago parcial* para este viaje?", $kb);
         }
     }
+    
     if ($cb_data === 'manual_empresa_nuevo') {
         $estado['paso'] = 'manual_empresa_nuevo_texto'; saveState($chat_id,$estado);
         sendMessage($chat_id, "✍️ Escribe el *nombre de la empresa*:");
+    }
+
+    // Manejo de pago parcial
+    if ($cb_data === 'manual_pago_si') {
+        $estado['paso'] = 'manual_pago_parcial_monto'; 
+        saveState($chat_id, $estado);
+        sendMessage($chat_id, "💰 Escribe el *monto del pago parcial* (ej: 1500000):");
+    }
+    
+    if ($cb_data === 'manual_pago_no') {
+        // No hay pago parcial, proceder a guardar el viaje
+        $estado['manual_pago_parcial'] = null;
+        manual_insert_viaje_and_close($chat_id, $estado);
     }
 
     if ($cb_id) answerCallbackQuery($cb_id);
@@ -411,6 +456,12 @@ function manual_handle_back($chat_id, &$estado, $back_step) {
             $estado['paso'] = 'manual_vehiculo_menu';
             // Limpiar datos de vehículo
             unset($estado['manual_vehiculo']);
+            break;
+            
+        case 'empresa_menu':
+            $estado['paso'] = 'manual_empresa_menu';
+            // Limpiar datos de empresa
+            unset($estado['manual_empresa']);
             break;
             
         default:
@@ -531,7 +582,7 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
             $empTxt = trim($text);
             if ($empTxt==="") { sendMessage($chat_id, "⚠️ El *nombre de la empresa* no puede estar vacío. Escríbelo nuevamente:"); break; }
             
-            // Guarda
+            // Guardar en BD
             $conn = db(); 
             if ($conn) { 
                 crearEmpresaAdmin($conn, $chat_id, $empTxt); 
@@ -539,6 +590,37 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
             }
             
             $estado["manual_empresa"] = $empTxt;
+            
+            // Preguntar por pago parcial
+            $estado['paso'] = 'manual_pago_parcial_pregunta'; 
+            saveState($chat_id, $estado);
+            
+            $kb = [
+                "inline_keyboard" => [
+                    [
+                        ["text" => "✅ Sí, hay pago parcial", "callback_data" => "manual_pago_si"],
+                        ["text" => "❌ No, sin pago parcial", "callback_data" => "manual_pago_no"]
+                    ],
+                    [
+                        ["text" => "⬅️ Volver", "callback_data" => "manual_back_empresa_menu"]
+                    ]
+                ]
+            ];
+            sendMessage($chat_id, "💵 ¿Hay *pago parcial* para este viaje?", $kb);
+            break;
+
+        case "manual_pago_parcial_monto":
+            // Validar que sea un número
+            $monto = trim($text);
+            if (!is_numeric($monto) || $monto <= 0) {
+                sendMessage($chat_id, "⚠️ El monto debe ser un número positivo (ej: 1500000). Escribe el *monto del pago parcial*:");
+                break;
+            }
+            
+            // Convertir a entero
+            $estado["manual_pago_parcial"] = (int)$monto;
+            
+            // Guardar el viaje
             manual_insert_viaje_and_close($chat_id, $estado);
             break;
 
@@ -552,20 +634,40 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
 function manual_insert_viaje_and_close($chat_id, &$estado) {
     $conn = db();
     if (!$conn) { sendMessage($chat_id, "❌ Error de conexión a la base de datos."); clearState($chat_id); return; }
-    $stmt = $conn->prepare("INSERT INTO viajes (nombre, ruta, fecha, cedula, tipo_vehiculo, empresa, imagen) VALUES (?, ?, ?, NULL, ?, ?, NULL)");
-    $stmt->bind_param("sssss", $estado["manual_nombre"], $estado["manual_ruta"], $estado["manual_fecha"], $estado["manual_vehiculo"], $estado["manual_empresa"]);
+    
+    // Preparar la consulta con el nuevo campo pago_parcial
+    $stmt = $conn->prepare("INSERT INTO viajes (nombre, ruta, fecha, cedula, tipo_vehiculo, empresa, imagen, pago_parcial) VALUES (?, ?, ?, NULL, ?, ?, NULL, ?)");
+    $pago_parcial = $estado["manual_pago_parcial"] ?? null;
+    $stmt->bind_param("sssssi", 
+        $estado["manual_nombre"], 
+        $estado["manual_ruta"], 
+        $estado["manual_fecha"], 
+        $estado["manual_vehiculo"], 
+        $estado["manual_empresa"],
+        $pago_parcial
+    );
+    
     if ($stmt->execute()) {
-        sendMessage($chat_id,
-            "✅ Viaje (manual) registrado:\n👤 ".$estado["manual_nombre"].
-            "\n🛣️ ".$estado["manual_ruta"].
-            "\n📅 ".$estado["manual_fecha"].
-            "\n🚐 ".$estado["manual_vehiculo"].
-            "\n🏢 ".$estado["manual_empresa"].
-            "\n\nAtajos rápidos: /agg /manual"
-        );
+        $mensaje = "✅ Viaje (manual) registrado:\n👤 " . $estado["manual_nombre"] .
+                   "\n🛣️ " . $estado["manual_ruta"] .
+                   "\n📅 " . $estado["manual_fecha"] .
+                   "\n🚐 " . $estado["manual_vehiculo"] .
+                   "\n🏢 " . $estado["manual_empresa"];
+        
+        // Agregar información del pago parcial si existe
+        if (isset($estado["manual_pago_parcial"])) {
+            // Formatear el número con separadores de miles
+            $monto_formateado = number_format($estado["manual_pago_parcial"], 0, ',', '.');
+            $mensaje .= "\n💰 Pago parcial: $" . $monto_formateado;
+        }
+        
+        $mensaje .= "\n\nAtajos rápidos: /agg /manual";
+        
+        sendMessage($chat_id, $mensaje);
     } else {
         sendMessage($chat_id, "❌ Error al guardar el viaje: " . $conn->error);
     }
-    $stmt->close(); $conn->close();
+    $stmt->close(); 
+    $conn->close();
     clearState($chat_id);
 }
