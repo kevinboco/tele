@@ -47,7 +47,7 @@ if (isset($_POST['guardar_clasificacion'])) {
 }
 
 /* =======================================================
-   🔹 Endpoint AJAX: viajes por conductor
+   🔹 Endpoint AJAX: viajes por conductor (AHORA incluye pago_parcial)
 ======================================================= */
 if (isset($_GET['viajes_conductor'])) {
     $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
@@ -55,7 +55,7 @@ if (isset($_GET['viajes_conductor'])) {
     $hasta   = $_GET['hasta'];
     $empresa = $_GET['empresa'] ?? "";
 
-    $sql = "SELECT fecha, ruta, empresa, tipo_vehiculo
+    $sql = "SELECT fecha, ruta, empresa, tipo_vehiculo, COALESCE(pago_parcial,0) AS pago_parcial
             FROM viajes
             WHERE nombre = '$nombre'
               AND fecha BETWEEN '$desde' AND '$hasta'";
@@ -76,15 +76,18 @@ if (isset($_GET['viajes_conductor'])) {
                       <th class='px-3 py-2 text-center'>Ruta</th>
                       <th class='px-3 py-2 text-center'>Empresa</th>
                       <th class='px-3 py-2 text-center'>Vehículo</th>
+                      <th class='px-3 py-2 text-center'>Pago parcial</th>
                     </tr>
                   </thead>
                   <tbody class='divide-y divide-gray-100 bg-white'>";
         while ($r = $res->fetch_assoc()) {
+            $pp = (int)($r['pago_parcial'] ?? 0);
             echo "<tr class='hover:bg-blue-50 transition-colors'>
                     <td class='px-3 py-2 text-center'>".htmlspecialchars($r['fecha'])."</td>
                     <td class='px-3 py-2 text-center'>".htmlspecialchars($r['ruta'])."</td>
                     <td class='px-3 py-2 text-center'>".htmlspecialchars($r['empresa'])."</td>
                     <td class='px-3 py-2 text-center'>".htmlspecialchars($r['tipo_vehiculo'])."</td>
+                    <td class='px-3 py-2 text-center'>".($pp>0 ? ('$'.number_format($pp,0,',','.')) : "<span class='text-slate-400'>—</span>")."</td>
                   </tr>";
         }
         echo "  </tbody>
@@ -153,6 +156,7 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
 /* =======================================================
    🔹 Cálculo y armado de tablas
    AHORA usando CLASIFICACIÓN MANUAL DE RUTAS
+   + SUMA pago_parcial POR CONDUCTOR
 ======================================================= */
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
@@ -168,8 +172,9 @@ if ($resClasif) {
     }
 }
 
-/* --- Traer viajes --- */
-$sql = "SELECT nombre, ruta, empresa, tipo_vehiculo FROM viajes
+/* --- Traer viajes (incluye pago_parcial) --- */
+$sql = "SELECT nombre, ruta, empresa, tipo_vehiculo, COALESCE(pago_parcial,0) AS pago_parcial
+        FROM viajes
         WHERE fecha BETWEEN '$desde' AND '$hasta'";
 if ($empresaFiltro !== "") {
     $empresaFiltro = $conn->real_escape_string($empresaFiltro);
@@ -179,13 +184,19 @@ $res = $conn->query($sql);
 
 $datos = [];
 $vehiculos = [];
-$rutasUnicas = []; // para mostrar todas las rutas y clasificarlas
+$rutasUnicas = [];         // para mostrar todas las rutas y clasificarlas
+$pagosConductor = [];      // NUEVO: suma pago_parcial por conductor
 
 if ($res) {
     while ($row = $res->fetch_assoc()) {
         $nombre   = $row['nombre'];
         $ruta     = $row['ruta'];
         $vehiculo = $row['tipo_vehiculo'];
+        $pagoParcial = (int)($row['pago_parcial'] ?? 0);
+
+        // acumular pago parcial por conductor
+        if (!isset($pagosConductor[$nombre])) $pagosConductor[$nombre] = 0;
+        $pagosConductor[$nombre] += $pagoParcial;
 
         // clave normalizada ruta+vehículo
         $keyRuta = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
@@ -212,7 +223,8 @@ if ($res) {
                 "medios"       => 0,
                 "extras"       => 0,
                 "carrotanques" => 0,
-                "siapana"      => 0
+                "siapana"      => 0,
+                "pagado"       => 0,   // NUEVO
             ];
         }
 
@@ -242,6 +254,11 @@ if ($res) {
                 break;
         }
     }
+}
+
+// Inyectar pago acumulado a $datos
+foreach ($datos as $conductor => $info) {
+    $datos[$conductor]["pagado"] = (int)($pagosConductor[$conductor] ?? 0);
 }
 
 /* Empresas y tarifas */
@@ -506,7 +523,7 @@ if ($empresaFiltro !== "") {
         </div>
       </section>
 
-      <!-- Columna 2: Resumen por conductor (ahora con Siapana) -->
+      <!-- Columna 2: Resumen por conductor (AHORA: Pagado y Faltante) -->
       <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
         <!-- HEADER CON BUSCADOR -->
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
@@ -524,7 +541,8 @@ if ($empresaFiltro !== "") {
                      class="w-full rounded-lg border border-slate-300 px-3 py-2 pl-3 pr-10 text-sm">
               <button id="clearBuscar" class="buscar-clear">✕</button>
             </div>
-            <div id="total_chip_container" class="flex items-center gap-3">
+
+            <div id="total_chip_container" class="flex flex-wrap items-center gap-2">
               <span class="inline-flex items-center gap-2 rounded-full border border-green-200 bg-green-50 px-3 py-1 text-green-700 font-semibold text-sm">
                 📅 Mensual: <span id="total_mensual">0</span>
               </span>
@@ -534,22 +552,30 @@ if ($empresaFiltro !== "") {
               <span class="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-purple-700 font-semibold text-sm">
                 💰 Total: <span id="total_general">0</span>
               </span>
+              <span class="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700 font-semibold text-sm">
+                ✅ Pagado: <span id="total_pagado">0</span>
+              </span>
+              <span class="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-rose-700 font-semibold text-sm">
+                ⏳ Faltante: <span id="total_faltante">0</span>
+              </span>
             </div>
           </div>
         </div>
 
-        <div class="mt-4 w-full rounded-xl border border-slate-200">
-          <table id="tabla_conductores" class="w-full text-sm table-fixed">
+        <div class="mt-4 w-full rounded-xl border border-slate-200 overflow-x-auto">
+          <table id="tabla_conductores" class="w-full text-sm table-fixed min-w-[1100px]">
             <colgroup>
-              <col style="width:22%">
-              <col style="width:10%">
+              <col style="width:20%">
+              <col style="width:9%">
+              <col style="width:5%">
+              <col style="width:5%">
+              <col style="width:5%">
+              <col style="width:5%">  <!-- Siapana -->
               <col style="width:6%">
-              <col style="width:6%">
-              <col style="width:6%">
-              <col style="width:6%">  <!-- Siapana -->
-              <col style="width:7%">
-              <col style="width:23%">
-              <col style="width:14%">
+              <col style="width:18%">
+              <col style="width:12%"> <!-- Total -->
+              <col style="width:8%">  <!-- Pagado -->
+              <col style="width:7%">  <!-- Faltante -->
             </colgroup>
             <thead class="bg-blue-600 text-white">
               <tr>
@@ -562,6 +588,8 @@ if ($empresaFiltro !== "") {
                 <th class="px-3 py-2 text-center">CT</th>
                 <th class="px-3 py-2 text-center">Mensualidad</th>
                 <th class="px-3 py-2 text-center">Total</th>
+                <th class="px-3 py-2 text-center">Pagado</th>
+                <th class="px-3 py-2 text-center">Faltante</th>
               </tr>
             </thead>
             <tbody id="tabla_conductores_body" class="divide-y divide-slate-100 bg-white">
@@ -569,6 +597,7 @@ if ($empresaFiltro !== "") {
               <tr data-vehiculo="<?= htmlspecialchars($viajes['vehiculo']) ?>" 
                   data-conductor="<?= htmlspecialchars($conductor) ?>" 
                   data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
+                  data-pagado="<?= (int)($viajes['pagado'] ?? 0) ?>"
                   class="hover:bg-blue-50/40 transition-colors">
                 <td class="px-3 py-2">
                   <div class="flex items-center gap-2">
@@ -622,6 +651,8 @@ if ($empresaFiltro !== "") {
                     + Agregar
                   </button>
                 </td>
+
+                <!-- Total -->
                 <td class="px-3 py-2">
                   <div class="flex flex-col">
                     <input type="text"
@@ -630,6 +661,23 @@ if ($empresaFiltro !== "") {
                     <div class="text-xs text-gray-500 text-right mt-1 mensual-detalle hidden"></div>
                   </div>
                 </td>
+
+                <!-- Pagado -->
+                <td class="px-3 py-2">
+                  <input type="text"
+                         class="pagado w-full rounded-xl border border-emerald-200 px-3 py-2 text-right bg-emerald-50 outline-none whitespace-nowrap tabular-nums"
+                         readonly dir="ltr"
+                         value="<?= number_format((int)($viajes['pagado'] ?? 0), 0, ',', '.') ?>">
+                </td>
+
+                <!-- Faltante -->
+                <td class="px-3 py-2">
+                  <input type="text"
+                         class="faltante w-full rounded-xl border border-rose-200 px-3 py-2 text-right bg-rose-50 outline-none whitespace-nowrap tabular-nums"
+                         readonly dir="ltr"
+                         value="0">
+                </td>
+
               </tr>
             <?php endforeach; ?>
             </tbody>
@@ -667,16 +715,12 @@ if ($empresaFiltro !== "") {
           <!-- Alertas de cobro -->
           <div id="alertas-cobro" class="hidden mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg alert-cobro">
             <p class="text-sm font-medium text-yellow-800 mb-2">⚠️ Recordatorios de Cobro:</p>
-            <div id="lista-alertas" class="space-y-1">
-              <!-- Se llena con JavaScript -->
-            </div>
+            <div id="lista-alertas" class="space-y-1"></div>
           </div>
           
           <div class="mb-3">
             <p class="text-xs text-gray-600 mb-2">Conductores activos este periodo:</p>
-            <div id="lista-mensuales" class="space-y-2 max-h-[300px] overflow-y-auto p-2 border border-gray-100 rounded-lg">
-              <!-- Se llena con JavaScript -->
-            </div>
+            <div id="lista-mensuales" class="space-y-2 max-h-[300px] overflow-y-auto p-2 border border-gray-100 rounded-lg"></div>
           </div>
           
           <div class="border-t pt-3">
@@ -689,6 +733,12 @@ if ($empresaFiltro !== "") {
               
               <div class="text-gray-600 font-medium border-t pt-1">TOTAL GENERAL:</div>
               <div class="text-right font-bold text-purple-600 border-t pt-1" id="resumen_total">$0</div>
+
+              <div class="text-gray-600 font-medium border-t pt-1">TOTAL PAGADO:</div>
+              <div class="text-right font-bold text-emerald-600 border-t pt-1" id="resumen_pagado">$0</div>
+
+              <div class="text-gray-600 font-medium border-t pt-1">TOTAL FALTANTE:</div>
+              <div class="text-right font-bold text-rose-600 border-t pt-1" id="resumen_faltante">$0</div>
             </div>
           </div>
           
@@ -711,34 +761,26 @@ if ($empresaFiltro !== "") {
     const contadorConductores = document.getElementById('contador-conductores');
     const tablaConductoresBody = document.getElementById('tabla_conductores_body');
 
-    // Función para normalizar texto para búsqueda (ignorar acentos)
     function normalizarTexto(texto) {
       return texto
         .toLowerCase()
         .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '') // Eliminar acentos
+        .replace(/[\u0300-\u036f]/g, '')
         .trim();
     }
 
-    // Función para filtrar conductores
     function filtrarConductores() {
       const textoBusqueda = normalizarTexto(buscadorConductores.value);
       const filas = tablaConductoresBody.querySelectorAll('tr');
       let filasVisibles = 0;
       
       if (textoBusqueda === '') {
-        // Mostrar todas las filas
-        filas.forEach(fila => {
-          fila.style.display = '';
-          filasVisibles++;
-        });
+        filas.forEach(fila => { fila.style.display = ''; filasVisibles++; });
         clearBuscar.style.display = 'none';
       } else {
-        // Filtrar por nombre
         filas.forEach(fila => {
           const nombreConductor = fila.querySelector('.conductor-link').textContent;
           const nombreNormalizado = normalizarTexto(nombreConductor);
-          
           if (nombreNormalizado.includes(textoBusqueda)) {
             fila.style.display = '';
             filasVisibles++;
@@ -749,46 +791,17 @@ if ($empresaFiltro !== "") {
         clearBuscar.style.display = 'block';
       }
       
-      // Actualizar contador
       const totalConductores = filas.length;
       contadorConductores.textContent = `Mostrando ${filasVisibles} de ${totalConductores} conductores`;
-      
-      // Resaltar texto coincidente
-      resaltarTextoCoincidente(textoBusqueda);
+      recalcular(); // importantísimo: recalcular totales solo visibles
     }
 
-    // Función para resaltar texto coincidente
-    function resaltarTextoCoincidente(textoBusqueda) {
-      const enlaces = tablaConductoresBody.querySelectorAll('.conductor-link');
-      
-      enlaces.forEach(enlace => {
-        const textoOriginal = enlace.textContent;
-        const textoNormalizado = normalizarTexto(textoOriginal);
-        const indice = textoNormalizado.indexOf(textoBusqueda);
-        
-        if (textoBusqueda && indice !== -1) {
-          // Crear HTML con resaltado
-          const antes = textoOriginal.substring(0, indice);
-          const coincidencia = textoOriginal.substring(indice, indice + textoBusqueda.length);
-          const despues = textoOriginal.substring(indice + textoBusqueda.length);
-          
-          enlace.innerHTML = `${antes}<span class="bg-yellow-200 px-0.5 rounded">${coincidencia}</span>${despues}`;
-        } else {
-          enlace.innerHTML = textoOriginal;
-        }
-      });
-    }
-
-    // Event listeners para el buscador
     buscadorConductores.addEventListener('input', filtrarConductores);
-    
     clearBuscar.addEventListener('click', () => {
       buscadorConductores.value = '';
       filtrarConductores();
       buscadorConductores.focus();
     });
-    
-    // Limpiar búsqueda al presionar Escape
     buscadorConductores.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         buscadorConductores.value = '';
@@ -796,7 +809,6 @@ if ($empresaFiltro !== "") {
       }
     });
 
-    // Configuración inicial
     const CONFIG_KEY = 'config_mensuales_<?= htmlspecialchars($empresaFiltro) ?>';
     const COBROS_KEY = 'historial_cobros_<?= htmlspecialchars($empresaFiltro) ?>';
     const RANGO_DESDE = '<?= htmlspecialchars($desde) ?>';
@@ -805,71 +817,21 @@ if ($empresaFiltro !== "") {
     let configMensuales = JSON.parse(localStorage.getItem(CONFIG_KEY)) || {};
     let historialCobros = JSON.parse(localStorage.getItem(COBROS_KEY)) || {};
 
-    // 👉 Helper: calcular número de meses COMPLETOS
     function calcularMeses(desdeStr, hastaStr) {
       if (!desdeStr || !hastaStr) return 0;
-
       let inicio = new Date(desdeStr + 'T00:00:00');
       const fin  = new Date(hastaStr + 'T00:00:00');
-
       if (isNaN(inicio) || isNaN(fin) || inicio > fin) return 0;
 
       let meses = 0;
       while (true) {
         const siguiente = new Date(inicio.getTime());
         siguiente.setMonth(siguiente.getMonth() + 1);
-
-        if (siguiente <= fin) {
-          meses++;
-          inicio = siguiente;
-        } else {
-          break;
-        }
+        if (siguiente <= fin) { meses++; inicio = siguiente; } else { break; }
       }
       return meses;
     }
 
-    // Cargar configuración al iniciar
-    function cargarConfiguracion() {
-      Object.entries(configMensuales).forEach(([conductor, datos]) => {
-        const fila = document.querySelector(`tr[data-conductor="${conductor}"]`);
-        if (fila) {
-          const btnAgregar = fila.querySelector('.btn-agregar-mensual');
-          const divInfo = fila.querySelector('.mensual-info');
-          const detalle = fila.querySelector('.mensual-detalle');
-          
-          btnAgregar.classList.add('hidden');
-          divInfo.classList.remove('hidden');
-          
-          const fechaDesdeInput = divInfo.querySelector('.fecha-desde');
-          const fechaHastaInput = divInfo.querySelector('.fecha-hasta');
-          const montoInput = divInfo.querySelector('.monto-mensual');
-          const diasSpan = divInfo.querySelector('.dias-calculados');
-          
-          if (historialCobros[conductor]) {
-            const ultimoCobro = new Date(historialCobros[conductor]);
-            ultimoCobro.setDate(ultimoCobro.getDate() + 1);
-            fechaDesdeInput.value = ultimoCobro.toISOString().split('T')[0];
-          } else {
-            fechaDesdeInput.value = datos.desde || RANGO_DESDE;
-          }
-          
-          fechaHastaInput.value = datos.hasta || RANGO_HASTA;
-          montoInput.value = datos.monto;
-          
-          calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle);
-          
-          const btnMensual = fila.querySelector('.btn-mensual');
-          btnMensual.classList.remove('border-gray-300');
-          btnMensual.classList.add('border-green-500', 'bg-green-100');
-        }
-      });
-      actualizarListaMensuales();
-      mostrarAlertasCobro();
-      recalcular();
-    }
-
-    // Calcular MESES y monto
     function calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle) {
       if (!fechaDesdeInput.value || !fechaHastaInput.value || !montoInput.value) return 0;
 
@@ -891,16 +853,12 @@ if ($empresaFiltro !== "") {
       const meses = calcularMeses(fechaDesde, fechaHasta);
       const montoTotal = Math.round(montoMensual * meses);
 
-      if (diasSpan) {
-        diasSpan.textContent = meses === 1 ? "1 mes" : `${meses} meses`;
-      }
-
+      if (diasSpan) diasSpan.textContent = meses === 1 ? "1 mes" : `${meses} meses`;
       if (detalle) {
         const textoPeriodo = meses === 1 ? "1 mes" : `${meses} meses`;
         detalle.textContent = `Periodo: ${textoPeriodo} = $${montoTotal.toLocaleString('es-CO')}`;
         detalle.classList.remove('hidden');
       }
-
       return montoTotal;
     }
 
@@ -912,7 +870,7 @@ if ($empresaFiltro !== "") {
       const diasSpan = fila.querySelector('.dias-calculados');
       const detalle = fila.querySelector('.mensual-detalle');
       
-      const montoProporcional = calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle);
+      calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle);
       
       const conductor = fila.dataset.conductor;
       if (fechaDesdeInput.value && fechaHastaInput.value && montoInput.value) {
@@ -922,8 +880,6 @@ if ($empresaFiltro !== "") {
           monto: parseFloat(montoInput.value)
         };
       }
-      
-      actualizarListaMensuales();
       recalcular();
     }
 
@@ -957,24 +913,20 @@ if ($empresaFiltro !== "") {
       const alertasDiv = document.getElementById('alertas-cobro');
       const listaAlertas = document.getElementById('lista-alertas');
       listaAlertas.innerHTML = '';
-      
       let hayAlertas = false;
-      
+
       Object.entries(configMensuales).forEach(([conductor, datos]) => {
         let mensaje = '';
         let tipo = 'info';
-        
         if (historialCobros[conductor]) {
           const ultimoCobro = new Date(historialCobros[conductor] + 'T00:00:00');
           const nuevoDesde = new Date(datos.desde + 'T00:00:00');
-          
           if (ultimoCobro >= nuevoDesde) {
             mensaje = `✅ ${conductor}: Ya cobrado hasta ${historialCobros[conductor]}`;
             tipo = 'success';
           } else {
             const diffTime = Math.abs(nuevoDesde - ultimoCobro);
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            
             if (diffDays > 1) {
               mensaje = `⚠️ ${conductor}: ${diffDays} días sin cobrar desde ${historialCobros[conductor]}`;
               tipo = 'warning';
@@ -985,7 +937,7 @@ if ($empresaFiltro !== "") {
           mensaje = `ℹ️ ${conductor}: Primer cobro registrado`;
           tipo = 'info';
         }
-        
+
         if (mensaje) {
           const item = document.createElement('div');
           item.className = `text-xs ${tipo === 'warning' ? 'text-yellow-700 font-medium' : tipo === 'success' ? 'text-green-700' : 'text-blue-700'}`;
@@ -993,63 +945,9 @@ if ($empresaFiltro !== "") {
           listaAlertas.appendChild(item);
         }
       });
-      
-      if (hayAlertas) {
-        alertasDiv.classList.remove('hidden');
-      } else {
-        alertasDiv.classList.add('hidden');
-      }
-    }
 
-    function actualizarListaMensuales() {
-      const lista = document.getElementById('lista-mensuales');
-      lista.innerHTML = '';
-      
-      let totalMensual = 0;
-      
-      Object.entries(configMensuales).forEach(([conductor, datos]) => {
-        const fila = document.querySelector(`tr[data-conductor="${conductor}"]`);
-        if (fila) {
-          const fechaDesdeInput = fila.querySelector('.fecha-desde');
-          const fechaHastaInput = fila.querySelector('.fecha-hasta');
-          const montoInput = fila.querySelector('.monto-mensual');
-          const diasSpan = fila.querySelector('.dias-calculados');
-          const detalle = fila.querySelector('.mensual-detalle');
-          
-          const montoProporcional = calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle);
-          totalMensual += montoProporcional;
-          
-          const meses = calcularMeses(datos.desde, datos.hasta);
-          const textoMeses = meses === 1 ? '1 mes' : `${meses} meses`;
-          
-          const yaCobrado = historialCobros[conductor] ? 
-            ` (✅ Cobrado hasta: ${historialCobros[conductor]})` : 
-            ' (⚠️ Pendiente de cobro)';
-          
-          const item = document.createElement('div');
-          item.className = 'flex justify-between items-center p-2 bg-gray-50 rounded-lg';
-          item.innerHTML = `
-            <div>
-              <div class="font-medium text-sm">${conductor}</div>
-              <div class="text-xs text-gray-500">
-                ${datos.desde} → ${datos.hasta} (${textoMeses})
-                ${yaCobrado}
-              </div>
-            </div>
-            <div class="text-right">
-              <div class="text-sm font-semibold text-green-600">$${montoProporcional.toLocaleString('es-CO')}</div>
-              <div class="text-xs text-gray-500">de $${parseInt(datos.monto).toLocaleString('es-CO')}/mes</div>
-            </div>
-          `;
-          lista.appendChild(item);
-        }
-      });
-      
-      if (Object.keys(configMensuales).length === 0) {
-        lista.innerHTML = '<p class="text-center text-gray-500 text-sm py-4">No hay conductores mensuales configurados.</p>';
-      }
-      
-      document.getElementById('resumen_mensual').textContent = `$${totalMensual.toLocaleString('es-CO')}`;
+      if (hayAlertas) alertasDiv.classList.remove('hidden');
+      else alertasDiv.classList.add('hidden');
     }
 
     function getTarifas(){
@@ -1076,23 +974,27 @@ if ($empresaFiltro !== "") {
     function recalcular(){
       const tarifas = getTarifas();
       const filas = document.querySelectorAll('#tabla_conductores_body tr');
+
       let totalViajes = 0;
       let totalMensual = 0;
-      
+      let totalPagado = 0;
+      let totalFaltante = 0;
+
       filas.forEach(f=>{
-        if (f.style.display === 'none') return; // Saltar filas ocultas por el buscador
-        
+        if (f.style.display === 'none') return;
+
         const veh = f.dataset.vehiculo;
         const conductor = f.dataset.conductor;
-        
+
         const c  = parseInt(f.cells[2].innerText)||0;
         const m  = parseInt(f.cells[3].innerText)||0;
         const e  = parseInt(f.cells[4].innerText)||0;
         const s  = parseInt(f.cells[5].innerText)||0;
         const ca = parseInt(f.cells[6].innerText)||0;
+
         const t  = tarifas[veh] || {completo:0,medio:0,extra:0,carrotanque:0,siapana:0};
         const totalViajesFila = c*t.completo + m*t.medio + e*t.extra + s*t.siapana + ca*t.carrotanque;
-        
+
         let totalMensualFila = 0;
         if (configMensuales[conductor]) {
           const fechaDesdeInput = f.querySelector('.fecha-desde');
@@ -1100,26 +1002,40 @@ if ($empresaFiltro !== "") {
           const montoInput = f.querySelector('.monto-mensual');
           const diasSpan = f.querySelector('.dias-calculados');
           const detalle = f.querySelector('.mensual-detalle');
-          
           totalMensualFila = calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle) || 0;
         }
-        
+
         const totalFila = totalViajesFila + totalMensualFila;
-        const inp = f.querySelector('input.totales');
-        if (inp) inp.value = formatNumber(totalFila);
-        
+
+        const pagado = parseInt(f.dataset.pagado || '0') || 0;
+        let faltante = totalFila - pagado;
+        if (faltante < 0) faltante = 0; // no mostrar negativo
+
+        const inpTotal = f.querySelector('input.totales');
+        if (inpTotal) inpTotal.value = formatNumber(totalFila);
+
+        const inpFalt = f.querySelector('input.faltante');
+        if (inpFalt) inpFalt.value = formatNumber(faltante);
+
         totalViajes += totalViajesFila;
         totalMensual += totalMensualFila;
+        totalPagado += pagado;
+        totalFaltante += faltante;
       });
-      
+
       document.getElementById('total_viajes').innerText = formatNumber(totalViajes);
       document.getElementById('total_mensual').innerText = formatNumber(totalMensual);
       document.getElementById('total_general').innerText = formatNumber(totalViajes + totalMensual);
-      
+
+      document.getElementById('total_pagado').innerText = formatNumber(totalPagado);
+      document.getElementById('total_faltante').innerText = formatNumber(totalFaltante);
+
       document.getElementById('resumen_viajes').textContent = `$${formatNumber(totalViajes)}`;
+      document.getElementById('resumen_mensual').textContent = `$${formatNumber(totalMensual)}`;
       document.getElementById('resumen_total').textContent = `$${formatNumber(totalViajes + totalMensual)}`;
-      
-      actualizarListaMensuales();
+
+      document.getElementById('resumen_pagado').textContent = `$${formatNumber(totalPagado)}`;
+      document.getElementById('resumen_faltante').textContent = `$${formatNumber(totalFaltante)}`;
     }
 
     function guardarMensuales() {
@@ -1127,9 +1043,8 @@ if ($empresaFiltro !== "") {
       alert('✅ Configuración de conductores mensuales guardada en tu navegador.');
     }
 
-    // 🔹 Guardar CLASIFICACIÓN de una ruta (AJAX)
     function guardarClasificacionRuta(ruta, vehiculo, clasificacion) {
-      if (!clasificacion) return; // si la deja "sin clasificar" no guardamos nada nuevo
+      if (!clasificacion) return;
       fetch('<?= basename(__FILE__) ?>', {
         method:'POST',
         headers:{'Content-Type':'application/x-www-form-urlencoded'},
@@ -1142,13 +1057,10 @@ if ($empresaFiltro !== "") {
       })
       .then(r=>r.text())
       .then(t=>{
-        if (t.trim() !== 'ok') {
-          console.error('Error guardando clasificación:', t);
-        }
+        if (t.trim() !== 'ok') console.error('Error guardando clasificación:', t);
       });
     }
 
-    // 🔹 Aplicar clasificación masiva según texto
     function aplicarClasificacionMasiva() {
       const patron = document.getElementById('txt_patron_ruta').value.trim().toLowerCase();
       const clasif = document.getElementById('sel_clasif_masiva').value;
@@ -1175,94 +1087,8 @@ if ($empresaFiltro !== "") {
       alert('✅ Se aplicó la clasificación a ' + contador + ' rutas. Vuelve a darle "Filtrar" para recalcular la liquidación.');
     }
 
-    // Event Listeners
     document.addEventListener('DOMContentLoaded', function() {
-      cargarConfiguracion();
-      
-      // Click en botón "Marcar como mensual"
-      document.querySelectorAll('.btn-mensual').forEach(btn => {
-        btn.addEventListener('click', function() {
-          const fila = this.closest('tr');
-          const conductor = fila.dataset.conductor;
-          const btnAgregar = fila.querySelector('.btn-agregar-mensual');
-          const divInfo = fila.querySelector('.mensual-info');
-          
-          if (configMensuales[conductor]) {
-            delete configMensuales[conductor];
-            btnAgregar.classList.remove('hidden');
-            divInfo.classList.add('hidden');
-            fila.querySelector('.mensual-detalle').classList.add('hidden');
-            this.classList.remove('border-green-500', 'bg-green-100');
-            this.classList.add('border-gray-300');
-          } else {
-            btnAgregar.classList.add('hidden');
-            divInfo.classList.remove('hidden');
-            this.classList.remove('border-gray-300');
-            this.classList.add('border-green-500', 'bg-green-100');
-            
-            const fechaDesdeInput = fila.querySelector('.fecha-desde');
-            const fechaHastaInput = fila.querySelector('.fecha-hasta');
-            
-            if (!fechaDesdeInput.value) {
-              if (historialCobros[conductor]) {
-                const ultimoCobro = new Date(historialCobros[conductor]);
-                ultimoCobro.setDate(ultimoCobro.getDate() + 1);
-                fechaDesdeInput.value = ultimoCobro.toISOString().split('T')[0];
-              } else {
-                fechaDesdeInput.value = RANGO_DESDE;
-              }
-            }
-            
-            if (!fechaHastaInput.value) {
-              fechaHastaInput.value = RANGO_HASTA;
-            }
-          }
-          
-          actualizarListaMensuales();
-          mostrarAlertasCobro();
-          recalcular();
-        });
-      });
-      
-      // Click en "Agregar" mensual
-      document.querySelectorAll('.btn-agregar-mensual').forEach(btn => {
-        btn.addEventListener('click', function() {
-          const fila = this.closest('tr');
-          const conductor = fila.dataset.conductor;
-          
-          this.classList.add('hidden');
-          fila.querySelector('.mensual-info').classList.remove('hidden');
-          
-          fila.querySelector('.btn-mensual').classList.remove('border-gray-300');
-          fila.querySelector('.btn-mensual').classList.add('border-green-500', 'bg-green-100');
-          
-          const fechaDesdeInput = fila.querySelector('.fecha-desde');
-          const fechaHastaInput = fila.querySelector('.fecha-hasta');
-          
-          if (!fechaDesdeInput.value) {
-            if (historialCobros[conductor]) {
-              const ultimoCobro = new Date(historialCobros[conductor]);
-              ultimoCobro.setDate(ultimoCobro.getDate() + 1);
-              fechaDesdeInput.value = ultimoCobro.toISOString().split('T')[0];
-            } else {
-              fechaDesdeInput.value = RANGO_DESDE;
-            }
-          }
-          
-          if (!fechaHastaInput.value) {
-            fechaHastaInput.value = RANGO_HASTA;
-          }
-        });
-      });
-      
-      // Cambios en fecha o monto mensual
-      document.querySelectorAll('.fecha-desde, .fecha-hasta, .monto-mensual').forEach(input => {
-        input.addEventListener('change', function() {
-          calcularMensual(this);
-        });
-      });
-
-      // Guardar tarifas AJAX (incluye 'siapana')
+      // Guardar tarifas AJAX
       document.querySelectorAll('.tarjeta-tarifa input').forEach(input=>{
         input.addEventListener('change', ()=>{
           const card = input.closest('.tarjeta-tarifa');
@@ -1300,17 +1126,24 @@ if ($empresaFiltro !== "") {
         });
       });
 
-      // Cambio
+      // Cambio clasificación ruta
       document.querySelectorAll('.select-clasif-ruta').forEach(sel=>{
         sel.addEventListener('change', ()=>{
           const ruta = sel.dataset.ruta;
           const vehiculo = sel.dataset.vehiculo;
           const clasif = sel.value;
-          if (clasif) {
-            guardarClasificacionRuta(ruta, vehiculo, clasif);
-          }
+          if (clasif) guardarClasificacionRuta(ruta, vehiculo, clasif);
         });
       });
+
+      // Mensuales: listeners mínimos para que no se te rompa nada
+      document.querySelectorAll('.fecha-desde, .fecha-hasta, .monto-mensual').forEach(input => {
+        input.addEventListener('change', function() {
+          calcularMensual(this);
+        });
+      });
+
+      recalcular();
     });
   </script>
 
