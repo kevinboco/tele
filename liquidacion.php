@@ -69,25 +69,25 @@ if (isset($_GET['viajes_conductor'])) {
 
     if ($res && $res->num_rows > 0) {
         echo "<div class='overflow-x-auto'>
-                <table class='w-full text-sm'>
+                <table class='min-w-full text-sm text-left'>
                   <thead class='bg-blue-600 text-white'>
                     <tr>
-                      <th class='px-2 py-2 text-center whitespace-nowrap'>Fecha</th>
-                      <th class='px-2 py-2 text-center whitespace-nowrap'>Ruta</th>
-                      <th class='px-2 py-2 text-center whitespace-nowrap'>Empresa</th>
-                      <th class='px-2 py-2 text-center whitespace-nowrap'>Vehículo</th>
-                      <th class='px-2 py-2 text-center whitespace-nowrap'>Pago parcial</th>
+                      <th class='px-3 py-2 text-center'>Fecha</th>
+                      <th class='px-3 py-2 text-center'>Ruta</th>
+                      <th class='px-3 py-2 text-center'>Empresa</th>
+                      <th class='px-3 py-2 text-center'>Vehículo</th>
+                      <th class='px-3 py-2 text-center'>Pago parcial</th>
                     </tr>
                   </thead>
                   <tbody class='divide-y divide-gray-100 bg-white'>";
         while ($r = $res->fetch_assoc()) {
             $pp = (int)($r['pago_parcial'] ?? 0);
             echo "<tr class='hover:bg-blue-50 transition-colors'>
-                    <td class='px-2 py-2 text-center whitespace-nowrap'>".htmlspecialchars($r['fecha'])."</td>
-                    <td class='px-2 py-2 text-center whitespace-nowrap max-w-[120px] truncate' title='".htmlspecialchars($r['ruta'])."'>".htmlspecialchars($r['ruta'])."</td>
-                    <td class='px-2 py-2 text-center whitespace-nowrap max-w-[100px] truncate' title='".htmlspecialchars($r['empresa'])."'>".htmlspecialchars($r['empresa'])."</td>
-                    <td class='px-2 py-2 text-center whitespace-nowrap'>".htmlspecialchars($r['tipo_vehiculo'])."</td>
-                    <td class='px-2 py-2 text-center whitespace-nowrap'>".($pp>0 ? ('$'.number_format($pp,0,',','.')) : "<span class='text-slate-400'>—</span>")."</td>
+                    <td class='px-3 py-2 text-center'>".htmlspecialchars($r['fecha'])."</td>
+                    <td class='px-3 py-2 text-center'>".htmlspecialchars($r['ruta'])."</td>
+                    <td class='px-3 py-2 text-center'>".htmlspecialchars($r['empresa'])."</td>
+                    <td class='px-3 py-2 text-center'>".htmlspecialchars($r['tipo_vehiculo'])."</td>
+                    <td class='px-3 py-2 text-center'>".($pp>0 ? ('$'.number_format($pp,0,',','.')) : "<span class='text-slate-400'>—</span>")."</td>
                   </tr>";
         }
         echo "  </tbody>
@@ -307,33 +307,6 @@ if ($empresaFiltro !== "") {
     border: 1px solid #f59e0b !important;
     color: #92400e !important;
     font-weight: 600;
-  }
-  /* Estilos para la tabla de viajes */
-  #contenidoPanel table {
-    min-width: 100%;
-    table-layout: fixed;
-    border-collapse: collapse;
-  }
-  #contenidoPanel th {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    padding: 0.5rem;
-    font-size: 0.75rem;
-    font-weight: 600;
-  }
-  #contenidoPanel td {
-    padding: 0.5rem;
-    font-size: 0.75rem;
-    white-space: nowrap;
-  }
-  /* Ajustes responsivos para el panel */
-  @media (max-width: 1400px) {
-    #contenidoPanel table th,
-    #contenidoPanel table td {
-      padding: 0.4rem 0.3rem;
-      font-size: 0.7rem;
-    }
   }
 </style>
 </head>
@@ -680,7 +653,7 @@ if ($empresaFiltro !== "") {
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
           <h4 class="text-base font-semibold mb-3">🧳 Viajes del Conductor</h4>
           <div id="contenidoPanel"
-               class="min-h-[220px] max-h-[400px] overflow-auto rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+               class="min-h-[220px] max-h-[400px] overflow-y-auto rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600 flex items-center justify-center">
             <p class="m-0 text-center">Selecciona un conductor para ver sus viajes aquí.</p>
           </div>
         </div>
