@@ -315,6 +315,10 @@ if ($empresaFiltro !== "") {
     cursor: grab;
     transition: all 0.2s ease;
     user-select: none;
+    margin-bottom: 1.25rem; /* 20px */
+  }
+  .draggable-container:last-child {
+    margin-bottom: 0;
   }
   .draggable-container:active {
     cursor: grabbing;
@@ -322,6 +326,7 @@ if ($empresaFiltro !== "") {
   .dragging {
     opacity: 0.6;
     transform: scale(0.98);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
   }
   .drop-target {
     border: 2px dashed #3b82f6 !important;
@@ -334,9 +339,14 @@ if ($empresaFiltro !== "") {
     cursor: grab;
     color: #64748b;
     z-index: 10;
-    padding: 4px;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.8);
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid #e2e8f0;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
   }
   .drag-handle:active {
     cursor: grabbing;
@@ -344,6 +354,58 @@ if ($empresaFiltro !== "") {
   .drag-handle:hover {
     color: #3b82f6;
     background: rgba(59, 130, 246, 0.1);
+    border-color: #3b82f6;
+  }
+  
+  /* Grid principal personalizable */
+  #main-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 1.25rem; /* 20px */
+  }
+  
+  /* Áreas iniciales por defecto */
+  .container-tarifas {
+    grid-column: span 4;
+  }
+  .container-resumen {
+    grid-column: span 5;
+  }
+  .container-panel {
+    grid-column: span 3;
+  }
+  .container-filtro {
+    grid-column: span 4;
+  }
+  .container-clasificacion {
+    grid-column: span 4;
+  }
+  
+  /* Responsive */
+  @media (max-width: 1280px) {
+    #main-grid {
+      grid-template-columns: 1fr;
+    }
+    .container-tarifas,
+    .container-resumen,
+    .container-panel,
+    .container-filtro,
+    .container-clasificacion {
+      grid-column: 1 / -1;
+    }
+  }
+  
+  /* Indicador visual para contenedores que se pueden reordenar */
+  .reorder-hint {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: rgba(59, 130, 246, 0.1);
+    color: #3b82f6;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid rgba(59, 130, 246, 0.2);
   }
 </style>
 </head>
@@ -362,20 +424,23 @@ if ($empresaFiltro !== "") {
             <span class="mx-2">•</span> Empresa: <strong><?= htmlspecialchars($empresaFiltro) ?></strong>
           <?php endif; ?>
         </div>
+        <button onclick="resetLayout()" class="text-sm px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition">
+          🔄 Restablecer diseño
+        </button>
       </div>
     </div>
   </header>
 
-  <!-- Contenido -->
+  <!-- Contenido principal - GRID PERSONALIZABLE -->
   <main class="max-w-[1600px] mx-auto px-3 md:px-4 py-6">
-    <div id="main-grid" class="grid grid-cols-1 xl:grid-cols-[1fr_2.6fr_0.9fr] gap-5 items-start">
-
-      <!-- Columna 1: Tarifas + Filtro + Clasificación de rutas -->
-      <section class="space-y-5 draggable-container" draggable="true" id="container-1">
-        <div class="drag-handle" title="Arrastrar para reordenar">↕️</div>
-
-        <!-- Tarjetas de tarifas (con SIAPANA) -->
-        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+    <div id="main-grid">
+      
+      <!-- 🔹 TARIFAS POR TIPO DE VEHÍCULO (contenedor independiente) -->
+      <section class="draggable-container container-tarifas" draggable="true" id="container-tarifas">
+        <div class="reorder-hint">Arrastrable</div>
+        <div class="drag-handle" title="Arrastrar para reordenar">↕️ Mover</div>
+        
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 h-full">
           <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
             <span>🚐 Tarifas por Tipo de Vehículo</span>
           </h3>
@@ -444,9 +509,14 @@ if ($empresaFiltro !== "") {
             <?php endforeach; ?>
           </div>
         </div>
+      </section>
 
-        <!-- Filtro -->
-        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+      <!-- 🔹 FILTRO DE LIQUIDACIÓN (contenedor independiente) -->
+      <section class="draggable-container container-filtro" draggable="true" id="container-filtro">
+        <div class="reorder-hint">Arrastrable</div>
+        <div class="drag-handle" title="Arrastrar para reordenar">↕️ Mover</div>
+        
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 h-full">
           <h5 class="text-base font-semibold text-center mb-4">📅 Filtro de Liquidación</h5>
           <form class="grid grid-cols-1 md:grid-cols-4 gap-3" method="get">
             <label class="block md:col-span-1">
@@ -478,9 +548,14 @@ if ($empresaFiltro !== "") {
             </div>
           </form>
         </div>
+      </section>
 
-        <!-- 🔹 Panel de CLASIFICACIÓN de RUTAS -->
-        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+      <!-- 🔹 CLASIFICACIÓN DE RUTAS (contenedor independiente) -->
+      <section class="draggable-container container-clasificacion" draggable="true" id="container-clasificacion">
+        <div class="reorder-hint">Arrastrable</div>
+        <div class="drag-handle" title="Arrastrar para reordenar">↕️ Mover</div>
+        
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 h-full">
           <h5 class="text-base font-semibold mb-3 flex items-center justify-between">
             <span>🧭 Clasificación de Rutas</span>
             <span class="text-xs text-slate-500">Se guarda en BD</span>
@@ -559,138 +634,142 @@ if ($empresaFiltro !== "") {
         </div>
       </section>
 
-      <!-- Columna 2: Resumen por conductor -->
-      <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 draggable-container" draggable="true" id="container-2">
-        <div class="drag-handle" title="Arrastrar para reordenar">↕️</div>
+      <!-- 🔹 RESUMEN POR CONDUCTOR (contenedor independiente) -->
+      <section class="draggable-container container-resumen" draggable="true" id="container-resumen">
+        <div class="reorder-hint">Arrastrable</div>
+        <div class="drag-handle" title="Arrastrar para reordenar">↕️ Mover</div>
         
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-          <div>
-            <h3 class="text-lg font-semibold">🧑‍✈️ Resumen por Conductor</h3>
-            <div id="contador-conductores" class="text-xs text-slate-500 mt-1">
-              Mostrando <?= count($datos) ?> de <?= count($datos) ?> conductores
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 h-full">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 class="text-lg font-semibold">🧑‍✈️ Resumen por Conductor</h3>
+              <div id="contador-conductores" class="text-xs text-slate-500 mt-1">
+                Mostrando <?= count($datos) ?> de <?= count($datos) ?> conductores
+              </div>
+            </div>
+            <div class="flex flex-col md:flex-row gap-3 w-full md:w-auto">
+              <!-- BUSCADOR DE CONDUCTORES -->
+              <div class="buscar-container w-full md:w-64">
+                <input id="buscadorConductores" type="text" 
+                       placeholder="Buscar conductor..." 
+                       class="w-full rounded-lg border border-slate-300 px-3 py-2 pl-3 pr-10 text-sm">
+                <button id="clearBuscar" class="buscar-clear">✕</button>
+              </div>
+
+              <div id="total_chip_container" class="flex flex-wrap items-center gap-2">
+                <span class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-700 font-semibold text-sm">
+                  🔢 Viajes: <span id="total_viajes">0</span>
+                </span>
+                <span class="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-purple-700 font-semibold text-sm">
+                  💰 Total: <span id="total_general">0</span>
+                </span>
+                <span class="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700 font-semibold text-sm">
+                  ✅ Pagado: <span id="total_pagado">0</span>
+                </span>
+                <span class="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-rose-700 font-semibold text-sm">
+                  ⏳ Faltante: <span id="total_faltante">0</span>
+                </span>
+              </div>
             </div>
           </div>
-          <div class="flex flex-col md:flex-row gap-3 w-full md:w-auto">
-            <!-- BUSCADOR DE CONDUCTORES -->
-            <div class="buscar-container w-full md:w-64">
-              <input id="buscadorConductores" type="text" 
-                     placeholder="Buscar conductor..." 
-                     class="w-full rounded-lg border border-slate-300 px-3 py-2 pl-3 pr-10 text-sm">
-              <button id="clearBuscar" class="buscar-clear">✕</button>
-            </div>
 
-            <div id="total_chip_container" class="flex flex-wrap items-center gap-2">
-              <span class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-700 font-semibold text-sm">
-                🔢 Viajes: <span id="total_viajes">0</span>
-              </span>
-              <span class="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-purple-700 font-semibold text-sm">
-                💰 Total: <span id="total_general">0</span>
-              </span>
-              <span class="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700 font-semibold text-sm">
-                ✅ Pagado: <span id="total_pagado">0</span>
-              </span>
-              <span class="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-rose-700 font-semibold text-sm">
-                ⏳ Faltante: <span id="total_faltante">0</span>
-              </span>
-            </div>
+          <div class="mt-4 w-full rounded-xl border border-slate-200 overflow-x-auto">
+            <table id="tabla_conductores" class="w-full text-sm table-fixed min-w-[900px]">
+              <colgroup>
+                <col style="width:25%">
+                <col style="width:12%">
+                <col style="width:7%">
+                <col style="width:7%">
+                <col style="width:7%">
+                <col style="width:7%">  <!-- Siapana -->
+                <col style="width:8%">  <!-- Carrotanque -->
+                <col style="width:15%"> <!-- Total -->
+                <col style="width:12%"> <!-- Pagado -->
+                <col style="width:10%"> <!-- Faltante -->
+              </colgroup>
+              <thead class="bg-blue-600 text-white">
+                <tr>
+                  <th class="px-3 py-2 text-left">Conductor</th>
+                  <th class="px-3 py-2 text-center">Tipo</th>
+                  <th class="px-3 py-2 text-center">C</th>
+                  <th class="px-3 py-2 text-center">M</th>
+                  <th class="px-3 py-2 text-center">E</th>
+                  <th class="px-3 py-2 text-center">S</th>
+                  <th class="px-3 py-2 text-center">CT</th>
+                  <th class="px-3 py-2 text-center">Total</th>
+                  <th class="px-3 py-2 text-center">Pagado</th>
+                  <th class="px-3 py-2 text-center">Faltante</th>
+                </tr>
+              </thead>
+              <tbody id="tabla_conductores_body" class="divide-y divide-slate-100 bg-white">
+              <?php foreach ($datos as $conductor => $viajes): 
+                // Detectar si el vehículo es "Mensual" (case insensitive)
+                $esMensual = (stripos($viajes['vehiculo'], 'mensual') !== false);
+                $claseVehiculo = $esMensual ? 'vehiculo-mensual' : '';
+              ?>
+                <tr data-vehiculo="<?= htmlspecialchars($viajes['vehiculo']) ?>" 
+                    data-conductor="<?= htmlspecialchars($conductor) ?>" 
+                    data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
+                    data-pagado="<?= (int)($viajes['pagado'] ?? 0) ?>"
+                    class="hover:bg-blue-50/40 transition-colors">
+                  <td class="px-3 py-2">
+                    <button type="button"
+                            class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition"
+                            title="Ver viajes">
+                      <?= htmlspecialchars($conductor) ?>
+                    </button>
+                  </td>
+                  <td class="px-3 py-2 text-center">
+                    <span class="inline-block <?= $claseVehiculo ?> px-2 py-1 rounded-lg text-xs font-medium">
+                      <?= htmlspecialchars($viajes['vehiculo']) ?>
+                      <?php if ($esMensual): ?>
+                        <span class="ml-1">📅</span>
+                      <?php endif; ?>
+                    </span>
+                  </td>
+                  <td class="px-3 py-2 text-center"><?= (int)$viajes["completos"] ?></td>
+                  <td class="px-3 py-2 text-center"><?= (int)$viajes["medios"] ?></td>
+                  <td class="px-3 py-2 text-center"><?= (int)$viajes["extras"] ?></td>
+                  <td class="px-3 py-2 text-center"><?= (int)$viajes["siapana"] ?></td>
+                  <td class="px-3 py-2 text-center"><?= (int)$viajes["carrotanques"] ?></td>
+
+                  <!-- Total -->
+                  <td class="px-3 py-2">
+                    <input type="text"
+                           class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none whitespace-nowrap tabular-nums"
+                           readonly dir="ltr">
+                  </td>
+
+                  <!-- Pagado -->
+                  <td class="px-3 py-2">
+                    <input type="text"
+                           class="pagado w-full rounded-xl border border-emerald-200 px-3 py-2 text-right bg-emerald-50 outline-none whitespace-nowrap tabular-nums"
+                           readonly dir="ltr"
+                           value="<?= number_format((int)($viajes['pagado'] ?? 0), 0, ',', '.') ?>">
+                  </td>
+
+                  <!-- Faltante -->
+                  <td class="px-3 py-2">
+                    <input type="text"
+                           class="faltante w-full rounded-xl border border-rose-200 px-3 py-2 text-right bg-rose-50 outline-none whitespace-nowrap tabular-nums"
+                           readonly dir="ltr"
+                           value="0">
+                  </td>
+
+                </tr>
+              <?php endforeach; ?>
+              </tbody>
+            </table>
           </div>
-        </div>
-
-        <div class="mt-4 w-full rounded-xl border border-slate-200 overflow-x-auto">
-          <table id="tabla_conductores" class="w-full text-sm table-fixed min-w-[900px]">
-            <colgroup>
-              <col style="width:25%">
-              <col style="width:12%">
-              <col style="width:7%">
-              <col style="width:7%">
-              <col style="width:7%">
-              <col style="width:7%">  <!-- Siapana -->
-              <col style="width:8%">  <!-- Carrotanque -->
-              <col style="width:15%"> <!-- Total -->
-              <col style="width:12%"> <!-- Pagado -->
-              <col style="width:10%"> <!-- Faltante -->
-            </colgroup>
-            <thead class="bg-blue-600 text-white">
-              <tr>
-                <th class="px-3 py-2 text-left">Conductor</th>
-                <th class="px-3 py-2 text-center">Tipo</th>
-                <th class="px-3 py-2 text-center">C</th>
-                <th class="px-3 py-2 text-center">M</th>
-                <th class="px-3 py-2 text-center">E</th>
-                <th class="px-3 py-2 text-center">S</th>
-                <th class="px-3 py-2 text-center">CT</th>
-                <th class="px-3 py-2 text-center">Total</th>
-                <th class="px-3 py-2 text-center">Pagado</th>
-                <th class="px-3 py-2 text-center">Faltante</th>
-              </tr>
-            </thead>
-            <tbody id="tabla_conductores_body" class="divide-y divide-slate-100 bg-white">
-            <?php foreach ($datos as $conductor => $viajes): 
-              // Detectar si el vehículo es "Mensual" (case insensitive)
-              $esMensual = (stripos($viajes['vehiculo'], 'mensual') !== false);
-              $claseVehiculo = $esMensual ? 'vehiculo-mensual' : '';
-            ?>
-              <tr data-vehiculo="<?= htmlspecialchars($viajes['vehiculo']) ?>" 
-                  data-conductor="<?= htmlspecialchars($conductor) ?>" 
-                  data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
-                  data-pagado="<?= (int)($viajes['pagado'] ?? 0) ?>"
-                  class="hover:bg-blue-50/40 transition-colors">
-                <td class="px-3 py-2">
-                  <button type="button"
-                          class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition"
-                          title="Ver viajes">
-                    <?= htmlspecialchars($conductor) ?>
-                  </button>
-                </td>
-                <td class="px-3 py-2 text-center">
-                  <span class="inline-block <?= $claseVehiculo ?> px-2 py-1 rounded-lg text-xs font-medium">
-                    <?= htmlspecialchars($viajes['vehiculo']) ?>
-                    <?php if ($esMensual): ?>
-                      <span class="ml-1">📅</span>
-                    <?php endif; ?>
-                  </span>
-                </td>
-                <td class="px-3 py-2 text-center"><?= (int)$viajes["completos"] ?></td>
-                <td class="px-3 py-2 text-center"><?= (int)$viajes["medios"] ?></td>
-                <td class="px-3 py-2 text-center"><?= (int)$viajes["extras"] ?></td>
-                <td class="px-3 py-2 text-center"><?= (int)$viajes["siapana"] ?></td>
-                <td class="px-3 py-2 text-center"><?= (int)$viajes["carrotanques"] ?></td>
-
-                <!-- Total -->
-                <td class="px-3 py-2">
-                  <input type="text"
-                         class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none whitespace-nowrap tabular-nums"
-                         readonly dir="ltr">
-                </td>
-
-                <!-- Pagado -->
-                <td class="px-3 py-2">
-                  <input type="text"
-                         class="pagado w-full rounded-xl border border-emerald-200 px-3 py-2 text-right bg-emerald-50 outline-none whitespace-nowrap tabular-nums"
-                         readonly dir="ltr"
-                         value="<?= number_format((int)($viajes['pagado'] ?? 0), 0, ',', '.') ?>">
-                </td>
-
-                <!-- Faltante -->
-                <td class="px-3 py-2">
-                  <input type="text"
-                         class="faltante w-full rounded-xl border border-rose-200 px-3 py-2 text-right bg-rose-50 outline-none whitespace-nowrap tabular-nums"
-                         readonly dir="ltr"
-                         value="0">
-                </td>
-
-              </tr>
-            <?php endforeach; ?>
-            </tbody>
-          </table>
         </div>
       </section>
 
-      <!-- Columna 3: Panel viajes -->
-      <aside class="space-y-5 draggable-container" draggable="true" id="container-3">
-        <div class="drag-handle" title="Arrastrar para reordenar">↕️</div>
-        <!-- Panel viajes -->
-        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+      <!-- 🔹 PANEL DE VIAJES (contenedor independiente) -->
+      <aside class="draggable-container container-panel" draggable="true" id="container-panel">
+        <div class="reorder-hint">Arrastrable</div>
+        <div class="drag-handle" title="Arrastrar para reordenar">↕️ Mover</div>
+        
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 h-full">
           <h4 class="text-base font-semibold mb-3">🧳 Viajes del Conductor</h4>
           <div id="contenidoPanel"
                class="min-h-[220px] max-h-[400px] overflow-y-auto rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600 flex items-center justify-center">
@@ -703,16 +782,42 @@ if ($empresaFiltro !== "") {
   </main>
 
   <script>
-    // ===== FUNCIONALIDAD DE ARRASTRAR Y SOLTAR =====
+    // ===== FUNCIONALIDAD DE ARRASTRAR Y SOLTAR MEJORADA =====
     let draggedElement = null;
     let dragHandle = null;
+    let dragOffsetX = 0;
+    let dragOffsetY = 0;
+    let isDragging = false;
+    let placeholder = null;
+    let allContainers = [];
+    let gridAreas = {};
+
+    // Configuración inicial del layout
+    const defaultLayout = {
+      'container-tarifas': { col: 'span 4', row: 'auto', order: 0 },
+      'container-filtro': { col: 'span 4', row: 'auto', order: 1 },
+      'container-clasificacion': { col: 'span 4', row: 'auto', order: 2 },
+      'container-resumen': { col: 'span 5', row: 'auto', order: 3 },
+      'container-panel': { col: 'span 3', row: 'auto', order: 4 }
+    };
 
     // Inicializar eventos de arrastre
     function initDragAndDrop() {
-      const containers = document.querySelectorAll('.draggable-container');
+      allContainers = Array.from(document.querySelectorAll('.draggable-container'));
       
-      containers.forEach(container => {
-        // Añadir manejador de arrastre
+      // Cargar layout guardado o usar el default
+      loadLayout();
+      
+      allContainers.forEach(container => {
+        // Eliminar eventos anteriores para evitar duplicados
+        container.removeEventListener('dragstart', handleDragStart);
+        container.removeEventListener('dragend', handleDragEnd);
+        container.removeEventListener('dragover', handleDragOver);
+        container.removeEventListener('dragenter', handleDragEnter);
+        container.removeEventListener('dragleave', handleDragLeave);
+        container.removeEventListener('drop', handleDrop);
+        
+        // Añadir nuevos eventos
         container.addEventListener('dragstart', handleDragStart);
         container.addEventListener('dragend', handleDragEnd);
         container.addEventListener('dragover', handleDragOver);
@@ -723,6 +828,9 @@ if ($empresaFiltro !== "") {
         // Configurar manejador del asa de arrastre
         const handle = container.querySelector('.drag-handle');
         if (handle) {
+          handle.removeEventListener('mousedown', startDragFromHandle);
+          handle.removeEventListener('touchstart', startDragFromHandle);
+          
           handle.addEventListener('mousedown', startDragFromHandle);
           handle.addEventListener('touchstart', startDragFromHandle);
         }
@@ -730,34 +838,66 @@ if ($empresaFiltro !== "") {
     }
 
     function handleDragStart(e) {
-      // Solo permitir arrastre desde el asa o el contenedor
-      if (dragHandle && e.target !== dragHandle && !dragHandle.contains(e.target)) {
-        if (!e.target.classList.contains('draggable-container')) {
-          e.preventDefault();
-          return;
-        }
+      // Solo permitir arrastre desde el asa
+      const isFromHandle = e.target.classList.contains('drag-handle') || 
+                          e.target.closest('.drag-handle');
+      
+      if (!isFromHandle && !e.target.classList.contains('draggable-container')) {
+        e.preventDefault();
+        return;
       }
       
       draggedElement = this;
+      dragHandle = isFromHandle ? (e.target.classList.contains('drag-handle') ? e.target : e.target.closest('.drag-handle')) : null;
+      
+      // Añadir clase de arrastre
       this.classList.add('dragging');
+      
+      // Crear placeholder para mantener el espacio
+      placeholder = document.createElement('div');
+      placeholder.className = 'placeholder';
+      placeholder.style.height = this.offsetHeight + 'px';
+      placeholder.style.marginBottom = '1.25rem';
+      placeholder.style.border = '2px dashed #cbd5e1';
+      placeholder.style.borderRadius = '1rem';
+      placeholder.style.backgroundColor = 'rgba(203, 213, 225, 0.1)';
+      
+      // Insertar placeholder
+      this.parentNode.insertBefore(placeholder, this.nextSibling);
       
       // Establecer datos para el arrastre
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', this.id);
       
-      // Para Firefox
-      e.dataTransfer.setData('text/html', this.outerHTML);
+      // Para mejor compatibilidad
+      setTimeout(() => {
+        this.style.display = 'none';
+      }, 0);
     }
 
     function handleDragEnd(e) {
-      this.classList.remove('dragging');
-      draggedElement = null;
-      dragHandle = null;
+      // Remover clases y restablecer
+      if (draggedElement) {
+        draggedElement.classList.remove('dragging');
+        draggedElement.style.display = '';
+      }
       
-      // Remover clases de drop target de todos los contenedores
-      document.querySelectorAll('.draggable-container').forEach(container => {
+      // Remover placeholder
+      if (placeholder && placeholder.parentNode) {
+        placeholder.parentNode.removeChild(placeholder);
+      }
+      
+      // Remover clases de drop target
+      allContainers.forEach(container => {
         container.classList.remove('drop-target');
       });
+      
+      draggedElement = null;
+      dragHandle = null;
+      placeholder = null;
+      
+      // Guardar el nuevo layout
+      saveLayout();
     }
 
     function handleDragOver(e) {
@@ -767,14 +907,25 @@ if ($empresaFiltro !== "") {
 
     function handleDragEnter(e) {
       e.preventDefault();
-      if (this !== draggedElement) {
+      if (this !== draggedElement && this !== placeholder) {
         this.classList.add('drop-target');
+        
+        // Calcular posición para insertar
+        const rect = this.getBoundingClientRect();
+        const mouseY = e.clientY;
+        const shouldInsertBefore = mouseY < rect.top + rect.height / 2;
+        
+        if (shouldInsertBefore) {
+          this.parentNode.insertBefore(placeholder, this);
+        } else {
+          this.parentNode.insertBefore(placeholder, this.nextSibling);
+        }
       }
     }
 
     function handleDragLeave(e) {
-      // Solo remover la clase si no estamos sobre el elemento
-      if (!this.contains(e.relatedTarget)) {
+      // Solo remover la clase si no estamos sobre el elemento o el placeholder
+      if (!this.contains(e.relatedTarget) && e.relatedTarget !== placeholder) {
         this.classList.remove('drop-target');
       }
     }
@@ -784,73 +935,137 @@ if ($empresaFiltro !== "") {
       e.stopPropagation();
       
       if (draggedElement && draggedElement !== this) {
-        // Obtener la posición de los elementos en el grid
-        const mainGrid = document.getElementById('main-grid');
-        const containers = Array.from(mainGrid.querySelectorAll('.draggable-container'));
-        
-        const draggedIndex = containers.indexOf(draggedElement);
-        const dropIndex = containers.indexOf(this);
-        
-        if (draggedIndex !== -1 && dropIndex !== -1) {
-          // Intercambiar los elementos en el DOM
-          if (draggedIndex < dropIndex) {
-            this.parentNode.insertBefore(draggedElement, this.nextSibling);
-          } else {
+        // Insertar el elemento arrastrado donde está el placeholder
+        if (placeholder && placeholder.parentNode) {
+          if (placeholder.nextSibling === this) {
             this.parentNode.insertBefore(draggedElement, this);
+          } else {
+            placeholder.parentNode.insertBefore(draggedElement, placeholder);
           }
-          
-          // Guardar el orden en localStorage
-          saveLayoutOrder();
         }
+        
+        // Actualizar el orden visual
+        updateContainerOrder();
       }
       
       this.classList.remove('drop-target');
     }
 
     function startDragFromHandle(e) {
-      dragHandle = this;
-      // Para dispositivos táctiles, necesitamos iniciar el arrastre manualmente
+      // Para dispositivos táctiles, necesitamos prevenir el comportamiento por defecto
       if (e.type === 'touchstart') {
         e.preventDefault();
-        const container = this.closest('.draggable-container');
-        if (container) {
-          // Simular evento dragstart
-          const dragStartEvent = new DragEvent('dragstart', {
-            bubbles: true,
-            cancelable: true,
-            dataTransfer: new DataTransfer()
-          });
-          container.dispatchEvent(dragStartEvent);
-        }
+      }
+      
+      const container = this.closest('.draggable-container');
+      if (container) {
+        // Simular evento dragstart
+        const dragStartEvent = new DragEvent('dragstart', {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer: new DataTransfer()
+        });
+        container.dispatchEvent(dragStartEvent);
       }
     }
 
-    function saveLayoutOrder() {
+    function updateContainerOrder() {
+      // Actualizar el orden visual basado en la posición en el DOM
       const mainGrid = document.getElementById('main-grid');
-      const containers = Array.from(mainGrid.querySelectorAll('.draggable-container'));
-      const order = containers.map(container => container.id);
+      const currentContainers = Array.from(mainGrid.querySelectorAll('.draggable-container'));
       
-      // Guardar en localStorage
-      localStorage.setItem('liquidacionLayoutOrder', JSON.stringify(order));
+      // Guardar el nuevo orden
+      saveLayout();
     }
 
-    function loadLayoutOrder() {
-      const savedOrder = localStorage.getItem('liquidacionLayoutOrder');
-      if (savedOrder) {
+    function saveLayout() {
+      const mainGrid = document.getElementById('main-grid');
+      const containers = Array.from(mainGrid.querySelectorAll('.draggable-container'));
+      
+      const layout = {};
+      containers.forEach((container, index) => {
+        const id = container.id;
+        // Obtener las clases de grid actuales
+        const classList = Array.from(container.classList);
+        const gridClass = classList.find(cls => cls.startsWith('container-'));
+        
+        layout[id] = {
+          gridClass: gridClass || container.className.match(/container-\w+/)?.[0],
+          order: index,
+          col: container.style.gridColumn || getComputedStyle(container).gridColumn
+        };
+      });
+      
+      localStorage.setItem('liquidacionAdvancedLayout', JSON.stringify(layout));
+    }
+
+    function loadLayout() {
+      const savedLayout = localStorage.getItem('liquidacionAdvancedLayout');
+      const mainGrid = document.getElementById('main-grid');
+      
+      if (savedLayout) {
         try {
-          const order = JSON.parse(savedOrder);
-          const mainGrid = document.getElementById('main-grid');
+          const layout = JSON.parse(savedLayout);
+          const containerIds = Object.keys(layout);
           
-          // Reordenar elementos según el orden guardado
-          order.forEach(id => {
+          // Ordenar contenedores según el layout guardado
+          containerIds.sort((a, b) => layout[a].order - layout[b].order);
+          
+          // Reinsertar en el orden correcto
+          containerIds.forEach(id => {
             const element = document.getElementById(id);
             if (element) {
+              // Aplicar clases guardadas
+              if (layout[id].gridClass) {
+                element.className = element.className.replace(/container-\w+/, layout[id].gridClass);
+              }
+              // Aplicar estilo de grid
+              if (layout[id].col) {
+                element.style.gridColumn = layout[id].col;
+              }
+              
               mainGrid.appendChild(element);
             }
           });
         } catch (e) {
-          console.error('Error al cargar el orden del layout:', e);
+          console.error('Error al cargar el layout:', e);
+          setDefaultLayout();
         }
+      } else {
+        setDefaultLayout();
+      }
+    }
+
+    function setDefaultLayout() {
+      const mainGrid = document.getElementById('main-grid');
+      
+      // Orden por defecto
+      const defaultOrder = [
+        'container-tarifas',
+        'container-filtro',
+        'container-clasificacion',
+        'container-resumen',
+        'container-panel'
+      ];
+      
+      defaultOrder.forEach(id => {
+        const element = document.getElementById(id);
+        if (element) {
+          // Aplicar clases por defecto
+          element.className = element.className.replace(/container-\w+/, id);
+          element.style.gridColumn = '';
+          
+          mainGrid.appendChild(element);
+        }
+      });
+    }
+
+    function resetLayout() {
+      if (confirm('¿Restablecer el diseño a la configuración por defecto?')) {
+        localStorage.removeItem('liquidacionAdvancedLayout');
+        setDefaultLayout();
+        initDragAndDrop();
+        alert('Diseño restablecido correctamente.');
       }
     }
 
@@ -1021,9 +1236,6 @@ if ($empresaFiltro !== "") {
     }
 
     document.addEventListener('DOMContentLoaded', function() {
-      // Cargar el orden guardado del layout
-      loadLayoutOrder();
-      
       // Inicializar arrastre y soltar
       initDragAndDrop();
 
@@ -1078,8 +1290,8 @@ if ($empresaFiltro !== "") {
       recalcular();
     });
 
-    // También guardar el orden cuando se cierre la página
-    window.addEventListener('beforeunload', saveLayoutOrder);
+    // También guardar el layout cuando se cierre la página
+    window.addEventListener('beforeunload', saveLayout);
   </script>
 
 </body>
