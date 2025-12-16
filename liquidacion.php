@@ -308,6 +308,43 @@ if ($empresaFiltro !== "") {
     color: #92400e !important;
     font-weight: 600;
   }
+  
+  /* Estilos para el arrastre */
+  .draggable-container {
+    position: relative;
+    cursor: grab;
+    transition: all 0.2s ease;
+    user-select: none;
+  }
+  .draggable-container:active {
+    cursor: grabbing;
+  }
+  .dragging {
+    opacity: 0.6;
+    transform: scale(0.98);
+  }
+  .drop-target {
+    border: 2px dashed #3b82f6 !important;
+    background-color: rgba(59, 130, 246, 0.05) !important;
+  }
+  .drag-handle {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    cursor: grab;
+    color: #64748b;
+    z-index: 10;
+    padding: 4px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.8);
+  }
+  .drag-handle:active {
+    cursor: grabbing;
+  }
+  .drag-handle:hover {
+    color: #3b82f6;
+    background: rgba(59, 130, 246, 0.1);
+  }
 </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
@@ -331,10 +368,11 @@ if ($empresaFiltro !== "") {
 
   <!-- Contenido -->
   <main class="max-w-[1600px] mx-auto px-3 md:px-4 py-6">
-    <div class="grid grid-cols-1 xl:grid-cols-[1fr_2.6fr_0.9fr] gap-5 items-start">
+    <div id="main-grid" class="grid grid-cols-1 xl:grid-cols-[1fr_2.6fr_0.9fr] gap-5 items-start">
 
       <!-- Columna 1: Tarifas + Filtro + Clasificación de rutas -->
-      <section class="space-y-5">
+      <section class="space-y-5 draggable-container" draggable="true" id="container-1">
+        <div class="drag-handle" title="Arrastrar para reordenar">↕️</div>
 
         <!-- Tarjetas de tarifas (con SIAPANA) -->
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
@@ -522,7 +560,8 @@ if ($empresaFiltro !== "") {
       </section>
 
       <!-- Columna 2: Resumen por conductor -->
-      <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+      <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 draggable-container" draggable="true" id="container-2">
+        <div class="drag-handle" title="Arrastrar para reordenar">↕️</div>
         
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
           <div>
@@ -648,7 +687,8 @@ if ($empresaFiltro !== "") {
       </section>
 
       <!-- Columna 3: Panel viajes -->
-      <aside class="space-y-5">
+      <aside class="space-y-5 draggable-container" draggable="true" id="container-3">
+        <div class="drag-handle" title="Arrastrar para reordenar">↕️</div>
         <!-- Panel viajes -->
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
           <h4 class="text-base font-semibold mb-3">🧳 Viajes del Conductor</h4>
@@ -663,6 +703,157 @@ if ($empresaFiltro !== "") {
   </main>
 
   <script>
+    // ===== FUNCIONALIDAD DE ARRASTRAR Y SOLTAR =====
+    let draggedElement = null;
+    let dragHandle = null;
+
+    // Inicializar eventos de arrastre
+    function initDragAndDrop() {
+      const containers = document.querySelectorAll('.draggable-container');
+      
+      containers.forEach(container => {
+        // Añadir manejador de arrastre
+        container.addEventListener('dragstart', handleDragStart);
+        container.addEventListener('dragend', handleDragEnd);
+        container.addEventListener('dragover', handleDragOver);
+        container.addEventListener('dragenter', handleDragEnter);
+        container.addEventListener('dragleave', handleDragLeave);
+        container.addEventListener('drop', handleDrop);
+        
+        // Configurar manejador del asa de arrastre
+        const handle = container.querySelector('.drag-handle');
+        if (handle) {
+          handle.addEventListener('mousedown', startDragFromHandle);
+          handle.addEventListener('touchstart', startDragFromHandle);
+        }
+      });
+    }
+
+    function handleDragStart(e) {
+      // Solo permitir arrastre desde el asa o el contenedor
+      if (dragHandle && e.target !== dragHandle && !dragHandle.contains(e.target)) {
+        if (!e.target.classList.contains('draggable-container')) {
+          e.preventDefault();
+          return;
+        }
+      }
+      
+      draggedElement = this;
+      this.classList.add('dragging');
+      
+      // Establecer datos para el arrastre
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', this.id);
+      
+      // Para Firefox
+      e.dataTransfer.setData('text/html', this.outerHTML);
+    }
+
+    function handleDragEnd(e) {
+      this.classList.remove('dragging');
+      draggedElement = null;
+      dragHandle = null;
+      
+      // Remover clases de drop target de todos los contenedores
+      document.querySelectorAll('.draggable-container').forEach(container => {
+        container.classList.remove('drop-target');
+      });
+    }
+
+    function handleDragOver(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+    }
+
+    function handleDragEnter(e) {
+      e.preventDefault();
+      if (this !== draggedElement) {
+        this.classList.add('drop-target');
+      }
+    }
+
+    function handleDragLeave(e) {
+      // Solo remover la clase si no estamos sobre el elemento
+      if (!this.contains(e.relatedTarget)) {
+        this.classList.remove('drop-target');
+      }
+    }
+
+    function handleDrop(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      if (draggedElement && draggedElement !== this) {
+        // Obtener la posición de los elementos en el grid
+        const mainGrid = document.getElementById('main-grid');
+        const containers = Array.from(mainGrid.querySelectorAll('.draggable-container'));
+        
+        const draggedIndex = containers.indexOf(draggedElement);
+        const dropIndex = containers.indexOf(this);
+        
+        if (draggedIndex !== -1 && dropIndex !== -1) {
+          // Intercambiar los elementos en el DOM
+          if (draggedIndex < dropIndex) {
+            this.parentNode.insertBefore(draggedElement, this.nextSibling);
+          } else {
+            this.parentNode.insertBefore(draggedElement, this);
+          }
+          
+          // Guardar el orden en localStorage
+          saveLayoutOrder();
+        }
+      }
+      
+      this.classList.remove('drop-target');
+    }
+
+    function startDragFromHandle(e) {
+      dragHandle = this;
+      // Para dispositivos táctiles, necesitamos iniciar el arrastre manualmente
+      if (e.type === 'touchstart') {
+        e.preventDefault();
+        const container = this.closest('.draggable-container');
+        if (container) {
+          // Simular evento dragstart
+          const dragStartEvent = new DragEvent('dragstart', {
+            bubbles: true,
+            cancelable: true,
+            dataTransfer: new DataTransfer()
+          });
+          container.dispatchEvent(dragStartEvent);
+        }
+      }
+    }
+
+    function saveLayoutOrder() {
+      const mainGrid = document.getElementById('main-grid');
+      const containers = Array.from(mainGrid.querySelectorAll('.draggable-container'));
+      const order = containers.map(container => container.id);
+      
+      // Guardar en localStorage
+      localStorage.setItem('liquidacionLayoutOrder', JSON.stringify(order));
+    }
+
+    function loadLayoutOrder() {
+      const savedOrder = localStorage.getItem('liquidacionLayoutOrder');
+      if (savedOrder) {
+        try {
+          const order = JSON.parse(savedOrder);
+          const mainGrid = document.getElementById('main-grid');
+          
+          // Reordenar elementos según el orden guardado
+          order.forEach(id => {
+            const element = document.getElementById(id);
+            if (element) {
+              mainGrid.appendChild(element);
+            }
+          });
+        } catch (e) {
+          console.error('Error al cargar el orden del layout:', e);
+        }
+      }
+    }
+
     // ===== BUSCADOR DE CONDUCTORES =====
     const buscadorConductores = document.getElementById('buscadorConductores');
     const clearBuscar = document.getElementById('clearBuscar');
@@ -830,6 +1021,12 @@ if ($empresaFiltro !== "") {
     }
 
     document.addEventListener('DOMContentLoaded', function() {
+      // Cargar el orden guardado del layout
+      loadLayoutOrder();
+      
+      // Inicializar arrastre y soltar
+      initDragAndDrop();
+
       // Guardar tarifas AJAX
       document.querySelectorAll('.tarjeta-tarifa input').forEach(input=>{
         input.addEventListener('change', ()=>{
@@ -880,6 +1077,9 @@ if ($empresaFiltro !== "") {
 
       recalcular();
     });
+
+    // También guardar el orden cuando se cierre la página
+    window.addEventListener('beforeunload', saveLayoutOrder);
   </script>
 
 </body>
