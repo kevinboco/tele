@@ -640,25 +640,6 @@ if ($empresaFiltro !== "") {
             <p class="m-0 text-center">Selecciona un conductor para ver sus viajes aquí.</p>
           </div>
         </div>
-
-        <!-- Resumen total simplificado -->
-        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-          <h4 class="text-base font-semibold mb-3">📊 Resumen Total</h4>
-          
-          <div class="grid grid-cols-2 gap-2 text-sm">
-            <div class="text-gray-600">Total por viajes:</div>
-            <div class="text-right font-semibold" id="resumen_viajes">$0</div>
-            
-            <div class="text-gray-600 font-medium border-t pt-1">TOTAL:</div>
-            <div class="text-right font-bold text-purple-600 border-t pt-1" id="resumen_total">$0</div>
-
-            <div class="text-gray-600 font-medium border-t pt-1">TOTAL PAGADO:</div>
-            <div class="text-right font-bold text-emerald-600 border-t pt-1" id="resumen_pagado">$0</div>
-
-            <div class="text-gray-600 font-medium border-t pt-1">TOTAL FALTANTE:</div>
-            <div class="text-right font-bold text-rose-600 border-t pt-1" id="resumen_faltante">$0</div>
-          </div>
-        </div>
       </aside>
 
     </div>
@@ -785,12 +766,6 @@ if ($empresaFiltro !== "") {
 
       document.getElementById('total_pagado').innerText = formatNumber(totalPagado);
       document.getElementById('total_faltante').innerText = formatNumber(totalFaltante);
-
-      document.getElementById('resumen_viajes').textContent = `$${formatNumber(totalViajes)}`;
-      document.getElementById('resumen_total').textContent = `$${formatNumber(totalViajes)}`;
-
-      document.getElementById('resumen_pagado').textContent = `$${formatNumber(totalPagado)}`;
-      document.getElementById('resumen_faltante').textContent = `$${formatNumber(totalFaltante)}`;
     }
 
     function guardarClasificacionRuta(ruta, vehiculo, clasificacion) {
