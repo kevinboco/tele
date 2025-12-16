@@ -302,6 +302,12 @@ if ($empresaFiltro !== "") {
     display: none; 
   }
   .buscar-clear:hover { color: #475569; }
+  .vehiculo-mensual {
+    background-color: #fef3c7 !important;
+    border: 1px solid #f59e0b !important;
+    color: #92400e !important;
+    font-weight: 600;
+  }
 </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
@@ -580,7 +586,11 @@ if ($empresaFiltro !== "") {
               </tr>
             </thead>
             <tbody id="tabla_conductores_body" class="divide-y divide-slate-100 bg-white">
-            <?php foreach ($datos as $conductor => $viajes): ?>
+            <?php foreach ($datos as $conductor => $viajes): 
+              // Detectar si el vehículo es "Mensual" (case insensitive)
+              $esMensual = (stripos($viajes['vehiculo'], 'mensual') !== false);
+              $claseVehiculo = $esMensual ? 'vehiculo-mensual' : '';
+            ?>
               <tr data-vehiculo="<?= htmlspecialchars($viajes['vehiculo']) ?>" 
                   data-conductor="<?= htmlspecialchars($conductor) ?>" 
                   data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
@@ -593,7 +603,14 @@ if ($empresaFiltro !== "") {
                     <?= htmlspecialchars($conductor) ?>
                   </button>
                 </td>
-                <td class="px-3 py-2 text-center"><?= htmlspecialchars($viajes['vehiculo']) ?></td>
+                <td class="px-3 py-2 text-center">
+                  <span class="inline-block <?= $claseVehiculo ?> px-2 py-1 rounded-lg text-xs font-medium">
+                    <?= htmlspecialchars($viajes['vehiculo']) ?>
+                    <?php if ($esMensual): ?>
+                      <span class="ml-1">📅</span>
+                    <?php endif; ?>
+                  </span>
+                </td>
                 <td class="px-3 py-2 text-center"><?= (int)$viajes["completos"] ?></td>
                 <td class="px-3 py-2 text-center"><?= (int)$viajes["medios"] ?></td>
                 <td class="px-3 py-2 text-center"><?= (int)$viajes["extras"] ?></td>
