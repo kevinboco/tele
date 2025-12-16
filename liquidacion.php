@@ -47,13 +47,23 @@ if (isset($_POST['guardar_clasificacion'])) {
 }
 
 /* =======================================================
-   🔹 Endpoint AJAX: viajes por conductor (AHORA incluye pago_parcial)
+   🔹 Endpoint AJAX: viajes por conductor (CON CLASIFICACIONES Y COLORES)
 ======================================================= */
 if (isset($_GET['viajes_conductor'])) {
     $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
     $desde   = $_GET['desde'];
     $hasta   = $_GET['hasta'];
     $empresa = $_GET['empresa'] ?? "";
+
+    // Cargar clasificaciones de rutas
+    $clasif_rutas = [];
+    $resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
+    if ($resClasif) {
+        while ($r = $resClasif->fetch_assoc()) {
+            $key = mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo']), 'UTF-8');
+            $clasif_rutas[$key] = $r['clasificacion'];
+        }
+    }
 
     $sql = "SELECT fecha, ruta, empresa, tipo_vehiculo, COALESCE(pago_parcial,0) AS pago_parcial
             FROM viajes
@@ -67,10 +77,94 @@ if (isset($_GET['viajes_conductor'])) {
 
     $res = $conn->query($sql);
 
+    // Definir colores y estilos (igual que en ajuste_pago.php)
+    $legend = [
+        'completo'     => ['label'=>'Completo',     'badge'=>'bg-emerald-100 text-emerald-700 border border-emerald-200', 'row'=>'bg-emerald-50/40'],
+        'medio'        => ['label'=>'Medio',        'badge'=>'bg-amber-100 text-amber-800 border border-amber-200',       'row'=>'bg-amber-50/40'],
+        'extra'        => ['label'=>'Extra',        'badge'=>'bg-slate-200 text-slate-800 border border-slate-300',       'row'=>'bg-slate-50'],
+        'siapana'      => ['label'=>'Siapana',      'badge'=>'bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-200', 'row'=>'bg-fuchsia-50/40'],
+        'carrotanque'  => ['label'=>'Carrotanque',  'badge'=>'bg-cyan-100 text-cyan-800 border border-cyan-200',          'row'=>'bg-cyan-50/40'],
+        'otro'         => ['label'=>'Sin clasificar','badge'=>'bg-gray-100 text-gray-700 border border-gray-200',         'row'=>'bg-gray-50/20']
+    ];
+
     if ($res && $res->num_rows > 0) {
-        echo "<div class='overflow-x-auto'>
+        // Contadores para cada clasificación
+        $counts = [
+            'completo' => 0,
+            'medio' => 0,
+            'extra' => 0,
+            'siapana' => 0,
+            'carrotanque' => 0,
+            'otro' => 0
+        ];
+
+        $rowsHTML = "";
+        
+        while ($r = $res->fetch_assoc()) {
+            $ruta = (string)$r['ruta'];
+            $vehiculo = $r['tipo_vehiculo'];
+            
+            // 🔹 Determinar clasificación desde la tabla ruta_clasificacion
+            $key = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
+            $cat = $clasif_rutas[$key] ?? 'otro';
+            
+            // Validar que sea una clasificación válida
+            if (!in_array($cat, ['completo','medio','extra','siapana','carrotanque'])) {
+                $cat = 'otro';
+            }
+
+            // Incrementar contador
+            if (isset($counts[$cat])) {
+                $counts[$cat]++;
+            } else {
+                $counts[$cat] = 1;
+            }
+
+            $l = $legend[$cat];
+            $badge = "<span class='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold {$l['badge']}'>".$l['label']."</span>";
+            $rowCls = trim("row-viaje hover:bg-blue-50 transition-colors {$l['row']} cat-$cat");
+
+            $pp = (int)($r['pago_parcial'] ?? 0);
+            $pagoParcialHTML = $pp > 0 ? '$'.number_format($pp,0,',','.') : "<span class='text-slate-400'>—</span>";
+
+            $rowsHTML .= "<tr class='{$rowCls}'>
+                    <td class='px-3 py-2 text-center'>".htmlspecialchars($r['fecha'])."</td>
+                    <td class='px-3 py-2'>
+                      <div class='flex items-center justify-center gap-2'>
+                        {$badge}
+                        <span>".htmlspecialchars($ruta)."</span>
+                      </div>
+                    </td>
+                    <td class='px-3 py-2 text-center'>".htmlspecialchars($r['empresa'])."</td>
+                    <td class='px-3 py-2 text-center'>".htmlspecialchars($vehiculo)."</td>
+                    <td class='px-3 py-2 text-center'>{$pagoParcialHTML}</td>
+                  </tr>";
+        }
+
+        // Generar HTML con filtros y tabla
+        echo "<div class='space-y-3'>";
+        
+        // Leyenda con contadores y filtro
+        echo "<div class='flex flex-wrap gap-2 text-xs' id='legendFilterBar'>";
+        foreach (['completo','medio','extra','siapana','carrotanque','otro'] as $k) {
+            $l = $legend[$k];
+            $countVal = $counts[$k] ?? 0;
+            $badgeClass = str_replace(['bg-','/40'], ['bg-',''], $l['row']);
+            echo "<button
+                    class='legend-pill inline-flex items-center gap-2 px-3 py-2 rounded-full {$l['badge']} hover:opacity-90 transition ring-0 outline-none border cursor-pointer select-none'
+                    data-tipo='{$k}'
+                  >
+                    <span class='w-2.5 h-2.5 rounded-full {$badgeClass} bg-opacity-100 border border-white/30 shadow-inner'></span>
+                    <span class='font-semibold text-[13px]'>{$l['label']}</span>
+                    <span class='text-[11px] font-semibold opacity-80'>({$countVal})</span>
+                  </button>";
+        }
+        echo "</div>";
+
+        // Tabla
+        echo "<div class='overflow-x-auto max-h-[350px]'>
                 <table class='min-w-full text-sm text-left'>
-                  <thead class='bg-blue-600 text-white'>
+                  <thead class='bg-blue-600 text-white sticky top-0 z-10'>
                     <tr>
                       <th class='px-3 py-2 text-center'>Fecha</th>
                       <th class='px-3 py-2 text-center'>Ruta</th>
@@ -79,22 +173,66 @@ if (isset($_GET['viajes_conductor'])) {
                       <th class='px-3 py-2 text-center'>Pago parcial</th>
                     </tr>
                   </thead>
-                  <tbody class='divide-y divide-gray-100 bg-white'>";
-        while ($r = $res->fetch_assoc()) {
-            $pp = (int)($r['pago_parcial'] ?? 0);
-            echo "<tr class='hover:bg-blue-50 transition-colors'>
-                    <td class='px-3 py-2 text-center'>".htmlspecialchars($r['fecha'])."</td>
-                    <td class='px-3 py-2 text-center'>".htmlspecialchars($r['ruta'])."</td>
-                    <td class='px-3 py-2 text-center'>".htmlspecialchars($r['empresa'])."</td>
-                    <td class='px-3 py-2 text-center'>".htmlspecialchars($r['tipo_vehiculo'])."</td>
-                    <td class='px-3 py-2 text-center'>".($pp>0 ? ('$'.number_format($pp,0,',','.')) : "<span class='text-slate-400'>—</span>")."</td>
-                  </tr>";
-        }
-        echo "  </tbody>
-               </table>
+                  <tbody id='viajesTableBody' class='divide-y divide-gray-100'>
+                    {$rowsHTML}
+                  </tbody>
+                </table>
               </div>";
+        
+        echo "</div>";
+        
+        // Script para filtros
+        echo "<script>
+                function attachFiltroViajes(){
+                    const pills = document.querySelectorAll('#legendFilterBar .legend-pill');
+                    const rows  = document.querySelectorAll('#viajesTableBody .row-viaje');
+                    if (!pills.length || !rows.length) return;
+
+                    let activeCat = null;
+
+                    function applyFilter(cat){
+                        if (cat === activeCat) {
+                            activeCat = null;
+                        } else {
+                            activeCat = cat;
+                        }
+
+                        pills.forEach(p => {
+                            const pcat = p.getAttribute('data-tipo');
+                            if (activeCat && pcat === activeCat) {
+                                p.classList.add('ring-2','ring-blue-500','ring-offset-1','ring-offset-white');
+                            } else {
+                                p.classList.remove('ring-2','ring-blue-500','ring-offset-1','ring-offset-white');
+                            }
+                        });
+
+                        rows.forEach(r => {
+                            if (!activeCat) {
+                                r.style.display = '';
+                            } else {
+                                if (r.classList.contains('cat-' + activeCat)) {
+                                    r.style.display = '';
+                                } else {
+                                    r.style.display = 'none';
+                                }
+                            }
+                        });
+                    }
+
+                    pills.forEach(p => {
+                        p.addEventListener('click', ()=>{
+                            const cat = p.getAttribute('data-tipo');
+                            applyFilter(cat);
+                        });
+                    });
+                }
+                
+                // Ejecutar filtros después de cargar
+                setTimeout(attachFiltroViajes, 100);
+              </script>";
+
     } else {
-        echo "<p class='text-center text-gray-500'>No se encontraron viajes para este conductor en ese rango.</p>";
+        echo "<p class='text-center text-gray-500 py-4'>No se encontraron viajes para este conductor en ese rango.</p>";
     }
     exit;
 }
@@ -307,6 +445,9 @@ if ($empresaFiltro !== "") {
     border: 1px solid #f59e0b !important;
     color: #92400e !important;
     font-weight: 600;
+  }
+  .fila-viaje-sin-clasificar {
+    opacity: 0.7;
   }
 </style>
 </head>
@@ -647,14 +788,41 @@ if ($empresaFiltro !== "") {
         </div>
       </section>
 
-      <!-- Columna 3: Panel viajes -->
+      <!-- Columna 3: Panel viajes CON CLASIFICACIONES DE COLORES -->
       <aside class="space-y-5">
         <!-- Panel viajes -->
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
           <h4 class="text-base font-semibold mb-3">🧳 Viajes del Conductor</h4>
           <div id="contenidoPanel"
-               class="min-h-[220px] max-h-[400px] overflow-y-auto rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-600 flex items-center justify-center">
-            <p class="m-0 text-center">Selecciona un conductor para ver sus viajes aquí.</p>
+               class="min-h-[220px] max-h-[400px] overflow-y-auto rounded-xl border border-slate-200 p-4 text-sm text-slate-600">
+            <div class="flex flex-col items-center justify-center h-full text-center">
+              <div class="text-slate-400 mb-2">
+                <svg class="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                </svg>
+              </div>
+              <p class="m-0 font-medium text-slate-500">Selecciona un conductor para ver sus viajes</p>
+              <p class="m-0 text-xs text-slate-400 mt-1">Se mostrarán con clasificaciones de colores</p>
+              
+              <!-- Mini leyenda de colores -->
+              <div class="mt-4 flex flex-wrap gap-1.5 justify-center">
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Completo
+                </span>
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-700 border border-amber-200">
+                  <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span> Medio
+                </span>
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-200 text-slate-700 border border-slate-300">
+                  <span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span> Extra
+                </span>
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-200">
+                  <span class="w-1.5 h-1.5 rounded-full bg-fuchsia-500"></span> Siapana
+                </span>
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-cyan-100 text-cyan-700 border border-cyan-200">
+                  <span class="w-1.5 h-1.5 rounded-full bg-cyan-500"></span> Carrotanque
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </aside>
@@ -852,7 +1020,7 @@ if ($empresaFiltro !== "") {
         });
       });
 
-      // Click en conductor → carga viajes (AJAX)
+      // Click en conductor → carga viajes (AJAX) CON CLASIFICACIONES DE COLORES
       document.querySelectorAll('.conductor-link').forEach(btn=>{
         btn.addEventListener('click', ()=>{
           const nombre = btn.textContent.trim();
@@ -860,11 +1028,22 @@ if ($empresaFiltro !== "") {
           const hasta  = "<?= htmlspecialchars($hasta) ?>";
           const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
           const panel = document.getElementById('contenidoPanel');
-          panel.innerHTML = "<p class='text-center animate-pulse'>Cargando…</p>";
+          panel.innerHTML = "<div class='flex items-center justify-center h-full'><div class='text-center'><div class='animate-pulse text-blue-500 mb-2'>⏳</div><p class='text-sm text-slate-500'>Cargando viajes...</p></div></div>";
 
           fetch('<?= basename(__FILE__) ?>?viajes_conductor='+encodeURIComponent(nombre)+'&desde='+desde+'&hasta='+hasta+'&empresa='+encodeURIComponent(empresa))
             .then(r=>r.text())
-            .then(html=>{ panel.innerHTML = html; });
+            .then(html=>{ 
+              panel.innerHTML = html;
+              // Agregar título del conductor
+              const titulo = `<div class="mb-3 pb-2 border-b border-slate-200">
+                                <h5 class="font-semibold text-blue-700">Viajes de: <span class="text-blue-900">${nombre}</span></h5>
+                                <p class="text-xs text-slate-500">${desde} a ${hasta}</p>
+                              </div>`;
+              panel.innerHTML = titulo + panel.innerHTML;
+            })
+            .catch(() => {
+              panel.innerHTML = "<p class='text-center text-rose-600 py-4'>Error cargando viajes.</p>";
+            });
         });
       });
 
