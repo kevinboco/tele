@@ -755,99 +755,397 @@ if ($empresaFiltro !== "") {
   </main>
 
   <script>
-  function getTarifas(){
-    const tarifas = {};
-    document.querySelectorAll('.tarjeta-tarifa').forEach(card=>{
-      const veh = card.dataset.vehiculo;
-      const val = campo => {
-        const el = card.querySelector(`input[data-campo="${campo}"]`);
-        return el ? parseFloat(el.value) || 0 : 0;
-      };
-      tarifas[veh] = {
-        completo: val('completo'), // VALOR DEL MES
-        medio: val('medio'),       // CANTIDAD DE MESES
-        extra: val('extra'),
-        carrotanque: val('carrotanque'),
-        siapana: val('siapana')
-      };
+    // ===== BUSCADOR DE CONDUCTORES =====
+    const buscadorConductores = document.getElementById('buscadorConductores');
+    const clearBuscar = document.getElementById('clearBuscar');
+    const contadorConductores = document.getElementById('contador-conductores');
+    const tablaConductoresBody = document.getElementById('tabla_conductores_body');
+
+    function normalizarTexto(texto) {
+      return texto
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
+    }
+
+    function filtrarConductores() {
+      const textoBusqueda = normalizarTexto(buscadorConductores.value);
+      const filas = tablaConductoresBody.querySelectorAll('tr');
+      let filasVisibles = 0;
+      
+      if (textoBusqueda === '') {
+        filas.forEach(fila => { fila.style.display = ''; filasVisibles++; });
+        clearBuscar.style.display = 'none';
+      } else {
+        filas.forEach(fila => {
+          const nombreConductor = fila.querySelector('.conductor-link').textContent;
+          const nombreNormalizado = normalizarTexto(nombreConductor);
+          if (nombreNormalizado.includes(textoBusqueda)) {
+            fila.style.display = '';
+            filasVisibles++;
+          } else {
+            fila.style.display = 'none';
+          }
+        });
+        clearBuscar.style.display = 'block';
+      }
+      
+      const totalConductores = filas.length;
+      contadorConductores.textContent = `Mostrando ${filasVisibles} de ${totalConductores} conductores`;
+      recalcular(); // importantísimo: recalcular totales solo visibles
+    }
+
+    buscadorConductores.addEventListener('input', filtrarConductores);
+    clearBuscar.addEventListener('click', () => {
+      buscadorConductores.value = '';
+      filtrarConductores();
+      buscadorConductores.focus();
     });
-    return tarifas;
-  }
-
-  function formatNumber(num){
-    return (num || 0).toLocaleString('es-CO');
-  }
-
-  function recalcular(){
-    const tarifas = getTarifas();
-    const filas = document.querySelectorAll('#tabla_conductores_body tr');
-
-    let totalViajes = 0;
-    let totalMensual = 0;
-    let totalPagado = 0;
-    let totalFaltante = 0;
-
-    filas.forEach(fila => {
-      if (fila.style.display === 'none') return;
-
-      const veh = fila.dataset.vehiculo;
-      const pagado = parseInt(fila.dataset.pagado || 0);
-
-      const completos = parseInt(fila.cells[2].innerText) || 0;
-      const medios    = parseInt(fila.cells[3].innerText) || 0;
-      const extras    = parseInt(fila.cells[4].innerText) || 0;
-      const siapana   = parseInt(fila.cells[5].innerText) || 0;
-      const carrot    = parseInt(fila.cells[6].innerText) || 0;
-
-      const t = tarifas[veh] || {completo:0, medio:0, extra:0, siapana:0, carrotanque:0};
-
-      /* 🔹 VIAJES NORMALES */
-      const totalViajesFila =
-        completos * t.completo +
-        extras    * t.extra +
-        siapana   * t.siapana +
-        carrot    * t.carrotanque;
-
-      /* 🔹 MENSUAL
-         completo = valor del mes
-         medio = cantidad de meses
-      */
-      const totalMensualFila = t.completo * t.medio;
-
-      const totalFila = totalViajesFila + totalMensualFila;
-      let faltante = totalFila - pagado;
-      if (faltante < 0) faltante = 0;
-
-      fila.querySelector('.totales').value = formatNumber(totalFila);
-      fila.querySelector('.faltante').value = formatNumber(faltante);
-
-      totalViajes += totalViajesFila;
-      totalMensual += totalMensualFila;
-      totalPagado += pagado;
-      totalFaltante += faltante;
+    buscadorConductores.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        buscadorConductores.value = '';
+        filtrarConductores();
+      }
     });
 
-    document.getElementById('total_viajes').innerText = formatNumber(totalViajes);
-    document.getElementById('total_mensual').innerText = formatNumber(totalMensual);
-    document.getElementById('total_general').innerText = formatNumber(totalViajes + totalMensual);
-    document.getElementById('total_pagado').innerText = formatNumber(totalPagado);
-    document.getElementById('total_faltante').innerText = formatNumber(totalFaltante);
+    const CONFIG_KEY = 'config_mensuales_<?= htmlspecialchars($empresaFiltro) ?>';
+    const COBROS_KEY = 'historial_cobros_<?= htmlspecialchars($empresaFiltro) ?>';
+    const RANGO_DESDE = '<?= htmlspecialchars($desde) ?>';
+    const RANGO_HASTA = '<?= htmlspecialchars($hasta) ?>';
+    
+    let configMensuales = JSON.parse(localStorage.getItem(CONFIG_KEY)) || {};
+    let historialCobros = JSON.parse(localStorage.getItem(COBROS_KEY)) || {};
 
-    document.getElementById('resumen_viajes').innerText = `$${formatNumber(totalViajes)}`;
-    document.getElementById('resumen_mensual').innerText = `$${formatNumber(totalMensual)}`;
-    document.getElementById('resumen_total').innerText = `$${formatNumber(totalViajes + totalMensual)}`;
-    document.getElementById('resumen_pagado').innerText = `$${formatNumber(totalPagado)}`;
-    document.getElementById('resumen_faltante').innerText = `$${formatNumber(totalFaltante)}`;
-  }
+    function calcularMeses(desdeStr, hastaStr) {
+      if (!desdeStr || !hastaStr) return 0;
+      let inicio = new Date(desdeStr + 'T00:00:00');
+      const fin  = new Date(hastaStr + 'T00:00:00');
+      if (isNaN(inicio) || isNaN(fin) || inicio > fin) return 0;
 
-  document.addEventListener('DOMContentLoaded', () => {
-    recalcular();
-    document.querySelectorAll('.tarjeta-tarifa input').forEach(i => {
-      i.addEventListener('input', recalcular);
+      let meses = 0;
+      while (true) {
+        const siguiente = new Date(inicio.getTime());
+        siguiente.setMonth(siguiente.getMonth() + 1);
+        if (siguiente <= fin) { meses++; inicio = siguiente; } else { break; }
+      }
+      return meses;
+    }
+
+    function calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle) {
+      if (!fechaDesdeInput.value || !fechaHastaInput.value || !montoInput.value) return 0;
+
+      const fechaDesde = fechaDesdeInput.value;
+      const fechaHasta = fechaHastaInput.value;
+      const montoMensual = parseFloat(montoInput.value) || 0;
+
+      const dDesde = new Date(fechaDesde + 'T00:00:00');
+      const dHasta = new Date(fechaHasta + 'T00:00:00');
+      if (dDesde > dHasta) {
+        if (diasSpan) diasSpan.textContent = "⚠️ Fecha inválida";
+        if (detalle) {
+          detalle.textContent = "Error: Fecha desde > hasta";
+          detalle.classList.remove('hidden');
+        }
+        return 0;
+      }
+
+      const meses = calcularMeses(fechaDesde, fechaHasta);
+      const montoTotal = Math.round(montoMensual * meses);
+
+      if (diasSpan) diasSpan.textContent = meses === 1 ? "1 mes" : `${meses} meses`;
+      if (detalle) {
+        const textoPeriodo = meses === 1 ? "1 mes" : `${meses} meses`;
+        detalle.textContent = `Periodo: ${textoPeriodo} = $${montoTotal.toLocaleString('es-CO')}`;
+        detalle.classList.remove('hidden');
+      }
+      return montoTotal;
+    }
+
+    function calcularMensual(input) {
+      const fila = input.closest('tr');
+      const fechaDesdeInput = fila.querySelector('.fecha-desde');
+      const fechaHastaInput = fila.querySelector('.fecha-hasta');
+      const montoInput = fila.querySelector('.monto-mensual');
+      const diasSpan = fila.querySelector('.dias-calculados');
+      const detalle = fila.querySelector('.mensual-detalle');
+      
+      calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle);
+      
+      const conductor = fila.dataset.conductor;
+      if (fechaDesdeInput.value && fechaHastaInput.value && montoInput.value) {
+        configMensuales[conductor] = {
+          desde: fechaDesdeInput.value,
+          hasta: fechaHastaInput.value,
+          monto: parseFloat(montoInput.value)
+        };
+      }
+      recalcular();
+    }
+
+    function registrarCobro(btn) {
+      const fila = btn.closest('tr');
+      const conductor = fila.dataset.conductor;
+      const fechaHastaInput = fila.querySelector('.fecha-hasta');
+      
+      if (!fechaHastaInput.value) {
+        alert('❌ Debes especificar la fecha HASTA para registrar el cobro');
+        return;
+      }
+      
+      historialCobros[conductor] = fechaHastaInput.value;
+      localStorage.setItem(COBROS_KEY, JSON.stringify(historialCobros));
+      
+      btn.innerHTML = '✅ Cobro Registrado';
+      btn.classList.remove('bg-green-600');
+      btn.classList.add('bg-gray-600');
+      
+      setTimeout(() => {
+        btn.innerHTML = '✅ Registrar Cobro';
+        btn.classList.remove('bg-gray-600');
+        btn.classList.add('bg-green-600');
+      }, 2000);
+      
+      mostrarAlertasCobro();
+    }
+
+    function mostrarAlertasCobro() {
+      const alertasDiv = document.getElementById('alertas-cobro');
+      const listaAlertas = document.getElementById('lista-alertas');
+      listaAlertas.innerHTML = '';
+      let hayAlertas = false;
+
+      Object.entries(configMensuales).forEach(([conductor, datos]) => {
+        let mensaje = '';
+        let tipo = 'info';
+        if (historialCobros[conductor]) {
+          const ultimoCobro = new Date(historialCobros[conductor] + 'T00:00:00');
+          const nuevoDesde = new Date(datos.desde + 'T00:00:00');
+          if (ultimoCobro >= nuevoDesde) {
+            mensaje = `✅ ${conductor}: Ya cobrado hasta ${historialCobros[conductor]}`;
+            tipo = 'success';
+          } else {
+            const diffTime = Math.abs(nuevoDesde - ultimoCobro);
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            if (diffDays > 1) {
+              mensaje = `⚠️ ${conductor}: ${diffDays} días sin cobrar desde ${historialCobros[conductor]}`;
+              tipo = 'warning';
+              hayAlertas = true;
+            }
+          }
+        } else {
+          mensaje = `ℹ️ ${conductor}: Primer cobro registrado`;
+          tipo = 'info';
+        }
+
+        if (mensaje) {
+          const item = document.createElement('div');
+          item.className = `text-xs ${tipo === 'warning' ? 'text-yellow-700 font-medium' : tipo === 'success' ? 'text-green-700' : 'text-blue-700'}`;
+          item.textContent = mensaje;
+          listaAlertas.appendChild(item);
+        }
+      });
+
+      if (hayAlertas) alertasDiv.classList.remove('hidden');
+      else alertasDiv.classList.add('hidden');
+    }
+
+    function getTarifas(){
+      const tarifas = {};
+      document.querySelectorAll('.tarjeta-tarifa').forEach(card=>{
+        const veh = card.dataset.vehiculo;
+        const val = (campo)=>{
+          const el = card.querySelector(`input[data-campo="${campo}"]`);
+          return el ? (parseFloat(el.value)||0) : 0;
+        };
+        tarifas[veh] = {
+          completo:    val('completo'),
+          medio:       val('medio'),
+          extra:       val('extra'),
+          carrotanque: val('carrotanque'),
+          siapana:     val('siapana')
+        };
+      });
+      return tarifas;
+    }
+
+    function formatNumber(num){ return (num||0).toLocaleString('es-CO'); }
+
+    function recalcular(){
+      const tarifas = getTarifas();
+      const filas = document.querySelectorAll('#tabla_conductores_body tr');
+
+      let totalViajes = 0;
+      let totalMensual = 0;
+      let totalPagado = 0;
+      let totalFaltante = 0;
+
+      filas.forEach(f=>{
+        if (f.style.display === 'none') return;
+
+        const veh = f.dataset.vehiculo;
+        const conductor = f.dataset.conductor;
+
+        const c  = parseInt(f.cells[2].innerText)||0;
+        const m  = parseInt(f.cells[3].innerText)||0;
+        const e  = parseInt(f.cells[4].innerText)||0;
+        const s  = parseInt(f.cells[5].innerText)||0;
+        const ca = parseInt(f.cells[6].innerText)||0;
+
+        const t  = tarifas[veh] || {completo:0,medio:0,extra:0,carrotanque:0,siapana:0};
+        const totalViajesFila = c*t.completo + m*t.medio + e*t.extra + s*t.siapana + ca*t.carrotanque;
+
+        let totalMensualFila = 0;
+        if (configMensuales[conductor]) {
+          const fechaDesdeInput = f.querySelector('.fecha-desde');
+          const fechaHastaInput = f.querySelector('.fecha-hasta');
+          const montoInput = f.querySelector('.monto-mensual');
+          const diasSpan = f.querySelector('.dias-calculados');
+          const detalle = f.querySelector('.mensual-detalle');
+          totalMensualFila = calcularDiasYMonto(fechaDesdeInput, fechaHastaInput, montoInput, diasSpan, detalle) || 0;
+        }
+
+        const totalFila = totalViajesFila + totalMensualFila;
+
+        const pagado = parseInt(f.dataset.pagado || '0') || 0;
+        let faltante = totalFila - pagado;
+        if (faltante < 0) faltante = 0; // no mostrar negativo
+
+        const inpTotal = f.querySelector('input.totales');
+        if (inpTotal) inpTotal.value = formatNumber(totalFila);
+
+        const inpFalt = f.querySelector('input.faltante');
+        if (inpFalt) inpFalt.value = formatNumber(faltante);
+
+        totalViajes += totalViajesFila;
+        totalMensual += totalMensualFila;
+        totalPagado += pagado;
+        totalFaltante += faltante;
+      });
+
+      document.getElementById('total_viajes').innerText = formatNumber(totalViajes);
+      document.getElementById('total_mensual').innerText = formatNumber(totalMensual);
+      document.getElementById('total_general').innerText = formatNumber(totalViajes + totalMensual);
+
+      document.getElementById('total_pagado').innerText = formatNumber(totalPagado);
+      document.getElementById('total_faltante').innerText = formatNumber(totalFaltante);
+
+      document.getElementById('resumen_viajes').textContent = `$${formatNumber(totalViajes)}`;
+      document.getElementById('resumen_mensual').textContent = `$${formatNumber(totalMensual)}`;
+      document.getElementById('resumen_total').textContent = `$${formatNumber(totalViajes + totalMensual)}`;
+
+      document.getElementById('resumen_pagado').textContent = `$${formatNumber(totalPagado)}`;
+      document.getElementById('resumen_faltante').textContent = `$${formatNumber(totalFaltante)}`;
+    }
+
+    function guardarMensuales() {
+      localStorage.setItem(CONFIG_KEY, JSON.stringify(configMensuales));
+      alert('✅ Configuración de conductores mensuales guardada en tu navegador.');
+    }
+
+    function guardarClasificacionRuta(ruta, vehiculo, clasificacion) {
+      if (!clasificacion) return;
+      fetch('<?= basename(__FILE__) ?>', {
+        method:'POST',
+        headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:new URLSearchParams({
+          guardar_clasificacion:1,
+          ruta:ruta,
+          tipo_vehiculo:vehiculo,
+          clasificacion:clasificacion
+        })
+      })
+      .then(r=>r.text())
+      .then(t=>{
+        if (t.trim() !== 'ok') console.error('Error guardando clasificación:', t);
+      });
+    }
+
+    function aplicarClasificacionMasiva() {
+      const patron = document.getElementById('txt_patron_ruta').value.trim().toLowerCase();
+      const clasif = document.getElementById('sel_clasif_masiva').value;
+
+      if (!patron || !clasif) {
+        alert('Escribe un texto y elige una clasificación.');
+        return;
+      }
+
+      const filas = document.querySelectorAll('.fila-ruta');
+      let contador = 0;
+
+      filas.forEach(row => {
+        const ruta = row.dataset.ruta.toLowerCase();
+        const vehiculo = row.dataset.vehiculo;
+        if (ruta.includes(patron)) {
+          const sel = row.querySelector('.select-clasif-ruta');
+          sel.value = clasif;
+          guardarClasificacionRuta(row.dataset.ruta, vehiculo, clasif);
+          contador++;
+        }
+      });
+
+      alert('✅ Se aplicó la clasificación a ' + contador + ' rutas. Vuelve a darle "Filtrar" para recalcular la liquidación.');
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      // Guardar tarifas AJAX
+      document.querySelectorAll('.tarjeta-tarifa input').forEach(input=>{
+        input.addEventListener('change', ()=>{
+          const card = input.closest('.tarjeta-tarifa');
+          const tipoVehiculo = card.dataset.vehiculo;
+          const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
+          const campo = input.dataset.campo;
+          const valor = parseInt(input.value)||0;
+
+          fetch('<?= basename(__FILE__) ?>', {
+            method:'POST',
+            headers:{'Content-Type':'application/x-www-form-urlencoded'},
+            body:new URLSearchParams({guardar_tarifa:1, empresa, tipo_vehiculo:tipoVehiculo, campo, valor})
+          })
+          .then(r=>r.text())
+          .then(t=>{
+            if (t.trim() !== 'ok') console.error('Error guardando tarifa:', t);
+            recalcular();
+          });
+        });
+      });
+
+      // Click en conductor → carga viajes (AJA
+      document.querySelectorAll('.conductor-link').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const nombre = btn.textContent.trim();
+          const desde  = "<?= htmlspecialchars($desde) ?>";
+          const hasta  = "<?= htmlspecialchars($hasta) ?>";
+          const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
+          const panel = document.getElementById('contenidoPanel');
+          panel.innerHTML = "<p class='text-center animate-pulse'>Cargando…</p>";
+
+          fetch('<?= basename(__FILE__) ?>?viajes_conductor='+encodeURIComponent(nombre)+'&desde='+desde+'&hasta='+hasta+'&empresa='+encodeURIComponent(empresa))
+            .then(r=>r.text())
+            .then(html=>{ panel.innerHTML = html; });
+        });
+      });
+
+      // Cambio clasificación ruta
+      document.querySelectorAll('.select-clasif-ruta').forEach(sel=>{
+        sel.addEventListener('change', ()=>{
+          const ruta = sel.dataset.ruta;
+          const vehiculo = sel.dataset.vehiculo;
+          const clasif = sel.value;
+          if (clasif) guardarClasificacionRuta(ruta, vehiculo, clasif);
+        });
+      });
+
+      // Mensuales: listeners mínimos para que no se te rompa nada
+      document.querySelectorAll('.fecha-desde, .fecha-hasta, .monto-mensual').forEach(input => {
+        input.addEventListener('change', function() {
+          calcularMensual(this);
+        });
+      });
+
+      recalcular();
     });
-  });
-</script>
-
+  </script>
 
 </body>
 </html>
