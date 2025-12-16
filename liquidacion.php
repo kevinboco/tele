@@ -1136,7 +1136,7 @@ if ($empresaFiltro !== "") {
         });
       });
 
-      // Mensuales: listeners mínimos para que no se te rompa nada
+      // Mensuales: listeners mínimos para que no se te rompa nad
       document.querySelectorAll('.fecha-desde, .fecha-hasta, .monto-mensual').forEach(input => {
         input.addEventListener('change', function() {
           calcularMensual(this);
