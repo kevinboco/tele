@@ -192,6 +192,28 @@ function calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestam
     ];
 }
 
+// ============================================
+// NUEVO: CALCULAR SUMA TOTAL DE TODAS LAS COMISIONES
+// ============================================
+$total_todas_tus_comisiones = 0;
+$ganancias_por_prestamista = []; // Para almacenar datos de cada prestamista
+
+if ($result_prestamistas_lista && $result_prestamistas_lista->num_rows > 0) {
+    $result_prestamistas_lista->data_seek(0);
+    while ($prest = $result_prestamistas_lista->fetch_assoc()) {
+        $prestamista_nombre = $prest['prestamista'];
+        
+        // Calcular ganancia para este prestamista
+        $datos_ganancia = calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestamistas, $prestamos_excluidos);
+        
+        // Almacenar datos para mostrar en tabla
+        $ganancias_por_prestamista[$prestamista_nombre] = $datos_ganancia;
+        
+        // Sumar al total general
+        $total_todas_tus_comisiones += $datos_ganancia['tu_ganancia'];
+    }
+}
+
 // Si es POST procesamos el reporte
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
     $deudores_seleccionados = isset($_POST['deudores']) ? $_POST['deudores'] : [];
@@ -509,6 +531,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             text-transform:uppercase;
             letter-spacing:0.12em;
             color:var(--accent);
+        }
+
+        /* NUEVO: Estilo para TOTAL GENERAL DE COMISIONES */
+        .total-comisiones-general {
+            background: linear-gradient(135deg, #1e40af, #1d4ed8);
+            border-radius: 16px;
+            padding: 16px 20px;
+            margin-bottom: 20px;
+            border: 2px solid rgba(56, 189, 248, 0.5);
+            text-align: center;
+            box-shadow: 0 10px 25px rgba(30, 64, 175, 0.4);
+        }
+
+        .total-comisiones-general strong {
+            font-size: 1.1rem;
+            color: white;
+            margin-right: 10px;
+        }
+
+        .monto-total {
+            font-size: 1.8rem;
+            font-weight: 800;
+            color: #22c55e;
+            text-shadow: 0 2px 10px rgba(34, 197, 94, 0.5);
+            letter-spacing: 1px;
         }
 
         /* NUEVO: Estilo para tabla de configuración */
@@ -994,6 +1041,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             .config-table td:nth-child(2) {
                 display: none;
             }
+            .total-comisiones-general {
+                padding: 12px 16px;
+            }
+            .monto-total {
+                font-size: 1.4rem;
+            }
         }
 
         small{
@@ -1031,6 +1084,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             </div>
         </div>
         
+        <!-- NUEVO: TOTAL GENERAL DE TODAS TUS COMISIONES -->
+        <div class="total-comisiones-general">
+            <strong>🎯 TOTAL DE TODAS TUS COMISIONES:</strong>
+            <span class="monto-total">$ <?php echo number_format($total_todas_tus_comisiones, 0, ',', '.'); ?></span>
+            <br>
+            <small style="color: rgba(255,255,255,0.8); font-size: 0.85rem;">
+                Suma de todas las comisiones de todos los prestamistas (préstamos nuevos excluyendo los marcados)
+            </small>
+        </div>
+        
         <!-- NUEVA SECCIÓN: Configuración de Porcentajes por Prestamista -->
         <div class="config-section">
             <h3>⚙ Configurar Porcentajes por Prestamista</h3>
@@ -1061,13 +1124,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 </thead>
                 <tbody>
                     <?php if ($result_prestamistas_lista && $result_prestamistas_lista->num_rows > 0): ?>
-                        <?php $result_prestamistas_lista->data_seek(0); ?>
-                        <?php while ($prest = $result_prestamistas_lista->fetch_assoc()): ?>
-                            <?php 
+                        <?php 
+                        // Resetear el puntero para recorrer de nuevo
+                        $result_prestamistas_lista->data_seek(0);
+                        while ($prest = $result_prestamistas_lista->fetch_assoc()): 
                             $prestamista_nombre = $prest['prestamista'];
                             
-                            // CALCULAR GANANCIA CON EXCLUIDOS
-                            $datos_ganancia = calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestamistas, $prestamos_excluidos);
+                            // Usar datos ya calculados anteriormente
+                            $datos_ganancia = isset($ganancias_por_prestamista[$prestamista_nombre]) 
+                                ? $ganancias_por_prestamista[$prestamista_nombre] 
+                                : ['total_viejos' => 0, 'total_nuevos' => 0, 'total_prestado' => 0, 'tu_ganancia' => 0, 'config' => ['interes' => 10.00, 'comision' => 0.00]];
                             
                             $total_viejos = $datos_ganancia['total_viejos'];
                             $total_nuevos = $datos_ganancia['total_nuevos'];
@@ -1076,7 +1142,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                             $config = $datos_ganancia['config'];
                             
                             $total_porcentaje = $config['interes'] + $config['comision'];
-                            ?>
+                        ?>
                             <tr>
                                 <td><strong><?php echo htmlspecialchars($prestamista_nombre); ?></strong></td>
                                 
@@ -1143,7 +1209,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 <strong>💡 ¿Cómo funciona?</strong><br>
                 1. <strong>Total Prestado Activo</strong>: Suma de todos los préstamos pendientes (viejos + nuevos).<br>
                 2. <strong>Tu Ganancia Total</strong>: Calculada automáticamente basada en tu % de comisión sobre préstamos NUEVOS.<br>
-                3. <strong>Nota</strong>: Los préstamos excluidos en el reporte NO se incluyen en este cálculo.<br>
+                3. <strong>TOTAL GENERAL ARRIBA</strong>: Suma de todas tus comisiones de todos los prestamistas.<br>
+                4. <strong>Nota</strong>: Los préstamos excluidos en el reporte NO se incluyen en este cálculo.<br>
                 Ejemplo: Para Celene, si prestó $8,000,000 nuevos y tienes 5% comisión, tu ganancia es $400,000.
             </div>
         </div>
