@@ -112,6 +112,9 @@ $empresa_seleccionada = '';
 $prestamos_por_deudor = [];
 $otros_prestamos_por_deudor = [];
 
+// ARRAY para almacenar IDs excluidos (para que afecte la tabla de configuración)
+$prestamos_excluidos = isset($_POST['prestamos_excluidos']) ? explode(',', $_POST['prestamos_excluidos']) : [];
+
 // Totales generales
 $total_capital_general = 0;
 $total_general = 0;
@@ -131,6 +134,64 @@ $result_empresas = $conn->query($sql_empresas);
 $sql_prestamistas_lista = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' ORDER BY prestamista";
 $result_prestamistas_lista = $conn->query($sql_prestamistas_lista);
 
+// FUNCIÓN PARA CALCULAR GANANCIA DE UN PRESTAMISTA (considerando excluidos)
+function calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestamistas, $prestamos_excluidos = []) {
+    $FECHA_CORTE = '2025-10-29';
+    
+    // Preparar condición para excluidos
+    $condicion_excluidos = '';
+    if (!empty($prestamos_excluidos)) {
+        $ids_excluidos = array_map('intval', $prestamos_excluidos);
+        $condicion_excluidos = "AND id NOT IN (" . implode(',', $ids_excluidos) . ")";
+    }
+    
+    $sql = "SELECT 
+                monto,
+                fecha,
+                CASE 
+                    WHEN fecha < ? THEN 'viejo'
+                    ELSE 'nuevo'
+                END as tipo
+            FROM prestamos 
+            WHERE prestamista = ? 
+            AND pagado = 0
+            $condicion_excluidos";
+    
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("ss", $FECHA_CORTE, $prestamista_nombre);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    $total_viejos = 0;
+    $total_nuevos = 0;
+    $tu_ganancia_total = 0;
+    
+    $config = isset($config_prestamistas[$prestamista_nombre]) 
+        ? $config_prestamistas[$prestamista_nombre] 
+        : ['interes' => 10.00, 'comision' => 0.00];
+    
+    while ($row = $result->fetch_assoc()) {
+        $meses = calcularMesesAutomaticos($row['fecha']);
+        
+        if ($row['tipo'] == 'viejo') {
+            $total_viejos += $row['monto'];
+            // Viejos: 0% comisión para ti
+        } else {
+            $total_nuevos += $row['monto'];
+            // Nuevos: tu porcentaje configurado
+            $tu_ganancia_total += ($row['monto'] * ($config['comision'] / 100) * $meses);
+        }
+    }
+    
+    return [
+        'total_viejos' => $total_viejos,
+        'total_nuevos' => $total_nuevos,
+        'total_prestado' => $total_viejos + $total_nuevos,
+        'tu_ganancia' => $tu_ganancia_total,
+        'config' => $config
+    ];
+}
+
 // Si es POST procesamos el reporte
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
     $deudores_seleccionados = isset($_POST['deudores']) ? $_POST['deudores'] : [];
@@ -141,6 +202,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
     $fecha_desde = $_POST['fecha_desde'] ?? '';
     $fecha_hasta = $_POST['fecha_hasta'] ?? '';
     $empresa_seleccionada = $_POST['empresa'] ?? '';
+    $prestamos_excluidos = isset($_POST['prestamos_excluidos']) ? explode(',', $_POST['prestamos_excluidos']) : [];
 
     // Prestamistas únicos (NO PAGADOS)
     $sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' AND pagado = 0 ORDER BY prestamista";
@@ -214,6 +276,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             $deudor = $fila['deudor'];
             $meses = calcularMesesAutomaticos($fila['fecha']);
             $fecha_prestamo_dt = new DateTime($fila['fecha']);
+            $es_excluido = in_array($fila['id'], $prestamos_excluidos);
             
             // DETERMINAR SI ES PRÉSTAMO VIEJO O NUEVO
             $es_prestamo_viejo = ($fecha_prestamo_dt < $FECHA_CORTE);
@@ -245,11 +308,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 ];
             }
 
-            $prestamos_por_deudor[$deudor]['total_capital'] += $fila['monto'];
-            $prestamos_por_deudor[$deudor]['total_general'] += $total_prestamo;
-            $prestamos_por_deudor[$deudor]['total_interes_prestamista'] += $interes_prestamista_monto;
-            $prestamos_por_deudor[$deudor]['total_comision_personal'] += $comision_personal_monto;
-            $prestamos_por_deudor[$deudor]['cantidad_prestamos']++;
+            // Solo sumar si NO está excluido
+            if (!$es_excluido) {
+                $prestamos_por_deudor[$deudor]['total_capital'] += $fila['monto'];
+                $prestamos_por_deudor[$deudor]['total_general'] += $total_prestamo;
+                $prestamos_por_deudor[$deudor]['total_interes_prestamista'] += $interes_prestamista_monto;
+                $prestamos_por_deudor[$deudor]['total_comision_personal'] += $comision_personal_monto;
+                $prestamos_por_deudor[$deudor]['cantidad_prestamos']++;
+            }
             
             if ($es_prestamo_viejo) {
                 $prestamos_por_deudor[$deudor]['cantidad_viejos']++;
@@ -267,7 +333,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 'interes_prestamista' => $interes_prestamista_monto,
                 'comision_personal' => $comision_personal_monto,
                 'total' => $total_prestamo,
-                'incluido' => true
+                'incluido' => !$es_excluido,
+                'excluido' => $es_excluido
             ];
         }
     }
@@ -276,6 +343,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
     // 3) OTROS DEUDORES (NO SELECCIONADOS) - CUADRO 2
     // ==========================
     if (!empty($prestamista_seleccionado)) {
+        // Preparar condición para excluidos
+        $condicion_excluidos = '';
+        if (!empty($prestamos_excluidos)) {
+            $ids_excluidos = array_map('intval', $prestamos_excluidos);
+            $condicion_excluidos = " AND id NOT IN (" . implode(',', $ids_excluidos) . ")";
+        }
+        
         $sql_otros = "SELECT 
                         id,
                         deudor,
@@ -287,6 +361,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         AND pagado = 0
                         AND deudor IS NOT NULL
                         AND deudor != ''
+                        $condicion_excluidos
                       ORDER BY deudor, fecha";
         $stmt_otros = $conn->prepare($sql_otros);
         $stmt_otros->bind_param("s", $prestamista_seleccionado);
@@ -550,6 +625,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             background: rgba(239, 68, 68, 0.12);
             border: 1px solid rgba(239, 68, 68, 0.4);
             color: #ef4444;
+        }
+
+        .ganancia-cell {
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            border-radius: 8px;
+            text-align: center;
+            font-weight: 700;
+            color: #22c55e;
+        }
+
+        .ganancia-cell small {
+            color: rgba(34, 197, 94, 0.8);
+            font-weight: 500;
         }
 
         /* Estilos para mostrar tipo de préstamo */
@@ -901,6 +990,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 flex-direction:column;
                 align-items:flex-start;
             }
+            .config-table th:nth-child(2),
+            .config-table td:nth-child(2) {
+                display: none;
+            }
         }
 
         small{
@@ -919,6 +1012,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
 
         .info-porcentajes strong {
             color: var(--accent);
+        }
+        
+        .hidden-input {
+            display: none;
         }
     </style>
 </head>
@@ -954,8 +1051,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 <thead>
                     <tr>
                         <th>Prestamista</th>
+                        <th>Total Prestado Activo</th>
                         <th>Interés del Prestamista (%)</th>
                         <th>Tu Comisión (%)</th>
+                        <th><strong style="color: var(--accent);">TU GANANCIA TOTAL</strong></th>
                         <th>Total para Deudor (%)</th>
                         <th>Acción</th>
                     </tr>
@@ -966,13 +1065,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         <?php while ($prest = $result_prestamistas_lista->fetch_assoc()): ?>
                             <?php 
                             $prestamista_nombre = $prest['prestamista'];
-                            $config = isset($config_prestamistas[$prestamista_nombre]) 
-                                ? $config_prestamistas[$prestamista_nombre] 
-                                : ['interes' => 10.00, 'comision' => 0.00];
+                            
+                            // CALCULAR GANANCIA CON EXCLUIDOS
+                            $datos_ganancia = calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestamistas, $prestamos_excluidos);
+                            
+                            $total_viejos = $datos_ganancia['total_viejos'];
+                            $total_nuevos = $datos_ganancia['total_nuevos'];
+                            $total_prestado = $datos_ganancia['total_prestado'];
+                            $tu_ganancia = $datos_ganancia['tu_ganancia'];
+                            $config = $datos_ganancia['config'];
+                            
                             $total_porcentaje = $config['interes'] + $config['comision'];
                             ?>
                             <tr>
                                 <td><strong><?php echo htmlspecialchars($prestamista_nombre); ?></strong></td>
+                                
+                                <!-- COLUMNA: Total Prestado Activo -->
+                                <td class="moneda" style="text-align: center;">
+                                    <strong>$ <?php echo number_format($total_prestado, 0, ',', '.'); ?></strong>
+                                    <br>
+                                    <small style="font-size: 0.75rem;">
+                                        <span class="badge-tipo badge-viejo">$ <?php echo number_format($total_viejos, 0, ',', '.'); ?> viejos</span>
+                                        <br>
+                                        <span class="badge-tipo badge-nuevo">$ <?php echo number_format($total_nuevos, 0, ',', '.'); ?> nuevos</span>
+                                    </small>
+                                </td>
+                                
                                 <td>
                                     <form method="POST" style="margin:0;">
                                         <input type="hidden" name="prestamista_config" value="<?php echo htmlspecialchars($prestamista_nombre); ?>">
@@ -987,6 +1105,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                                value="<?php echo number_format($config['comision'], 2, '.', ''); ?>"
                                                step="0.1" min="0" max="100" required>
                                 </td>
+                                
+                                <!-- COLUMNA NUEVA: Tu Ganancia Total -->
+                                <td class="ganancia-cell">
+                                    <strong>$ <?php echo number_format($tu_ganancia, 0, ',', '.'); ?></strong>
+                                    <br>
+                                    <small>
+                                        (<?php echo number_format($config['comision'], 1); ?>% de $<?php echo number_format($total_nuevos, 0, ',', '.'); ?> nuevos)
+                                    </small>
+                                </td>
+                                
                                 <td style="text-align: center; font-weight: 600; color: var(--accent);">
                                     <?php echo number_format($total_porcentaje, 2); ?>%
                                     <?php if ($total_porcentaje != 13.00): ?>
@@ -1003,7 +1131,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         <?php endwhile; ?>
                     <?php else: ?>
                         <tr>
-                            <td colspan="5" style="text-align: center; padding: 20px; color: var(--text-soft);">
+                            <td colspan="7" style="text-align: center; padding: 20px; color: var(--text-soft);">
                                 No hay prestamistas registrados
                             </td>
                         </tr>
@@ -1013,10 +1141,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             
             <div class="info-porcentajes">
                 <strong>💡 ¿Cómo funciona?</strong><br>
-                1. <strong>Interés del Prestamista</strong>: Lo que recibe quien te presta el dinero.<br>
-                2. <strong>Tu Comisión</strong>: Lo que ganas tú por intermediar.<br>
-                3. Para préstamos NUEVOS (después del 29-10-2025): La suma de ambos <strong>debe ser 13%</strong>.<br>
-                Ejemplo: Para Celene, pon 8% interés para ella y 5% comisión para ti.
+                1. <strong>Total Prestado Activo</strong>: Suma de todos los préstamos pendientes (viejos + nuevos).<br>
+                2. <strong>Tu Ganancia Total</strong>: Calculada automáticamente basada en tu % de comisión sobre préstamos NUEVOS.<br>
+                3. <strong>Nota</strong>: Los préstamos excluidos en el reporte NO se incluyen en este cálculo.<br>
+                Ejemplo: Para Celene, si prestó $8,000,000 nuevos y tienes 5% comisión, tu ganancia es $400,000.
             </div>
         </div>
         
@@ -1025,6 +1153,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         </div>
         
         <form method="POST" id="formPrincipal">
+            <!-- Campo oculto para almacenar IDs excluidos -->
+            <input type="hidden" name="prestamos_excluidos" id="prestamosExcluidos" 
+                   value="<?php echo htmlspecialchars(implode(',', $prestamos_excluidos)); ?>">
+            
             <!-- Filtro de Fechas y Empresa -->
             <div class="filtro-fechas form-card">
                 <h3>Filtro de conductores (tabla VIAJES)</h3>
@@ -1291,12 +1423,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <?php foreach ($datos['prestamos_detalle'] as $index => $detalle): ?>
-                                    <tr class="fila-prestamo <?php echo $detalle['tipo'] == 'viejo' ? 'prestamo-viejo' : 'prestamo-nuevo'; ?>" 
+                                    <?php foreach ($datos['prestamos_detalle'] as $index => $detalle): 
+                                        $es_excluido = $detalle['excluido'] ?? false;
+                                    ?>
+                                    <tr class="fila-prestamo <?php echo $detalle['tipo'] == 'viejo' ? 'prestamo-viejo' : 'prestamo-nuevo'; ?> <?php echo $es_excluido ? 'excluido' : ''; ?>" 
                                         data-deudor="<?php echo md5($deudor); ?>" data-id="<?php echo $detalle['id']; ?>">
                                         <td class="acciones">
-                                            <input type="checkbox" class="checkbox-excluir" checked 
-                                                   onchange="togglePrestamo(this)">
+                                            <input type="checkbox" class="checkbox-excluir" <?php echo !$es_excluido ? 'checked' : ''; ?> 
+                                                   onchange="togglePrestamo(this, <?php echo $detalle['id']; ?>)">
                                         </td>
                                         <td><?php echo $detalle['fecha']; ?></td>
                                         <td>
@@ -1448,10 +1582,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
     <script>
         // ARRAY PARA ALMACENAR DEUDORES SELECCIONADOS
         let deudoresSeleccionados = <?php echo json_encode($deudores_seleccionados); ?>;
+        // ARRAY PARA ALMACENAR PRÉSTAMOS EXCLUIDOS
+        let prestamosExcluidos = <?php echo json_encode($prestamos_excluidos); ?>;
 
         document.addEventListener('DOMContentLoaded', function() {
             actualizarListaDeudores();
             actualizarContador();
+            actualizarCampoExcluidos();
             
             // Actualizar información al cambiar prestamista
             document.getElementById('prestamista').addEventListener('change', function() {
@@ -1504,6 +1641,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 document.getElementById('contadorDeudores').textContent = 
                     `Seleccionados: ${seleccionados} de ${total} conductores`;
             }
+        }
+
+        function actualizarCampoExcluidos() {
+            document.getElementById('prestamosExcluidos').value = prestamosExcluidos.join(',');
         }
 
         function seleccionarTodos() {
@@ -1561,18 +1702,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             detalle.style.display = detalle.style.display === 'none' || detalle.style.display === '' ? 'table-row' : 'none';
         }
         
-        function togglePrestamo(checkbox) {
+        function togglePrestamo(checkbox, prestamoId) {
             const fila = checkbox.closest('.fila-prestamo');
             if (!fila) return;
 
             if (!checkbox.checked) {
                 fila.classList.add('excluido');
+                // Agregar a array de excluidos
+                if (!prestamosExcluidos.includes(prestamoId.toString())) {
+                    prestamosExcluidos.push(prestamoId.toString());
+                }
             } else {
                 fila.classList.remove('excluido');
+                // Remover de array de excluidos
+                const index = prestamosExcluidos.indexOf(prestamoId.toString());
+                if (index !== -1) {
+                    prestamosExcluidos.splice(index, 1);
+                }
             }
+            
+            // Actualizar campo oculto
+            actualizarCampoExcluidos();
             
             const deudorId = fila.dataset.deudor;
             actualizarTotalesDeudor(deudorId);
+            
+            // Actualizar la tabla de configuración (simular recarga)
+            setTimeout(() => {
+                // Esto actualizará la tabla cuando se envíe el formulario
+            }, 100);
         }
         
         function recalcularPrestamo(input) {
@@ -1677,7 +1835,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             document.getElementById('total-comision-general').textContent = '$ ' + formatNumber(totalComisionPersonal);
         }
 
-        // Seleccionar otros deudores para pasarlos al cuad
+        // Seleccionar otros deudores para pasarlos al cuadro 1
         function toggleOtroDeudor(checkbox) {
             const deudor = checkbox.getAttribute('data-deudor');
             const index = deudoresSeleccionados.indexOf(deudor);
@@ -1698,6 +1856,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         
         function formatNumber(num) {
             return Math.round(num).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+        }
+
+        // Función para recargar la tabla de configuración
+        function actualizarTablaConfiguracion() {
+            // Aquí podrías hacer una petición AJAX para actualizar solo la tabla de configuración
+            // Por ahora, simplemente forzamos el envío del formulario
+            document.getElementById('formPrincipal').submit();
         }
     </script>
 </body>
