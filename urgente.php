@@ -115,16 +115,8 @@ $otros_prestamos_por_deudor = [];
 // ARRAY para almacenar IDs excluidos (para que afecte la tabla de configuración)
 $prestamos_excluidos = isset($_POST['prestamos_excluidos']) ? explode(',', $_POST['prestamos_excluidos']) : [];
 
-// Totales generales
-$total_capital_general = 0;
-$total_general = 0;
-$total_interes_prestamista_general = 0;
-$total_comision_personal_general = 0;
-
-$otros_total_capital_general = 0;
-$otros_total_general = 0;
-$otros_total_interes_prestamista_general = 0;
-$otros_total_comision_personal_general = 0;
+// ARRAY para almacenar datos de préstamos NUEVOS por prestamista (para cálculo en JavaScript)
+$prestamos_nuevos_por_prestamista = [];
 
 // Obtener empresas desde VIAJES
 $sql_empresas = "SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa != '' ORDER BY empresa";
@@ -134,62 +126,46 @@ $result_empresas = $conn->query($sql_empresas);
 $sql_prestamistas_lista = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' ORDER BY prestamista";
 $result_prestamistas_lista = $conn->query($sql_prestamistas_lista);
 
-// FUNCIÓN PARA CALCULAR GANANCIA DE UN PRESTAMISTA (considerando excluidos)
-function calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestamistas, $prestamos_excluidos = []) {
-    $FECHA_CORTE = '2025-10-29';
-    
-    // Preparar condición para excluidos
-    $condicion_excluidos = '';
-    if (!empty($prestamos_excluidos)) {
-        $ids_excluidos = array_map('intval', $prestamos_excluidos);
-        $condicion_excluidos = "AND id NOT IN (" . implode(',', $ids_excluidos) . ")";
-    }
-    
-    $sql = "SELECT 
-                monto,
-                fecha,
-                CASE 
-                    WHEN fecha < ? THEN 'viejo'
-                    ELSE 'nuevo'
-                END as tipo
-            FROM prestamos 
-            WHERE prestamista = ? 
-            AND pagado = 0
-            $condicion_excluidos";
-    
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("ss", $FECHA_CORTE, $prestamista_nombre);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    $total_viejos = 0;
-    $total_nuevos = 0;
-    $tu_ganancia_total = 0;
-    
-    $config = isset($config_prestamistas[$prestamista_nombre]) 
-        ? $config_prestamistas[$prestamista_nombre] 
-        : ['interes' => 10.00, 'comision' => 0.00];
-    
-    while ($row = $result->fetch_assoc()) {
+// Obtener todos los préstamos NUEVOS activos para el cálculo en JavaScript
+$sql_prestamos_nuevos = "SELECT 
+                            p.id,
+                            p.prestamista,
+                            p.monto,
+                            p.fecha,
+                            c.comision_personal as comision_porcentaje
+                          FROM prestamos p
+                          LEFT JOIN config_prestamistas c ON p.prestamista = c.prestamista
+                          WHERE p.pagado = 0 
+                          AND p.fecha >= '2025-10-29'";
+$result_prestamos_nuevos = $conn->query($sql_prestamos_nuevos);
+
+if ($result_prestamos_nuevos) {
+    while ($row = $result_prestamos_nuevos->fetch_assoc()) {
+        $prestamista_nombre = $row['prestamista'];
+        $comision_porcentaje = $row['comision_porcentaje'] ? floatval($row['comision_porcentaje']) : 0;
         $meses = calcularMesesAutomaticos($row['fecha']);
         
-        if ($row['tipo'] == 'viejo') {
-            $total_viejos += $row['monto'];
-            // Viejos: 0% comisión para ti
-        } else {
-            $total_nuevos += $row['monto'];
-            // Nuevos: tu porcentaje configurado
-            $tu_ganancia_total += ($row['monto'] * ($config['comision'] / 100) * $meses);
+        if (!isset($prestamos_nuevos_por_prestamista[$prestamista_nombre])) {
+            $prestamos_nuevos_por_prestamista[$prestamista_nombre] = [
+                'total_prestado' => 0,
+                'tu_ganancia' => 0,
+                'prestamos' => []
+            ];
         }
+        
+        $monto_prestamo = $row['monto'];
+        $ganancia_prestamo = $monto_prestamo * ($comision_porcentaje / 100) * $meses;
+        
+        $prestamos_nuevos_por_prestamista[$prestamista_nombre]['total_prestado'] += $monto_prestamo;
+        $prestamos_nuevos_por_prestamista[$prestamista_nombre]['tu_ganancia'] += $ganancia_prestamo;
+        $prestamos_nuevos_por_prestamista[$prestamista_nombre]['prestamos'][] = [
+            'id' => $row['id'],
+            'monto' => $monto_prestamo,
+            'meses' => $meses,
+            'comision_porcentaje' => $comision_porcentaje,
+            'ganancia' => $ganancia_prestamo
+        ];
     }
-    
-    return [
-        'total_viejos' => $total_viejos,
-        'total_nuevos' => $total_nuevos,
-        'total_prestado' => $total_viejos + $total_nuevos,
-        'tu_ganancia' => $tu_ganancia_total,
-        'config' => $config
-    ];
 }
 
 // Si es POST procesamos el reporte
@@ -1017,6 +993,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         .hidden-input {
             display: none;
         }
+        
+        /* Estilo para valor actualizado */
+        .valor-actualizado {
+            animation: pulse 0.5s ease-in-out;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
     </style>
 </head>
 <body>
@@ -1047,14 +1034,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 • <span class="badge-tipo badge-nuevo">Préstamos NUEVOS</span> (después del 29-10-2025): <strong>Total 13% (configurado abajo)</strong>
             </div>
             
-            <table class="config-table">
+            <table class="config-table" id="tablaConfiguracion">
                 <thead>
                     <tr>
                         <th>Prestamista</th>
                         <th>Total Prestado Activo</th>
                         <th>Interés del Prestamista (%)</th>
                         <th>Tu Comisión (%)</th>
-                        <th><strong style="color: var(--accent);">TU GANANCIA TOTAL</strong></th>
+                        <th><strong style="color: var(--accent);" id="titulo-ganancia">TU GANANCIA TOTAL</strong></th>
                         <th>Total para Deudor (%)</th>
                         <th>Acción</th>
                     </tr>
@@ -1065,30 +1052,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         <?php while ($prest = $result_prestamistas_lista->fetch_assoc()): ?>
                             <?php 
                             $prestamista_nombre = $prest['prestamista'];
+                            $config = isset($config_prestamistas[$prestamista_nombre]) 
+                                ? $config_prestamistas[$prestamista_nombre] 
+                                : ['interes' => 10.00, 'comision' => 0.00];
                             
-                            // CALCULAR GANANCIA CON EXCLUIDOS
-                            $datos_ganancia = calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestamistas, $prestamos_excluidos);
-                            
-                            $total_viejos = $datos_ganancia['total_viejos'];
-                            $total_nuevos = $datos_ganancia['total_nuevos'];
-                            $total_prestado = $datos_ganancia['total_prestado'];
-                            $tu_ganancia = $datos_ganancia['tu_ganancia'];
-                            $config = $datos_ganancia['config'];
+                            // Obtener datos de préstamos nuevos para este prestamista
+                            $datos_prestamos = isset($prestamos_nuevos_por_prestamista[$prestamista_nombre]) 
+                                ? $prestamos_nuevos_por_prestamista[$prestamista_nombre] 
+                                : ['total_prestado' => 0, 'tu_ganancia' => 0, 'prestamos' => []];
                             
                             $total_porcentaje = $config['interes'] + $config['comision'];
                             ?>
-                            <tr>
+                            <tr id="fila-config-<?php echo md5($prestamista_nombre); ?>">
                                 <td><strong><?php echo htmlspecialchars($prestamista_nombre); ?></strong></td>
                                 
                                 <!-- COLUMNA: Total Prestado Activo -->
                                 <td class="moneda" style="text-align: center;">
-                                    <strong>$ <?php echo number_format($total_prestado, 0, ',', '.'); ?></strong>
-                                    <br>
-                                    <small style="font-size: 0.75rem;">
-                                        <span class="badge-tipo badge-viejo">$ <?php echo number_format($total_viejos, 0, ',', '.'); ?> viejos</span>
-                                        <br>
-                                        <span class="badge-tipo badge-nuevo">$ <?php echo number_format($total_nuevos, 0, ',', '.'); ?> nuevos</span>
-                                    </small>
+                                    <strong id="total-prestado-<?php echo md5($prestamista_nombre); ?>">
+                                        $ <?php echo number_format($datos_prestamos['total_prestado'], 0, ',', '.'); ?>
+                                    </strong>
                                 </td>
                                 
                                 <td>
@@ -1107,11 +1089,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                 </td>
                                 
                                 <!-- COLUMNA NUEVA: Tu Ganancia Total -->
-                                <td class="ganancia-cell">
-                                    <strong>$ <?php echo number_format($tu_ganancia, 0, ',', '.'); ?></strong>
+                                <td class="ganancia-cell" id="ganancia-cell-<?php echo md5($prestamista_nombre); ?>">
+                                    <strong id="ganancia-valor-<?php echo md5($prestamista_nombre); ?>">
+                                        $ <?php echo number_format($datos_prestamos['tu_ganancia'], 0, ',', '.'); ?>
+                                    </strong>
                                     <br>
-                                    <small>
-                                        (<?php echo number_format($config['comision'], 1); ?>% de $<?php echo number_format($total_nuevos, 0, ',', '.'); ?> nuevos)
+                                    <small id="ganancia-detalle-<?php echo md5($prestamista_nombre); ?>">
+                                        (<?php echo number_format($config['comision'], 1); ?>% de $<?php echo number_format($datos_prestamos['total_prestado'], 0, ',', '.'); ?> nuevos)
                                     </small>
                                 </td>
                                 
@@ -1141,9 +1125,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             
             <div class="info-porcentajes">
                 <strong>💡 ¿Cómo funciona?</strong><br>
-                1. <strong>Total Prestado Activo</strong>: Suma de todos los préstamos pendientes (viejos + nuevos).<br>
+                1. <strong>Total Prestado Activo</strong>: Suma de todos los préstamos pendientes NUEVOS.<br>
                 2. <strong>Tu Ganancia Total</strong>: Calculada automáticamente basada en tu % de comisión sobre préstamos NUEVOS.<br>
-                3. <strong>Nota</strong>: Los préstamos excluidos en el reporte NO se incluyen en este cálculo.<br>
+                3. <strong>Actualización en tiempo real</strong>: Cuando excluyes un préstamo, la ganancia se recalcula automáticamente.<br>
                 Ejemplo: Para Celene, si prestó $8,000,000 nuevos y tienes 5% comisión, tu ganancia es $400,000.
             </div>
         </div>
@@ -1427,10 +1411,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                         $es_excluido = $detalle['excluido'] ?? false;
                                     ?>
                                     <tr class="fila-prestamo <?php echo $detalle['tipo'] == 'viejo' ? 'prestamo-viejo' : 'prestamo-nuevo'; ?> <?php echo $es_excluido ? 'excluido' : ''; ?>" 
-                                        data-deudor="<?php echo md5($deudor); ?>" data-id="<?php echo $detalle['id']; ?>">
+                                        data-deudor="<?php echo md5($deudor); ?>" 
+                                        data-id="<?php echo $detalle['id']; ?>"
+                                        data-monto="<?php echo $detalle['monto']; ?>"
+                                        data-meses="<?php echo $detalle['meses']; ?>"
+                                        data-tipo="<?php echo $detalle['tipo']; ?>"
+                                        data-comision="<?php echo $detalle['tipo'] == 'nuevo' ? $config_actual['comision'] : 0; ?>">
                                         <td class="acciones">
                                             <input type="checkbox" class="checkbox-excluir" <?php echo !$es_excluido ? 'checked' : ''; ?> 
-                                                   onchange="togglePrestamo(this, <?php echo $detalle['id']; ?>)">
+                                                   onchange="togglePrestamo(this, <?php echo $detalle['id']; ?>, '<?php echo $prestamista_seleccionado; ?>')">
                                         </td>
                                         <td><?php echo $detalle['fecha']; ?></td>
                                         <td>
@@ -1584,21 +1573,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         let deudoresSeleccionados = <?php echo json_encode($deudores_seleccionados); ?>;
         // ARRAY PARA ALMACENAR PRÉSTAMOS EXCLUIDOS
         let prestamosExcluidos = <?php echo json_encode($prestamos_excluidos); ?>;
+        
+        // OBJETO CON DATOS DE PRÉSTAMOS NUEVOS PARA CÁLCULO EN TIEMPO REAL
+        const prestamosNuevosData = <?php echo json_encode($prestamos_nuevos_por_prestamista); ?>;
+        
+        // OBJETO PARA RASTREAR GANANCIAS ACTUALIZADAS
+        let gananciasActualizadas = {};
 
         document.addEventListener('DOMContentLoaded', function() {
             actualizarListaDeudores();
             actualizarContador();
             actualizarCampoExcluidos();
             
-            // Actualizar información al cambiar prestamista
-            document.getElementById('prestamista').addEventListener('change', function() {
-                const option = this.options[this.selectedIndex];
-                if (option) {
-                    const interes = option.getAttribute('data-interes');
-                    const comision = option.getAttribute('data-comision');
-                    const total = option.getAttribute('data-total');
-                }
-            });
+            // Inicializar ganancias actualizadas con los valores iniciales
+            <?php foreach ($prestamos_nuevos_por_prestamista as $prestamista => $datos): ?>
+                gananciasActualizadas['<?php echo md5($prestamista); ?>'] = <?php echo $datos['tu_ganancia']; ?>;
+            <?php endforeach; ?>
         });
 
         function toggleDeudor(element) {
@@ -1702,15 +1692,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             detalle.style.display = detalle.style.display === 'none' || detalle.style.display === '' ? 'table-row' : 'none';
         }
         
-        function togglePrestamo(checkbox, prestamoId) {
+        function togglePrestamo(checkbox, prestamoId, prestamistaNombre) {
             const fila = checkbox.closest('.fila-prestamo');
             if (!fila) return;
+            
+            const prestamistaId = md5(prestamistaNombre);
+            const esPrestamoNuevo = fila.getAttribute('data-tipo') === 'nuevo';
+            const monto = parseFloat(fila.getAttribute('data-monto'));
+            const meses = parseInt(fila.getAttribute('data-meses'));
+            const comisionPorcentaje = parseFloat(fila.getAttribute('data-comision'));
 
             if (!checkbox.checked) {
                 fila.classList.add('excluido');
                 // Agregar a array de excluidos
                 if (!prestamosExcluidos.includes(prestamoId.toString())) {
                     prestamosExcluidos.push(prestamoId.toString());
+                }
+                
+                // Si es préstamo NUEVO, restar de la ganancia
+                if (esPrestamoNuevo && comisionPorcentaje > 0) {
+                    const gananciaRestar = monto * (comisionPorcentaje / 100) * meses;
+                    actualizarGananciaPrestamista(prestamistaId, -gananciaRestar);
                 }
             } else {
                 fila.classList.remove('excluido');
@@ -1719,6 +1721,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 if (index !== -1) {
                     prestamosExcluidos.splice(index, 1);
                 }
+                
+                // Si es préstamo NUEVO, sumar a la ganancia
+                if (esPrestamoNuevo && comisionPorcentaje > 0) {
+                    const gananciaSumar = monto * (comisionPorcentaje / 100) * meses;
+                    actualizarGananciaPrestamista(prestamistaId, gananciaSumar);
+                }
             }
             
             // Actualizar campo oculto
@@ -1726,11 +1734,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             
             const deudorId = fila.dataset.deudor;
             actualizarTotalesDeudor(deudorId);
+        }
+        
+        function actualizarGananciaPrestamista(prestamistaId, cambio) {
+            // Actualizar el valor en nuestro objeto
+            if (!gananciasActualizadas[prestamistaId]) {
+                gananciasActualizadas[prestamistaId] = 0;
+            }
+            gananciasActualizadas[prestamistaId] += cambio;
             
-            // Actualizar la tabla de configuración (simular recarga)
-            setTimeout(() => {
-                // Esto actualizará la tabla cuando se envíe el formulario
-            }, 100);
+            // Actualizar la tabla de configuración
+            const celdaGanancia = document.getElementById('ganancia-valor-' + prestamistaId);
+            if (celdaGanancia) {
+                const gananciaActual = gananciasActualizadas[prestamistaId];
+                celdaGanancia.innerHTML = '$ ' + formatNumber(gananciaActual);
+                celdaGanancia.classList.add('valor-actualizado');
+                
+                // Remover la animación después de un tiempo
+                setTimeout(() => {
+                    celdaGanancia.classList.remove('valor-actualizado');
+                }, 500);
+                
+                // Actualizar también el total prestado (solo préstamos incluidos)
+                const celdaTotalPrestado = document.getElementById('total-prestado-' + prestamistaId);
+                if (celdaTotalPrestado && cambio !== 0) {
+                    // Aquí deberíamos actualizar el total prestado también
+                    // Pero necesitaríamos más datos, por ahora solo actualizamos la ganancia
+                }
+            }
         }
         
         function recalcularPrestamo(input) {
@@ -1739,6 +1770,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             const inputMeses = fila.querySelector('.meses-input');
             const meses = parseInt(inputMeses.value);
             const tipo = inputMeses.getAttribute('data-tipo');
+            
+            // Guardar los nuevos meses en el atributo data
+            fila.setAttribute('data-meses', meses);
             
             if (tipo === 'viejo') {
                 // PRÉSTAMOS VIEJOS: Siempre 10% para prestamista, 0% para ti
@@ -1771,12 +1805,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 celdaInteresPrestamista.textContent = '$ ' + formatNumber(interesPrestamistaMonto);
                 celdaComision.textContent = '$ ' + formatNumber(comisionPersonalMonto);
                 celdaTotal.textContent = '$ ' + formatNumber(total);
+                
+                // Actualizar la comisión en el atributo data
+                fila.setAttribute('data-comision', comisionPersonal);
             }
             
             const checkbox = fila.querySelector('.checkbox-excluir');
             if (checkbox && checkbox.checked) {
                 const deudorId = fila.dataset.deudor;
                 actualizarTotalesDeudor(deudorId);
+                
+                // Si es préstamo nuevo y está incluido, actualizar ganancia
+                if (tipo === 'nuevo' && !fila.classList.contains('excluido')) {
+                    const prestamistaNombre = document.getElementById('prestamista').value;
+                    const prestamistaId = md5(prestamistaNombre);
+                    const comisionPersonal = parseFloat(fila.getAttribute('data-comision'));
+                    const gananciaActual = monto * (comisionPersonal / 100) * meses;
+                    
+                    // Calcular diferencia con la ganancia anterior
+                    const gananciaAnterior = parseFloat(fila.querySelector('.comision-prestamo').getAttribute('data-valor-anterior') || 0);
+                    const diferencia = gananciaActual - gananciaAnterior;
+                    
+                    if (diferencia !== 0) {
+                        actualizarGananciaPrestamista(prestamistaId, diferencia);
+                        // Guardar el nuevo valor como anterior
+                        fila.querySelector('.comision-prestamo').setAttribute('data-valor-anterior', gananciaActual);
+                    }
+                }
             }
         }
         
@@ -1857,12 +1912,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         function formatNumber(num) {
             return Math.round(num).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
         }
-
-        // Función para recargar la tabla de configuración
-        function actualizarTablaConfiguracion() {
-            // Aquí podrías hacer una petición AJAX para actualizar solo la tabla de configuración
-            // Por ahora, simplemente forzamos el envío del formulario
-            document.getElementById('formPrincipal').submit();
+        
+        // Función simple para generar MD5 (solo para identificadores)
+        function md5(str) {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+                const char = str.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash;
+            }
+            return Math.abs(hash).toString(16);
         }
     </script>
 </body>
