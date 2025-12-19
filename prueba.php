@@ -2,10 +2,11 @@
 include("nav.php");
 /*********************************************************
  * prestamos_visual_interactivo.php
- * v4.9 - VISTA SIMPLIFICADA PARA PAGOS A PRESTAMISTAS
- * - Solo muestra cálculos para pagar a prestamistas
- * - Tasa de interés: 8% desde 29-oct-2025, 10% para anteriores
- * - Eliminados cálculos especiales de Celene y comisiones
+ * v5.0 - VISTA SIMPLIFICADA PARA PAGOS A PRESTAMISTAS
+ * - Tasas variables según prestamista:
+ *   1. Gladys Salinas: 13% desde 29-oct-2025
+ *   2. Alexander Peralta: 10% para TODOS sus préstamos
+ *   3. Otros prestamistas: 8% desde 29-oct-2025, 10% para anteriores
  * - Solo 3 valores en resumen:
  *   1. Ganancia (interés)
  *   2. Total prestado (pendiente)
@@ -151,10 +152,22 @@ $sql = "
          -- capital por par
          SUM(monto) AS capital,
 
-         -- interés REAL: 8% desde 29-oct-2025, 10% para anteriores
+         -- interés VARIABLE según prestamista:
+         -- 1. Gladys Salinas: 13% desde 29-oct-2025
+         -- 2. Alexander Peralta: 10% siempre
+         -- 3. Otros: 8% desde 29-oct-2025, 10% para anteriores
          SUM(
            CASE
-             WHEN fecha >= '2025-10-29' THEN monto * 0.08   -- ¡CAMBIADO A 8%!
+             -- Gladys Salinas
+             WHEN LOWER(TRIM(prestamista)) IN ('gladys salinas', 'gladys', 'salinas') 
+                  AND fecha >= '2025-10-29' THEN monto * 0.13
+             
+             -- Alexander Peralta: 10% siempre
+             WHEN LOWER(TRIM(prestamista)) IN ('alexander peralta', 'alexander', 'peralta') 
+             THEN monto * 0.10
+             
+             -- Otros prestamistas
+             WHEN fecha >= '2025-10-29' THEN monto * 0.08
              ELSE monto * 0.10
            END *
            CASE WHEN CURDATE() < fecha
@@ -168,7 +181,16 @@ $sql = "
            monto +
            (
              CASE
-               WHEN fecha >= '2025-10-29' THEN monto * 0.08   -- ¡CAMBIADO A 8%!
+               -- Gladys Salinas
+               WHEN LOWER(TRIM(prestamista)) IN ('gladys salinas', 'gladys', 'salinas') 
+                    AND fecha >= '2025-10-29' THEN monto * 0.13
+               
+               -- Alexander Peralta: 10% siempre
+               WHEN LOWER(TRIM(prestamista)) IN ('alexander peralta', 'alexander', 'peralta') 
+               THEN monto * 0.10
+               
+               -- Otros prestamistas
+               WHEN fecha >= '2025-10-29' THEN monto * 0.08
                ELSE monto * 0.10
              END *
              CASE WHEN CURDATE() < fecha
@@ -241,10 +263,19 @@ $sqlDet = "
          ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
     END AS meses,
 
-    -- interés REAL por préstamo: 8% desde 29-oct-2025
+    -- interés VARIABLE según prestamista
     (
-      CASE 
-        WHEN fecha >= '2025-10-29' THEN monto * 0.08   -- ¡CAMBIADO A 8%!
+      CASE
+        -- Gladys Salinas
+        WHEN LOWER(TRIM(prestamista)) IN ('gladys salinas', 'gladys', 'salinas') 
+             AND fecha >= '2025-10-29' THEN monto * 0.13
+        
+        -- Alexander Peralta: 10% siempre
+        WHEN LOWER(TRIM(prestamista)) IN ('alexander peralta', 'alexander', 'peralta') 
+        THEN monto * 0.10
+        
+        -- Otros prestamistas
+        WHEN fecha >= '2025-10-29' THEN monto * 0.08
         ELSE monto * 0.10
       END *
       CASE WHEN CURDATE() < fecha
@@ -253,12 +284,21 @@ $sqlDet = "
       END
     ) AS interes_real,
 
-    -- total con interés REAL
+    -- total con interés real
     (
       monto +
       (
-        CASE 
-          WHEN fecha >= '2025-10-29' THEN monto * 0.08   -- ¡CAMBIADO A 8%!
+        CASE
+          -- Gladys Salinas
+          WHEN LOWER(TRIM(prestamista)) IN ('gladys salinas', 'gladys', 'salinas') 
+               AND fecha >= '2025-10-29' THEN monto * 0.13
+          
+          -- Alexander Peralta: 10% siempre
+          WHEN LOWER(TRIM(prestamista)) IN ('alexander peralta', 'alexander', 'peralta') 
+          THEN monto * 0.10
+          
+          -- Otros prestamistas
+          WHEN fecha >= '2025-10-29' THEN monto * 0.08
           ELSE monto * 0.10
         END *
         CASE WHEN CURDATE() < fecha
@@ -297,7 +337,7 @@ while($row=$rsDet->fetch_assoc()){
     'fecha'           => $row['fecha'],
     'monto'           => (float)$row['monto'],
     'meses'           => (int)$row['meses'],
-    'interes'         => (float)$row['interes_real'],   // interés real del 8%
+    'interes'         => (float)$row['interes_real'],
     'total'           => (float)$row['total'],
     'pagado'          => (int)$row['pagado'],
     'prestamista'     => $row['prestamista'],
@@ -322,7 +362,7 @@ while($r=$rs->fetch_assoc()){
     'nombre'          => $ddis,
     'valor'           => (float)$r['capital'],
     'fecha'           => $r['fecha_min'],
-    'interes'         => (float)$r['interes_real'],     // interés real del 8%
+    'interes'         => (float)$r['interes_real'],
     'total'           => (float)$r['total'],
     'meses'           => (int)$r['meses'],
     'ids_csv'         => $idsMap[$pkey][$dkey] ?? '',
@@ -980,7 +1020,7 @@ $msg = $_GET['msg'] ?? '';
               <th>Fecha</th>
               <th>Meses</th>
               <th>Monto</th>
-              <th>Interés (8%/10%)</th>
+              <th>Interés</th>
               <th>Total</th>
               <th>Estado</th>
             </tr>
