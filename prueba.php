@@ -2,21 +2,14 @@
 include("nav.php");
 /*********************************************************
  * prestamos_visual_interactivo.php
- * v4.8 (comisión Gladys Salinas)
- * - Visual D3 (vista por prestamista / global multi-deudor)
- * - Selector "marcar pagados"
- * - Modal con historial individual (click en el nodo)
- * - Fila TOTAL y leyenda de colores en el modal
- * - Colores por antigüedad (meses) en modal y nodos
- * - Contador de préstamos por deudor en cada nodo
- * - Interés 13% para préstamos desde 29-oct-2025, 10% para anteriores
- * - EXCEPCIÓN: para prestamista = "Celene" y fecha >= 2025-10-29:
- *      interés_base = 13%
- *      descuento_5  = 5% sobre capital (mismos meses)
- *      interés_real = 8% (13 - 5)
- * - COMISIÓN: para prestamista = "Celene", 5% de comisión para Gladys Salinas
- * - FILTRO: Rango de fechas para filtrar DEUDORES (no préstamos individuales)
- * - EXCLUSIONES TEMPORALES: Para cálculos actuales sin afectar BD
+ * v4.9 - VISTA SIMPLIFICADA PARA PAGOS A PRESTAMISTAS
+ * - Solo muestra cálculos para pagar a prestamistas
+ * - Tasa de interés: 8% desde 29-oct-2025, 10% para anteriores
+ * - Eliminados cálculos especiales de Celene y comisiones
+ * - Solo 3 valores en resumen:
+ *   1. Ganancia (interés)
+ *   2. Total prestado (pendiente)
+ *   3. Total a recibir (suma de los dos anteriores)
  *********************************************************/
 
 /* ===== Config ===== */
@@ -143,17 +136,6 @@ if ($fecha_desde !== '' || $fecha_hasta !== '') {
   $stDeud->close();
 }
 
-/* =========================================================
-   FUNCIONES DE INTERÉS SQL (en línea)
-   - Para todos: 10% si fecha < 2025-10-29
-   - Para todos: 13% si fecha >= 2025-10-29
-   - EXCEPTO: prestamista='celene' y fecha >= 2025-10-29:
-         interes_base_mes  = monto * 0.13
-         descuento5_mes    = monto * 0.05
-         interes_real_mes  = monto * 0.08
-   - COMISIÓN: para prestamista='celene', 5% de comisión para Gladys Salinas
-   ========================================================= */
-
 /* ===== Agregado prestamista+deudor ===== */
 $sql = "
   SELECT LOWER(TRIM(prestamista)) AS prest_key,
@@ -169,81 +151,31 @@ $sql = "
          -- capital por par
          SUM(monto) AS capital,
 
-         -- interés TEÓRICO (lo que habría sido sin el 5% de Celene)
+         -- interés REAL: 8% desde 29-oct-2025, 10% para anteriores
          SUM(
            CASE
-             WHEN fecha >= '2025-10-29' THEN monto * 0.13
+             WHEN fecha >= '2025-10-29' THEN monto * 0.08   -- ¡CAMBIADO A 8%!
              ELSE monto * 0.10
            END *
            CASE WHEN CURDATE() < fecha
                 THEN 0
                 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
            END
-         ) AS interes_teorico,
-
-         -- descuento especial solo para Celene en préstamos de 13%
-         SUM(
-           CASE
-             WHEN LOWER(TRIM(prestamista))='celene'
-                  AND fecha >= '2025-10-29'
-             THEN monto * 0.05 *
-                  CASE WHEN CURDATE() < fecha
-                       THEN 0
-                       ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
-                  END
-             ELSE 0
-           END
-         ) AS interes_descuento,
-
-         -- comisión Gladys Salinas (5% sobre capital total de Celene)
-         CASE 
-           WHEN LOWER(TRIM(prestamista))='celene' 
-           THEN SUM(monto) * 0.05
-           ELSE 0
-         END AS comision_gladys,
-
-         -- interés REAL = teórico - descuento (para Celene) / = teórico (para otros)
-         SUM(
-           (
-             CASE
-               WHEN fecha >= '2025-10-29' THEN monto * 0.13
-               ELSE monto * 0.10
-             END
-             -
-             CASE
-               WHEN LOWER(TRIM(prestamista))='celene'
-                    AND fecha >= '2025-10-29'
-               THEN monto * 0.05
-               ELSE 0
-             END
-           )
-           *
-           CASE WHEN CURDATE() < fecha
-                THEN 0
-                ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
-           END
          ) AS interes_real,
 
-         -- total usando interés REAL
+         -- total simple: capital + interés real
          SUM(
            monto +
            (
              CASE
-               WHEN fecha >= '2025-10-29' THEN monto * 0.13
+               WHEN fecha >= '2025-10-29' THEN monto * 0.08   -- ¡CAMBIADO A 8%!
                ELSE monto * 0.10
+             END *
+             CASE WHEN CURDATE() < fecha
+                  THEN 0
+                  ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
              END
-             -
-             CASE
-               WHEN LOWER(TRIM(prestamista))='celene'
-                    AND fecha >= '2025-10-29'
-               THEN monto * 0.05
-               ELSE 0
-             END
-           ) *
-           CASE WHEN CURDATE() < fecha
-                THEN 0
-                ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
-           END
+           )
          ) AS total
   FROM prestamos
   WHERE $where";
@@ -309,48 +241,12 @@ $sqlDet = "
          ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
     END AS meses,
 
-    -- interés TEÓRICO por préstamo
+    -- interés REAL por préstamo: 8% desde 29-oct-2025
     (
       CASE 
-        WHEN fecha >= '2025-10-29' THEN monto * 0.13
+        WHEN fecha >= '2025-10-29' THEN monto * 0.08   -- ¡CAMBIADO A 8%!
         ELSE monto * 0.10
       END *
-      CASE WHEN CURDATE() < fecha
-           THEN 0
-           ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
-      END
-    ) AS interes_teorico,
-
-    -- descuento 5% solo para Celene en préstamos de 13%
-    (
-      CASE
-        WHEN LOWER(TRIM(prestamista))='celene'
-             AND fecha >= '2025-10-29'
-        THEN
-          monto * 0.05 *
-          CASE WHEN CURDATE() < fecha
-               THEN 0
-               ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
-          END
-        ELSE 0
-      END
-    ) AS interes_descuento,
-
-    -- interés REAL = teórico - descuento
-    (
-      (
-        CASE 
-          WHEN fecha >= '2025-10-29' THEN monto * 0.13
-          ELSE monto * 0.10
-        END
-        -
-        CASE
-          WHEN LOWER(TRIM(prestamista))='celene'
-               AND fecha >= '2025-10-29'
-          THEN monto * 0.05
-          ELSE 0
-        END
-      ) *
       CASE WHEN CURDATE() < fecha
            THEN 0
            ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
@@ -362,21 +258,14 @@ $sqlDet = "
       monto +
       (
         CASE 
-          WHEN fecha >= '2025-10-29' THEN monto * 0.13
+          WHEN fecha >= '2025-10-29' THEN monto * 0.08   -- ¡CAMBIADO A 8%!
           ELSE monto * 0.10
+        END *
+        CASE WHEN CURDATE() < fecha
+             THEN 0
+             ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
         END
-        -
-        CASE
-          WHEN LOWER(TRIM(prestamista))='celene'
-               AND fecha >= '2025-10-29'
-          THEN monto * 0.05
-          ELSE 0
-        END
-      ) *
-      CASE WHEN CURDATE() < fecha
-           THEN 0
-           ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1
-      END
+      )
     ) AS total,
 
     IFNULL(pagado,0) AS pagado
@@ -408,9 +297,7 @@ while($row=$rsDet->fetch_assoc()){
     'fecha'           => $row['fecha'],
     'monto'           => (float)$row['monto'],
     'meses'           => (int)$row['meses'],
-    'interes_teorico' => (float)$row['interes_teorico'],
-    'interes_desc'    => (float)$row['interes_descuento'],
-    'interes'         => (float)$row['interes_real'],   // el JS ya espera 'interes'
+    'interes'         => (float)$row['interes_real'],   // interés real del 8%
     'total'           => (float)$row['total'],
     'pagado'          => (int)$row['pagado'],
     'prestamista'     => $row['prestamista'],
@@ -423,12 +310,8 @@ $st3->close();
 $data = [];            // DATA[prestamista] = [rows...]
 $ganPrest=[];          // total interés REAL por prestamista
 $capPendPrest=[];      // total capital pendiente por prestamista
-$totalPrest=[];        // NUEVO: total general por prestamista
-$comisionGladys=[];    // comisión Gladys Salinas por prestamista
+$totalPrest=[];        // total general por prestamista (capital + interés)
 $allDebtors = [];      // listado global de deudores únicos
-
-// NUEVO: Calcular comisión total que Celene debe a Gladys
-$comisionCeleneAGladys = 0;
 
 while($r=$rs->fetch_assoc()){
   $pkey=$r['prest_key']; $pdisp=$r['prest_display'];
@@ -439,10 +322,7 @@ while($r=$rs->fetch_assoc()){
     'nombre'          => $ddis,
     'valor'           => (float)$r['capital'],
     'fecha'           => $r['fecha_min'],
-    'interes'         => (float)$r['interes_real'],     // lo que se muestra por defecto
-    'interes13'       => (float)$r['interes_teorico'],  // para Celene: 13%
-    'descuento5'      => (float)$r['interes_descuento'],// para Celene: 5%
-    'comision_gladys' => (float)$r['comision_gladys'],  // comisión Gladys Salinas
+    'interes'         => (float)$r['interes_real'],     // interés real del 8%
     'total'           => (float)$r['total'],
     'meses'           => (int)$r['meses'],
     'ids_csv'         => $idsMap[$pkey][$dkey] ?? '',
@@ -450,16 +330,10 @@ while($r=$rs->fetch_assoc()){
     '__dkey'          => $dkey
   ];
 
-  // totales por prestamista: usamos el REAL
+  // totales por prestamista
   $ganPrest[$pdisp]     = ($ganPrest[$pdisp] ?? 0) + (float)$r['interes_real'];
   $capPendPrest[$pdisp] = ($capPendPrest[$pdisp] ?? 0) + (float)$r['capital'];
-  $totalPrest[$pdisp]   = ($totalPrest[$pdisp] ?? 0) + (float)$r['total']; // NUEVO: Total general
-  $comisionGladys[$pdisp] = ($comisionGladys[$pdisp] ?? 0) + (float)$r['comision_gladys'];
-
-  // NUEVO: Acumular comisión total de Celene para Gladys
-  if ($pkey === 'celene') {
-    $comisionCeleneAGladys += (float)$r['comision_gladys'];
-  }
+  $totalPrest[$pdisp]   = ($totalPrest[$pdisp] ?? 0) + (float)$r['total'];
 
   $allDebtors[$ddis] = 1;
 }
@@ -472,25 +346,23 @@ natcasesort($allDebtors);
 /* ===== Formularios de marcar pagados por prestamista ===== */
 $selectors = [];
 foreach($data as $prest => $rows){
-  // Calcular totales para el resumen
+  // Calcular totales para el resumen (solo 3 valores)
   $totalInteres = 0;
   $totalCapital = 0;
-  $totalComisionGladys = 0;
-  $totalGeneral = 0; // NUEVO: Total general
+  $totalGeneral = 0;
   
   foreach($rows as $r){
     $totalInteres += $r['interes'];
     $totalCapital += $r['valor'];
-    $totalComisionGladys += $r['comision_gladys'];
-    $totalGeneral += $r['total']; // NUEVO: Sumar el total de cada préstamo
+    $totalGeneral += $r['total'];
   }
   
   ob_start(); ?>
   <form class="selector-form" method="post" action="?action=mark_paid" data-prest="<?= h($prest) ?>" style="display:none">
     
-    <!-- RESUMEN DEL PRESTAMISTA -->
+    <!-- RESUMEN DEL PRESTAMISTA - SOLO 3 VALORES -->
     <div style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:12px; padding:16px; margin-bottom:16px;">
-      <h3 style="margin:0 0 12px 0; color:#0b5ed7; font-size:16px;">Resumen del prestamista</h3>
+      <h3 style="margin:0 0 12px 0; color:#0b5ed7; font-size:16px;">Resumen para pago</h3>
       
       <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px;">
         <div>
@@ -501,18 +373,10 @@ foreach($data as $prest => $rows){
           <strong>Total prestado (pend.):</strong><br>
           <span style="color:#0b5ed7; font-weight:bold; font-size:18px;">$ <?= money($totalCapital) ?></span>
         </div>
-        <!-- NUEVO: Total general -->
         <div>
           <strong>Total a recibir:</strong><br>
           <span style="color:#16a34a; font-weight:bold; font-size:18px;">$ <?= money($totalGeneral) ?></span>
         </div>
-        
-        <?php if (mbnorm($prest) === 'celene' && $totalComisionGladys > 0): ?>
-          <div>
-            <strong>Comisión Gladys (5%):</strong><br>
-            <span style="color:#dc2626; font-weight:bold; font-size:18px;">$ <?= money($totalComisionGladys) ?></span>
-          </div>
-        <?php endif; ?>
       </div>
     </div>
     <!-- FIN RESUMEN -->
@@ -539,11 +403,7 @@ foreach($data as $prest => $rows){
             <div><strong><?= h(mbtitle($r['nombre'])) ?></strong></div>
             <div class="meta">
               prestado: $ <?= money($r['valor']) ?>
-              • interés (real): $ <?= money($r['interes']) ?>
-              <?php if (mbnorm($prest)==='celene'): ?>
-                • desc 5%: $ <?= money($r['descuento5']) ?>
-                • 13%: $ <?= money($r['interes13']) ?>
-              <?php endif; ?>
+              • interés: $ <?= money($r['interes']) ?>
               • total: $ <?= money($r['total']) ?>
               • fecha: <?= h($r['fecha']) ?>
             </div>
@@ -569,7 +429,7 @@ $msg = $_GET['msg'] ?? '';
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<title>Préstamos Interactivos</title>
+<title>Préstamos Interactivos - Vista Pago</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <style>
@@ -897,10 +757,6 @@ $msg = $_GET['msg'] ?? '';
     grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));
     gap:12px;
   }
-  .comision-gladys {
-    color:#dc2626 !important;
-    font-weight:bold;
-  }
 
   /* Nuevos estilos para exclusiones */
   .exclusion-header {
@@ -1124,9 +980,7 @@ $msg = $_GET['msg'] ?? '';
               <th>Fecha</th>
               <th>Meses</th>
               <th>Monto</th>
-              <th>Interés 13% / 10%</th>
-              <th>Desc. 5% Celene</th>
-              <th>Interés real (8%)</th>
+              <th>Interés (8%/10%)</th>
               <th>Total</th>
               <th>Estado</th>
             </tr>
@@ -1158,8 +1012,6 @@ const DATA = <?php echo json_encode($data, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_C
 const GANANCIA = <?php echo json_encode($ganPrest, JSON_NUMERIC_CHECK); ?>;
 const CAPITAL  = <?php echo json_encode($capPendPrest, JSON_NUMERIC_CHECK); ?>;
 const TOTAL_PREST = <?php echo json_encode($totalPrest, JSON_NUMERIC_CHECK); ?>;
-const COMISION_GLADYS = <?php echo json_encode($comisionGladys, JSON_NUMERIC_CHECK); ?>;
-const COMISION_CELENE_A_GLADYS = <?php echo $comisionCeleneAGladys; ?>;
 const SELECTORS_HTML = <?php echo json_encode($selectors, JSON_UNESCAPED_UNICODE); ?>;
 const ALL_DEBTORS = <?php echo json_encode(array_values($allDebtors), JSON_UNESCAPED_UNICODE); ?>;
 const DETALLE = <?php echo json_encode($detalleMap, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
@@ -1206,9 +1058,6 @@ function renderChips(prest, visibleRows=null){
   let capital = 0;
   let totalGeneral = 0;
 
-  const isGladysSalinas = (prest || '').toLowerCase().includes('gladys') || 
-                          (prest || '').toLowerCase().includes('salinas');
-
   // USAR EXACTAMENTE LAS MISMAS FILAS QUE SE MUESTRAN EN LAS TARJETAS
   const rowsToUse = visibleRows || (DATA[prest] || []);
 
@@ -1231,6 +1080,7 @@ function renderChips(prest, visibleRows=null){
     chipsHost.appendChild(exclusionChip);
   }
 
+  // SOLO 3 CHIPS
   const chip1 = document.createElement("span");
   chip1.className = "chip";
   chip1.textContent = `Ganancia (interés): $ ${interesReal.toLocaleString()}`;
@@ -1239,38 +1089,15 @@ function renderChips(prest, visibleRows=null){
   chip2.className = "chip";
   chip2.textContent = `Total prestado (pend.): $ ${capital.toLocaleString()}`;
 
-  // Para Gladys Salinas: cálculo especial
-  if (!isGlobalMode() && isGladysSalinas) {
-    const totalRecibir = totalGeneral + COMISION_CELENE_A_GLADYS;
-    const totalConComision = interesReal + COMISION_CELENE_A_GLADYS;
-    
-    const chip3 = document.createElement("span");
-    chip3.className = "chip";
-    chip3.style.background = "#DCFCE7";
-    chip3.style.color = "#166534";
-    chip3.textContent = `Total a recibir: $ ${totalRecibir.toLocaleString()}`;
+  const chip3 = document.createElement("span");
+  chip3.className = "chip";
+  chip3.style.background = "#DCFCE7";
+  chip3.style.color = "#166534";
+  chip3.textContent = `Total a recibir: $ ${totalGeneral.toLocaleString()}`;
 
-    const chip4 = document.createElement("span");
-    chip4.className = "chip";
-    chip4.style.background = "#FEF3C7";
-    chip4.textContent = `Total + Comisión: $ ${totalConComision.toLocaleString()}`;
+  chipsHost.append(chip1, chip2, chip3);
 
-    const chip5 = document.createElement("span");
-    chip5.className = "chip";
-    chip5.style.background = "#FFE4E4";
-    chip5.textContent = `Comisión Celene (5%): $ ${COMISION_CELENE_A_GLADYS.toLocaleString()}`;
-
-    chipsHost.append(chip1, chip2, chip5, chip3, chip4);
-  } else {
-    // Para otros prestamistas: total normal (capital + interés)
-    const chip3 = document.createElement("span");
-    chip3.className = "chip";
-    chip3.style.background = "#DCFCE7";
-    chip3.style.color = "#166534";
-    chip3.textContent = `Total a recibir: $ ${totalGeneral.toLocaleString()}`;
-    chipsHost.append(chip1, chip2, chip3);
-  }
-
+  // Leyenda de colores
   const chipL1 = document.createElement("span");
   chipL1.className="chip";
   chipL1.textContent="1 mes";
@@ -1545,15 +1372,13 @@ function fillAndOpenModal(prestKey, deudKey, prestName, deudName){
 
   if (!lista.length){
     modalRows.innerHTML =
-      '<tr><td colspan="10" style="text-align:center;color:#6b7280;padding:16px;">No hay registros.</td></tr>';
+      '<tr><td colspan="8" style="text-align:center;color:#6b7280;padding:16px;">No hay registros.</td></tr>';
     exclusionHeader.style.display = 'none';
     exclusionTotals.style.display = 'none';
   } else {
     exclusionHeader.style.display = 'block';
 
     let sumMonto = 0;
-    let sumInteresTeorico = 0;
-    let sumDesc = 0;
     let sumInteresReal = 0;
     let sumTotal = 0;
 
@@ -1619,14 +1444,6 @@ function fillAndOpenModal(prestKey, deudKey, prestName, deudName){
       const tdMonto = document.createElement('td');
       tdMonto.textContent = "$ " + Number(item.monto||0).toLocaleString();
 
-      const tdIntTheo = document.createElement('td');
-      tdIntTheo.textContent = "$ " + Number(item.interes_teorico||0).toLocaleString();
-
-      const tdDesc = document.createElement('td');
-      tdDesc.textContent = (Number(item.interes_desc||0) > 0)
-        ? ("$ " + Number(item.interes_desc||0).toLocaleString())
-        : "—";
-
       const tdIntReal = document.createElement('td');
       tdIntReal.textContent = "$ " + Number(item.interes||0).toLocaleString();
 
@@ -1649,8 +1466,6 @@ function fillAndOpenModal(prestKey, deudKey, prestName, deudName){
       tr.appendChild(tdFecha);
       tr.appendChild(tdMeses);
       tr.appendChild(tdMonto);
-      tr.appendChild(tdIntTheo);
-      tr.appendChild(tdDesc);
       tr.appendChild(tdIntReal);
       tr.appendChild(tdTot);
       tr.appendChild(tdEstado);
@@ -1658,11 +1473,9 @@ function fillAndOpenModal(prestKey, deudKey, prestName, deudName){
       modalRows.appendChild(tr);
 
       if (!isExcluded) {
-        sumMonto          += Number(item.monto||0);
-        sumInteresTeorico += Number(item.interes_teorico||0);
-        sumDesc           += Number(item.interes_desc||0);
-        sumInteresReal    += Number(item.interes||0);
-        sumTotal          += Number(item.total||0);
+        sumMonto       += Number(item.monto||0);
+        sumInteresReal += Number(item.interes||0);
+        sumTotal       += Number(item.total||0);
       }
     });
 
@@ -1682,12 +1495,6 @@ function fillAndOpenModal(prestKey, deudKey, prestName, deudName){
     const tdMontoTotal = document.createElement('td');
     tdMontoTotal.textContent = "$ " + sumMonto.toLocaleString();
 
-    const tdInteresTheoTotal = document.createElement('td');
-    tdInteresTheoTotal.textContent = "$ " + sumInteresTeorico.toLocaleString();
-
-    const tdDescTotal = document.createElement('td');
-    tdDescTotal.textContent = "$ " + sumDesc.toLocaleString();
-
     const tdInteresRealTotal = document.createElement('td');
     tdInteresRealTotal.textContent = "$ " + sumInteresReal.toLocaleString();
 
@@ -1701,8 +1508,6 @@ function fillAndOpenModal(prestKey, deudKey, prestName, deudName){
     trTotal.appendChild(tdEmpty2);
     trTotal.appendChild(tdEmpty3);
     trTotal.appendChild(tdMontoTotal);
-    trTotal.appendChild(tdInteresTheoTotal);
-    trTotal.appendChild(tdDescTotal);
     trTotal.appendChild(tdInteresRealTotal);
     trTotal.appendChild(tdGranTotal);
     trTotal.appendChild(tdEstadoTotal);
@@ -1927,17 +1732,6 @@ function drawTree(prestamista) {
     l1.append("tspan")
       .attr("class","nodeAmt")
       .text(`$ ${Number(d.data.interes||0).toLocaleString()}`);
-    // Si es Celene mostramos también el 13% y el descuento
-    if (!global && (prestamista||'').toLowerCase().trim()==='celene') {
-      l1.append("tspan").text(" • 13%: ");
-      l1.append("tspan")
-        .attr("class","nodeAmt")
-        .text(`$ ${Number(d.data.interes13||0).toLocaleString()}`);
-      l1.append("tspan").text(" • desc 5%: ");
-      l1.append("tspan")
-        .attr("class","nodeAmt")
-        .text(`$ ${Number(d.data.descuento5||0).toLocaleString()}`);
-    }
     l1.append("tspan").text(" • total ");
     l1.append("tspan")
       .attr("class","nodeAmt")
@@ -1962,15 +1756,6 @@ function drawTree(prestamista) {
   const totalInteresReal = visibleRows.reduce((a,r)=>a+Number(r.interes||0),0);
   const totalCapital = visibleRows.reduce((a,r)=>a+Number(r.valor||0),0);
   const totalGeneral = totalCapital + totalInteresReal; // Simple suma
-  
-  // Para Gladys Salinas, mostrar la comisión de Celene
-  let totalComisionGladys = 0;
-  const isGladysSalinas = (prestamista || '').toLowerCase().includes('gladys') || 
-                          (prestamista || '').toLowerCase().includes('salinas');
-  
-  if (isGladysSalinas) {
-    totalComisionGladys = COMISION_CELENE_A_GLADYS;
-  }
 
   const deudores = root.descendants().filter(d=>d.depth===1);
   const midY = d3.mean(deudores, d=>d.x) || 0;
@@ -1981,7 +1766,7 @@ function drawTree(prestamista) {
     centerX + cardW + 280;  // Desktop: posición original
   
   const sumW = isMobile ? 300 : 380;
-  const sumH = isMobile ? 160 : 140;
+  const sumH = isMobile ? 120 : 100;
   const sumPadX = 14;
   const sumLine = 24;
 
@@ -2007,23 +1792,16 @@ function drawTree(prestamista) {
     .attr("rx", 14)
     .attr("ry", 14);
 
-  const isCelene = (!global && (prestamista||'').toLowerCase().trim()==='celene');
-
-  // Título diferente para Gladys
-  let tituloResumen = "Resumen del prestamista";
-  if (isCelene) {
-    tituloResumen = "Resumen de Celene";
-  } else if (isGladysSalinas) {
-    tituloResumen = "Resumen de Gladys Salinas";
-  }
-
+  // Título del resumen
   summaryG.append("text")
     .attr("class","summaryTitle")
     .attr("x", sumPadX)
     .attr("y", -sumH/2 + sumLine)
-    .text(tituloResumen);
+    .text("Resumen para pago");
 
   let sy = -sumH/2 + sumLine + 20;
+  
+  // SOLO 3 LÍNEAS EN EL RESUMEN
   const s1 = summaryG.append("text")
     .attr("class","summaryLine")
     .attr("x", sumPadX)
@@ -2043,52 +1821,15 @@ function drawTree(prestamista) {
     .attr("class","summaryAmt")
     .text(`$ ${totalCapital.toLocaleString()}`);
 
-  // Para Gladys Salinas: cálculo especial
-  if (isGladysSalinas) {
-    const totalRecibir = totalInteresReal + totalCapital + totalComisionGladys;
-    const totalConComision = totalInteresReal + totalComisionGladys;
-    
-    sy += 22;
-    const s3 = summaryG.append("text")
-      .attr("class","summaryLine")
-      .attr("x", sumPadX)
-      .attr("y", sy)
-      .text("Comisión Celene (5%): ");
-    s3.append("tspan")
-      .attr("class","summaryAmt")
-      .text(`$ ${totalComisionGladys.toLocaleString()}`);
-
-    sy += 22;
-    const s4 = summaryG.append("text")
-      .attr("class","summaryLine")
-      .attr("x", sumPadX)
-      .attr("y", sy)
-      .text("Total a recibir: ");
-    s4.append("tspan")
-      .attr("class","summaryAmt")
-      .text(`$ ${totalRecibir.toLocaleString()}`);
-
-    sy += 22;
-    const s5 = summaryG.append("text")
-      .attr("class","summaryLine")
-      .attr("x", sumPadX)
-      .attr("y", sy)
-      .text("Total + Comisión: ");
-    s5.append("tspan")
-      .attr("class","summaryAmt")
-      .text(`$ ${totalConComision.toLocaleString()}`);
-  } else {
-    // Para otros prestamistas: total normal
-    sy += 22;
-    const s3 = summaryG.append("text")
-      .attr("class","summaryLine")
-      .attr("x", sumPadX)
-      .attr("y", sy)
-      .text("Total a recibir: ");
-    s3.append("tspan")
-      .attr("class","summaryAmt")
-      .text(`$ ${totalGeneral.toLocaleString()}`);
-  }
+  sy += 22;
+  const s3 = summaryG.append("text")
+    .attr("class","summaryLine")
+    .attr("x", sumPadX)
+    .attr("y", sy)
+    .text("Total a recibir: ");
+  s3.append("tspan")
+    .attr("class","summaryAmt")
+    .text(`$ ${totalGeneral.toLocaleString()}`);
 
   // Enlaces deudor -> resumen global
   const link2 = d3.linkHorizontal().x(d=>d.y).y(d=>d.x);
@@ -2115,15 +1856,14 @@ function drawTree(prestamista) {
     const perPrest = {};
     visibleRows.forEach(r=>{
       const p = r.__prest || 'Desconocido';
-      if (!perPrest[p]) perPrest[p] = { interes:0, capital:0, total:0, comision:0 };
+      if (!perPrest[p]) perPrest[p] = { interes:0, capital:0, total:0 };
       perPrest[p].interes += Number(r.interes||0);
       perPrest[p].capital += Number(r.valor||0);
-      perPrest[p].total = perPrest[p].capital + perPrest[p].interes; // CORREGIDO: Calcular total como capital + interés
-      perPrest[p].comision += Number(r.comision_gladys||0);
+      perPrest[p].total = perPrest[p].capital + perPrest[p].interes;
     });
 
     const names = Object.keys(perPrest).sort((a,b)=> a.localeCompare(b));
-    const cardHres = 92, gap = 10;
+    const cardHres = 80, gap = 10;
     let startY = midY + sumH/2 + 24;
 
     names.forEach((p,i)=>{
@@ -2171,7 +1911,6 @@ function drawTree(prestamista) {
         .attr("class","summaryAmt")
         .text(`$ ${perPrest[p].capital.toLocaleString()}`);
 
-      // Línea para el total general en modo global
       const t3 = gP.append("text")
         .attr("class","summaryLine")
         .attr("x", sumPadX)
