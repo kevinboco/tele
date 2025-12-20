@@ -134,8 +134,8 @@ $result_empresas = $conn->query($sql_empresas);
 $sql_prestamistas_lista = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' ORDER BY prestamista";
 $result_prestamistas_lista = $conn->query($sql_prestamistas_lista);
 
-// FUNCIÓN PARA CALCULAR GANANCIA DE UN PRESTAMISTA (considerando excluidos)
-function calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestamistas, $prestamos_excluidos = []) {
+// FUNCIÓN PARA CALCULAR GANANCIA DE UN PRESTAMISTA (MODIFICADA para incluir empresa)
+function calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestamistas, $prestamos_excluidos = [], $empresa_filtrada = '') {
     $FECHA_CORTE = '2025-10-29';
     
     // Preparar condición para excluidos
@@ -143,6 +143,12 @@ function calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestam
     if (!empty($prestamos_excluidos)) {
         $ids_excluidos = array_map('intval', $prestamos_excluidos);
         $condicion_excluidos = "AND id NOT IN (" . implode(',', $ids_excluidos) . ")";
+    }
+    
+    // Preparar condición para empresa
+    $condicion_empresa = '';
+    if (!empty($empresa_filtrada)) {
+        $condicion_empresa = "AND empresa = ?";
     }
     
     $sql = "SELECT 
@@ -155,10 +161,17 @@ function calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestam
             FROM prestamos 
             WHERE prestamista = ? 
             AND pagado = 0
+            $condicion_empresa
             $condicion_excluidos";
     
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("ss", $FECHA_CORTE, $prestamista_nombre);
+    
+    if (!empty($empresa_filtrada)) {
+        $stmt->bind_param("sss", $FECHA_CORTE, $prestamista_nombre, $empresa_filtrada);
+    } else {
+        $stmt->bind_param("ss", $FECHA_CORTE, $prestamista_nombre);
+    }
+    
     $stmt->execute();
     $result = $stmt->get_result();
     
@@ -203,8 +216,8 @@ if ($result_prestamistas_lista && $result_prestamistas_lista->num_rows > 0) {
     while ($prest = $result_prestamistas_lista->fetch_assoc()) {
         $prestamista_nombre = $prest['prestamista'];
         
-        // Calcular ganancia para este prestamista
-        $datos_ganancia = calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestamistas, $prestamos_excluidos);
+        // Calcular ganancia para este prestamista (SIN filtro de empresa para la tabla de configuración general)
+        $datos_ganancia = calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestamistas, $prestamos_excluidos, '');
         
         // Almacenar datos para mostrar en tabla
         $ganancias_por_prestamista[$prestamista_nombre] = $datos_ganancia;
@@ -267,7 +280,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
     // ==========================
     // 2) PRÉSTAMOS DE DEUDORES SELECCIONADOS (CUADRO 1)
     // ==========================
-    if (!empty($deudores_seleccionados) && !empty($prestamista_seleccionado)) {
+    if (!empty($deudores_seleccionados) && !empty($prestamista_seleccionado) && !empty($empresa_seleccionada)) {
         $placeholders = str_repeat('?,', count($deudores_seleccionados) - 1) . '?';
 
         $sql = "SELECT 
@@ -279,12 +292,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 FROM prestamos 
                 WHERE deudor IN ($placeholders) 
                   AND prestamista = ?
+                  AND empresa = ?  -- ¡FILTRO DE EMPRESA AGREGADO!
                   AND pagado = 0
                 ORDER BY deudor, fecha";
 
         $stmt = $conn->prepare($sql);
-        $types = str_repeat('s', count($deudores_seleccionados)) . 's';
-        $params = array_merge($deudores_seleccionados, [$prestamista_seleccionado]);
+        $types = str_repeat('s', count($deudores_seleccionados)) . 'ss';
+        $params = array_merge($deudores_seleccionados, [$prestamista_seleccionado, $empresa_seleccionada]);
         $stmt->bind_param($types, ...$params);
         $stmt->execute();
         $result_detalle = $stmt->get_result();
@@ -364,7 +378,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
     // ==========================
     // 3) OTROS DEUDORES (NO SELECCIONADOS) - CUADRO 2
     // ==========================
-    if (!empty($prestamista_seleccionado)) {
+    if (!empty($prestamista_seleccionado) && !empty($empresa_seleccionada)) {
         // Preparar condición para excluidos
         $condicion_excluidos = '';
         if (!empty($prestamos_excluidos)) {
@@ -380,13 +394,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         fecha
                       FROM prestamos
                       WHERE prestamista = ?
+                        AND empresa = ?  -- ¡FILTRO DE EMPRESA AGREGADO!
                         AND pagado = 0
                         AND deudor IS NOT NULL
                         AND deudor != ''
                         $condicion_excluidos
                       ORDER BY deudor, fecha";
         $stmt_otros = $conn->prepare($sql_otros);
-        $stmt_otros->bind_param("s", $prestamista_seleccionado);
+        $stmt_otros->bind_param("ss", $prestamista_seleccionado, $empresa_seleccionada);
         $stmt_otros->execute();
         $result_otros = $stmt_otros->get_result();
 
@@ -1070,6 +1085,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         .hidden-input {
             display: none;
         }
+        
+        .alerta-empresa {
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid rgba(245, 158, 11, 0.4);
+            border-radius: 12px;
+            padding: 12px 15px;
+            margin: 10px 0;
+            font-size: 0.85rem;
+            color: #f59e0b;
+        }
     </style>
 </head>
 <body>
@@ -1130,7 +1155,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         while ($prest = $result_prestamistas_lista->fetch_assoc()): 
                             $prestamista_nombre = $prest['prestamista'];
                             
-                            // Usar datos ya calculados anteriormente
+                            // Usar datos ya calculados anteriormente (SIN filtro de empresa para tabla general)
                             $datos_ganancia = isset($ganancias_por_prestamista[$prestamista_nombre]) 
                                 ? $ganancias_por_prestamista[$prestamista_nombre] 
                                 : ['total_viejos' => 0, 'total_nuevos' => 0, 'total_prestado' => 0, 'tu_ganancia' => 0, 'config' => ['interes' => 10.00, 'comision' => 0.00]];
@@ -1240,8 +1265,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     </div>
                     <div class="fecha-col">
                         <label for="empresa">Empresa:</label>
-                        <select name="empresa" id="empresa">
-                            <option value="">-- Todas las Empresas --</option>
+                        <select name="empresa" id="empresa" required>
+                            <option value="">-- Seleccionar Empresa --</option>
                             <?php 
                             if ($result_empresas && $result_empresas->num_rows > 0) {
                                 $result_empresas->data_seek(0);
@@ -1261,6 +1286,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     </div>
                 </div>
                 <small>Usa el mismo rango de fechas y empresa que en la vista de pago para que salgan los mismos conductores.</small>
+                <?php if (!empty($empresa_seleccionada)): ?>
+                <div class="alerta-empresa">
+                    <strong>⚠ FILTRO DE EMPRESA ACTIVO:</strong> Solo se mostrarán préstamos de la empresa <strong>"<?php echo htmlspecialchars($empresa_seleccionada); ?>"</strong> en ambos cuadros.
+                </div>
+                <?php endif; ?>
             </div>
 
             <div class="form-row">
@@ -1386,7 +1416,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             <div class="info-meses">
                 <strong>Filtro de conductores aplicado:</strong>
                 <?php if (!empty($empresa_seleccionada)): ?>
-                    Empresa <strong><?php echo htmlspecialchars($empresa_seleccionada); ?></strong> |
+                    Empresa <strong>"<?php echo htmlspecialchars($empresa_seleccionada); ?>"</strong> |
                 <?php endif; ?>
                 Fechas: <strong><?php echo htmlspecialchars($fecha_desde); ?></strong> al <strong><?php echo htmlspecialchars($fecha_hasta); ?></strong>
             </div>
@@ -1417,7 +1447,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
 
             <?php if (empty($prestamos_por_deudor)): ?>
                 <div style="background-color: rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.4); padding: 12px; border-radius: 10px; margin: 15px 0; font-size:0.85rem;">
-                    <strong>No se encontraron préstamos pendientes</strong> para los deudores seleccionados.
+                    <strong>No se encontraron préstamos pendientes</strong> para los deudores seleccionados en la empresa <strong>"<?php echo htmlspecialchars($empresa_seleccionada); ?>"</strong>.
                 </div>
             <?php else: ?>
             <table id="tablaReporte">
@@ -1526,7 +1556,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     <!-- Totales generales CUADRO 1 -->
                     <tr class="totales">
                         <td colspan="2">
-                            <strong>TOTAL GENERAL</strong>
+                            <strong>TOTAL GENERAL CUADRO 1</strong>
                             <br>
                             <small>
                                 <span class="badge-tipo badge-viejo"><?php echo $total_viejos_general; ?> viejos</span> | 
@@ -1560,7 +1590,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             <div class="cuadro-otros">
             <?php if (empty($otros_prestamos_por_deudor)): ?>
                 <div style="background-color: rgba(148,163,184,0.06); border:1px solid rgba(148,163,184,0.3); padding: 10px; border-radius: 10px; margin: 10px 0; font-size:0.85rem;">
-                    No hay otros deudores con préstamos pendientes diferentes a los ya seleccionados.
+                    No hay otros deudores con préstamos pendientes diferentes a los ya seleccionados en la empresa <strong>"<?php echo htmlspecialchars($empresa_seleccionada); ?>"</strong>.
                 </div>
             <?php else: ?>
                 <table>
@@ -1625,7 +1655,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         <!-- Totales OTROS DEUDORES -->
                         <tr class="totales">
                             <td colspan="3">
-                                <strong>TOTAL GENERAL OTROS DEUDORES</strong>
+                                <strong>TOTAL GENERAL CUADRO 2</strong>
                                 <br>
                                 <small>
                                     <span class="badge-tipo badge-viejo"><?php echo $otros_total_viejos_general; ?> viejos</span> | 
@@ -1657,15 +1687,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             actualizarContador();
             actualizarCampoExcluidos();
             
-            // Actualizar información al cambiar prestamista
-            document.getElementById('prestamista').addEventListener('change', function() {
-                const option = this.options[this.selectedIndex];
-                if (option) {
-                    const interes = option.getAttribute('data-interes');
-                    const comision = option.getAttribute('data-comision');
-                    const total = option.getAttribute('data-total');
-                }
-            });
+            // Validar que se haya seleccionado empresa
+            const empresaSelect = document.getElementById('empresa');
+            const formPrincipal = document.getElementById('formPrincipal');
+            
+            if (empresaSelect) {
+                empresaSelect.addEventListener('change', function() {
+                    if (this.value === '') {
+                        this.style.borderColor = '#ef4444';
+                        this.style.boxShadow = '0 0 0 1px rgba(239,68,68,0.4)';
+                    } else {
+                        this.style.borderColor = '';
+                        this.style.boxShadow = '';
+                    }
+                });
+                
+                formPrincipal.addEventListener('submit', function(e) {
+                    if (empresaSelect.value === '') {
+                        e.preventDefault();
+                        alert('⚠ Por favor selecciona una empresa antes de generar el reporte.');
+                        empresaSelect.focus();
+                        empresaSelect.style.borderColor = '#ef4444';
+                        empresaSelect.style.boxShadow = '0 0 0 1px rgba(239,68,68,0.4)';
+                    }
+                });
+            }
         });
 
         function toggleDeudor(element) {
@@ -1793,11 +1839,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             
             const deudorId = fila.dataset.deudor;
             actualizarTotalesDeudor(deudorId);
-            
-            // Actualizar la tabla de configuración (simular recarga)
-            setTimeout(() => {
-                // Esto actualizará la tabla cuando se envíe el formulario
-            }, 100);
         }
         
         function recalcularPrestamo(input) {
@@ -1923,13 +1964,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         
         function formatNumber(num) {
             return Math.round(num).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-        }
-
-        // Función para recargar la tabla de configuración
-        function actualizarTablaConfiguracion() {
-            // Aquí podrías hacer una petición AJAX para actualizar solo la tabla de configuración
-            // Por ahora, simplemente forzamos el envío del formulario
-            document.getElementById('formPrincipal').submit();
         }
     </script>
 </body>
