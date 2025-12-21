@@ -1,50 +1,34 @@
 <?php
 require_once __DIR__.'/helpers.php';
 
-/* =========================================================
-   ENTRYPOINT
-========================================================= */
+/* ================= ENTRYPOINT ================= */
 
 function manual_entrypoint($chat_id, $estado) {
+    if (!empty($estado) && ($estado['flujo'] ?? '') === 'manual') {
+        return manual_resend_current_step($chat_id, $estado);
+    }
 
-    // Siempre iniciar flujo nuevo
     $estado = [
         "flujo" => "manual",
-        "paso" => "manual_menu_letra",
-        "manual_page" => 0,
-        "manual_letra_filtro" => null
+        "paso"  => "manual_letra_menu"
     ];
     saveState($chat_id, $estado);
 
-    manual_show_letter_selector($chat_id);
+    $kb = manual_kb_letras();
+    sendMessage($chat_id, "🔤 Elige la *letra inicial* del conductor:", $kb);
 }
 
-/* =========================================================
-   SELECTOR DE LETRAS
-========================================================= */
+/* ================= TECLADO DE LETRAS ================= */
 
-function manual_show_letter_selector($chat_id, $letra_actual = null) {
-
-    $letras = range('A', 'Z');
-    array_unshift($letras, 'TODOS');
-
+function manual_kb_letras(): array {
+    $letras = array_merge(range('A','Z'), ['Ñ']);
     $kb = ["inline_keyboard" => []];
     $row = [];
 
-    foreach ($letras as $letra) {
-
-        $callback = ($letra === 'TODOS')
-            ? "manual_letra_todos"
-            : "manual_letra_$letra";
-
-        $text = $letra;
-        if ($letra_actual === $letra) {
-            $text = "✅ $letra";
-        }
-
+    foreach ($letras as $l) {
         $row[] = [
-            "text" => $text,
-            "callback_data" => $callback
+            "text" => $l,
+            "callback_data" => "manual_letra_" . $l
         ];
 
         if (count($row) === 6) {
@@ -53,79 +37,28 @@ function manual_show_letter_selector($chat_id, $letra_actual = null) {
         }
     }
 
-    if ($row) {
-        $kb["inline_keyboard"][] = $row;
-    }
+    if ($row) $kb["inline_keyboard"][] = $row;
 
-    $kb["inline_keyboard"][] = [[
-        "text" => "➕ Nuevo conductor",
-        "callback_data" => "manual_nuevo"
-    ]];
+    $kb["inline_keyboard"][] = [
+        ["text" => "➕ Nuevo conductor", "callback_data" => "manual_nuevo"]
+    ];
 
-    sendMessage(
-        $chat_id,
-        "🔠 *Selecciona una letra para filtrar conductores*",
-        $kb
-    );
+    return $kb;
 }
 
-/* =========================================================
-   OBTENER CONDUCTORES
-========================================================= */
+/* ================= GRID CONDUCTORES ================= */
 
-function manual_obtener_conductores_filtrados($conn, $chat_id, $letra = null) {
-
-    if ($letra && $letra !== 'TODOS') {
-        $sql = "SELECT id,nombre
-                FROM conductores_admin
-                WHERE user_id = ?
-                AND LOWER(nombre) LIKE ?
-                ORDER BY LOWER(nombre)";
-        $like = strtolower($letra).'%';
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param("is", $chat_id, $like);
-    } else {
-        $sql = "SELECT id,nombre
-                FROM conductores_admin
-                WHERE user_id = ?
-                ORDER BY LOWER(nombre)";
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param("i", $chat_id);
-    }
-
-    $stmt->execute();
-    $res = $stmt->get_result();
-    $out = [];
-    while ($r = $res->fetch_assoc()) $out[] = $r;
-    $stmt->close();
-
-    return $out;
-}
-
-/* =========================================================
-   GRID PAGINADO
-========================================================= */
-
-function manual_kb_grid_paginado($items, $prefix, $pagina, $letra) {
-
+function manual_kb_conductores(array $items): array {
     $kb = ["inline_keyboard" => []];
-    $por_pagina = 15;
-
-    $items_pagina = array_slice($items, $pagina * $por_pagina, $por_pagina);
     $row = [];
 
-    foreach ($items_pagina as $i) {
-
-        $txt = mb_strlen($i['nombre']) > 15
-            ? mb_substr($i['nombre'],0,12).'...'
-            : $i['nombre'];
-
+    foreach ($items as $c) {
         $row[] = [
-            "text" => $txt,
-            "callback_data" => $prefix.$i['id']
+            "text" => $c['nombre'],
+            "callback_data" => "manual_sel_" . $c['id']
         ];
 
-        if (count($row) === 3) {
+        if (count($row) === 2) {
             $kb["inline_keyboard"][] = $row;
             $row = [];
         }
@@ -133,148 +66,164 @@ function manual_kb_grid_paginado($items, $prefix, $pagina, $letra) {
 
     if ($row) $kb["inline_keyboard"][] = $row;
 
-    $total = ceil(count($items) / $por_pagina);
-    $nav = [];
-
-    if ($pagina > 0)
-        $nav[] = ["text"=>"⬅️","callback_data"=>"manual_page_".($pagina-1)];
-
-    if ($total > 1)
-        $nav[] = ["text"=>($pagina+1)."/".$total,"callback_data"=>"manual_info"];
-
-    if ($pagina < $total-1)
-        $nav[] = ["text"=>"➡️","callback_data"=>"manual_page_".($pagina+1)];
-
-    if ($nav) $kb["inline_keyboard"][] = $nav;
-
-    $kb["inline_keyboard"][] = [[
-        "text"=>"🔠 Cambiar letra ($letra)",
-        "callback_data"=>"manual_cambiar_letra"
-    ]];
-
-    $kb["inline_keyboard"][] = [[
-        "text"=>"➕ Nuevo conductor",
-        "callback_data"=>"manual_nuevo"
-    ]];
+    $kb["inline_keyboard"][] = [
+        ["text" => "🔤 Cambiar letra", "callback_data" => "manual_back_letra"]
+    ];
 
     return $kb;
 }
 
-/* =========================================================
-   CALLBACKS
-========================================================= */
+/* ================= REENVÍO DE PASO ================= */
 
-function manual_handle_callback($chat_id, &$estado, $cb, $cb_id=null) {
+function manual_resend_current_step($chat_id, $estado) {
+    $conn = db();
 
+    switch ($estado['paso']) {
+
+        case 'manual_letra_menu':
+            sendMessage($chat_id, "🔤 Elige la *letra inicial* del conductor:", manual_kb_letras());
+            break;
+
+        case 'manual_conductor_menu':
+            $letra = $estado['manual_letra'];
+            $conductores = obtenerConductoresPorLetra($conn, $chat_id, $letra);
+
+            if ($conductores) {
+                sendMessage(
+                    $chat_id,
+                    "👤 Conductores que empiezan por *$letra*:",
+                    manual_kb_conductores($conductores)
+                );
+            } else {
+                sendMessage(
+                    $chat_id,
+                    "⚠️ No hay conductores con la letra *$letra*.\n✍️ Escribe el *nombre* del nuevo conductor:"
+                );
+                $estado['paso'] = 'manual_nombre_nuevo';
+                saveState($chat_id, $estado);
+            }
+            break;
+
+        case 'manual_nombre_nuevo':
+            sendMessage($chat_id, "✍️ Escribe el *nombre* del nuevo conductor:");
+            break;
+    }
+
+    $conn?->close();
+}
+
+/* ================= CALLBACKS ================= */
+
+function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
     if (($estado['flujo'] ?? '') !== 'manual') return;
 
-    /* ---------- LETRAS ---------- */
+    /* === LETRA === */
+    if (strpos($cb_data, 'manual_letra_') === 0) {
+        $letra = substr($cb_data, 13);
 
-    if (strpos($cb, 'manual_letra_') === 0) {
-
-        $letra = ($cb === 'manual_letra_todos')
-            ? 'TODOS'
-            : substr($cb, 13);
-
-        $estado['manual_letra_filtro'] = $letra;
-        $estado['manual_page'] = 0;
-        $estado['paso'] = 'manual_menu';
+        $estado['manual_letra'] = $letra;
+        $estado['paso'] = 'manual_conductor_menu';
         saveState($chat_id, $estado);
 
         $conn = db();
-        $items = manual_obtener_conductores_filtrados($conn, $chat_id, $letra);
-        $conn->close();
+        $conductores = obtenerConductoresPorLetra($conn, $chat_id, $letra);
+        $conn?->close();
 
-        if (!$items) {
+        if ($conductores) {
             sendMessage(
                 $chat_id,
-                "No hay conductores con la letra *$letra*",
-                [
-                    "inline_keyboard"=>[
-                        [["text"=>"➕ Crear","callback_data"=>"manual_nuevo"]],
-                        [["text"=>"🔠 Cambiar letra","callback_data"=>"manual_cambiar_letra"]]
-                    ]
-                ]
+                "👤 Conductores que empiezan por *$letra*:",
+                manual_kb_conductores($conductores)
             );
         } else {
             sendMessage(
                 $chat_id,
-                "👤 *Selecciona conductor* ($letra)",
-                manual_kb_grid_paginado($items,'manual_sel_',0,$letra)
+                "⚠️ No hay conductores con la letra *$letra*.\n✍️ Escribe el *nombre* del nuevo conductor:"
             );
+            $estado['paso'] = 'manual_nombre_nuevo';
+            saveState($chat_id, $estado);
         }
 
         if ($cb_id) answerCallbackQuery($cb_id);
         return;
     }
 
-    /* ---------- CAMBIAR LETRA ---------- */
-
-    if ($cb === 'manual_cambiar_letra') {
-        $estado['paso'] = 'manual_menu_letra';
-        saveState($chat_id,$estado);
-        manual_show_letter_selector($chat_id,$estado['manual_letra_filtro']);
+    /* === VOLVER A LETRAS === */
+    if ($cb_data === 'manual_back_letra') {
+        $estado['paso'] = 'manual_letra_menu';
+        unset($estado['manual_letra']);
+        saveState($chat_id, $estado);
+        manual_resend_current_step($chat_id, $estado);
         if ($cb_id) answerCallbackQuery($cb_id);
         return;
     }
 
-    /* ---------- PAGINACIÓN ---------- */
-
-    if (strpos($cb,'manual_page_')===0) {
-
-        $estado['manual_page'] = (int)substr($cb,12);
-        saveState($chat_id,$estado);
-
-        $conn=db();
-        $items = manual_obtener_conductores_filtrados(
-            $conn,
-            $chat_id,
-            $estado['manual_letra_filtro']
-        );
-        $conn->close();
-
-        sendMessage(
-            $chat_id,
-            "👤 *Selecciona conductor*",
-            manual_kb_grid_paginado(
-                $items,
-                'manual_sel_',
-                $estado['manual_page'],
-                $estado['manual_letra_filtro']
-            )
-        );
-
-        if ($cb_id) answerCallbackQuery($cb_id);
-        return;
-    }
-
-    /* ---------- SELECCIONAR CONDUCTOR ---------- */
-
-    if (strpos($cb,'manual_sel_')===0) {
-
-        $id = (int)substr($cb,11);
-        $conn=db();
-        $row = obtenerConductorAdminPorId($conn,$id,$chat_id);
-        $conn->close();
+    /* === SELECCIONAR CONDUCTOR === */
+    if (strpos($cb_data, 'manual_sel_') === 0) {
+        $id = (int)substr($cb_data, 11);
+        $conn = db();
+        $row = obtenerConductorAdminPorId($conn, $id, $chat_id);
+        $conn?->close();
 
         if (!$row) {
-            sendMessage($chat_id,"⚠️ Conductor no encontrado");
+            sendMessage($chat_id, "⚠️ Conductor no encontrado.");
+        } else {
+            $estado['manual_nombre'] = $row['nombre'];
+            $estado['paso'] = 'manual_ruta_menu';
+            saveState($chat_id, $estado);
+
+            sendMessage($chat_id, "👤 Conductor seleccionado: *{$row['nombre']}*");
+        }
+
+        if ($cb_id) answerCallbackQuery($cb_id);
+        return;
+    }
+
+    /* === NUEVO CONDUCTOR === */
+    if ($cb_data === 'manual_nuevo') {
+        $estado['paso'] = 'manual_nombre_nuevo';
+        saveState($chat_id, $estado);
+        sendMessage($chat_id, "✍️ Escribe el *nombre* del nuevo conductor:");
+        if ($cb_id) answerCallbackQuery($cb_id);
+    }
+}
+
+/* ================= TEXTO ================= */
+
+function manual_handle_text($chat_id, &$estado, $text, $photo) {
+    if (($estado['flujo'] ?? '') !== 'manual') return;
+
+    if ($estado['paso'] === 'manual_nombre_nuevo') {
+        $nombre = trim($text);
+        if ($nombre === '') {
+            sendMessage($chat_id, "⚠️ El nombre no puede estar vacío.");
             return;
         }
 
-        $estado['manual_nombre'] = $row['nombre'];
+        $conn = db();
+        crearConductorAdmin($conn, $chat_id, $nombre);
+        $conn?->close();
+
+        $estado['manual_nombre'] = $nombre;
         $estado['paso'] = 'manual_ruta_menu';
-        saveState($chat_id,$estado);
+        saveState($chat_id, $estado);
 
-        sendMessage($chat_id,"👤 Conductor: *{$row['nombre']}*\n\nContinúa…");
-        return;
+        sendMessage($chat_id, "✅ Conductor guardado: *$nombre*");
     }
+}
 
-    if ($cb === 'manual_nuevo') {
-        $estado['paso'] = 'manual_nombre_nuevo';
-        saveState($chat_id,$estado);
-        sendMessage($chat_id,"✍️ Escribe el *nombre del conductor*:");
-    }
+/* ================= QUERY BD ================= */
 
-    if ($cb_id) answerCallbackQuery($cb_id);
+function obtenerConductoresPorLetra($conn, $chat_id, $letra) {
+    $stmt = $conn->prepare("
+        SELECT id, nombre 
+        FROM conductores 
+        WHERE chat_id = ?
+          AND nombre LIKE CONCAT(?, '%')
+        ORDER BY nombre ASC
+    ");
+    $stmt->bind_param("is", $chat_id, $letra);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    return $res->fetch_all(MYSQLI_ASSOC);
 }
