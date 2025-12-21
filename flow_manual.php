@@ -656,7 +656,7 @@ function manual_insert_viaje_and_close($chat_id, &$estado) {
         
         // Agregar información del pago parcial si existe
         if (isset($estado["manual_pago_parcial"])) {
-            // Formatear el número con separadores de miles
+            
             $monto_formateado = number_format($estado["manual_pago_parcial"], 0, ',', '.');
             $mensaje .= "\n💰 Pago parcial: $" . $monto_formateado;
         }
