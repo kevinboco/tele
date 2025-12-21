@@ -15,48 +15,24 @@ function manual_entrypoint($chat_id, $estado) {
     ];
     saveState($chat_id, $estado);
 
-    // Cargar conductores frescos desde BD - TODOS sin filtrar por chat_id
+    // Cargar conductores frescos desde BD
     $conn = db();
-    $conductores = $conn ? obtenerTodosLosConductores($conn) : [];
+    $conductores = $conn ? obtenerConductoresAdmin($conn, $chat_id) : [];
     $conn?->close();
 
     if ($conductores) {
-        $kb = manual_kb_lista_paginada($conductores, 'manual_sel_', 0);
+        $kb = manual_kb_grid_paginado($conductores, 'manual_sel_', 0);
         sendMessage($chat_id, "Elige un *conductor* o crea uno nuevo:", $kb);
     } else {
         $estado['paso'] = 'manual_nombre_nuevo'; saveState($chat_id, $estado);
-        sendMessage($chat_id, "No hay conductores guardados.\n✍️ Escribe el *nombre* del nuevo conductor:");
+        sendMessage($chat_id, "No tienes conductores guardados.\n✍️ Escribe el *nombre* del nuevo conductor:");
     }
 }
 
-/* ========= FUNCIÓN PARA OBTENER TODOS LOS CONDUCTORES ========= */
-function obtenerTodosLosConductores($conn) {
-    $sql = "SELECT id, nombre FROM conductores_admin ORDER BY nombre";
-    $stmt = $conn->prepare($sql);
-    
-    if (!$stmt) {
-        error_log("ERROR en preparar consulta de conductores: " . $conn->error);
-        return [];
-    }
-    
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    $conductores = [];
-    while ($row = $result->fetch_assoc()) {
-        $conductores[] = $row;
-    }
-    
-    $stmt->close();
-    
-    error_log("DEBUG: Todos los conductores encontrados: " . count($conductores));
-    
-    return $conductores;
-}
-
-/* ========= FORMATO LISTA PARA CONDUCTORES ========= */
-function manual_kb_lista_paginada(array $items, string $callback_prefix, int $pagina = 0): array {
+/* ========= GRID LAYOUT CON PAGINACIÓN MEJORADA ========= */
+function manual_kb_grid_paginado(array $items, string $callback_prefix, int $pagina = 0): array {
     $kb = ["inline_keyboard" => []];
+    $row = [];
     
     // ORDENAR ALFABÉTICAMENTE de la A a la Z
     usort($items, function($a, $b) {
@@ -65,26 +41,40 @@ function manual_kb_lista_paginada(array $items, string $callback_prefix, int $pa
         return strcasecmp($nombreA, $nombreB);
     });
     
-    // 10 elementos por página (más manejable en lista)
-    $items_por_pagina = 10;
+    // 15 elementos por página (más manejable)
+    $items_por_pagina = 15; // 5 filas × 3 columnas = 15 items
     $total_paginas = ceil(count($items) / $items_por_pagina);
     
     // Items para esta página
     $items_pagina = array_slice($items, $pagina * $items_por_pagina, $items_por_pagina);
     
-    // Cada conductor en su propia fila (formato lista)
     foreach ($items_pagina as $item) {
         $id = $item['id'] ?? $item;
         $text = $item['nombre'] ?? $item['ruta'] ?? $item['vehiculo'] ?? $item;
         
-        // Mostrar nombre completo sin recortar
-        $kb["inline_keyboard"][] = [[
-            "text" => "👤 " . $text,
+        // Acortar nombres largos para mejor visualización
+        if (mb_strlen($text) > 15) {
+            $text = mb_substr($text, 0, 12) . '...';
+        }
+        
+        $row[] = [
+            "text" => $text,
             "callback_data" => $callback_prefix . $id
-        ]];
+        ];
+        
+        // 3 columnas en lugar de 2 para mejor uso del espacio
+        if (count($row) === 3) {
+            $kb["inline_keyboard"][] = $row;
+            $row = [];
+        }
     }
     
-    // Botones de navegación
+    // Fila incompleta
+    if (!empty($row)) {
+        $kb["inline_keyboard"][] = $row;
+    }
+    
+    // Botones de navegación - MEJOR VISUALIZACIÓN
     $nav_buttons = [];
     if ($pagina > 0) {
         $nav_buttons[] = ["text" => "⬅️ Anterior", "callback_data" => "manual_page_" . ($pagina - 1)];
@@ -103,7 +93,7 @@ function manual_kb_lista_paginada(array $items, string $callback_prefix, int $pa
         $kb["inline_keyboard"][] = $nav_buttons;
     }
     
-    // Botón nuevo conductor (siempre al final)
+    // Botón nuevo conductor
     $kb["inline_keyboard"][] = [[ "text"=>"➕ Nuevo conductor", "callback_data"=>"manual_nuevo" ]];
     
     return $kb;
@@ -122,14 +112,14 @@ function manual_resend_current_step($chat_id, $estado) {
     $conn = db();
     switch ($estado['paso']) {
         case 'manual_menu':
-            // Cargar conductores frescos desde BD - TODOS sin filtrar
-            $conductores = $conn ? obtenerTodosLosConductores($conn) : [];
+            // Cargar conductores frescos desde BD
+            $conductores = $conn ? obtenerConductoresAdmin($conn, $chat_id) : [];
             if ($conductores) {
                 $pagina = $estado['manual_page'] ?? 0;
-                $kb = manual_kb_lista_paginada($conductores, 'manual_sel_', $pagina);
+                $kb = manual_kb_grid_paginado($conductores, 'manual_sel_', $pagina);
                 sendMessage($chat_id, "Elige un *conductor* o crea uno nuevo:", $kb);
             } else {
-                sendMessage($chat_id, "No hay conductores guardados.\n✍️ Escribe el *nombre* del nuevo conductor:");
+                sendMessage($chat_id, "No tienes conductores guardados.\n✍️ Escribe el *nombre* del nuevo conductor:");
                 $estado['paso']='manual_nombre_nuevo'; saveState($chat_id,$estado);
             }
             break;
@@ -259,11 +249,11 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
         saveState($chat_id, $estado);
         
         $conn = db();
-        $conductores = $conn ? obtenerTodosLosConductores($conn) : [];
+        $conductores = $conn ? obtenerConductoresAdmin($conn, $chat_id) : [];
         $conn?->close();
         
         if ($conductores) {
-            $kb = manual_kb_lista_paginada($conductores, 'manual_sel_', $pagina);
+            $kb = manual_kb_grid_paginado($conductores, 'manual_sel_', $pagina);
             sendMessage($chat_id, "Elige un *conductor* o crea uno nuevo:", $kb);
         }
         if ($cb_id) answerCallbackQuery($cb_id);
@@ -272,11 +262,7 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
 
     // ========= INFO PAGINACIÓN =========
     if ($cb_data === 'manual_info') {
-        $conn = db();
-        $conductores = $conn ? obtenerTodosLosConductores($conn) : [];
-        $conn?->close();
-        $total_paginas = ceil(count($conductores) / 10);
-        if ($cb_id) answerCallbackQuery($cb_id, "Página " . ($estado['manual_page'] + 1) . " de " . $total_paginas);
+        if ($cb_id) answerCallbackQuery($cb_id, "Página " . ($estado['manual_page'] + 1) . " de " . ceil(count(obtenerConductoresAdmin(db(), $chat_id)) / 15));
         return;
     }
 
@@ -291,13 +277,9 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
     // Seleccionar conductor existente
     if (strpos($cb_data, 'manual_sel_') === 0) {
         $idSel = (int)substr($cb_data, strlen('manual_sel_'));
-        $conn = db(); 
-        $row = obtenerConductorPorId($conn, $idSel);  // Nueva función sin chat_id
-        $conn?->close();
-        
-        if (!$row) { 
-            sendMessage($chat_id, "⚠️ Conductor no encontrado. Vuelve a intentarlo con /manual."); 
-        } else {
+        $conn = db(); $row = obtenerConductorAdminPorId($conn, $idSel, $chat_id); $conn?->close();
+        if (!$row) { sendMessage($chat_id, "⚠️ Conductor no encontrado. Vuelve a intentarlo con /manual."); }
+        else {
             $estado['manual_nombre'] = $row['nombre'];
             $estado['paso'] = 'manual_ruta_menu'; 
             saveState($chat_id,$estado);
@@ -492,44 +474,6 @@ function manual_handle_back($chat_id, &$estado, $back_step) {
     manual_resend_current_step($chat_id, $estado);
 }
 
-/* ========= FUNCIÓN PARA OBTENER CONDUCTOR POR ID (SIN FILTRAR POR CHAT_ID) ========= */
-function obtenerConductorPorId($conn, $id) {
-    $sql = "SELECT id, nombre FROM conductores_admin WHERE id = ?";
-    $stmt = $conn->prepare($sql);
-    
-    if (!$stmt) {
-        error_log("ERROR en preparar consulta de conductor por ID: " . $conn->error);
-        return null;
-    }
-    
-    $stmt->bind_param("i", $id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    $row = $result->fetch_assoc();
-    
-    $stmt->close();
-    
-    return $row;
-}
-
-/* ========= FUNCIÓN PARA CREAR NUEVO CONDUCTOR ========= */
-function crearConductorAdmin($conn, $chat_id, $nombre) {
-    $sql = "INSERT INTO conductores_admin (owner_chat_id, nombre) VALUES (?, ?)";
-    $stmt = $conn->prepare($sql);
-    
-    if (!$stmt) {
-        error_log("ERROR en preparar inserción de conductor: " . $conn->error);
-        return false;
-    }
-    
-    $stmt->bind_param("is", $chat_id, $nombre);
-    $result = $stmt->execute();
-    $stmt->close();
-    
-    return $result;
-}
-
 function manual_handle_text($chat_id, &$estado, $text, $photo) {
     if (($estado["flujo"] ?? "") !== "manual") return;
 
@@ -539,7 +483,7 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
             $nombre = trim($text);
             if ($nombre==="") { sendMessage($chat_id, "⚠️ El nombre no puede estar vacío. Escribe el *nombre* del nuevo conductor:"); break; }
             
-            // Guardar en BD - Aquí se mantiene con chat_id para nuevo conductor
+            // Guardar en BD
             $conn = db(); 
             if ($conn) { 
                 crearConductorAdmin($conn, $chat_id, $nombre); 
@@ -594,7 +538,7 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
 
             $estado['paso'] = 'manual_vehiculo_menu'; saveState($chat_id,$estado);
             
-            // Cargar vehículos frescas desde BD
+            // Cargar vehículos frescos desde BD
             $conn = db(); $vehiculos = $conn ? obtenerVehiculosAdmin($conn, $chat_id) : []; $conn?->close();
             if ($vehiculos) {
                 $kb = manual_kb_grid($vehiculos, 'manual_vehiculo_sel_');
