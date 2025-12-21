@@ -14,8 +14,11 @@ function manual_entrypoint($chat_id, $estado) {
     ];
     saveState($chat_id, $estado);
 
-    $kb = manual_kb_letras();
-    sendMessage($chat_id, "🔤 Elige la *letra inicial* del conductor:", $kb);
+    sendMessage(
+        $chat_id,
+        "🔤 Elige la *letra inicial* del conductor:",
+        manual_kb_letras()
+    );
 }
 
 /* ================= TECLADO DE LETRAS ================= */
@@ -46,7 +49,7 @@ function manual_kb_letras(): array {
     return $kb;
 }
 
-/* ================= GRID CONDUCTORES ================= */
+/* ================= TECLADO CONDUCTORES ================= */
 
 function manual_kb_conductores(array $items): array {
     $kb = ["inline_keyboard" => []];
@@ -73,7 +76,7 @@ function manual_kb_conductores(array $items): array {
     return $kb;
 }
 
-/* ================= REENVÍO DE PASO ================= */
+/* ================= REENVÍO ================= */
 
 function manual_resend_current_step($chat_id, $estado) {
     $conn = db();
@@ -119,8 +122,9 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
 
     /* === LETRA === */
     if (strpos($cb_data, 'manual_letra_') === 0) {
-        $letra = substr($cb_data, 13);
+        answerCallbackQuery($cb_id); // 🔴 OBLIGATORIO
 
+        $letra = substr($cb_data, 13);
         $estado['manual_letra'] = $letra;
         $estado['paso'] = 'manual_conductor_menu';
         saveState($chat_id, $estado);
@@ -143,23 +147,25 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
             $estado['paso'] = 'manual_nombre_nuevo';
             saveState($chat_id, $estado);
         }
-
-        if ($cb_id) answerCallbackQuery($cb_id);
         return;
     }
 
-    /* === VOLVER A LETRAS === */
+    /* === VOLVER === */
     if ($cb_data === 'manual_back_letra') {
+        answerCallbackQuery($cb_id);
+
         $estado['paso'] = 'manual_letra_menu';
         unset($estado['manual_letra']);
         saveState($chat_id, $estado);
+
         manual_resend_current_step($chat_id, $estado);
-        if ($cb_id) answerCallbackQuery($cb_id);
         return;
     }
 
     /* === SELECCIONAR CONDUCTOR === */
     if (strpos($cb_data, 'manual_sel_') === 0) {
+        answerCallbackQuery($cb_id);
+
         $id = (int)substr($cb_data, 11);
         $conn = db();
         $row = obtenerConductorAdminPorId($conn, $id, $chat_id);
@@ -167,24 +173,26 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
 
         if (!$row) {
             sendMessage($chat_id, "⚠️ Conductor no encontrado.");
-        } else {
-            $estado['manual_nombre'] = $row['nombre'];
-            $estado['paso'] = 'manual_ruta_menu';
-            saveState($chat_id, $estado);
-
-            sendMessage($chat_id, "👤 Conductor seleccionado: *{$row['nombre']}*");
+            return;
         }
 
-        if ($cb_id) answerCallbackQuery($cb_id);
+        $estado['manual_nombre'] = $row['nombre'];
+        $estado['paso'] = 'manual_ruta_menu';
+        saveState($chat_id, $estado);
+
+        sendMessage($chat_id, "👤 Conductor seleccionado: *{$row['nombre']}*");
         return;
     }
 
-    /* === NUEVO CONDUCTOR === */
+    /* === NUEVO === */
     if ($cb_data === 'manual_nuevo') {
+        answerCallbackQuery($cb_id);
+
         $estado['paso'] = 'manual_nombre_nuevo';
         saveState($chat_id, $estado);
+
         sendMessage($chat_id, "✍️ Escribe el *nombre* del nuevo conductor:");
-        if ($cb_id) answerCallbackQuery($cb_id);
+        return;
     }
 }
 
@@ -212,14 +220,14 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
     }
 }
 
-/* ================= QUERY BD ================= */
+/* ================= BD ================= */
 
 function obtenerConductoresPorLetra($conn, $chat_id, $letra) {
     $stmt = $conn->prepare("
-        SELECT id, nombre 
-        FROM conductores 
+        SELECT id, nombre
+        FROM conductores
         WHERE chat_id = ?
-          AND nombre LIKE CONCAT(?, '%')
+          AND UPPER(nombre) LIKE CONCAT(?, '%')
         ORDER BY nombre ASC
     ");
     $stmt->bind_param("is", $chat_id, $letra);
