@@ -17,7 +17,7 @@ function manual_entrypoint($chat_id, $estado) {
 
     // Cargar conductores frescos desde BD - TODOS sin filtrar por chat_id
     $conn = db();
-    $conductores = $conn ? obtenerTodosLosConductores($conn) : [];  // Cambiado aquí
+    $conductores = $conn ? obtenerTodosLosConductores($conn) : [];
     $conn?->close();
 
     if ($conductores) {
@@ -30,9 +30,8 @@ function manual_entrypoint($chat_id, $estado) {
 }
 
 /* ========= FUNCIÓN PARA OBTENER TODOS LOS CONDUCTORES ========= */
-// Esta función debe estar en helpers.php o aquí mismo
 function obtenerTodosLosConductores($conn) {
-    $sql = "SELECT id, nombre FROM conductores ORDER BY nombre";
+    $sql = "SELECT id, nombre FROM conductores_admin ORDER BY nombre";
     $stmt = $conn->prepare($sql);
     
     if (!$stmt) {
@@ -85,7 +84,7 @@ function manual_kb_lista_paginada(array $items, string $callback_prefix, int $pa
         ]];
     }
     
-    // Botones de navegación - MEJOR VISUALIZACIÓN
+    // Botones de navegación
     $nav_buttons = [];
     if ($pagina > 0) {
         $nav_buttons[] = ["text" => "⬅️ Anterior", "callback_data" => "manual_page_" . ($pagina - 1)];
@@ -124,7 +123,7 @@ function manual_resend_current_step($chat_id, $estado) {
     switch ($estado['paso']) {
         case 'manual_menu':
             // Cargar conductores frescos desde BD - TODOS sin filtrar
-            $conductores = $conn ? obtenerTodosLosConductores($conn) : [];  // Cambiado aquí
+            $conductores = $conn ? obtenerTodosLosConductores($conn) : [];
             if ($conductores) {
                 $pagina = $estado['manual_page'] ?? 0;
                 $kb = manual_kb_lista_paginada($conductores, 'manual_sel_', $pagina);
@@ -137,7 +136,7 @@ function manual_resend_current_step($chat_id, $estado) {
         case 'manual_nombre_nuevo':
             sendMessage($chat_id, "✍️ Escribe el *nombre* del nuevo conductor:"); break;
         case 'manual_ruta_menu':
-            // Cargar rutas frescas desde BD - Ahora filtradas por chat_id
+            // Cargar rutas frescas desde BD
             $rutas = $conn ? obtenerRutasAdmin($conn, $chat_id) : [];
             if ($rutas) {
                 $kb = manual_kb_grid($rutas, 'manual_ruta_sel_');
@@ -260,7 +259,7 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
         saveState($chat_id, $estado);
         
         $conn = db();
-        $conductores = $conn ? obtenerTodosLosConductores($conn) : [];  // Cambiado aquí
+        $conductores = $conn ? obtenerTodosLosConductores($conn) : [];
         $conn?->close();
         
         if ($conductores) {
@@ -292,9 +291,7 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
     // Seleccionar conductor existente
     if (strpos($cb_data, 'manual_sel_') === 0) {
         $idSel = (int)substr($cb_data, strlen('manual_sel_'));
-        // Cambiar esta función para que no filtre por chat_id también
         $conn = db(); 
-        // Crear nueva función o modificar la existente
         $row = obtenerConductorPorId($conn, $idSel);  // Nueva función sin chat_id
         $conn?->close();
         
@@ -497,7 +494,7 @@ function manual_handle_back($chat_id, &$estado, $back_step) {
 
 /* ========= FUNCIÓN PARA OBTENER CONDUCTOR POR ID (SIN FILTRAR POR CHAT_ID) ========= */
 function obtenerConductorPorId($conn, $id) {
-    $sql = "SELECT id, nombre FROM conductores WHERE id = ?";
+    $sql = "SELECT id, nombre FROM conductores_admin WHERE id = ?";
     $stmt = $conn->prepare($sql);
     
     if (!$stmt) {
@@ -514,6 +511,23 @@ function obtenerConductorPorId($conn, $id) {
     $stmt->close();
     
     return $row;
+}
+
+/* ========= FUNCIÓN PARA CREAR NUEVO CONDUCTOR ========= */
+function crearConductorAdmin($conn, $chat_id, $nombre) {
+    $sql = "INSERT INTO conductores_admin (owner_chat_id, nombre) VALUES (?, ?)";
+    $stmt = $conn->prepare($sql);
+    
+    if (!$stmt) {
+        error_log("ERROR en preparar inserción de conductor: " . $conn->error);
+        return false;
+    }
+    
+    $stmt->bind_param("is", $chat_id, $nombre);
+    $result = $stmt->execute();
+    $stmt->close();
+    
+    return $result;
 }
 
 function manual_handle_text($chat_id, &$estado, $text, $photo) {
@@ -580,7 +594,7 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
 
             $estado['paso'] = 'manual_vehiculo_menu'; saveState($chat_id,$estado);
             
-            // Cargar vehículos frescos desde BD
+            // Cargar vehículos frescas desde BD
             $conn = db(); $vehiculos = $conn ? obtenerVehiculosAdmin($conn, $chat_id) : []; $conn?->close();
             if ($vehiculos) {
                 $kb = manual_kb_grid($vehiculos, 'manual_vehiculo_sel_');
