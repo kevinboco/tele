@@ -687,18 +687,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         } else {
             // Filtrar por nombre
             filas.forEach(fila => {
-                const conductorElement = fila.querySelector('.conductor-link') || fila.querySelector('.conductor-select');
-                if (!conductorElement) return;
-                
-                const nombreConductor = conductorElement.tagName === 'SELECT' ? 
-                    conductorElement.options[conductorElement.selectedIndex]?.text : 
-                    conductorElement.textContent;
-                
-                if (!nombreConductor) {
-                    fila.style.display = 'none';
-                    return;
-                }
-                
+                const nombreConductor = fila.querySelector('.conductor-link').textContent;
                 const nombreNormalizado = normalizarTexto(nombreConductor);
                 
                 if (nombreNormalizado.includes(textoBusqueda)) {
@@ -846,8 +835,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         }
 
         configurarEventosFila(nuevaFila);
-        // Actualizar préstamos para esta fila
-        actualizarPrestamoEnFila(nuevaFila);
         recalc();
         
         // Aplicar filtro si hay búsqueda activa
@@ -872,9 +859,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 tr.dataset.conductor = normalizarTexto(conductorSelect.value);
                 // Aplicar filtro cuando cambia el conductor
                 filtrarConductores();
-                // Actualizar préstamos para el nuevo conductor
-                actualizarPrestamoEnFila(tr);
-                recalc();
             });
             tr.dataset.conductor = normalizarTexto(baseName);
         } else {
@@ -958,51 +942,22 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                     aplicarEstadoFila(tr, estadoPagoMap[newBaseName]);
                 }
                 
-                // Actualizar préstamos para el nuevo conductor
-                actualizarPrestamoEnFila(tr);
+                const prestSpan = tr.querySelector('.prest');
+                const selLabel = tr.querySelector('.selected-deudor');
+                const chosen = prestSel[newBaseName] || [];
+                prestSpan.textContent = fmt(sumTotals(chosen));
+                selLabel.textContent = summarizeNames(chosen);
+                
                 recalc();
             });
         }
-    }
 
-    // ===== FUNCIÓN PARA ACTUALIZAR PRÉSTAMOS EN UNA FILA ESPECÍFICA =====
-    function actualizarPrestamoEnFila(tr) {
-        let baseName;
-        
-        if (tr.classList.contains('fila-manual')) {
-            const select = tr.querySelector('.conductor-select');
-            baseName = select ? select.value.trim() : '';
-        } else {
-            const conductorBtn = tr.querySelector('.conductor-link');
-            baseName = conductorBtn ? conductorBtn.textContent.trim() : '';
-        }
-        
-        if (!baseName) return;
-        
+        // Configurar préstamos existentes
         const prestSpan = tr.querySelector('.prest');
         const selLabel = tr.querySelector('.selected-deudor');
         const chosen = prestSel[baseName] || [];
-        
-        if (prestSpan) {
-            const total = sumTotals(chosen);
-            prestSpan.textContent = fmt(total);
-        }
-        
-        if (selLabel) {
-            selLabel.textContent = summarizeNames(chosen);
-        }
-    }
-
-    // ===== FUNCIÓN PARA ACTUALIZAR PRÉSTAMOS EN TODAS LAS FILAS =====
-    function actualizarPrestamosEnTodasLasFilas() {
-        const rows = [...tbody.querySelectorAll('tr')];
-        
-        rows.forEach(tr => {
-            actualizarPrestamoEnFila(tr);
-        });
-        
-        // Recalcular todos los totales
-        recalc();
+        if (prestSpan) prestSpan.textContent = fmt(sumTotals(chosen));
+        if (selLabel) selLabel.textContent = summarizeNames(chosen);
     }
 
     // ===== CARGAR FILAS MANUALES EXISTENTES (de localStorage) =====
@@ -1017,8 +972,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         [...tbody.querySelectorAll('tr')].forEach(tr => {
             if (!tr.classList.contains('fila-manual')) {
                 configurarEventosFila(tr);
-                // Actualizar préstamos para cada fila al cargar
-                actualizarPrestamoEnFila(tr);
             }
         });
     }
@@ -1156,13 +1109,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             baseName = currentRow.children[0].innerText.trim();
         }
         
+        currentRow.querySelector('.prest').textContent='0';
+        currentRow.querySelector('.selected-deudor').textContent='';
         if (baseName) {
             delete prestSel[baseName]; 
             setLS(PREST_SEL_KEY, prestSel); 
         }
-        
-        // Actualizar todas las filas después de limpiar
-        actualizarPrestamosEnTodasLasFilas();
         recalc();
         selectedIds.clear(); 
         delete selTotalManual.dataset.touched;
@@ -1203,8 +1155,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         }
         // Si totalReal == 0, se respeta manualVal como está
 
-        // Actualizar TODAS las filas, no solo la actual
-        actualizarPrestamosEnTodasLasFilas();
+        currentRow.querySelector('.prest').textContent = fmt(manualVal);
+        currentRow.querySelector('.selected-deudor').textContent = summarizeNames(chosen);
+        recalc();
         closePrest();
     });
     
@@ -1413,7 +1366,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         document.getElementById('tot_pagar').textContent = fmt(sumPagar);
     }
 
-    // ===== INICIALIZACIÓN =====
+    
     document.addEventListener('DOMContentLoaded', function() {
         initializeExistingRows();
         cargarFilasManuales();
