@@ -1366,7 +1366,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         document.getElementById('tot_pagar').textContent = fmt(sumPagar);
     }
 
-    // ===== INICIALIZACIÓN =====
+    
     document.addEventListener('DOMContentLoaded', function() {
         initializeExistingRows();
         cargarFilasManuales();
