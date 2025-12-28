@@ -1373,7 +1373,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         recalc();
     });
 
-    // ===== Gestor de cuentas =====
+    // ===== Gestor de cuentas =
     const formFiltros = document.getElementById('formFiltros');
     const inpDesde = document.getElementById('inp_desde');
     const inpHasta = document.getElementById('inp_hasta');
