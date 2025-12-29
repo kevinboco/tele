@@ -335,6 +335,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         .buscar-container { position: relative; }
         .buscar-clear { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #64748b; cursor: pointer; display: none; }
         .buscar-clear:hover { color: #475569; }
+        
+        /* Panel flotante */
+        #floatingPanel { box-shadow: 0 10px 40px rgba(0,0,0,0.15); z-index: 9999; }
+        #panelDragHandle { user-select: none; }
+        .checkbox-conductor { width: 18px; height: 18px; cursor: pointer; }
+        .fila-seleccionada { background-color: #f0f9ff !important; }
     </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
@@ -445,12 +451,14 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                     <th class="px-3 py-2 text-left">N° Cuenta</th>
                     <th class="px-3 py-2 text-right">A pagar</th>
                     <th class="px-3 py-2 text-center">Estado</th>
-                    <th class="px-3 py-2 text-center">Acciones</th>
+                    <th class="px-3 py-2 text-center">
+                        <input type="checkbox" id="selectAllCheckbox" class="checkbox-conductor" title="Seleccionar todos">
+                    </th>
                 </tr>
                 </thead>
                 <tbody id="tbody" class="divide-y divide-slate-100 bg-white">
                 <?php foreach ($filas as $f): ?>
-                    <tr data-conductor="<?= htmlspecialchars(mb_strtolower($f['nombre'])) ?>">
+                    <tr data-conductor="<?= htmlspecialchars(mb_strtolower($f['nombre'])) ?>" data-total-base="<?= $f['total_bruto'] ?>">
                         <td class="px-3 py-2">
                             <button type="button" class="conductor-link" title="Ver viajes"><?= htmlspecialchars($f['nombre']) ?></button>
                         </td>
@@ -486,7 +494,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                             </select>
                         </td>
                         <td class="px-3 py-2 text-center">
-                            <!-- Solo para filas manuales -->
+                            <input type="checkbox" class="checkbox-conductor selector-conductor">
                         </td>
                     </tr>
                 <?php endforeach; ?>
@@ -509,6 +517,73 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         </div>
     </section>
 </main>
+
+<!-- ===== PANEL FLOTANTE DE SELECCIÓN ===== -->
+<div id="floatingPanel" class="hidden fixed z-50 bg-white border border-blue-300 rounded-xl shadow-lg" style="top: 100px; left: 100px; min-width: 300px;">
+    <!-- Barra de título (arrastrable) -->
+    <div id="panelDragHandle" class="cursor-move bg-blue-600 text-white px-4 py-3 rounded-t-xl flex items-center justify-between">
+        <div class="font-semibold flex items-center gap-2">
+            <span>📊 Sumatoria Seleccionados</span>
+            <span id="selectedCount" class="bg-blue-500 text-white text-xs px-2 py-1 rounded-full">0</span>
+        </div>
+        <button id="closePanel" class="text-white hover:bg-blue-700 p-1 rounded">✕</button>
+    </div>
+    
+    <!-- Contenido del panel -->
+    <div class="p-4">
+        <div class="space-y-3">
+            <div class="flex justify-between items-center border-b pb-2">
+                <span class="text-sm text-slate-600">Conductores seleccionados:</span>
+                <span id="panelConductoresCount" class="font-semibold">0</span>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-3">
+                <div class="bg-slate-50 p-3 rounded-lg">
+                    <div class="text-xs text-slate-500 mb-1">Total a pagar</div>
+                    <div id="panelTotalPagar" class="text-xl font-bold text-emerald-600 num">0</div>
+                </div>
+                <div class="bg-slate-50 p-3 rounded-lg">
+                    <div class="text-xs text-slate-500 mb-1">Promedio por conductor</div>
+                    <div id="panelPromedio" class="text-lg font-semibold text-blue-600 num">0</div>
+                </div>
+            </div>
+            
+            <div class="text-xs text-slate-500 mt-2">
+                <div class="flex justify-between mb-1">
+                    <span>Valor que llega:</span>
+                    <span id="panelTotalLlego" class="num font-semibold">0</span>
+                </div>
+                <div class="flex justify-between mb-1">
+                    <span>Retención 3.5%:</span>
+                    <span id="panelTotalRetencion" class="num">0</span>
+                </div>
+                <div class="flex justify-between mb-1">
+                    <span>4×1000:</span>
+                    <span id="panelTotal4x1000" class="num">0</span>
+                </div>
+                <div class="flex justify-between mb-1">
+                    <span>Aporte 10%:</span>
+                    <span id="panelTotalAporte" class="num">0</span>
+                </div>
+                <div class="flex justify-between mb-1">
+                    <span>Seg. social:</span>
+                    <span id="panelTotalSS" class="num">0</span>
+                </div>
+                <div class="flex justify-between">
+                    <span>Préstamos:</span>
+                    <span id="panelTotalPrestamos" class="num">0</span>
+                </div>
+            </div>
+            
+            <div class="mt-3 pt-3 border-t">
+                <div class="text-xs text-slate-500 mb-2">Conductores:</div>
+                <div id="panelNombresConductores" class="text-xs max-h-[100px] overflow-y-auto">
+                    <div class="text-slate-400 italic">Ningún conductor seleccionado</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- ===== Modal PRÉSTAMOS (multi) ===== -->
 <div id="prestModal" class="hidden fixed inset-0 z-50">
@@ -656,114 +731,15 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 </div>
 
 <script>
-    // ===== BUSCADOR DE CONDUCTORES =====
-    const buscadorConductores = document.getElementById('buscadorConductores');
-    const clearBuscar = document.getElementById('clearBuscar');
-    const contadorConductores = document.getElementById('contador-conductores');
-    const tbody = document.getElementById('tbody');
-
-    // Función para normalizar texto para búsqueda
-    function normalizarTexto(texto) {
-        return texto
-            .toLowerCase()
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '') // Eliminar acentos
-            .trim();
-    }
-
-    // Función para filtrar conductores
-    function filtrarConductores() {
-        const textoBusqueda = normalizarTexto(buscadorConductores.value);
-        const filas = tbody.querySelectorAll('tr');
-        let filasVisibles = 0;
-        
-        if (textoBusqueda === '') {
-            // Mostrar todas las filas
-            filas.forEach(fila => {
-                fila.style.display = '';
-                filasVisibles++;
-            });
-            clearBuscar.style.display = 'none';
-        } else {
-            // Filtrar por nombre
-            filas.forEach(fila => {
-                // Para filas manuales, obtener el nombre del select
-                let nombreConductor;
-                if (fila.classList.contains('fila-manual')) {
-                    const select = fila.querySelector('.conductor-select');
-                    nombreConductor = select ? select.value : '';
-                } else {
-                    const link = fila.querySelector('.conductor-link');
-                    nombreConductor = link ? link.textContent : '';
-                }
-                
-                const nombreNormalizado = normalizarTexto(nombreConductor);
-                
-                if (nombreNormalizado.includes(textoBusqueda)) {
-                    fila.style.display = '';
-                    filasVisibles++;
-                } else {
-                    fila.style.display = 'none';
-                }
-            });
-            clearBuscar.style.display = 'block';
-        }
-        
-        // Actualizar contador
-        const totalConductores = filas.length;
-        contadorConductores.textContent = `Mostrando ${filasVisibles} de ${totalConductores} conductores`;
-        
-        // Resaltar texto coincidente
-        resaltarTextoCoincidente(textoBusqueda);
-    }
-
-    // Función para resaltar texto coincidente
-    function resaltarTextoCoincidente(textoBusqueda) {
-        const enlaces = tbody.querySelectorAll('.conductor-link');
-        
-        enlaces.forEach(enlace => {
-            const textoOriginal = enlace.textContent;
-            const textoNormalizado = normalizarTexto(textoOriginal);
-            const indice = textoNormalizado.indexOf(textoBusqueda);
-            
-            if (textoBusqueda && indice !== -1) {
-                // Crear HTML con resaltado
-                const antes = textoOriginal.substring(0, indice);
-                const coincidencia = textoOriginal.substring(indice, indice + textoBusqueda.length);
-                const despues = textoOriginal.substring(indice + textoBusqueda.length);
-                
-                enlace.innerHTML = `${antes}<span class="bg-yellow-200 px-0.5 rounded">${coincidencia}</span>${despues}`;
-            } else {
-                enlace.innerHTML = textoOriginal;
-            }
-        });
-    }
-
-    // Event listeners para el buscador
-    buscadorConductores.addEventListener('input', filtrarConductores);
-    
-    clearBuscar.addEventListener('click', () => {
-        buscadorConductores.value = '';
-        filtrarConductores();
-        buscadorConductores.focus();
-    });
-    
-    // Limpiar búsqueda al presionar Escape
-    buscadorConductores.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            buscadorConductores.value = '';
-            filtrarConductores();
-        }
-    });
-
     // ===== Claves de persistencia =====
     const COMPANY_SCOPE = <?= json_encode(($empresaFiltro ?: '__todas__')) ?>;
     const ACC_KEY   = 'cuentas:'+COMPANY_SCOPE;
     const SS_KEY    = 'seg_social:'+COMPANY_SCOPE;
-    const PREST_SEL_KEY = 'prestamo_sel_multi:v3:'+COMPANY_SCOPE; // ← MODIFICADO: v3 en lugar de v2
+    const PREST_SEL_KEY = 'prestamo_sel_multi:v3:'+COMPANY_SCOPE; // ← CAMBIADO a v3
     const ESTADO_PAGO_KEY = 'estado_pago:'+COMPANY_SCOPE;
     const PERIODOS_KEY  = 'cuentas_cobro_periodos:v1';
     const MANUAL_ROWS_KEY = 'filas_manuales:'+COMPANY_SCOPE;
+    const SELECTED_CONDUCTORS_KEY = 'conductores_seleccionados:'+COMPANY_SCOPE;
 
     const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
     const CONDUCTORES_LIST = <?= json_encode(array_map(fn($f)=>$f['nombre'],$filas), JSON_UNESCAPED_UNICODE); ?>;
@@ -778,8 +754,13 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     let prestSel = getLS(PREST_SEL_KEY); if(!prestSel || typeof prestSel!=='object') prestSel = {};
     let estadoPagoMap = getLS(ESTADO_PAGO_KEY) || {};
     let manualRows = JSON.parse(localStorage.getItem(MANUAL_ROWS_KEY) || '[]');
+    let selectedConductors = JSON.parse(localStorage.getItem(SELECTED_CONDUCTORS_KEY) || '[]');
 
     const btnAddManual = document.getElementById('btnAddManual');
+    const floatingPanel = document.getElementById('floatingPanel');
+    const panelDragHandle = document.getElementById('panelDragHandle');
+    const closePanel = document.getElementById('closePanel');
+    const selectAllCheckbox = document.getElementById('selectAllCheckbox');
 
     // ===== FUNCIÓN PARA ACTUALIZAR PRÉSTAMOS AUTOMÁTICAMENTE (MODIFICADA) =====
     function actualizarPrestamosAutomaticamente() {
@@ -855,7 +836,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         });
     }
 
-    // ===== FUNCIÓN PARA AGREGAR FILA MANUAL =====
+    // ===== FUNCIÓN PARA AGREGAR FILA MANUAL (MODIFICADA CON CHECKBOX) =====
     function agregarFilaManual(manualIdFromLS=null) {
         const manualId = manualIdFromLS || ('manual_' + Date.now());
         const nuevaFila = document.createElement('tr');
@@ -904,9 +885,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         </select>
       </td>
       <td class="px-3 py-2 text-center">
-        <button type="button" class="btn-eliminar-manual text-xs px-2 py-1 rounded border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700">
-          🗑️
-        </button>
+        <div class="flex items-center justify-center gap-2">
+          <input type="checkbox" class="checkbox-conductor selector-conductor">
+          <button type="button" class="btn-eliminar-manual text-xs px-2 py-1 rounded border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700">
+            🗑️
+          </button>
+        </div>
       </td>
     `;
 
@@ -924,9 +908,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         
         // Aplicar filtro si hay búsqueda activa
         filtrarConductores();
+        
+        // Restaurar selección si estaba guardada
+        restaurarSeleccionCheckbox(nuevaFila);
     }
 
-    // ===== CONFIGURAR EVENTOS PARA FILA =====
+    // ===== CONFIGURAR EVENTOS PARA FILA (MODIFICADA CON CHECKBOX) =====
     function configurarEventosFila(tr) {
         const baseInput = tr.querySelector('.base-manual');
         const cta = tr.querySelector('input.cta');
@@ -935,6 +922,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         const btnEliminar = tr.querySelector('.btn-eliminar-manual');
         const btnPrest = tr.querySelector('.btn-prest');
         const conductorSelect = tr.querySelector('.conductor-select');
+        const checkbox = tr.querySelector('.selector-conductor');
 
         let baseName = '';
         if (conductorSelect) {
@@ -952,11 +940,25 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             baseName = tr.children[0].innerText.trim();
         }
 
+        // Checkbox de selección
+        if (checkbox) {
+            checkbox.addEventListener('change', () => {
+                if (checkbox.checked) {
+                    tr.classList.add('fila-seleccionada');
+                } else {
+                    tr.classList.remove('fila-seleccionada');
+                }
+                actualizarPanelFlotante();
+                guardarSeleccionCheckboxes();
+            });
+        }
+
         // Base manual
         if (baseInput) {
             baseInput.addEventListener('input', () => {
                 baseInput.value = fmt(toInt(baseInput.value));
                 recalc();
+                actualizarPanelFlotante();
             });
         }
 
@@ -980,6 +982,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 ssMap[name] = toInt(ss.value); 
                 setLS(SS_KEY, ssMap); 
                 recalc(); 
+                actualizarPanelFlotante();
             });
         }
 
@@ -1006,6 +1009,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
                 tr.remove();
                 recalc();
+                actualizarPanelFlotante();
                 // Actualizar contador después de eliminar
                 filtrarConductores();
             });
@@ -1032,11 +1036,200 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 // Actualizar préstamos automáticamente cuando cambia el conductor
                 actualizarPrestamosAutomaticamente();
                 recalc();
+                actualizarPanelFlotante();
             });
         }
 
         // Aplicar préstamos existentes
         actualizarPrestamosAutomaticamente();
+    }
+
+    // ===== FUNCIONES PARA EL PANEL FLOTANTE =====
+    function actualizarPanelFlotante() {
+        const checkboxes = document.querySelectorAll('#tbody .selector-conductor:checked');
+        const count = checkboxes.length;
+        
+        if (count === 0) {
+            floatingPanel.classList.add('hidden');
+            return;
+        }
+        
+        // Mostrar panel si hay seleccionados
+        floatingPanel.classList.remove('hidden');
+        
+        let totalPagar = 0;
+        let totalLlego = 0;
+        let totalRetencion = 0;
+        let total4x1000 = 0;
+        let totalAporte = 0;
+        let totalSS = 0;
+        let totalPrestamos = 0;
+        let nombresConductores = [];
+        
+        checkboxes.forEach(checkbox => {
+            const tr = checkbox.closest('tr');
+            if (!tr) return;
+            
+            // Obtener valores de la fila
+            const pagar = toInt(tr.querySelector('.pagar').textContent || '0');
+            const llego = toInt(tr.querySelector('.llego').textContent || '0');
+            const ret = toInt(tr.querySelector('.ret').textContent || '0');
+            const mil4 = toInt(tr.querySelector('.mil4').textContent || '0');
+            const apor = toInt(tr.querySelector('.apor').textContent || '0');
+            const prest = toInt(tr.querySelector('.prest').textContent || '0');
+            
+            // Obtener nombre del conductor
+            let nombreConductor = '';
+            if (tr.classList.contains('fila-manual')) {
+                const select = tr.querySelector('.conductor-select');
+                nombreConductor = select ? select.value : 'Sin nombre';
+            } else {
+                const link = tr.querySelector('.conductor-link');
+                nombreConductor = link ? link.textContent : 'Sin nombre';
+            }
+            
+            // Sumar totales
+            totalPagar += pagar;
+            totalLlego += llego;
+            totalRetencion += ret;
+            total4x1000 += mil4;
+            totalAporte += apor;
+            totalPrestamos += prest;
+            nombresConductores.push(nombreConductor);
+            
+            // Obtener seguridad social si hay input
+            const ssInput = tr.querySelector('input.ss');
+            if (ssInput) {
+                totalSS += toInt(ssInput.value);
+            }
+        });
+        
+        // Actualizar panel
+        document.getElementById('selectedCount').textContent = count;
+        document.getElementById('panelConductoresCount').textContent = count;
+        document.getElementById('panelTotalPagar').textContent = fmt(totalPagar);
+        document.getElementById('panelTotalLlego').textContent = fmt(totalLlego);
+        document.getElementById('panelTotalRetencion').textContent = fmt(totalRetencion);
+        document.getElementById('panelTotal4x1000').textContent = fmt(total4x1000);
+        document.getElementById('panelTotalAporte').textContent = fmt(totalAporte);
+        document.getElementById('panelTotalSS').textContent = fmt(totalSS);
+        document.getElementById('panelTotalPrestamos').textContent = fmt(totalPrestamos);
+        
+        // Calcular promedio
+        const promedio = count > 0 ? Math.round(totalPagar / count) : 0;
+        document.getElementById('panelPromedio').textContent = fmt(promedio);
+        
+        // Actualizar lista de nombres
+        const nombresContainer = document.getElementById('panelNombresConductores');
+        nombresContainer.innerHTML = '';
+        
+        if (nombresConductores.length > 0) {
+            nombresConductores.forEach(nombre => {
+                const div = document.createElement('div');
+                div.className = 'py-1 border-b border-slate-100 last:border-0';
+                div.textContent = nombre;
+                nombresContainer.appendChild(div);
+            });
+        } else {
+            nombresContainer.innerHTML = '<div class="text-slate-400 italic">Ningún conductor seleccionado</div>';
+        }
+    }
+
+    function guardarSeleccionCheckboxes() {
+        const checkboxes = document.querySelectorAll('#tbody .selector-conductor');
+        const seleccionados = [];
+        
+        checkboxes.forEach((checkbox, index) => {
+            if (checkbox.checked) {
+                const tr = checkbox.closest('tr');
+                if (tr) {
+                    // Obtener nombre del conductor
+                    let nombreConductor = '';
+                    if (tr.classList.contains('fila-manual')) {
+                        const select = tr.querySelector('.conductor-select');
+                        nombreConductor = select ? select.value : '';
+                    } else {
+                        const link = tr.querySelector('.conductor-link');
+                        nombreConductor = link ? link.textContent : '';
+                    }
+                    
+                    if (nombreConductor) {
+                        seleccionados.push(nombreConductor);
+                    }
+                }
+            }
+        });
+        
+        selectedConductors = seleccionados;
+        localStorage.setItem(SELECTED_CONDUCTORS_KEY, JSON.stringify(selectedConductors));
+    }
+
+    function restaurarSeleccionCheckbox(tr) {
+        if (!tr) return;
+        
+        let nombreConductor = '';
+        if (tr.classList.contains('fila-manual')) {
+            const select = tr.querySelector('.conductor-select');
+            nombreConductor = select ? select.value : '';
+        } else {
+            const link = tr.querySelector('.conductor-link');
+            nombreConductor = link ? link.textContent : '';
+        }
+        
+        if (nombreConductor && selectedConductors.includes(nombreConductor)) {
+            const checkbox = tr.querySelector('.selector-conductor');
+            if (checkbox) {
+                checkbox.checked = true;
+                tr.classList.add('fila-seleccionada');
+            }
+        }
+    }
+
+    // ===== FUNCIÓN PARA HACER EL PANEL ARRASTRABLE =====
+    function hacerPanelArrastrable() {
+        let isDragging = false;
+        let currentX;
+        let currentY;
+        let initialX;
+        let initialY;
+        let xOffset = 0;
+        let yOffset = 0;
+
+        panelDragHandle.addEventListener('mousedown', dragStart);
+        document.addEventListener('mousemove', drag);
+        document.addEventListener('mouseup', dragEnd);
+
+        function dragStart(e) {
+            initialX = e.clientX - xOffset;
+            initialY = e.clientY - yOffset;
+
+            if (e.target === panelDragHandle || panelDragHandle.contains(e.target)) {
+                isDragging = true;
+            }
+        }
+
+        function drag(e) {
+            if (isDragging) {
+                e.preventDefault();
+                currentX = e.clientX - initialX;
+                currentY = e.clientY - initialY;
+
+                xOffset = currentX;
+                yOffset = currentY;
+
+                setTranslate(currentX, currentY, floatingPanel);
+            }
+        }
+
+        function dragEnd() {
+            initialX = currentX;
+            initialY = currentY;
+            isDragging = false;
+        }
+
+        function setTranslate(xPos, yPos, el) {
+            el.style.transform = `translate3d(${xPos}px, ${yPos}px, 0)`;
+        }
     }
 
     // ===== CARGAR FILAS MANUALES EXISTENTES =====
@@ -1046,11 +1239,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         });
     }
 
-    // ===== INICIALIZAR FILAS EXISTENTES =====
+    // ===== INICIALIZAR FILAS EXISTENTES (CON CHECKBOX) =====
     function initializeExistingRows() {
         [...tbody.querySelectorAll('tr')].forEach(tr => {
             if (!tr.classList.contains('fila-manual')) {
                 configurarEventosFila(tr);
+                restaurarSeleccionCheckbox(tr);
             }
         });
     }
@@ -1061,7 +1255,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         const n=arr.map(x=>x.name); 
         return n.length<=2 ? n.join(', ') : n.slice(0,2).join(', ')+' +'+(n.length-2)+' más'; 
     }
-    
+
     function sumTotals(arr){ 
         return (arr||[]).reduce((a,b)=> a+(toInt(b.total)||0),0); 
     }
@@ -1073,6 +1267,31 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     // ===== EVENTO BOTÓN AGREGAR MANUAL =====
     btnAddManual.addEventListener('click', ()=> agregarFilaManual());
+
+    // ===== EVENTOS PARA EL PANEL FLOTANTE =====
+    closePanel.addEventListener('click', () => {
+        floatingPanel.classList.add('hidden');
+    });
+
+    // ===== EVENTO PARA SELECCIONAR TODOS LOS CHECKBOXES =====
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', () => {
+            const checkboxes = document.querySelectorAll('#tbody .selector-conductor');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = selectAllCheckbox.checked;
+                const tr = checkbox.closest('tr');
+                if (tr) {
+                    if (selectAllCheckbox.checked) {
+                        tr.classList.add('fila-seleccionada');
+                    } else {
+                        tr.classList.remove('fila-seleccionada');
+                    }
+                }
+            });
+            actualizarPanelFlotante();
+            guardarSeleccionCheckboxes();
+        });
+    }
 
     // ===== Modal préstamos (MODIFICADO PARA GUARDAR VALORES MANUALES) =====
     const prestModal   = document.getElementById('prestModal');
@@ -1115,7 +1334,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         prestList.append(frag);
         updateSelSummary();
     }
-    
+
     function updateSelSummary(){
         const arr=PRESTAMOS_LIST.filter(it=>selectedIds.has(it.id));
         const total = arr.reduce((a,b)=>a+(b.total||0),0);
@@ -1126,7 +1345,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             selTotalManual.value = fmt(total);
         }
     }
-    
+
     function openPrestModalForRow(tr){
         currentRow = tr;
         selectedIds = new Set();
@@ -1169,19 +1388,19 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             prestSearch.select();
         });
     }
-    
+
     function closePrest(){ 
         prestModal.classList.add('hidden'); 
         currentRow=null; selectedIds=new Set(); filteredIdx=[]; 
         selTotalManual.value='0';
         delete selTotalManual.dataset.touched;
     }
-    
+
     btnCancel.addEventListener('click',closePrest); 
     btnClose.addEventListener('click',closePrest);
     btnSelectAll.addEventListener('click',()=>{ filteredIdx.forEach(i=>selectedIds.add(PRESTAMOS_LIST[i].id)); renderPrestList(prestSearch.value); });
     btnUnselectAll.addEventListener('click',()=>{ filteredIdx.forEach(i=>selectedIds.delete(PRESTAMOS_LIST[i].id)); renderPrestList(prestSearch.value); });
-    
+
     btnClearSel.addEventListener('click',()=>{
         if(!currentRow) return;
         let baseName;
@@ -1200,12 +1419,13 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             setLS(PREST_SEL_KEY, prestSel); 
         }
         recalc();
+        actualizarPanelFlotante();
         selectedIds.clear(); 
         delete selTotalManual.dataset.touched;
         selTotalManual.value='0';
         renderPrestList(prestSearch.value);
     });
-    
+
     // ===== MODIFICACIÓN CRÍTICA: ASIGNAR PRÉSTAMOS CON DIFERENCIACIÓN MANUAL/AUTOMÁTICO =====
     btnAssign.addEventListener('click', () => {
         if (!currentRow) return;
@@ -1272,6 +1492,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         
         // 8. RECALCULAR
         recalc();
+        actualizarPanelFlotante();
         closePrest();
     });
 
@@ -1478,15 +1699,122 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         document.getElementById('tot_ss').textContent = fmt(sumSS);
         document.getElementById('tot_prestamos').textContent = fmt(sumPrest);
         document.getElementById('tot_pagar').textContent = fmt(sumPagar);
+        
+        // 5. ACTUALIZAR PANEL FLOTANTE
+        actualizarPanelFlotante();
     }
+
+    // ===== BUSCADOR DE CONDUCTORES =====
+    const buscadorConductores = document.getElementById('buscadorConductores');
+    const clearBuscar = document.getElementById('clearBuscar');
+    const contadorConductores = document.getElementById('contador-conductores');
+
+    function normalizarTexto(texto) {
+        return texto
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '') // Eliminar acentos
+            .trim();
+    }
+
+    function filtrarConductores() {
+        const textoBusqueda = normalizarTexto(buscadorConductores.value);
+        const filas = tbody.querySelectorAll('tr');
+        let filasVisibles = 0;
+        
+        if (textoBusqueda === '') {
+            // Mostrar todas las filas
+            filas.forEach(fila => {
+                fila.style.display = '';
+                filasVisibles++;
+            });
+            clearBuscar.style.display = 'none';
+        } else {
+            // Filtrar por nombre
+            filas.forEach(fila => {
+                // Para filas manuales, obtener el nombre del select
+                let nombreConductor;
+                if (fila.classList.contains('fila-manual')) {
+                    const select = fila.querySelector('.conductor-select');
+                    nombreConductor = select ? select.value : '';
+                } else {
+                    const link = fila.querySelector('.conductor-link');
+                    nombreConductor = link ? link.textContent : '';
+                }
+                
+                const nombreNormalizado = normalizarTexto(nombreConductor);
+                
+                if (nombreNormalizado.includes(textoBusqueda)) {
+                    fila.style.display = '';
+                    filasVisibles++;
+                } else {
+                    fila.style.display = 'none';
+                }
+            });
+            clearBuscar.style.display = 'block';
+        }
+        
+        // Actualizar contador
+        const totalConductores = filas.length;
+        contadorConductores.textContent = `Mostrando ${filasVisibles} de ${totalConductores} conductores`;
+        
+        // Resaltar texto coincidente
+        resaltarTextoCoincidente(textoBusqueda);
+        
+        // Actualizar panel flotante después de filtrar
+        actualizarPanelFlotante();
+    }
+
+    function resaltarTextoCoincidente(textoBusqueda) {
+        const enlaces = tbody.querySelectorAll('.conductor-link');
+        
+        enlaces.forEach(enlace => {
+            const textoOriginal = enlace.textContent;
+            const textoNormalizado = normalizarTexto(textoOriginal);
+            const indice = textoNormalizado.indexOf(textoBusqueda);
+            
+            if (textoBusqueda && indice !== -1) {
+                // Crear HTML con resaltado
+                const antes = textoOriginal.substring(0, indice);
+                const coincidencia = textoOriginal.substring(indice, indice + textoBusqueda.length);
+                const despues = textoOriginal.substring(indice + textoBusqueda.length);
+                
+                enlace.innerHTML = `${antes}<span class="bg-yellow-200 px-0.5 rounded">${coincidencia}</span>${despues}`;
+            } else {
+                enlace.innerHTML = textoOriginal;
+            }
+        });
+    }
+
+    // Event listeners para el buscador
+    buscadorConductores.addEventListener('input', filtrarConductores);
+
+    clearBuscar.addEventListener('click', () => {
+        buscadorConductores.value = '';
+        filtrarConductores();
+        buscadorConductores.focus();
+    });
+
+    // Limpiar búsqueda al presionar Escape
+    buscadorConductores.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            buscadorConductores.value = '';
+            filtrarConductores();
+        }
+    });
 
     // ===== INICIALIZACIÓN =====
     document.addEventListener('DOMContentLoaded', function() {
         initializeExistingRows();
         cargarFilasManuales();
+        hacerPanelArrastrable();
         // ACTUALIZAR PRÉSTAMOS AUTOMÁTICAMENTE AL CARGAR LA PÁGINA
         actualizarPrestamosAutomaticamente();
         recalc();
+        // Mostrar panel si hay conductores seleccionados guardados
+        if (selectedConductors.length > 0) {
+            actualizarPanelFlotante();
+        }
     });
 
     // ===== Gestor de cuentas =====
