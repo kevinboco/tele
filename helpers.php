@@ -108,7 +108,7 @@ function obtenerRutasUsuario($conn, $conductor_id) {
 function obtenerConductoresAdmin($conn, $owner) {
     $rows=[]; if(!$conn) return $rows;
     $owner=(int)$owner;
-    $sql="SELECT id, nombre FROM conductores_admin WHERE owner_chat_id=$owner ORDER BY id DESC LIMIT 50";
+    $sql="SELECT id, nombre FROM conductores_admin WHERE owner_chat_id=$owner ORDER BY id DESC LIMIT 100";
     if ($res=$conn->query($sql)) while($r=$res->fetch_assoc()) $rows[]=$r;
     return $rows;
 }
@@ -126,7 +126,7 @@ function obtenerConductorAdminPorId($conn, $id, $owner) {
 function obtenerRutasAdmin($conn, $owner) {
     $rows=[]; if(!$conn) return $rows;
     $owner=(int)$owner;
-    $res=$conn->query("SELECT id, ruta FROM rutas_admin WHERE owner_chat_id=$owner ORDER BY id DESC LIMIT 25");
+    $res=$conn->query("SELECT id, ruta FROM rutas_admin WHERE owner_chat_id=$owner ORDER BY id DESC LIMIT 100");
     if($res) while($r=$res->fetch_assoc()) $rows[]=$r; return $rows;
 }
 function crearRutaAdmin($conn, $owner, $ruta) {
@@ -141,7 +141,7 @@ function obtenerRutaAdminPorId($conn, $id, $owner) {
 }
 function obtenerVehiculosAdmin($conn, $owner) {
     $rows=[]; if(!$conn) return $rows; $owner=(int)$owner;
-    $res=$conn->query("SELECT id, vehiculo FROM vehiculos_admin WHERE owner_chat_id=$owner ORDER BY id DESC LIMIT 25");
+    $res=$conn->query("SELECT id, vehiculo FROM vehiculos_admin WHERE owner_chat_id=$owner ORDER BY id DESC LIMIT 100");
     if($res) while($r=$res->fetch_assoc()) $rows[]=$r; return $rows;
 }
 function crearVehiculoAdmin($conn, $owner, $vehiculo) {
@@ -156,7 +156,7 @@ function obtenerVehiculoAdminPorId($conn, $id, $owner) {
 }
 function obtenerEmpresasAdmin($conn, $owner) {
     $rows=[]; if(!$conn) return $rows; $owner=(int)$owner;
-    $res=$conn->query("SELECT id, nombre FROM empresas_admin WHERE owner_chat_id=$owner ORDER BY id DESC LIMIT 25");
+    $res=$conn->query("SELECT id, nombre FROM empresas_admin WHERE owner_chat_id=$owner ORDER BY id DESC LIMIT 100");
     if($res) while($r=$res->fetch_assoc()) $rows[]=$r; return $rows;
 }
 function crearEmpresaAdmin($conn, $owner, $nombre) {
