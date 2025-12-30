@@ -108,7 +108,7 @@ function obtenerRutasUsuario($conn, $conductor_id) {
 function obtenerConductoresAdmin($conn, $owner) {
     $rows=[]; if(!$conn) return $rows;
     $owner=(int)$owner;
-    $sql="SELECT id, nombre FROM conductores_admin WHERE owner_chat_id=$owner ORDER BY id DESC LIMIT 25";
+    $sql="SELECT id, nombre FROM conductores_admin WHERE owner_chat_id=$owner ORDER BY id DESC LIMIT 50";
     if ($res=$conn->query($sql)) while($r=$res->fetch_assoc()) $rows[]=$r;
     return $rows;
 }
