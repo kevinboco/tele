@@ -1,14 +1,8 @@
 <?php
 /*********************************************************
  * admin_prestamos.php — CRUD + Tarjetas
- * - Normaliza nombres (no distingue mayúsc/minúsc)
- * - Interés variable según comision_origen_porcentaje + comisión gestor
- * - Deudor: valor prestado + fecha + interés + total
- * - Filtro por Deudor, Prestamista, Empresa + resumen de sumas
- * - Selección múltiple en Tarjetas + Edición en lote
- * - COMISIONES en tarjetas con color azul
- * - Interés 13% para préstamos desde 2025-10-29, 10% para anteriores
- * - FILTRO por estado de pago (no pagados / pagados / todos)
+ * - Filtro dinámico: deudores según empresa seleccionada
+ * - Dropdowns con búsqueda (Select2)
  *********************************************************/
 include("nav.php");
 
@@ -72,7 +66,6 @@ function save_image($file): ?string {
 
 /* ===== Acción: Edición en Lote desde TARJETAS ===== */
 if ($action==='bulk_update' && $_SERVER['REQUEST_METHOD']==='POST'){
-  // ids seleccionados
   $ids = $_POST['ids'] ?? [];
   if (!is_array($ids)) $ids = [];
   $ids = array_values(array_unique(array_map(fn($v)=> (int)$v, $ids)));
@@ -81,7 +74,6 @@ if ($action==='bulk_update' && $_SERVER['REQUEST_METHOD']==='POST'){
     go(BASE_URL.'?view=cards&msg=noselect');
   }
 
-  // Campos opcionales a aplicar
   $new_deudor      = trim($_POST['new_deudor'] ?? '');
   $new_prestamista = trim($_POST['new_prestamista'] ?? '');
   $new_monto_raw   = trim($_POST['new_monto'] ?? '');
@@ -116,7 +108,6 @@ if ($action==='bulk_update' && $_SERVER['REQUEST_METHOD']==='POST'){
     go(BASE_URL.'?view=cards&msg=noupdate');
   }
 
-  // Construcción del IN (...)
   $phIds = implode(',', array_fill(0, count($ids), '?'));
   $types .= str_repeat('i', count($ids));
   $values = array_merge($values, $ids);
@@ -129,11 +120,10 @@ if ($action==='bulk_update' && $_SERVER['REQUEST_METHOD']==='POST'){
   $st->close(); $c->close();
 
   $msg = $ok ? 'bulkok' : 'bulkoops';
-  // Redirigir SIEMPRE a la URL absoluta de Tarjetas
   go(BASE_URL.'?view=cards&msg='.$msg);
 }
 
-/* ===== Acción masiva "Préstamo pagado" desde TARJETAS ===== */
+/* ===== Acción masiva "Préstamo pagado" ===== */
 if ($action==='bulk_mark_paid' && $_SERVER['REQUEST_METHOD']==='POST'){
   $ids = $_POST['ids'] ?? [];
   if (!is_array($ids)) $ids = [];
@@ -161,12 +151,11 @@ if ($action==='bulk_mark_paid' && $_SERVER['REQUEST_METHOD']==='POST'){
   }
 
   $c->close();
-
   $msg = $ok ? 'bulkpaid' : 'bulkpaidoops';
   go(BASE_URL.'?view=cards&msg='.$msg);
 }
 
-/* ===== Acción masiva "Marcar como NO pagado" desde TARJETAS ===== */
+/* ===== Acción masiva "Marcar como NO pagado" ===== */
 if ($action==='bulk_mark_unpaid' && $_SERVER['REQUEST_METHOD']==='POST'){
   $ids = $_POST['ids'] ?? [];
   if (!is_array($ids)) $ids = [];
@@ -194,7 +183,6 @@ if ($action==='bulk_mark_unpaid' && $_SERVER['REQUEST_METHOD']==='POST'){
   }
 
   $c->close();
-
   $msg = $ok ? 'bulkunpaid' : 'bulkunpaidoops';
   go(BASE_URL.'?view=cards&msg='.$msg);
 }
@@ -271,6 +259,8 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
 <html lang="es"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Préstamos | Admin</title>
+<!-- Incluir Select2 CSS -->
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
 <style>
  :root{ --bg:#f6f7fb; --fg:#222; --card:#fff; --muted:#6b7280; --primary:#0b5ed7; --gray:#6c757d; --red:#dc3545; --chip:#eef2ff; }
  *{box-sizing:border-box}
@@ -332,6 +322,12 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  .card-pagado { border-left: 4px solid #10b981; background: #f0fdf4 !important; opacity: 0.8; }
  .pagado-badge { background: #10b981 !important; color: white !important; }
  .text-pagado { color: #065f46 !important; font-weight: 600; }
+
+ /* Select2 personalizado */
+ .select2-container { width: 100% !important; }
+ .select2-selection { border: 1px solid #e5e7eb !important; border-radius: 12px !important; padding: 8px !important; height: 45px !important; }
+ .select2-selection__arrow { height: 43px !important; }
+ .select2-search__field { border-radius: 8px !important; padding: 6px !important; }
 </style>
 </head><body>
 
@@ -450,7 +446,7 @@ else:
     $whereBase = "pagado = 1";
   }
 
-  // Combo prestamistas
+  // ==== COMBO prestamistas (siempre todos) ====
   $prestMap = [];
   $resPL = $conn->query("SELECT prestamista FROM prestamos WHERE $whereBase");
   while($rowPL=$resPL->fetch_row()){
@@ -460,17 +456,7 @@ else:
   }
   ksort($prestMap, SORT_NATURAL);
 
-  // Combo deudores
-  $deudMap = [];
-  $resDL = $conn->query("SELECT deudor FROM prestamos WHERE $whereBase");
-  while($rowDL=$resDL->fetch_row()){
-    $norm = mbnorm($rowDL[0]);
-    if ($norm==='') continue;
-    if (!isset($deudMap[$norm])) $deudMap[$norm] = $rowDL[0];
-  }
-  ksort($deudMap, SORT_NATURAL);
-
-  // Combo empresas
+  // ==== COMBO empresas (siempre todos) ====
   $empMap = [];
   $resEL = $conn->query("SELECT empresa FROM prestamos WHERE $whereBase");
   if ($resEL) {
@@ -482,6 +468,30 @@ else:
     }
     ksort($empMap, SORT_NATURAL);
   }
+
+  // ==== COMBO deudores (filtrado dinámicamente) ====
+  $deudMap = [];
+  if ($feNorm !== '') {
+    // Si hay empresa seleccionada, cargar solo deudores de esa empresa
+    $sqlDeud = "SELECT DISTINCT deudor FROM prestamos WHERE LOWER(TRIM(empresa)) = ? AND $whereBase ORDER BY deudor";
+    $stDeud = $conn->prepare($sqlDeud);
+    $stDeud->bind_param("s", $feNorm);
+    $stDeud->execute();
+    $resDeud = $stDeud->get_result();
+  } else {
+    // Si no hay empresa seleccionada, cargar todos los deudores
+    $resDeud = $conn->query("SELECT DISTINCT deudor FROM prestamos WHERE $whereBase ORDER BY deudor");
+  }
+  
+  while($rowDL = ($feNorm !== '' ? $resDeud->fetch_assoc() : $resDeud->fetch_row())) {
+    $deudorValor = $feNorm !== '' ? $rowDL['deudor'] : $rowDL[0];
+    $norm = mbnorm($deudorValor);
+    if ($norm === '') continue;
+    if (!isset($deudMap[$norm])) {
+      $deudMap[$norm] = $deudorValor;
+    }
+  }
+  if ($feNorm !== '') $stDeud->close();
 
   // -------- TARJETAS --------
   $where = $whereBase; $types=""; $params=[];
@@ -559,7 +569,7 @@ else:
 
   // Calcular sumas para el rango de fechas / filtros seleccionado
   $sumas = ['capital' => 0, 'interes' => 0, 'total' => 0, 'count' => 0];
-  if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $feNorm !== '' || $estado_pago !== 'todos') {
+  if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $feNorm !== '' || $estado_pago !== 'no_pagados') {
     $sqlSumas = "
         SELECT COUNT(*) AS n,
                SUM(monto) AS capital,
@@ -589,31 +599,42 @@ else:
 ?>
     <!-- Toolbar de filtros -->
     <div class="card" style="margin-bottom:16px">
-      <form class="toolbar" method="get">
+      <form class="toolbar" method="get" id="filtroForm">
         <input type="hidden" name="view" value="cards">
         <input name="q" placeholder="🔎 Buscar (deudor / prestamista)" value="<?= h($q) ?>" style="flex:1;min-width:220px">
         
-        <select name="fp" title="Prestamista">
-          <option value="">Todos los prestamistas</option>
-          <?php foreach($prestMap as $norm=>$label): ?>
-            <option value="<?= h($norm) ?>" <?= $fpNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
-          <?php endforeach; ?>
-        </select>
+        <!-- Prestamista con Select2 -->
+        <div class="field" style="min-width:200px;flex:1">
+          <label>Prestamista</label>
+          <select name="fp" id="prestamistaSelect" title="Prestamista" class="select2-filter">
+            <option value="">Todos los prestamistas</option>
+            <?php foreach($prestMap as $norm=>$label): ?>
+              <option value="<?= h($norm) ?>" <?= $fpNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
 
-        <select name="fd" title="Deudor">
-          <option value="">Todos los deudores</option>
-          <?php foreach($deudMap as $norm=>$label): ?>
-            <option value="<?= h($norm) ?>" <?= $fdNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
-          <?php endforeach; ?>
-        </select>
+        <!-- Empresa con Select2 -->
+        <div class="field" style="min-width:200px;flex:1">
+          <label>Empresa</label>
+          <select name="fe" id="empresaSelect" title="Empresa" class="select2-filter">
+            <option value="">Todas las empresas</option>
+            <?php foreach($empMap as $norm=>$label): ?>
+              <option value="<?= h($norm) ?>" <?= $feNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
 
-        <!-- NUEVO: Filtro por empresa -->
-        <select name="fe" title="Empresa">
-          <option value="">Todas las empresas</option>
-          <?php foreach($empMap as $norm=>$label): ?>
-            <option value="<?= h($norm) ?>" <?= $feNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
-          <?php endforeach; ?>
-        </select>
+        <!-- Deudor con Select2 (se actualiza dinámicamente) -->
+        <div class="field" style="min-width:200px;flex:1">
+          <label>Deudor</label>
+          <select name="fd" id="deudorSelect" title="Deudor" class="select2-filter">
+            <option value="">Todos los deudores</option>
+            <?php foreach($deudMap as $norm=>$label): ?>
+              <option value="<?= h($norm) ?>" <?= $fdNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
 
         <div class="field" style="min-width:150px">
           <label>Desde</label>
@@ -895,8 +916,143 @@ else:
 endif; // forms / list
 ?>
 
-<!-- JS: selección múltiple + eliminar sin anidar formularios -->
+<!-- Incluir jQuery y Select2 JS -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+
 <script>
+// Inicializar Select2 en los dropdowns de filtro
+$(document).ready(function() {
+  // Aplicar Select2 a los filtros
+  $('.select2-filter').select2({
+    width: '100%',
+    placeholder: 'Seleccionar...',
+    allowClear: true,
+    language: {
+      noResults: function() {
+        return "No se encontraron resultados";
+      }
+    }
+  });
+  
+  // Guardar referencia a los selects
+  const empresaSelect = $('#empresaSelect');
+  const deudorSelect = $('#deudorSelect');
+  const estadoPagoRadios = document.querySelectorAll('input[name="estado_pago"]');
+  
+  // Variable para guardar el deudor seleccionado antes de cambiar
+  let deudorSeleccionado = deudorSelect.val();
+  
+  // Función para cargar deudores según empresa
+  function cargarDeudoresPorEmpresa(empresaNormalizada, estadoPago) {
+    if (!empresaNormalizada) {
+      // Si no hay empresa, cargar todos los deudores
+      cargarTodosDeudores(estadoPago);
+      return;
+    }
+    
+    // Mostrar loading
+    deudorSelect.html('<option value="">Cargando deudores...</option>');
+    
+    // Hacer petición AJAX
+    fetch(`ajax_cargar_deudores.php?empresa=${encodeURIComponent(empresaNormalizada)}&estado=${estadoPago}`)
+      .then(response => {
+        if (!response.ok) throw new Error('Error en la respuesta');
+        return response.json();
+      })
+      .then(data => {
+        // Reconstruir el dropdown
+        let options = '<option value="">Todos los deudores</option>';
+        
+        data.forEach(deudor => {
+          const selected = (deudor.norm === deudorSeleccionado) ? 'selected' : '';
+          options += `<option value="${deudor.norm}" ${selected}>${deudor.nombre}</option>`;
+        });
+        
+        deudorSelect.html(options);
+        
+        // Re-aplicar Select2
+        deudorSelect.select2({
+          width: '100%',
+          placeholder: 'Seleccionar deudor...',
+          allowClear: true
+        });
+        
+        // Restaurar selección si existe
+        if (deudorSeleccionado) {
+          deudorSelect.val(deudorSeleccionado).trigger('change');
+        }
+      })
+      .catch(error => {
+        console.error('Error cargando deudores:', error);
+        deudorSelect.html('<option value="">Error cargando deudores</option>');
+      });
+  }
+  
+  // Función para cargar todos los deudores
+  function cargarTodosDeudores(estadoPago) {
+    // Mostrar loading
+    deudorSelect.html('<option value="">Cargando todos los deudores...</option>');
+    
+    fetch(`ajax_cargar_deudores.php?empresa=&estado=${estadoPago}`)
+      .then(response => response.json())
+      .then(data => {
+        let options = '<option value="">Todos los deudores</option>';
+        
+        data.forEach(deudor => {
+          const selected = (deudor.norm === deudorSeleccionado) ? 'selected' : '';
+          options += `<option value="${deudor.norm}" ${selected}>${deudor.nombre}</option>`;
+        });
+        
+        deudorSelect.html(options);
+        deudorSelect.select2({
+          width: '100%',
+          placeholder: 'Seleccionar deudor...',
+          allowClear: true
+        });
+        
+        if (deudorSeleccionado) {
+          deudorSelect.val(deudorSeleccionado).trigger('change');
+        }
+      })
+      .catch(error => {
+        console.error('Error:', error);
+        deudorSelect.html('<option value="">Error cargando deudores</option>');
+      });
+  }
+  
+  // Evento cuando cambia la empresa
+  empresaSelect.on('change', function() {
+    const empresaNormalizada = $(this).val();
+    const estadoPago = document.querySelector('input[name="estado_pago"]:checked')?.value || 'no_pagados';
+    
+    // Guardar el deudor seleccionado antes de cambiar
+    deudorSeleccionado = deudorSelect.val();
+    
+    // Cargar deudores según la empresa seleccionada
+    cargarDeudoresPorEmpresa(empresaNormalizada, estadoPago);
+  });
+  
+  // Evento cuando cambia el estado de pago
+  estadoPagoRadios.forEach(radio => {
+    radio.addEventListener('change', function() {
+      const empresaNormalizada = empresaSelect.val();
+      const estadoPago = this.value;
+      
+      // Guardar el deudor seleccionado
+      deudorSeleccionado = deudorSelect.val();
+      
+      // Recargar deudores con el nuevo estado
+      if (empresaNormalizada) {
+        cargarDeudoresPorEmpresa(empresaNormalizada, estadoPago);
+      } else {
+        cargarTodosDeudores(estadoPago);
+      }
+    });
+  });
+});
+
+// JS: selección múltiple + eliminar sin anidar formularios
 (function(){
   const form = document.getElementById('bulkForm');
   if(!form) return;
