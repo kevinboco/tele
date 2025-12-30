@@ -1,865 +1,348 @@
 <?php
-// flow_manual.php
+// flow_p.php — Reportes /p (con listado completo y export CSV)
 require_once __DIR__.'/helpers.php';
 
-function manual_entrypoint($chat_id, $estado) {
-    // Si ya estás en manual, reenvía el paso
-    if (!empty($estado) && ($estado['flujo'] ?? '') === 'manual') {
-        return manual_resend_current_step($chat_id, $estado);
-    }
-    // Nuevo flujo
-    $estado = [
-        "flujo" => "manual",
-        "paso" => "manual_menu",
-        "manual_page" => 0
+/** Utils */
+function p_money($n){ return number_format((float)$n, 0, ',', '.'); }
+function p_b64e($s){ return rtrim(strtr(base64_encode($s), '+/', '-_'), '='); }
+function p_b64d($s){ return base64_decode(strtr($s, '-_', '+/')); }
+
+/** Enviar documento (CSV) a Telegram */
+function p_send_document($chat_id, $filepath, $filename, $caption="") {
+    global $TOKEN;
+    if (!file_exists($filepath)) return false;
+
+    $ch = curl_init("https://api.telegram.org/bot{$TOKEN}/sendDocument");
+    $cfile = new CURLFile($filepath, mime_content_type($filepath) ?: 'text/csv', $filename);
+    $post = [
+        'chat_id' => $chat_id,
+        'caption' => $caption,
+        'document'=> $cfile,
     ];
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $post,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 60,
+    ]);
+    $res = curl_exec($ch);
+    $ok  = $res !== false && curl_getinfo($ch, CURLINFO_HTTP_CODE) === 200;
+    curl_close($ch);
+    return $ok;
+}
+
+/** Entry */
+function p_entrypoint($chat_id, $estado): void {
+    if (!empty($estado) && ($estado['flujo'] ?? '') === 'p') {
+        p_resend_current_step($chat_id, $estado);
+        return;
+    }
+    $estado = ["flujo"=>"p", "paso"=>"p_menu"];
     saveState($chat_id, $estado);
-    
-    // Mostrar menú de conductores como texto
-    manual_mostrar_menu_conductores($chat_id, $estado);
+    p_send_main_menu($chat_id);
 }
 
-/* ========= MOSTRAR MENÚ DE CONDUCTORES COMO TEXTO ========= */
-function manual_mostrar_menu_conductores($chat_id, $estado) {
-    $conn = db();
-    $conductores = $conn ? obtenerConductoresAdmin($conn, $chat_id) : [];
-    $conn?->close();
-    
-    if ($conductores) {
-        // Ordenar alfabéticamente
-        usort($conductores, function($a, $b) {
-            $nombreA = $a['nombre'] ?? $a;
-            $nombreB = $b['nombre'] ?? $b;
-            return strcasecmp($nombreA, $nombreB);
-        });
-        
-        $mensaje = "📋 *LISTA DE CONDUCTORES*\n\n";
-        $opciones = [];
-        
-        foreach ($conductores as $index => $conductor) {
-            $numero = $index + 1;
-            $nombre = $conductor['nombre'];
-            $mensaje .= "{$numero}. {$nombre}\n";
-            $opciones[$numero] = [
-                'id' => $conductor['id'],
-                'nombre' => $nombre
-            ];
-        }
-        
-        // Guardar opciones en el estado para validación
-        $estado['opciones_conductores'] = $opciones;
-        $estado['total_conductores'] = count($conductores);
-        saveState($chat_id, $estado);
-        
-        $mensaje .= "\n✏️ Para seleccionar, *escribe el número* correspondiente\n";
-        $mensaje .= "📝 Para crear nuevo conductor, *escribe: NUEVO*";
-        
-        // Teclado simplificado
-        $kb = [
-            "inline_keyboard" => [
-                [
-                    ["text" => "🔄 Actualizar lista", "callback_data" => "manual_refresh"],
-                    ["text" => "❌ Cancelar", "callback_data" => "manual_cancel"]
-                ]
-            ]
-        ];
-        
-        sendMessage($chat_id, $mensaje, $kb);
-    } else {
-        // No hay conductores, ir directamente a crear uno nuevo
-        $estado['paso'] = 'manual_nombre_nuevo'; 
-        saveState($chat_id, $estado);
-        sendMessage($chat_id, "No tienes conductores guardados.\n✍️ Escribe el *nombre* del nuevo conductor:");
-    }
+/** Menú principal */
+function p_send_main_menu($chat_id): void {
+    $kb = [
+        "inline_keyboard" => [
+            [["text"=>"🔎 Por prestatario","callback_data"=>"p_menu_deudor"]],
+            [["text"=>"🔎 Por prestamista","callback_data"=>"p_menu_prestamista"]],
+            [["text"=>"📊 Resumen global por prestamista","callback_data"=>"p_menu_global"]],
+            [["text"=>"📄 Ver TODO (paginado)","callback_data"=>"p_menu_all_0"]],
+            [["text"=>"⬇️ Exportar CSV (todo)","callback_data"=>"p_menu_export"]],
+        ]
+    ];
+    sendMessage($chat_id, "Elige el reporte:", $kb);
 }
 
-/* ========= MOSTRAR MENÚ DE RUTAS COMO TEXTO ========= */
-function manual_mostrar_menu_rutas($chat_id, $estado) {
-    $conn = db();
-    $rutas = $conn ? obtenerRutasAdmin($conn, $chat_id) : [];
-    $conn?->close();
-    
-    if ($rutas) {
-        // Ordenar alfabéticamente
-        usort($rutas, function($a, $b) {
-            $rutaA = $a['ruta'] ?? $a;
-            $rutaB = $b['ruta'] ?? $b;
-            return strcasecmp($rutaA, $rutaB);
-        });
-        
-        $mensaje = "🛣️ *LISTA DE RUTAS*\n\n";
-        $opciones = [];
-        
-        foreach ($rutas as $index => $ruta) {
-            $numero = $index + 1;
-            $nombreRuta = $ruta['ruta'];
-            $mensaje .= "{$numero}. {$nombreRuta}\n";
-            $opciones[$numero] = [
-                'id' => $ruta['id'],
-                'ruta' => $nombreRuta
-            ];
-        }
-        
-        // Guardar opciones en el estado
-        $estado['opciones_rutas'] = $opciones;
-        $estado['total_rutas'] = count($rutas);
-        saveState($chat_id, $estado);
-        
-        $mensaje .= "\n✏️ Para seleccionar, *escribe el número* correspondiente\n";
-        $mensaje .= "📝 Para crear nueva ruta, *escribe: NUEVO*";
-        
-        // Teclado con opciones
-        $kb = [
-            "inline_keyboard" => [
-                [
-                    ["text" => "🔄 Actualizar", "callback_data" => "manual_refresh_rutas"],
-                    ["text" => "⬅️ Volver", "callback_data" => "manual_back_menu"]
-                ]
-            ]
-        ];
-        
-        sendMessage($chat_id, $mensaje, $kb);
-    } else {
-        // No hay rutas, ir directamente a crear una nueva
-        $estado['paso'] = 'manual_ruta_nueva_texto'; 
-        saveState($chat_id, $estado);
-        sendMessage($chat_id, "No tienes rutas guardadas.\n✍️ Escribe la *ruta del viaje*:");
-    }
-}
-
-/* ========= MOSTRAR MENÚ DE VEHÍCULOS COMO TEXTO ========= */
-function manual_mostrar_menu_vehiculos($chat_id, $estado) {
-    $conn = db();
-    $vehiculos = $conn ? obtenerVehiculosAdmin($conn, $chat_id) : [];
-    $conn?->close();
-    
-    if ($vehiculos) {
-        // Ordenar alfabéticamente
-        usort($vehiculos, function($a, $b) {
-            $vehA = $a['vehiculo'] ?? $a;
-            $vehB = $b['vehiculo'] ?? $b;
-            return strcasecmp($vehA, $vehB);
-        });
-        
-        $mensaje = "🚐 *LISTA DE VEHÍCULOS*\n\n";
-        $opciones = [];
-        
-        foreach ($vehiculos as $index => $vehiculo) {
-            $numero = $index + 1;
-            $nombreVehiculo = $vehiculo['vehiculo'];
-            $mensaje .= "{$numero}. {$nombreVehiculo}\n";
-            $opciones[$numero] = [
-                'id' => $vehiculo['id'],
-                'vehiculo' => $nombreVehiculo
-            ];
-        }
-        
-        // Guardar opciones en el estado
-        $estado['opciones_vehiculos'] = $opciones;
-        $estado['total_vehiculos'] = count($vehiculos);
-        saveState($chat_id, $estado);
-        
-        $mensaje .= "\n✏️ Para seleccionar, *escribe el número* correspondiente\n";
-        $mensaje .= "📝 Para crear nuevo vehículo, *escribe: NUEVO*";
-        
-        // Teclado con opciones
-        $kb = [
-            "inline_keyboard" => [
-                [
-                    ["text" => "🔄 Actualizar", "callback_data" => "manual_refresh_vehiculos"],
-                    ["text" => "⬅️ Volver", "callback_data" => "manual_back_fecha"]
-                ]
-            ]
-        ];
-        
-        sendMessage($chat_id, $mensaje, $kb);
-    } else {
-        // No hay vehículos, ir directamente a crear uno nuevo
-        $estado['paso'] = 'manual_vehiculo_nuevo_texto'; 
-        saveState($chat_id, $estado);
-        sendMessage($chat_id, "No tienes vehículos guardados.\n✍️ Escribe el *tipo de vehículo* (ej.: Toyota Hilux 4x4):");
-    }
-}
-
-/* ========= MOSTRAR MENÚ DE EMPRESAS COMO TEXTO ========= */
-function manual_mostrar_menu_empresas($chat_id, $estado) {
-    $conn = db();
-    $empresas = $conn ? obtenerEmpresasAdmin($conn, $chat_id) : [];
-    $conn?->close();
-    
-    if ($empresas) {
-        // Ordenar alfabéticamente
-        usort($empresas, function($a, $b) {
-            $empA = $a['nombre'] ?? $a;
-            $empB = $b['nombre'] ?? $b;
-            return strcasecmp($empA, $empB);
-        });
-        
-        $mensaje = "🏢 *LISTA DE EMPRESAS*\n\n";
-        $opciones = [];
-        
-        foreach ($empresas as $index => $empresa) {
-            $numero = $index + 1;
-            $nombreEmpresa = $empresa['nombre'];
-            $mensaje .= "{$numero}. {$nombreEmpresa}\n";
-            $opciones[$numero] = [
-                'id' => $empresa['id'],
-                'nombre' => $nombreEmpresa
-            ];
-        }
-        
-        // Guardar opciones en el estado
-        $estado['opciones_empresas'] = $opciones;
-        $estado['total_empresas'] = count($empresas);
-        saveState($chat_id, $estado);
-        
-        $mensaje .= "\n✏️ Para seleccionar, *escribe el número* correspondiente\n";
-        $mensaje .= "📝 Para crear nueva empresa, *escribe: NUEVO*";
-        
-        // Teclado con opciones
-        $kb = [
-            "inline_keyboard" => [
-                [
-                    ["text" => "🔄 Actualizar", "callback_data" => "manual_refresh_empresas"],
-                    ["text" => "⬅️ Volver", "callback_data" => "manual_back_vehiculo_menu"]
-                ]
-            ]
-        ];
-        
-        sendMessage($chat_id, $mensaje, $kb);
-    } else {
-        // No hay empresas, ir directamente a crear una nueva
-        $estado['paso'] = 'manual_empresa_nuevo_texto'; 
-        saveState($chat_id, $estado);
-        sendMessage($chat_id, "No tienes empresas guardadas.\n✍️ Escribe el *nombre de la empresa*:");
-    }
-}
-
-function manual_resend_current_step($chat_id, $estado) {
-    $conn = db();
-    switch ($estado['paso']) {
-        case 'manual_menu':
-            manual_mostrar_menu_conductores($chat_id, $estado);
+/** Reenviar paso */
+function p_resend_current_step($chat_id, $estado): void {
+    switch ($estado['paso'] ?? '') {
+        case 'p_menu': p_send_main_menu($chat_id); break;
+        case 'p_sel_deudor': p_show_deudor_picker($chat_id); break;
+        case 'p_sel_prestamista': p_show_prestamista_picker($chat_id); break;
+        case 'p_all':
+            $page = (int)($estado['p_page'] ?? 0);
+            p_show_all_paginated($chat_id, $page);
             break;
-            
-        case 'manual_nombre_nuevo':
-            sendMessage($chat_id, "✍️ Escribe el *nombre* del nuevo conductor:"); 
-            break;
-            
-        case 'manual_ruta_menu':
-            manual_mostrar_menu_rutas($chat_id, $estado);
-            break;
-            
-        case 'manual_ruta_nueva_texto':
-            sendMessage($chat_id, "✍️ Escribe la *ruta del viaje*:"); 
-            break;
-            
-        case 'manual_ruta':
-            sendMessage($chat_id, "🛣️ Ingresa la *ruta del viaje*:"); 
-            break;
-            
-        case 'manual_fecha':
-            $kb = kbFechaManual();
-            $kb = manual_add_back_button($kb, 'ruta_menu');
-            sendMessage($chat_id, "📅 Selecciona la *fecha*:", $kb); 
-            break;
-            
-        case 'manual_fecha_mes':
-            $anio = $estado["anio"] ?? date("Y");
-            $kb = kbMeses($anio);
-            $kb = manual_add_back_button($kb, 'fecha');
-            sendMessage($chat_id, "📆 Selecciona el *mes*:", $kb); 
-            break;
-            
-        case 'manual_fecha_dia_input':
-            $anio = (int)($estado["anio"] ?? date("Y"));
-            $mes = (int)($estado["mes"] ?? date("m"));
-            $maxDias = cal_days_in_month(CAL_GREGORIAN, $mes, $anio);
-            sendMessage($chat_id, "✍️ Escribe el *día* del mes (1–$maxDias):"); 
-            break;
-            
-        case 'manual_vehiculo_menu':
-            manual_mostrar_menu_vehiculos($chat_id, $estado);
-            break;
-            
-        case 'manual_vehiculo_nuevo_texto':
-            sendMessage($chat_id, "✍️ Escribe el *tipo de vehículo*:"); 
-            break;
-            
-        case 'manual_empresa_menu':
-            manual_mostrar_menu_empresas($chat_id, $estado);
-            break;
-            
-        case 'manual_empresa_nuevo_texto':
-            sendMessage($chat_id, "✍️ Escribe el *nombre de la empresa*:"); 
-            break;
-            
-        case 'manual_pago_parcial_pregunta':
-            $kb = [
-                "inline_keyboard" => [
-                    [
-                        ["text" => "✅ Sí, hay pago parcial", "callback_data" => "manual_pago_si"],
-                        ["text" => "❌ No, sin pago parcial", "callback_data" => "manual_pago_no"]
-                    ],
-                    [
-                        ["text" => "⬅️ Volver", "callback_data" => "manual_back_empresa_menu"]
-                    ]
-                ]
-            ];
-            sendMessage($chat_id, "💵 ¿Hay *pago parcial* para este viaje?", $kb);
-            break;
-            
-        case 'manual_pago_parcial_monto':
-            sendMessage($chat_id, "💰 Escribe el *monto del pago parcial* (ej: 1500000):"); 
-            break;
-            
         default:
-            sendMessage($chat_id, "Continuamos donde ibas. Escribe /cancel para reiniciar.");
+            sendMessage($chat_id, "Usa /cancel para reiniciar.");
     }
-    $conn?->close();
 }
 
-/* ========= FUNCIÓN PARA AGREGAR BOTÓN VOLVER ========= */
-function manual_add_back_button(array $kb, string $back_step): array {
-    $kb["inline_keyboard"][] = [[ 
-        "text" => "⬅️ Volver", 
-        "callback_data" => "manual_back_" . $back_step 
-    ]];
-    return $kb;
+/** Listados de opciones (a partir de la tabla prestamos) */
+function p_show_deudor_picker($chat_id): void {
+    $conn = db(); if(!$conn){ sendMessage($chat_id,"❌ Error de DB."); return; }
+    $stmt = $conn->prepare("SELECT deudor, SUM(monto) s FROM prestamos WHERE chat_id=? GROUP BY deudor ORDER BY s DESC LIMIT 25");
+    $stmt->bind_param("i", $chat_id);
+    $stmt->execute(); $res = $stmt->get_result();
+    $kb = ["inline_keyboard"=>[]];
+    while($r = $res->fetch_assoc()){
+        $label = $r['deudor']." ( $".p_money($r['s'])." )";
+        $kb["inline_keyboard"][] = [[ "text"=>$label, "callback_data"=>"p_deu_".p_b64e($r['deudor']) ]];
+    }
+    $stmt->close(); $conn->close();
+
+    if (empty($kb["inline_keyboard"])) {
+        sendMessage($chat_id, "No hay préstamos registrados todavía.");
+    } else {
+        sendMessage($chat_id, "Elige *prestatario*:", $kb);
+    }
 }
 
-function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
-    if (($estado["flujo"] ?? "") !== "manual") return;
+function p_show_prestamista_picker($chat_id): void {
+    $conn = db(); if(!$conn){ sendMessage($chat_id,"❌ Error de DB."); return; }
+    $stmt = $conn->prepare("SELECT prestamista, SUM(monto) s FROM prestamos WHERE chat_id=? GROUP BY prestamista ORDER BY s DESC LIMIT 25");
+    $stmt->bind_param("i", $chat_id);
+    $stmt->execute(); $res = $stmt->get_result();
+    $kb = ["inline_keyboard"=>[]];
+    while($r = $res->fetch_assoc()){
+        $label = $r['prestamista']." ( $".p_money($r['s'])." )";
+        $kb["inline_keyboard"][] = [[ "text"=>$label, "callback_data"=>"p_pre_".p_b64e($r['prestamista']) ]];
+    }
+    $stmt->close(); $conn->close();
 
-    // ========= BOTONES DE ACTUALIZAR =========
-    if ($cb_data === 'manual_refresh') {
-        manual_mostrar_menu_conductores($chat_id, $estado);
-        if ($cb_id) answerCallbackQuery($cb_id, "Lista actualizada");
-        return;
+    if (empty($kb["inline_keyboard"])) {
+        sendMessage($chat_id, "No hay préstamos registrados todavía.");
+    } else {
+        sendMessage($chat_id, "Elige *prestamista*:", $kb);
     }
-    
-    if ($cb_data === 'manual_refresh_rutas') {
-        manual_mostrar_menu_rutas($chat_id, $estado);
-        if ($cb_id) answerCallbackQuery($cb_id, "Lista actualizada");
-        return;
-    }
-    
-    if ($cb_data === 'manual_refresh_vehiculos') {
-        manual_mostrar_menu_vehiculos($chat_id, $estado);
-        if ($cb_id) answerCallbackQuery($cb_id, "Lista actualizada");
-        return;
-    }
-    
-    if ($cb_data === 'manual_refresh_empresas') {
-        manual_mostrar_menu_empresas($chat_id, $estado);
-        if ($cb_id) answerCallbackQuery($cb_id, "Lista actualizada");
-        return;
-    }
-    
-    // ========= CANCELAR =========
-    if ($cb_data === 'manual_cancel') {
-        clearState($chat_id);
-        sendMessage($chat_id, "❌ Operación cancelada. Usa /manual para empezar de nuevo.");
-        if ($cb_id) answerCallbackQuery($cb_id);
-        return;
-    }
+}
 
-    // ========= BOTÓN VOLVER =========
-    if (strpos($cb_data, 'manual_back_') === 0) {
-        $back_step = substr($cb_data, strlen('manual_back_'));
-        manual_handle_back($chat_id, $estado, $back_step);
-        if ($cb_id) answerCallbackQuery($cb_id);
-        return;
+/** Callbacks */
+function p_handle_callback($chat_id, &$estado, string $cb_data, ?string $cb_id=null): void {
+    if (($estado['flujo'] ?? '') !== 'p') return;
+
+    // Submenús
+    if ($cb_data === 'p_menu_deudor') {
+        $estado['paso'] = 'p_sel_deudor'; saveState($chat_id, $estado);
+        p_show_deudor_picker($chat_id);
+        if ($cb_id) answerCallbackQuery($cb_id); return;
+    }
+    if ($cb_data === 'p_menu_prestamista') {
+        $estado['paso'] = 'p_sel_prestamista'; saveState($chat_id, $estado);
+        p_show_prestamista_picker($chat_id);
+        if ($cb_id) answerCallbackQuery($cb_id); return;
+    }
+    if ($cb_data === 'p_menu_global') {
+        p_show_global_by_prestamista($chat_id);
+        if ($cb_id) answerCallbackQuery($cb_id); return;
     }
 
-    // FECHA
-    if ($cb_data === 'mfecha_hoy') {
-        $estado['manual_fecha'] = date("Y-m-d");
-        $estado['paso'] = 'manual_vehiculo_menu'; 
+    // Listado completo paginado
+    if (strpos($cb_data, 'p_menu_all_') === 0) {
+        $page = (int)substr($cb_data, strlen('p_menu_all_')); // p_menu_all_0,1,2...
+        $estado['paso'] = 'p_all';
+        $estado['p_page'] = $page;
         saveState($chat_id, $estado);
-        manual_mostrar_menu_vehiculos($chat_id, $estado);
+        p_show_all_paginated($chat_id, $page);
+        if ($cb_id) answerCallbackQuery($cb_id); return;
     }
-    
-    if ($cb_data === 'mfecha_otro') {
-        $anio = date("Y"); 
-        $estado["anio"] = $anio;
-        $estado["paso"] = "manual_fecha_mes"; 
-        saveState($chat_id, $estado);
-        $kb = kbMeses($anio);
-        $kb = manual_add_back_button($kb, 'fecha');
-        sendMessage($chat_id, "📆 Selecciona el *mes* ($anio):", $kb);
-    }
-    
-    if (strpos($cb_data, 'mmes_') === 0) {
-        $parts = explode('_', $cb_data);
-        $estado["anio"] = $parts[1] ?? date("Y");
-        $estado["mes"] = $parts[2] ?? date("m");
-        $estado["paso"] = "manual_fecha_dia_input"; 
-        saveState($chat_id, $estado);
-        $anio = (int)$estado["anio"]; 
-        $mes = (int)$estado["mes"];
-        $maxDias = cal_days_in_month(CAL_GREGORIAN, $mes, $anio);
-        sendMessage($chat_id, "✍️ Escribe el *día* del mes (1–$maxDias):");
+    if (strpos($cb_data, 'p_all_page_') === 0) {
+        $page = (int)substr($cb_data, strlen('p_all_page_'));
+        $estado['p_page'] = $page; saveState($chat_id, $estado);
+        p_show_all_paginated($chat_id, $page);
+        if ($cb_id) answerCallbackQuery($cb_id); return;
     }
 
-    // MANEJO DE PAGO PARCIAL
-    if ($cb_data === 'manual_pago_si') {
-        $estado['paso'] = 'manual_pago_parcial_monto'; 
-        saveState($chat_id, $estado);
-        sendMessage($chat_id, "💰 Escribe el *monto del pago parcial* (ej: 1500000):");
+    // Export CSV
+    if ($cb_data === 'p_menu_export') {
+        p_export_csv($chat_id);
+        if ($cb_id) answerCallbackQuery($cb_id); return;
     }
-    
-    if ($cb_data === 'manual_pago_no') {
-        // No hay pago parcial, proceder a guardar el viaje
-        $estado['manual_pago_parcial'] = null;
-        manual_insert_viaje_and_close($chat_id, $estado);
+
+    // Reportes por entidad
+    if (strpos($cb_data, 'p_deu_') === 0) {
+        $deu = p_b64d(substr($cb_data, 6));
+        p_show_report_by_deudor($chat_id, $deu);
+        if ($cb_id) answerCallbackQuery($cb_id); return;
+    }
+    if (strpos($cb_data, 'p_pre_') === 0) {
+        $pre = p_b64d(substr($cb_data, 6));
+        p_show_report_by_prestamista($chat_id, $pre);
+        if ($cb_id) answerCallbackQuery($cb_id); return;
     }
 
     if ($cb_id) answerCallbackQuery($cb_id);
 }
 
-/* ========= MANEJO DEL BOTÓN VOLVER ========= */
-function manual_handle_back($chat_id, &$estado, $back_step) {
-    // Limpiar opciones almacenadas
-    unset(
-        $estado['opciones_conductores'],
-        $estado['opciones_rutas'],
-        $estado['opciones_vehiculos'],
-        $estado['opciones_empresas'],
-        $estado['total_conductores'],
-        $estado['total_rutas'],
-        $estado['total_vehiculos'],
-        $estado['total_empresas']
-    );
-    
-    switch ($back_step) {
-        case 'menu':
-            $estado['paso'] = 'manual_menu';
-            // Limpiar datos si es necesario
-            unset($estado['manual_nombre']);
-            manual_mostrar_menu_conductores($chat_id, $estado);
-            break;
-            
-        case 'ruta_menu':
-            $estado['paso'] = 'manual_ruta_menu';
-            // Limpiar datos de ruta
-            unset($estado['manual_ruta']);
-            manual_mostrar_menu_rutas($chat_id, $estado);
-            break;
-            
-        case 'fecha':
-            $estado['paso'] = 'manual_fecha';
-            // Limpiar datos de fecha
-            unset($estado['manual_fecha'], $estado['anio'], $estado['mes']);
-            $kb = kbFechaManual();
-            $kb = manual_add_back_button($kb, 'ruta_menu');
-            sendMessage($chat_id, "📅 Selecciona la *fecha*:", $kb);
-            break;
-            
-        case 'vehiculo_menu':
-            $estado['paso'] = 'manual_vehiculo_menu';
-            // Limpiar datos de vehículo
-            unset($estado['manual_vehiculo']);
-            manual_mostrar_menu_vehiculos($chat_id, $estado);
-            break;
-            
-        case 'empresa_menu':
-            $estado['paso'] = 'manual_empresa_menu';
-            // Limpiar datos de empresa
-            unset($estado['manual_empresa']);
-            manual_mostrar_menu_empresas($chat_id, $estado);
-            break;
-            
-        default:
-            // Si no reconoce el paso, volver al menú principal
-            $estado['paso'] = 'manual_menu';
-            manual_mostrar_menu_conductores($chat_id, $estado);
-            break;
-    }
-    
-    saveState($chat_id, $estado);
+/** Texto (no se usa; todo botón) */
+function p_handle_text($chat_id, &$estado, string $text=null, $photo=null): void {
+    if (($estado['flujo'] ?? '') !== 'p') return;
+    p_resend_current_step($chat_id, $estado);
 }
 
-function manual_handle_text($chat_id, &$estado, $text, $photo) {
-    if (($estado["flujo"] ?? "") !== "manual") return;
+/** Reporte por prestatario */
+function p_show_report_by_deudor($chat_id, $deudor): void {
+    $conn = db(); if(!$conn){ sendMessage($chat_id,"❌ Error de DB."); return; }
 
-    $text = trim($text);
-    $text_upper = strtoupper($text);
-    
-    switch ($estado["paso"]) {
-        case "manual_menu":
-            // Verificar si es "NUEVO" o un número
-            if ($text_upper === "NUEVO") {
-                $estado["paso"] = "manual_nombre_nuevo"; 
-                saveState($chat_id, $estado);
-                sendMessage($chat_id, "✍️ Escribe el *nombre* del nuevo conductor:");
-                break;
-            }
-            
-            // Verificar si es un número válido
-            if (is_numeric($text) && isset($estado['opciones_conductores'])) {
-                $numero = (int)$text;
-                $opciones = $estado['opciones_conductores'] ?? [];
-                
-                if (isset($opciones[$numero])) {
-                    $conductor = $opciones[$numero];
-                    $estado['manual_nombre'] = $conductor['nombre'];
-                    $estado['paso'] = 'manual_ruta_menu'; 
-                    
-                    // Limpiar opciones de conductores
-                    unset($estado['opciones_conductores'], $estado['total_conductores']);
-                    saveState($chat_id, $estado);
-                    
-                    // Mostrar menú de rutas
-                    manual_mostrar_menu_rutas($chat_id, $estado);
-                } else {
-                    $total = $estado['total_conductores'] ?? 0;
-                    sendMessage($chat_id, "⚠️ Número inválido. Escribe un número entre 1 y {$total} o 'NUEVO':");
-                }
-            } else {
-                sendMessage($chat_id, "⚠️ Opción inválida. Escribe el *número* del conductor o 'NUEVO':");
-            }
-            break;
-            
-        case "manual_nombre_nuevo":
-            $nombre = trim($text);
-            if ($nombre === "") { 
-                sendMessage($chat_id, "⚠️ El nombre no puede estar vacío. Escribe el *nombre* del nuevo conductor:"); 
-                break; 
-            }
-            
-            // Guardar en BD
-            $conn = db(); 
-            if ($conn) { 
-                crearConductorAdmin($conn, $chat_id, $nombre); 
-                $conn->close(); 
-            }
-            
-            $estado["manual_nombre"] = $nombre;
-            $estado["paso"] = "manual_ruta_menu"; 
-            saveState($chat_id, $estado);
-            
-            // Mostrar menú de rutas
-            manual_mostrar_menu_rutas($chat_id, $estado);
-            break;
-            
-        case "manual_ruta_menu":
-            // Verificar si es "NUEVO" o un número
-            if ($text_upper === "NUEVO") {
-                $estado["paso"] = "manual_ruta_nueva_texto"; 
-                saveState($chat_id, $estado);
-                sendMessage($chat_id, "✍️ Escribe la *ruta del viaje*:");
-                break;
-            }
-            
-            // Verificar si es un número válido
-            if (is_numeric($text) && isset($estado['opciones_rutas'])) {
-                $numero = (int)$text;
-                $opciones = $estado['opciones_rutas'] ?? [];
-                
-                if (isset($opciones[$numero])) {
-                    $ruta = $opciones[$numero];
-                    $estado['manual_ruta'] = $ruta['ruta'];
-                    $estado['paso'] = 'manual_fecha'; 
-                    
-                    // Limpiar opciones de rutas
-                    unset($estado['opciones_rutas'], $estado['total_rutas']);
-                    saveState($chat_id, $estado);
-                    
-                    $kb = kbFechaManual();
-                    $kb = manual_add_back_button($kb, 'ruta_menu');
-                    sendMessage($chat_id, "🛣️ Ruta seleccionada: *{$ruta['ruta']}*\n\n📅 Selecciona la *fecha*:", $kb);
-                } else {
-                    $total = $estado['total_rutas'] ?? 0;
-                    sendMessage($chat_id, "⚠️ Número inválido. Escribe un número entre 1 y {$total} o 'NUEVO':");
-                }
-            } else {
-                sendMessage($chat_id, "⚠️ Opción inválida. Escribe el *número* de la ruta o 'NUEVO':");
-            }
-            break;
-            
-        case "manual_ruta_nueva_texto":
-            $rutaTxt = trim($text);
-            if ($rutaTxt === "") { 
-                sendMessage($chat_id, "⚠️ La ruta no puede estar vacía. Escribe la *ruta del viaje*:"); 
-                break; 
-            }
-            
-            // Guardar en BD
-            $conn = db(); 
-            if ($conn) { 
-                crearRutaAdmin($conn, $chat_id, $rutaTxt); 
-                $conn->close(); 
-            }
-            
-            $estado["manual_ruta"] = $rutaTxt;
-            $estado["paso"] = "manual_fecha"; 
-            saveState($chat_id, $estado);
-            
-            $kb = kbFechaManual();
-            $kb = manual_add_back_button($kb, 'ruta_menu');
-            sendMessage($chat_id, "🛣️ Ruta guardada: *{$rutaTxt}*\n\n📅 Selecciona la *fecha*:", $kb);
-            break;
-            
-        case "manual_fecha_dia_input":
-            $anio = (int)($estado["anio"] ?? date("Y")); 
-            $mes = (int)($estado["mes"] ?? date("m"));
-            
-            if (!preg_match('/^\d{1,2}$/', $text)) {
-                $max = cal_days_in_month(CAL_GREGORIAN, $mes, $anio);
-                sendMessage($chat_id, "⚠️ Debe ser un número entre 1 y $max. Escribe el *día* del mes:"); 
-                break;
-            }
-            
-            $dia = (int)$text; 
-            $max = cal_days_in_month(CAL_GREGORIAN, $mes, $anio);
-            
-            if ($dia < 1 || $dia > $max) { 
-                sendMessage($chat_id, "⚠️ El día debe estar entre 1 y $max. Inténtalo de nuevo:"); 
-                break; 
-            }
-            
-            $estado["manual_fecha"] = sprintf("%04d-%02d-%02d", $anio, $mes, $dia);
-            $estado['paso'] = 'manual_vehiculo_menu'; 
-            saveState($chat_id, $estado);
-            
-            // Mostrar menú de vehículos
-            manual_mostrar_menu_vehiculos($chat_id, $estado);
-            break;
-            
-        case "manual_vehiculo_menu":
-            // Verificar si es "NUEVO" o un número
-            if ($text_upper === "NUEVO") {
-                $estado["paso"] = "manual_vehiculo_nuevo_texto"; 
-                saveState($chat_id, $estado);
-                sendMessage($chat_id, "✍️ Escribe el *tipo de vehículo*:");
-                break;
-            }
-            
-            // Verificar si es un número válido
-            if (is_numeric($text) && isset($estado['opciones_vehiculos'])) {
-                $numero = (int)$text;
-                $opciones = $estado['opciones_vehiculos'] ?? [];
-                
-                if (isset($opciones[$numero])) {
-                    $vehiculo = $opciones[$numero];
-                    $estado['manual_vehiculo'] = $vehiculo['vehiculo'];
-                    $estado['paso'] = 'manual_empresa_menu'; 
-                    
-                    // Limpiar opciones de vehículos
-                    unset($estado['opciones_vehiculos'], $estado['total_vehiculos']);
-                    saveState($chat_id, $estado);
-                    
-                    // Mostrar menú de empresas
-                    manual_mostrar_menu_empresas($chat_id, $estado);
-                } else {
-                    $total = $estado['total_vehiculos'] ?? 0;
-                    sendMessage($chat_id, "⚠️ Número inválido. Escribe un número entre 1 y {$total} o 'NUEVO':");
-                }
-            } else {
-                sendMessage($chat_id, "⚠️ Opción inválida. Escribe el *número* del vehículo o 'NUEVO':");
-            }
-            break;
-            
-        case "manual_vehiculo_nuevo_texto":
-            $vehTxt = trim($text);
-            if ($vehTxt === "") { 
-                sendMessage($chat_id, "⚠️ El *tipo de vehículo* no puede estar vacío. Escríbelo nuevamente:"); 
-                break; 
-            }
-            
-            // Guardar en BD
-            $conn = db(); 
-            if ($conn) { 
-                crearVehiculoAdmin($conn, $chat_id, $vehTxt); 
-                $conn->close(); 
-            }
-            
-            $estado["manual_vehiculo"] = $vehTxt;
-            $estado['paso'] = 'manual_empresa_menu'; 
-            saveState($chat_id, $estado);
-            
-            // Mostrar menú de empresas
-            manual_mostrar_menu_empresas($chat_id, $estado);
-            break;
-            
-        case "manual_empresa_menu":
-            // Verificar si es "NUEVO" o un número
-            if ($text_upper === "NUEVO") {
-                $estado["paso"] = "manual_empresa_nuevo_texto"; 
-                saveState($chat_id, $estado);
-                sendMessage($chat_id, "✍️ Escribe el *nombre de la empresa*:");
-                break;
-            }
-            
-            // Verificar si es un número válido
-            if (is_numeric($text) && isset($estado['opciones_empresas'])) {
-                $numero = (int)$text;
-                $opciones = $estado['opciones_empresas'] ?? [];
-                
-                if (isset($opciones[$numero])) {
-                    $empresa = $opciones[$numero];
-                    $estado['manual_empresa'] = $empresa['nombre'];
-                    
-                    // Limpiar opciones de empresas
-                    unset($estado['opciones_empresas'], $estado['total_empresas']);
-                    
-                    // Preguntar por pago parcial
-                    $estado['paso'] = 'manual_pago_parcial_pregunta'; 
-                    saveState($chat_id, $estado);
-                    
-                    $kb = [
-                        "inline_keyboard" => [
-                            [
-                                ["text" => "✅ Sí, hay pago parcial", "callback_data" => "manual_pago_si"],
-                                ["text" => "❌ No, sin pago parcial", "callback_data" => "manual_pago_no"]
-                            ],
-                            [
-                                ["text" => "⬅️ Volver", "callback_data" => "manual_back_empresa_menu"]
-                            ]
-                        ]
-                    ];
-                    sendMessage($chat_id, "💵 ¿Hay *pago parcial* para este viaje?", $kb);
-                } else {
-                    $total = $estado['total_empresas'] ?? 0;
-                    sendMessage($chat_id, "⚠️ Número inválido. Escribe un número entre 1 y {$total} o 'NUEVO':");
-                }
-            } else {
-                sendMessage($chat_id, "⚠️ Opción inválida. Escribe el *número* de la empresa o 'NUEVO':");
-            }
-            break;
-            
-        case "manual_empresa_nuevo_texto":
-            $empTxt = trim($text);
-            if ($empTxt === "") { 
-                sendMessage($chat_id, "⚠️ El *nombre de la empresa* no puede estar vacío. Escríbelo nuevamente:"); 
-                break; 
-            }
-            
-            // Guardar en BD
-            $conn = db(); 
-            if ($conn) { 
-                crearEmpresaAdmin($conn, $chat_id, $empTxt); 
-                $conn->close(); 
-            }
-            
-            $estado["manual_empresa"] = $empTxt;
-            
-            // Preguntar por pago parcial
-            $estado['paso'] = 'manual_pago_parcial_pregunta'; 
-            saveState($chat_id, $estado);
-            
-            $kb = [
-                "inline_keyboard" => [
-                    [
-                        ["text" => "✅ Sí, hay pago parcial", "callback_data" => "manual_pago_si"],
-                        ["text" => "❌ No, sin pago parcial", "callback_data" => "manual_pago_no"]
-                    ],
-                    [
-                        ["text" => "⬅️ Volver", "callback_data" => "manual_back_empresa_menu"]
-                    ]
-                ]
-            ];
-            sendMessage($chat_id, "💵 ¿Hay *pago parcial* para este viaje?", $kb);
-            break;
-            
-        case "manual_pago_parcial_monto":
-            // Validar que sea un número
-            $monto = trim($text);
-            if (!is_numeric($monto) || $monto <= 0) {
-                sendMessage($chat_id, "⚠️ El monto debe ser un número positivo (ej: 1500000). Escribe el *monto del pago parcial*:");
-                break;
-            }
-            
-            // Convertir a entero
-            $estado["manual_pago_parcial"] = (int)$monto;
-            
-            // Guardar el viaje
-            manual_insert_viaje_and_close($chat_id, $estado);
-            break;
+    $stmt = $conn->prepare("SELECT COUNT(*) n, COALESCE(SUM(monto),0) s FROM prestamos WHERE chat_id=? AND deudor=?");
+    $stmt->bind_param("is", $chat_id, $deudor);
+    $stmt->execute(); $stmt->bind_result($n,$s); $stmt->fetch(); $stmt->close();
 
-        default:
-            sendMessage($chat_id, "❌ Usa */manual* para registrar un viaje manual. */cancel* para reiniciar.");
-            clearState($chat_id);
-            break;
+    $stmt = $conn->prepare("SELECT prestamista, COALESCE(SUM(monto),0) s FROM prestamos WHERE chat_id=? AND deudor=? GROUP BY prestamista ORDER BY s DESC");
+    $stmt->bind_param("is", $chat_id, $deudor);
+    $stmt->execute(); $res = $stmt->get_result();
+
+    $lines = [];
+    while($r = $res->fetch_assoc()){
+        $lines[] = "• {$r['prestamista']}: $ ".p_money($r['s']);
     }
+    $stmt->close(); $conn->close();
+
+    $msg = "📌 *Prestatario:* {$deudor}\n".
+           "🧮 *Préstamos:* {$n}\n".
+           "💵 *Total:* $ ".p_money($s)."\n";
+    if ($lines) $msg .= "\n👤 *Por prestamista:*\n".implode("\n",$lines);
+    sendMessage($chat_id, $msg);
 }
 
-function manual_insert_viaje_and_close($chat_id, &$estado) {
-    $conn = db();
-    if (!$conn) { 
-        sendMessage($chat_id, "❌ Error de conexión a la base de datos."); 
-        clearState($chat_id); 
-        return; 
+/** Reporte por prestamista */
+function p_show_report_by_prestamista($chat_id, $prestamista): void {
+    $conn = db(); if(!$conn){ sendMessage($chat_id,"❌ Error de DB."); return; }
+
+    $stmt = $conn->prepare("SELECT COUNT(*) n, COALESCE(SUM(monto),0) s FROM prestamos WHERE chat_id=? AND prestamista=?");
+    $stmt->bind_param("is", $chat_id, $prestamista);
+    $stmt->execute(); $stmt->bind_result($n,$s); $stmt->fetch(); $stmt->close();
+
+    $stmt = $conn->prepare("SELECT deudor, COALESCE(SUM(monto),0) s FROM prestamos WHERE chat_id=? AND prestamista=? GROUP BY deudor ORDER BY s DESC");
+    $stmt->bind_param("is", $chat_id, $prestamista);
+    $stmt->execute(); $res = $stmt->get_result();
+
+    $lines = [];
+    while($r = $res->fetch_assoc()){
+        $lines[] = "• {$r['deudor']}: $ ".p_money($r['s']);
     }
-    
-    // Preparar la consulta con el nuevo campo pago_parcial
-    $stmt = $conn->prepare("INSERT INTO viajes (nombre, ruta, fecha, cedula, tipo_vehiculo, empresa, imagen, pago_parcial) VALUES (?, ?, ?, NULL, ?, ?, NULL, ?)");
-    $pago_parcial = $estado["manual_pago_parcial"] ?? null;
-    $stmt->bind_param("sssssi", 
-        $estado["manual_nombre"], 
-        $estado["manual_ruta"], 
-        $estado["manual_fecha"], 
-        $estado["manual_vehiculo"], 
-        $estado["manual_empresa"],
-        $pago_parcial
-    );
-    
-    if ($stmt->execute()) {
-        $mensaje = "✅ Viaje (manual) registrado:\n👤 " . $estado["manual_nombre"] .
-                   "\n🛣️ " . $estado["manual_ruta"] .
-                   "\n📅 " . $estado["manual_fecha"] .
-                   "\n🚐 " . $estado["manual_vehiculo"] .
-                   "\n🏢 " . $estado["manual_empresa"];
-        
-        // Agregar información del pago parcial si existe
-        if (isset($estado["manual_pago_parcial"])) {
-            $monto_formateado = number_format($estado["manual_pago_parcial"], 0, ',', '.');
-            $mensaje .= "\n💰 Pago parcial: $" . $monto_formateado;
-        }
-        
-        $mensaje .= "\n\nAtajos rápidos: /agg /manual";
-        
-        sendMessage($chat_id, $mensaje);
-    } else {
-        sendMessage($chat_id, "❌ Error al guardar el viaje: " . $conn->error);
-    }
-    $stmt->close(); 
-    $conn->close();
-    clearState($chat_id);
+    $stmt->close(); $conn->close();
+
+    $msg = "👤 *Prestamista:* {$prestamista}\n".
+           "🧮 *Préstamos:* {$n}\n".
+           "💵 *Total prestado:* $ ".p_money($s)."\n";
+    if ($lines) $msg .= "\n👥 *Por prestatario:*\n".implode("\n",$lines);
+    sendMessage($chat_id, $msg);
 }
 
-// Función auxiliar para teclado de fecha
-function kbFechaManual(): array {
-    return [
-        "inline_keyboard" => [
-            [
-                ["text" => "📅 Hoy", "callback_data" => "mfecha_hoy"],
-                ["text" => "📆 Otra fecha", "callback_data" => "mfecha_otro"]
-            ]
-        ]
-    ];
+/** Resumen global agrupado por prestamista */
+function p_show_global_by_prestamista($chat_id): void {
+    $conn = db(); if(!$conn){ sendMessage($chat_id,"❌ Error de DB."); return; }
+    $stmt = $conn->prepare("SELECT prestamista, COUNT(*) n, COALESCE(SUM(monto),0) s FROM prestamos WHERE chat_id=? GROUP BY prestamista ORDER BY s DESC");
+    $stmt->bind_param("i", $chat_id);
+    $stmt->execute(); $res = $stmt->get_result();
+
+    if ($res->num_rows === 0) {
+        sendMessage($chat_id, "No hay préstamos registrados.");
+        $stmt->close(); $conn->close();
+        return;
+    }
+
+    $lines = [];
+    $gran_total = 0;
+    while($r = $res->fetch_assoc()){
+        $gran_total += (float)$r['s'];
+        $lines[] = "• {$r['prestamista']} — $ ".p_money($r['s'])." ({$r['n']} movs)";
+    }
+    $stmt->close(); $conn->close();
+
+    $msg = "📊 *Resumen por prestamista*\n".
+           implode("\n", $lines).
+           "\n\n💰 *Total general:* $ ".p_money($gran_total);
+    sendMessage($chat_id, $msg);
 }
 
-// Función auxiliar para teclado de meses
-function kbMeses($anio): array {
-    $meses = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
-    $kb = ["inline_keyboard" => []];
-    $fila = [];
-    
-    foreach ($meses as $idx => $mes) {
-        $mesNum = $idx + 1;
-        $fila[] = ["text" => $mes, "callback_data" => "mmes_{$anio}_{$mesNum}"];
-        
-        if (count($fila) === 3) {
-            $kb["inline_keyboard"][] = $fila;
-            $fila = [];
-        }
+/** Listado completo paginado */
+function p_show_all_paginated($chat_id, int $page=0, int $limit=10): void {
+    $offset = max(0, $page) * $limit;
+
+    $conn = db(); if(!$conn){ sendMessage($chat_id,"❌ Error de DB."); return; }
+
+    // Total rows y suma total
+    $stmt = $conn->prepare("SELECT COUNT(*), COALESCE(SUM(monto),0) FROM prestamos WHERE chat_id=?");
+    $stmt->bind_param("i", $chat_id);
+    $stmt->execute(); $stmt->bind_result($total_rows,$sum_total); $stmt->fetch(); $stmt->close();
+
+    if ($total_rows == 0) {
+        sendMessage($chat_id, "No hay préstamos registrados.");
+        $conn->close(); return;
     }
-    
-    if (!empty($fila)) {
-        $kb["inline_keyboard"][] = $fila;
+
+    // Página
+    $stmt = $conn->prepare("SELECT id, deudor, prestamista, monto, fecha FROM prestamos WHERE chat_id=? ORDER BY id DESC LIMIT ? OFFSET ?");
+    $stmt->bind_param("iii", $chat_id, $limit, $offset);
+    $stmt->execute(); $res = $stmt->get_result();
+
+    $rows = [];
+    while($r = $res->fetch_assoc()) $rows[] = $r;
+    $stmt->close(); $conn->close();
+
+    $from = $offset + 1;
+    $to   = min($offset + $limit, $total_rows);
+    $msg  = "📄 *Préstamos* ($from–$to de $total_rows)\n";
+
+    foreach ($rows as $i=>$r) {
+        $n = $from + $i;
+        $msg .= "\n*#{$n}*  $".p_money($r['monto'])." — {$r['fecha']}\n";
+        $msg .= "👥 {$r['prestamista']} → 👤 {$r['deudor']}\n";
+        $msg .= "_ID: {$r['id']}_";
     }
-    
-    return $kb;
+
+    $msg .= "\n\n💰 *Suma total:* $ ".p_money($sum_total);
+
+    // Botonera de paginación
+    $kb = ["inline_keyboard"=>[]];
+    $buttons = [];
+    if ($page > 0) {
+        $buttons[] = ["text"=>"⬅️ Anterior","callback_data"=>"p_all_page_".($page-1)];
+    }
+    if ($to < $total_rows) {
+        $buttons[] = ["text"=>"Siguiente ➡️","callback_data"=>"p_all_page_".($page+1)];
+    }
+    if (!empty($buttons)) $kb["inline_keyboard"][] = $buttons;
+
+    sendMessage($chat_id, $msg, !empty($buttons) ? $kb : null);
+}
+
+/** Exportar CSV de toda la tabla y enviarlo al chat */
+function p_export_csv($chat_id): void {
+    $conn = db(); if(!$conn){ sendMessage($chat_id,"❌ Error de DB."); return; }
+
+    $stmt = $conn->prepare("SELECT id, deudor, prestamista, monto, fecha, imagen, created_at FROM prestamos WHERE chat_id=? ORDER BY id DESC");
+    $stmt->bind_param("i", $chat_id);
+    $stmt->execute(); $res = $stmt->get_result();
+
+    if ($res->num_rows === 0) {
+        sendMessage($chat_id, "No hay préstamos para exportar.");
+        $stmt->close(); $conn->close(); return;
+    }
+
+    $dir = __DIR__ . "/uploads/";
+    if (!is_dir($dir)) @mkdir($dir, 0775, true);
+    $filename = "prestamos_{$chat_id}_".date('Ymd_His').".csv";
+    $path = $dir . $filename;
+
+    $fp = fopen($path, 'w');
+    // Encabezados
+    fputcsv($fp, ['id','deudor','prestamista','monto','fecha','imagen','created_at'], ';');
+
+    $sum = 0;
+    while($r = $res->fetch_assoc()){
+        $sum += (float)$r['monto'];
+        fputcsv($fp, [
+            $r['id'],
+            $r['deudor'],
+            $r['prestamista'],
+            $r['monto'],
+            $r['fecha'],
+            $r['imagen'],
+            $r['created_at'],
+        ], ';');
+    }
+    fclose($fp);
+    $stmt->close(); $conn->close();
+
+    // Enviar a Telegram
+    $ok = p_send_document($chat_id, $path, $filename, "CSV generado. Total: $ ".p_money($sum));
+    if (!$ok) {
+        sendMessage($chat_id, "⚠️ No pude enviar el CSV. Revisa permisos de cURL/hosting.");
+    }
 }
