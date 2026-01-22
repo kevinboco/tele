@@ -107,6 +107,9 @@ $prestamista_seleccionado = '';
 $fecha_desde = '';
 $fecha_hasta = '';
 $empresa_seleccionada = '';
+$estado_seleccionado = $_POST['estado_prestamos'] ?? 'pendientes'; // NUEVO: estado de préstamos
+$fecha_pago_desde = $_POST['fecha_pago_desde'] ?? ''; // NUEVO: fecha pago desde
+$fecha_pago_hasta = $_POST['fecha_pago_hasta'] ?? ''; // NUEVO: fecha pago hasta
 
 // Arreglos para los reportes
 $prestamos_por_deudor = [];
@@ -237,10 +240,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
     $fecha_desde = $_POST['fecha_desde'] ?? '';
     $fecha_hasta = $_POST['fecha_hasta'] ?? '';
     $empresa_seleccionada = $_POST['empresa'] ?? '';
+    $estado_seleccionado = $_POST['estado_prestamos'] ?? 'pendientes'; // NUEVO
+    $fecha_pago_desde = $_POST['fecha_pago_desde'] ?? ''; // NUEVO
+    $fecha_pago_hasta = $_POST['fecha_pago_hasta'] ?? ''; // NUEVO
     $prestamos_excluidos = isset($_POST['prestamos_excluidos']) ? explode(',', $_POST['prestamos_excluidos']) : [];
 
-    // Prestamistas únicos (NO PAGADOS)
-    $sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' AND pagado = 0 ORDER BY prestamista";
+    // Prestamistas únicos (según estado seleccionado)
+    $sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' ";
+    
+    // Añadir condición según estado seleccionado
+    if ($estado_seleccionado == 'pendientes') {
+        $sql_prestamistas .= "AND pagado = 0 ";
+    } elseif ($estado_seleccionado == 'pagados') {
+        $sql_prestamistas .= "AND pagado = 1 ";
+    }
+    // Si es 'todos', no se añade condición
+    
+    $sql_prestamistas .= "ORDER BY prestamista";
     $result_prestamistas = $conn->query($sql_prestamistas);
 
     // ==========================
@@ -288,17 +304,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     deudor,
                     prestamista,
                     monto,
-                    fecha
+                    fecha,
+                    pagado,
+                    pagado_at  -- NUEVO: incluir fecha de pago
                 FROM prestamos 
                 WHERE deudor IN ($placeholders) 
                   AND prestamista = ?
-                  AND empresa = ?  -- ¡FILTRO DE EMPRESA AGREGADO!
-                  AND pagado = 0
-                ORDER BY deudor, fecha";
+                  AND empresa = ?";
+        
+        // Agregar condición según estado seleccionado
+        switch ($estado_seleccionado) {
+            case 'pendientes':
+                $sql .= " AND pagado = 0";
+                break;
+            case 'pagados':
+                $sql .= " AND pagado = 1";
+                // Agregar filtro por fecha de pago si se especificó
+                if (!empty($fecha_pago_desde) && !empty($fecha_pago_hasta)) {
+                    $sql .= " AND pagado_at BETWEEN ? AND ?";
+                } elseif (!empty($fecha_pago_desde)) {
+                    $sql .= " AND pagado_at >= ?";
+                } elseif (!empty($fecha_pago_hasta)) {
+                    $sql .= " AND pagado_at <= ?";
+                }
+                break;
+            // 'todos' no agrega condición
+        }
+        
+        $sql .= " ORDER BY deudor, fecha";
 
         $stmt = $conn->prepare($sql);
-        $types = str_repeat('s', count($deudores_seleccionados)) . 'ss';
+        
+        // Preparar parámetros según si hay filtro de fecha de pago
         $params = array_merge($deudores_seleccionados, [$prestamista_seleccionado, $empresa_seleccionada]);
+        
+        if ($estado_seleccionado == 'pagados') {
+            if (!empty($fecha_pago_desde) && !empty($fecha_pago_hasta)) {
+                $params[] = $fecha_pago_desde . ' 00:00:00';
+                $params[] = $fecha_pago_hasta . ' 23:59:59';
+                $types = str_repeat('s', count($deudores_seleccionados)) . 'ssss';
+            } elseif (!empty($fecha_pago_desde)) {
+                $params[] = $fecha_pago_desde . ' 00:00:00';
+                $types = str_repeat('s', count($deudores_seleccionados)) . 'sss';
+            } elseif (!empty($fecha_pago_hasta)) {
+                $params[] = $fecha_pago_hasta . ' 23:59:59';
+                $types = str_repeat('s', count($deudores_seleccionados)) . 'sss';
+            } else {
+                $types = str_repeat('s', count($deudores_seleccionados)) . 'ss';
+            }
+        } else {
+            $types = str_repeat('s', count($deudores_seleccionados)) . 'ss';
+        }
+        
         $stmt->bind_param($types, ...$params);
         $stmt->execute();
         $result_detalle = $stmt->get_result();
@@ -313,6 +370,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             $meses = calcularMesesAutomaticos($fila['fecha']);
             $fecha_prestamo_dt = new DateTime($fila['fecha']);
             $es_excluido = in_array($fila['id'], $prestamos_excluidos);
+            $esta_pagado = $fila['pagado'] == 1;
+            $fecha_pago = $fila['pagado_at'] ?? null; // NUEVO
             
             // DETERMINAR SI ES PRÉSTAMO VIEJO O NUEVO
             $es_prestamo_viejo = ($fecha_prestamo_dt < $FECHA_CORTE);
@@ -340,6 +399,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     'cantidad_prestamos' => 0,
                     'cantidad_viejos' => 0,
                     'cantidad_nuevos' => 0,
+                    'cantidad_pagados' => 0, // NUEVO
                     'prestamos_detalle' => []
                 ];
             }
@@ -358,11 +418,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             } else {
                 $prestamos_por_deudor[$deudor]['cantidad_nuevos']++;
             }
+            
+            if ($esta_pagado) {
+                $prestamos_por_deudor[$deudor]['cantidad_pagados']++;
+            }
 
             $prestamos_por_deudor[$deudor]['prestamos_detalle'][] = [
                 'id' => $fila['id'],
                 'monto' => $fila['monto'],
                 'fecha' => $fila['fecha'],
+                'pagado' => $esta_pagado,
+                'pagado_at' => $fecha_pago, // NUEVO
                 'meses' => $meses,
                 'tipo' => $es_prestamo_viejo ? 'viejo' : 'nuevo',
                 'tasa_interes' => $tasa_interes,
@@ -391,17 +457,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         deudor,
                         prestamista,
                         monto,
-                        fecha
+                        fecha,
+                        pagado,
+                        pagado_at  -- NUEVO
                       FROM prestamos
                       WHERE prestamista = ?
-                        AND empresa = ?  -- ¡FILTRO DE EMPRESA AGREGADO!
-                        AND pagado = 0
+                        AND empresa = ?
                         AND deudor IS NOT NULL
                         AND deudor != ''
-                        $condicion_excluidos
-                      ORDER BY deudor, fecha";
+                        $condicion_excluidos";
+        
+        // Agregar condición según estado seleccionado
+        switch ($estado_seleccionado) {
+            case 'pendientes':
+                $sql_otros .= " AND pagado = 0";
+                break;
+            case 'pagados':
+                $sql_otros .= " AND pagado = 1";
+                // Agregar filtro por fecha de pago si se especificó
+                if (!empty($fecha_pago_desde) && !empty($fecha_pago_hasta)) {
+                    $sql_otros .= " AND pagado_at BETWEEN ? AND ?";
+                } elseif (!empty($fecha_pago_desde)) {
+                    $sql_otros .= " AND pagado_at >= ?";
+                } elseif (!empty($fecha_pago_hasta)) {
+                    $sql_otros .= " AND pagado_at <= ?";
+                }
+                break;
+            // 'todos' no agrega condición
+        }
+        
+        $sql_otros .= " ORDER BY deudor, fecha";
+        
         $stmt_otros = $conn->prepare($sql_otros);
-        $stmt_otros->bind_param("ss", $prestamista_seleccionado, $empresa_seleccionada);
+        
+        // Preparar parámetros según si hay filtro de fecha de pago
+        if ($estado_seleccionado == 'pagados') {
+            if (!empty($fecha_pago_desde) && !empty($fecha_pago_hasta)) {
+                $stmt_otros->bind_param("ssss", $prestamista_seleccionado, $empresa_seleccionada, 
+                                       $fecha_pago_desde . ' 00:00:00', $fecha_pago_hasta . ' 23:59:59');
+            } elseif (!empty($fecha_pago_desde)) {
+                $stmt_otros->bind_param("sss", $prestamista_seleccionado, $empresa_seleccionada, 
+                                       $fecha_pago_desde . ' 00:00:00');
+            } elseif (!empty($fecha_pago_hasta)) {
+                $stmt_otros->bind_param("sss", $prestamista_seleccionado, $empresa_seleccionada, 
+                                       $fecha_pago_hasta . ' 23:59:59');
+            } else {
+                $stmt_otros->bind_param("ss", $prestamista_seleccionado, $empresa_seleccionada);
+            }
+        } else {
+            $stmt_otros->bind_param("ss", $prestamista_seleccionado, $empresa_seleccionada);
+        }
+        
         $stmt_otros->execute();
         $result_otros = $stmt_otros->get_result();
 
@@ -420,6 +526,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             $meses = calcularMesesAutomaticos($fila['fecha']);
             $fecha_prestamo_dt = new DateTime($fila['fecha']);
             $es_prestamo_viejo = ($fecha_prestamo_dt < $FECHA_CORTE);
+            $esta_pagado = $fila['pagado'] == 1; // NUEVO
 
             if ($es_prestamo_viejo) {
                 // PRÉSTAMOS VIEJOS: 10% todo para prestamista
@@ -441,7 +548,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     'total_comision_personal' => 0,
                     'cantidad_prestamos' => 0,
                     'cantidad_viejos' => 0,
-                    'cantidad_nuevos' => 0
+                    'cantidad_nuevos' => 0,
+                    'cantidad_pagados' => 0 // NUEVO
                 ];
             }
 
@@ -455,6 +563,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 $otros_prestamos_por_deudor[$deudor]['cantidad_viejos']++;
             } else {
                 $otros_prestamos_por_deudor[$deudor]['cantidad_nuevos']++;
+            }
+            
+            if ($esta_pagado) {
+                $otros_prestamos_por_deudor[$deudor]['cantidad_pagados']++;
             }
         }
     }
@@ -472,7 +584,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reporte de Préstamos - Pendientes de Pago</title>
+    <title>Reporte de Préstamos - Gestión Completa</title>
     <!-- Fuente bonita -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -723,6 +835,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             background: rgba(34, 197, 94, 0.2);
             color: #22c55e;
             border: 1px solid rgba(34, 197, 94, 0.4);
+        }
+
+        /* NUEVO: Estilo para préstamos pagados */
+        .badge-pagado {
+            background: rgba(56, 189, 248, 0.2);
+            color: #38bdf8;
+            border: 1px solid rgba(56, 189, 248, 0.4);
+        }
+
+        .fila-pagada {
+            background: rgba(56, 189, 248, 0.05) !important;
+            border-left: 3px solid #38bdf8;
+        }
+
+        .texto-pagado {
+            color: #38bdf8 !important;
+            font-style: italic;
         }
 
         /* Resto de estilos (igual que antes) */
@@ -1095,6 +1224,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             font-size: 0.85rem;
             color: #f59e0b;
         }
+        
+        /* NUEVO: Estilo para filtro de estado */
+        .filtro-estado {
+            background: linear-gradient(135deg, #3b0764, #1e40af);
+            border-radius: 16px;
+            padding: 16px 18px;
+            margin-bottom: 20px;
+            border: 2px solid rgba(139, 92, 246, 0.5);
+        }
+        
+        .filtro-estado h3 {
+            margin-top: 0;
+            margin-bottom: 12px;
+            color: #a855f7;
+            font-size: 1rem;
+        }
     </style>
 </head>
 <body>
@@ -1103,7 +1248,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             <div>
                 <div class="page-header-badge">
                     <span class="icon">📊</span>
-                    <span>Panel de préstamos pendientes</span>
+                    <span>Panel de préstamos - Gestión completa</span>
                 </div>
                 <h1>Reporte de Préstamos Consolidados</h1>
             </div>
@@ -1111,12 +1256,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         
         <!-- NUEVO: TOTAL GENERAL DE TODAS TUS COMISIONES -->
         <div class="total-comisiones-general">
-            <strong>🎯 TOTAL DE TODAS TUS COMISIONES:</strong>
+            <strong>🎯 TOTAL DE TODAS TUS COMISIONES (PRÉSTAMOS PENDIENTES):</strong>
             <span class="monto-total">$ <?php echo number_format($total_todas_tus_comisiones, 0, ',', '.'); ?></span>
             <br>
             <small style="color: rgba(255,255,255,0.8); font-size: 0.85rem;">
-                Suma de todas las comisiones de todos los prestamistas (préstamos nuevos excluyendo los marcados)
+                Suma de todas las comisiones de todos los prestamistas (solo préstamos nuevos pendientes)
             </small>
+        </div>
+        
+        <!-- NUEVA SECCIÓN: Filtro de estado de préstamos -->
+        <div class="filtro-estado form-card">
+            <h3>📋 Seleccionar tipo de préstamos a mostrar</h3>
+            <div class="form-row">
+                <div class="form-col">
+                    <label for="estado_prestamos">Mostrar:</label>
+                    <select name="estado_prestamos" id="estado_prestamos" onchange="toggleFiltroPagados()">
+                        <option value="pendientes" <?php echo $estado_seleccionado == 'pendientes' ? 'selected' : ''; ?>>Solo préstamos pendientes</option>
+                        <option value="pagados" <?php echo $estado_seleccionado == 'pagados' ? 'selected' : ''; ?>>Solo préstamos pagados</option>
+                        <option value="todos" <?php echo $estado_seleccionado == 'todos' ? 'selected' : ''; ?>>Todos los préstamos</option>
+                    </select>
+                </div>
+                
+                <!-- Filtro de fecha de pago (solo visible cuando se seleccionan pagados) -->
+                <div class="form-col" id="filtro_pagados_container" style="<?php echo $estado_seleccionado == 'pagados' ? '' : 'display:none;'; ?>">
+                    <label for="fecha_pago_desde">Fecha de Pago Desde:</label>
+                    <input type="date" name="fecha_pago_desde" id="fecha_pago_desde" 
+                           value="<?php echo htmlspecialchars($fecha_pago_desde); ?>">
+                    <br>
+                    <label for="fecha_pago_hasta">Fecha de Pago Hasta:</label>
+                    <input type="date" name="fecha_pago_hasta" id="fecha_pago_hasta" 
+                           value="<?php echo htmlspecialchars($fecha_pago_hasta); ?>">
+                    <small>Filtrar por fecha en que se marcó como pagado</small>
+                </div>
+            </div>
+            <div class="info-porcentajes">
+                <strong>💡 Instrucciones:</strong><br>
+                • <strong>Préstamos pendientes:</strong> Solo los que aún no se han pagado (pagado = 0)<br>
+                • <strong>Préstamos pagados:</strong> Solo los que ya se pagaron (pagado = 1), puedes filtrar por fecha de pago<br>
+                • <strong>Todos:</strong> Muestra tanto pendientes como pagados
+            </div>
         </div>
         
         <!-- NUEVA SECCIÓN: Configuración de Porcentajes por Prestamista -->
@@ -1240,8 +1418,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             </div>
         </div>
         
-        <div class="nota-pagados">
-            <strong>Nota:</strong> Esta vista solo muestra préstamos que están <strong>pendientes de pago</strong> (pagado = 0). Los préstamos ya pagados no aparecen en esta lista.
+        <div class="nota-pagados" style="<?php echo $estado_seleccionado != 'pendientes' ? 'background:rgba(56,189,248,0.11); border:1px solid rgba(56,189,248,0.4);' : ''; ?>">
+            <?php if ($estado_seleccionado == 'pendientes'): ?>
+                <strong>Nota:</strong> Esta vista muestra solo préstamos que están <strong>pendientes de pago</strong> (pagado = 0). Los préstamos ya pagados no aparecen en esta lista.
+            <?php elseif ($estado_seleccionado == 'pagados'): ?>
+                <strong>Nota:</strong> Esta vista muestra solo préstamos que están <strong>pagados</strong> (pagado = 1). <?php echo !empty($fecha_pago_desde) || !empty($fecha_pago_hasta) ? 'Filtrados por fecha de pago.' : ''; ?>
+            <?php else: ?>
+                <strong>Nota:</strong> Esta vista muestra <strong>todos los préstamos</strong>, tanto pendientes como pagados.
+            <?php endif; ?>
         </div>
         
         <form method="POST" id="formPrincipal">
@@ -1402,6 +1586,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         <div class="resultados">
             <h2 style="font-size:1.1rem;font-weight:600;margin-bottom:6px;">
                 Resultados para: <span style="color:var(--accent);"><?php echo htmlspecialchars($prestamista_seleccionado); ?></span>
+                <span style="font-size:0.9rem; color:var(--text-soft); margin-left:10px;">
+                    (<?php 
+                    if ($estado_seleccionado == 'pendientes') echo 'Solo préstamos PENDIENTES';
+                    elseif ($estado_seleccionado == 'pagados') echo 'Solo préstamos PAGADOS';
+                    else echo 'TODOS los préstamos';
+                    ?>)
+                </span>
                 <?php 
                 $config_actual = isset($config_prestamistas[$prestamista_seleccionado]) 
                     ? $config_prestamistas[$prestamista_seleccionado] 
@@ -1419,6 +1610,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     Empresa <strong>"<?php echo htmlspecialchars($empresa_seleccionada); ?>"</strong> |
                 <?php endif; ?>
                 Fechas: <strong><?php echo htmlspecialchars($fecha_desde); ?></strong> al <strong><?php echo htmlspecialchars($fecha_hasta); ?></strong>
+                <?php if ($estado_seleccionado == 'pagados' && (!empty($fecha_pago_desde) || !empty($fecha_pago_hasta))): ?>
+                    | Fecha pago: 
+                    <?php if (!empty($fecha_pago_desde)): ?>
+                        desde <strong><?php echo htmlspecialchars($fecha_pago_desde); ?></strong>
+                    <?php endif; ?>
+                    <?php if (!empty($fecha_pago_hasta)): ?>
+                        hasta <strong><?php echo htmlspecialchars($fecha_pago_hasta); ?></strong>
+                    <?php endif; ?>
+                <?php endif; ?>
             </div>
             <?php endif; ?>
             
@@ -1437,17 +1637,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 <?php if (!empty($prestamos_por_deudor)): 
                     $total_viejos = array_sum(array_column($prestamos_por_deudor, 'cantidad_viejos'));
                     $total_nuevos = array_sum(array_column($prestamos_por_deudor, 'cantidad_nuevos'));
+                    $total_pagados = array_sum(array_column($prestamos_por_deudor, 'cantidad_pagados'));
                 ?>
                     <span style="font-size:0.85rem; color:var(--text-soft); margin-left:15px;">
                         (<span class="badge-tipo badge-viejo"><?php echo $total_viejos; ?> viejos</span> | 
-                        <span class="badge-tipo badge-nuevo"><?php echo $total_nuevos; ?> nuevos</span>)
+                        <span class="badge-tipo badge-nuevo"><?php echo $total_nuevos; ?> nuevos</span>
+                        <?php if ($total_pagados > 0): ?>
+                            | <span class="badge-tipo badge-pagado"><?php echo $total_pagados; ?> pagados</span>
+                        <?php endif; ?>
+                        )
                     </span>
                 <?php endif; ?>
             </div>
 
             <?php if (empty($prestamos_por_deudor)): ?>
                 <div style="background-color: rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.4); padding: 12px; border-radius: 10px; margin: 15px 0; font-size:0.85rem;">
-                    <strong>No se encontraron préstamos pendientes</strong> para los deudores seleccionados en la empresa <strong>"<?php echo htmlspecialchars($empresa_seleccionada); ?>"</strong>.
+                    <strong>No se encontraron préstamos</strong> para los deudores seleccionados en la empresa <strong>"<?php echo htmlspecialchars($empresa_seleccionada); ?>"</strong>.
                 </div>
             <?php else: ?>
             <table id="tablaReporte">
@@ -1459,6 +1664,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         <th>Interés Prestamista</th>
                         <th>Tu Comisión</th>
                         <th>Total a pagar</th>
+                        <th>Estado</th>
                     </tr>
                 </thead>
                 <tbody id="cuerpoReporte">
@@ -1469,6 +1675,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     $total_comision_personal_general = 0;
                     $total_viejos_general = 0;
                     $total_nuevos_general = 0;
+                    $total_pagados_general = 0;
                     ?>
                     <?php foreach ($prestamos_por_deudor as $deudor => $datos): ?>
                     <?php 
@@ -1478,20 +1685,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         $total_comision_personal_general += $datos['total_comision_personal'];
                         $total_viejos_general += $datos['cantidad_viejos'];
                         $total_nuevos_general += $datos['cantidad_nuevos'];
+                        $total_pagados_general += $datos['cantidad_pagados'];
                     ?>
-                    <tr class="header-deudor" id="fila-<?php echo md5($deudor); ?>">
+                    <tr class="header-deudor <?php echo $datos['cantidad_pagados'] > 0 && $datos['cantidad_prestamos'] == $datos['cantidad_pagados'] ? 'fila-pagada' : ''; ?>" 
+                        id="fila-<?php echo md5($deudor); ?>">
                         <td>
                             <span class="detalle-toggle" onclick="toggleDetalle('<?php echo md5($deudor); ?>')">
                                 <?php echo htmlspecialchars($deudor); ?>
                             </span>
-                            <?php if ($datos['cantidad_viejos'] > 0 || $datos['cantidad_nuevos'] > 0): ?>
+                            <?php if ($datos['cantidad_viejos'] > 0 || $datos['cantidad_nuevos'] > 0 || $datos['cantidad_pagados'] > 0): ?>
                                 <br>
                                 <small style="font-size:0.75rem;">
                                     <?php if ($datos['cantidad_viejos'] > 0): ?>
-                                        <span class="badge-tipo badge-viejo"><?php echo $datos['cantidad_viejos']; ?> viejos</span>
+                                        <span class="badge-tipo badge-viejo"><?php echo $datos['cantidad_viejos']; ?> v</span>
                                     <?php endif; ?>
                                     <?php if ($datos['cantidad_nuevos'] > 0): ?>
-                                        <span class="badge-tipo badge-nuevo"><?php echo $datos['cantidad_nuevos']; ?> nuevos</span>
+                                        <span class="badge-tipo badge-nuevo"><?php echo $datos['cantidad_nuevos']; ?> n</span>
+                                    <?php endif; ?>
+                                    <?php if ($datos['cantidad_pagados'] > 0): ?>
+                                        <span class="badge-tipo badge-pagado"><?php echo $datos['cantidad_pagados']; ?> p</span>
                                     <?php endif; ?>
                                 </small>
                             <?php endif; ?>
@@ -1501,17 +1713,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         <td class="moneda interes-prestamista-deudor">$ <?php echo number_format($datos['total_interes_prestamista'], 0, ',', '.'); ?></td>
                         <td class="moneda comision-deudor">$ <?php echo number_format($datos['total_comision_personal'], 0, ',', '.'); ?></td>
                         <td class="moneda total-deudor">$ <?php echo number_format($datos['total_general'], 0, ',', '.'); ?></td>
+                        <td>
+                            <?php if ($datos['cantidad_pagados'] == $datos['cantidad_prestamos'] && $datos['cantidad_prestamos'] > 0): ?>
+                                <span class="badge-tipo badge-pagado">Pagado</span>
+                            <?php elseif ($datos['cantidad_pagados'] > 0): ?>
+                                <span class="badge-tipo badge-pagado">Parcial</span>
+                            <?php else: ?>
+                                <span class="badge-tipo badge-nuevo">Pendiente</span>
+                            <?php endif; ?>
+                        </td>
                     </tr>
                     
                     <!-- Detalle de cada préstamo -->
                     <tr class="detalle-prestamo" id="detalle-<?php echo md5($deudor); ?>" style="display:none;">
-                        <td colspan="6">
+                        <td colspan="7">
                             <table style="width: 100%; background-color: #020617;">
                                 <thead>
                                     <tr>
                                         <th>Incluir</th>
                                         <th>Fecha</th>
                                         <th>Tipo</th>
+                                        <th>Estado</th>
+                                        <th>Fecha Pago</th>
                                         <th>Monto</th>
                                         <th>Meses</th>
                                         <th>Int. Prestamista $</th>
@@ -1522,12 +1745,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                 <tbody>
                                     <?php foreach ($datos['prestamos_detalle'] as $index => $detalle): 
                                         $es_excluido = $detalle['excluido'] ?? false;
+                                        $esta_pagado = $detalle['pagado'] ?? false;
+                                        $fecha_pago = $detalle['pagado_at'] ?? null;
                                     ?>
-                                    <tr class="fila-prestamo <?php echo $detalle['tipo'] == 'viejo' ? 'prestamo-viejo' : 'prestamo-nuevo'; ?> <?php echo $es_excluido ? 'excluido' : ''; ?>" 
+                                    <tr class="fila-prestamo <?php echo $detalle['tipo'] == 'viejo' ? 'prestamo-viejo' : 'prestamo-nuevo'; ?> <?php echo $es_excluido ? 'excluido' : ''; ?> <?php echo $esta_pagado ? 'fila-pagada' : ''; ?>" 
                                         data-deudor="<?php echo md5($deudor); ?>" data-id="<?php echo $detalle['id']; ?>">
                                         <td class="acciones">
+                                            <?php if (!$esta_pagado): // Solo mostrar checkbox si no está pagado ?>
                                             <input type="checkbox" class="checkbox-excluir" <?php echo !$es_excluido ? 'checked' : ''; ?> 
                                                    onchange="togglePrestamo(this, <?php echo $detalle['id']; ?>)">
+                                            <?php endif; ?>
                                         </td>
                                         <td><?php echo $detalle['fecha']; ?></td>
                                         <td>
@@ -1535,12 +1762,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                                 <?php echo $detalle['tipo'] == 'viejo' ? 'Viejo' : 'Nuevo'; ?>
                                             </span>
                                         </td>
+                                        <td>
+                                            <?php if ($esta_pagado): ?>
+                                                <span class="badge-tipo badge-pagado">Pagado</span>
+                                            <?php else: ?>
+                                                <span class="badge-tipo badge-nuevo">Pendiente</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <?php if ($fecha_pago): 
+                                                $fecha_pago_dt = new DateTime($fecha_pago);
+                                                echo $fecha_pago_dt->format('Y-m-d');
+                                            else: ?>
+                                                -
+                                            <?php endif; ?>
+                                        </td>
                                         <td class="moneda monto-prestamo">$ <?php echo number_format($detalle['monto'], 0, ',', '.'); ?></td>
                                         <td class="acciones">
+                                            <?php if (!$esta_pagado): // Solo editable si no está pagado ?>
                                             <input type="number" class="meses-input" value="<?php echo $detalle['meses']; ?>" 
                                                    min="1" max="36" onchange="recalcularPrestamo(this)"
                                                    data-monto="<?php echo $detalle['monto']; ?>"
                                                    data-tipo="<?php echo $detalle['tipo']; ?>">
+                                            <?php else: ?>
+                                                <?php echo $detalle['meses']; ?>
+                                            <?php endif; ?>
                                         </td>
                                         <td class="moneda interes-prestamista-prestamo">$ <?php echo number_format($detalle['interes_prestamista'], 0, ',', '.'); ?></td>
                                         <td class="moneda comision-prestamo">$ <?php echo number_format($detalle['comision_personal'], 0, ',', '.'); ?></td>
@@ -1561,12 +1807,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                             <small>
                                 <span class="badge-tipo badge-viejo"><?php echo $total_viejos_general; ?> viejos</span> | 
                                 <span class="badge-tipo badge-nuevo"><?php echo $total_nuevos_general; ?> nuevos</span>
+                                <?php if ($total_pagados_general > 0): ?>
+                                    | <span class="badge-tipo badge-pagado"><?php echo $total_pagados_general; ?> pagados</span>
+                                <?php endif; ?>
                             </small>
                         </td>
                         <td class="moneda" id="total-capital-general">$ <?php echo number_format($total_capital_general, 0, ',', '.'); ?></td>
                         <td class="moneda" id="total-interes-prestamista-general">$ <?php echo number_format($total_interes_prestamista_general, 0, ',', '.'); ?></td>
                         <td class="moneda" id="total-comision-general">$ <?php echo number_format($total_comision_personal_general, 0, ',', '.'); ?></td>
                         <td class="moneda" id="total-general">$ <?php echo number_format($total_general, 0, ',', '.'); ?></td>
+                        <td>
+                            <?php if ($estado_seleccionado == 'pendientes'): ?>
+                                <span class="badge-tipo badge-nuevo">Pendientes</span>
+                            <?php elseif ($estado_seleccionado == 'pagados'): ?>
+                                <span class="badge-tipo badge-pagado">Pagados</span>
+                            <?php else: ?>
+                                <span class="badge-tipo">Mixto</span>
+                            <?php endif; ?>
+                        </td>
                     </tr>
                 </tbody>
             </table>
@@ -1580,17 +1838,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 <?php if (!empty($otros_prestamos_por_deudor)): 
                     $otros_total_viejos = array_sum(array_column($otros_prestamos_por_deudor, 'cantidad_viejos'));
                     $otros_total_nuevos = array_sum(array_column($otros_prestamos_por_deudor, 'cantidad_nuevos'));
+                    $otros_total_pagados = array_sum(array_column($otros_prestamos_por_deudor, 'cantidad_pagados'));
                 ?>
                     <span style="font-size:0.85rem; color:var(--text-soft); margin-left:15px;">
                         (<span class="badge-tipo badge-viejo"><?php echo $otros_total_viejos; ?> viejos</span> | 
-                        <span class="badge-tipo badge-nuevo"><?php echo $otros_total_nuevos; ?> nuevos</span>)
+                        <span class="badge-tipo badge-nuevo"><?php echo $otros_total_nuevos; ?> nuevos</span>
+                        <?php if ($otros_total_pagados > 0): ?>
+                            | <span class="badge-tipo badge-pagado"><?php echo $otros_total_pagados; ?> pagados</span>
+                        <?php endif; ?>
+                        )
                     </span>
                 <?php endif; ?>
             </div>
             <div class="cuadro-otros">
             <?php if (empty($otros_prestamos_por_deudor)): ?>
                 <div style="background-color: rgba(148,163,184,0.06); border:1px solid rgba(148,163,184,0.3); padding: 10px; border-radius: 10px; margin: 10px 0; font-size:0.85rem;">
-                    No hay otros deudores con préstamos pendientes diferentes a los ya seleccionados en la empresa <strong>"<?php echo htmlspecialchars($empresa_seleccionada); ?>"</strong>.
+                    No hay otros deudores con préstamos diferentes a los ya seleccionados en la empresa <strong>"<?php echo htmlspecialchars($empresa_seleccionada); ?>"</strong>.
                 </div>
             <?php else: ?>
                 <table>
@@ -1603,6 +1866,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                             <th>Interés Prestamista</th>
                             <th>Tu Comisión</th>
                             <th>Total a pagar</th>
+                            <th>Estado</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1613,6 +1877,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         $otros_total_comision_personal_general = 0;
                         $otros_total_viejos_general = 0;
                         $otros_total_nuevos_general = 0;
+                        $otros_total_pagados_general = 0;
                         ?>
                         <?php foreach ($otros_prestamos_por_deudor as $deudor => $datos): ?>
                         <?php
@@ -1622,8 +1887,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                             $otros_total_comision_personal_general += $datos['total_comision_personal'];
                             $otros_total_viejos_general += $datos['cantidad_viejos'];
                             $otros_total_nuevos_general += $datos['cantidad_nuevos'];
+                            $otros_total_pagados_general += $datos['cantidad_pagados'];
                         ?>
-                        <tr>
+                        <tr class="<?php echo $datos['cantidad_pagados'] > 0 && $datos['cantidad_prestamos'] == $datos['cantidad_pagados'] ? 'fila-pagada' : ''; ?>">
                             <td class="acciones">
                                 <input type="checkbox"
                                        class="checkbox-otro-deudor"
@@ -1632,7 +1898,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                             </td>
                             <td>
                                 <?php echo htmlspecialchars($deudor); ?>
-                                <?php if ($datos['cantidad_viejos'] > 0 || $datos['cantidad_nuevos'] > 0): ?>
+                                <?php if ($datos['cantidad_viejos'] > 0 || $datos['cantidad_nuevos'] > 0 || $datos['cantidad_pagados'] > 0): ?>
                                     <br>
                                     <small style="font-size:0.75rem;">
                                         <?php if ($datos['cantidad_viejos'] > 0): ?>
@@ -1640,6 +1906,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                         <?php endif; ?>
                                         <?php if ($datos['cantidad_nuevos'] > 0): ?>
                                             <span class="badge-tipo badge-nuevo"><?php echo $datos['cantidad_nuevos']; ?> n</span>
+                                        <?php endif; ?>
+                                        <?php if ($datos['cantidad_pagados'] > 0): ?>
+                                            <span class="badge-tipo badge-pagado"><?php echo $datos['cantidad_pagados']; ?> p</span>
                                         <?php endif; ?>
                                     </small>
                                 <?php endif; ?>
@@ -1649,6 +1918,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                             <td class="moneda">$ <?php echo number_format($datos['total_interes_prestamista'], 0, ',', '.'); ?></td>
                             <td class="moneda">$ <?php echo number_format($datos['total_comision_personal'], 0, ',', '.'); ?></td>
                             <td class="moneda">$ <?php echo number_format($datos['total_general'], 0, ',', '.'); ?></td>
+                            <td>
+                                <?php if ($datos['cantidad_pagados'] == $datos['cantidad_prestamos'] && $datos['cantidad_prestamos'] > 0): ?>
+                                    <span class="badge-tipo badge-pagado">Pagado</span>
+                                <?php elseif ($datos['cantidad_pagados'] > 0): ?>
+                                    <span class="badge-tipo badge-pagado">Parcial</span>
+                                <?php else: ?>
+                                    <span class="badge-tipo badge-nuevo">Pendiente</span>
+                                <?php endif; ?>
+                            </td>
                         </tr>
                         <?php endforeach; ?>
 
@@ -1660,12 +1938,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                 <small>
                                     <span class="badge-tipo badge-viejo"><?php echo $otros_total_viejos_general; ?> viejos</span> | 
                                     <span class="badge-tipo badge-nuevo"><?php echo $otros_total_nuevos_general; ?> nuevos</span>
+                                    <?php if ($otros_total_pagados_general > 0): ?>
+                                        | <span class="badge-tipo badge-pagado"><?php echo $otros_total_pagados_general; ?> pagados</span>
+                                    <?php endif; ?>
                                 </small>
                             </td>
                             <td class="moneda">$ <?php echo number_format($otros_total_capital_general, 0, ',', '.'); ?></td>
                             <td class="moneda">$ <?php echo number_format($otros_total_interes_prestamista_general, 0, ',', '.'); ?></td>
                             <td class="moneda">$ <?php echo number_format($otros_total_comision_personal_general, 0, ',', '.'); ?></td>
                             <td class="moneda">$ <?php echo number_format($otros_total_general, 0, ',', '.'); ?></td>
+                            <td>
+                                <?php if ($estado_seleccionado == 'pendientes'): ?>
+                                    <span class="badge-tipo badge-nuevo">Pendientes</span>
+                                <?php elseif ($estado_seleccionado == 'pagados'): ?>
+                                    <span class="badge-tipo badge-pagado">Pagados</span>
+                                <?php else: ?>
+                                    <span class="badge-tipo">Mixto</span>
+                                <?php endif; ?>
+                            </td>
                         </tr>
                     </tbody>
                 </table>
@@ -1686,6 +1976,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             actualizarListaDeudores();
             actualizarContador();
             actualizarCampoExcluidos();
+            toggleFiltroPagados(); // Asegurar que se muestre/oculte correctamente
             
             // Validar que se haya seleccionado empresa
             const empresaSelect = document.getElementById('empresa');
@@ -1713,6 +2004,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 });
             }
         });
+
+        function toggleFiltroPagados() {
+            const estadoSelect = document.getElementById('estado_prestamos');
+            const filtroPagados = document.getElementById('filtro_pagados_container');
+            
+            if (estadoSelect.value === 'pagados') {
+                filtroPagados.style.display = 'block';
+            } else {
+                filtroPagados.style.display = 'none';
+            }
+        }
 
         function toggleDeudor(element) {
             const valor = element.getAttribute('data-value');
@@ -1943,7 +2245,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             document.getElementById('total-comision-general').textContent = '$ ' + formatNumber(totalComisionPersonal);
         }
 
-        // Seleccionar otros deudores para pasarlos al cuadro 
+        // Seleccionar otros deudores para pasarlos al cuadro 1
         function toggleOtroDeudor(checkbox) {
             const deudor = checkbox.getAttribute('data-deudor');
             const index = deudoresSeleccionados.indexOf(deudor);
