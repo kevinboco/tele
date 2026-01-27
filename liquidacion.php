@@ -5,84 +5,40 @@ if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); 
 $conn->set_charset("utf8mb4");
 
 /* =======================================================
-   🔹 Agregar NUEVA CLASIFICACIÓN/TARIFA a la tabla tarifas
-======================================================= */
-if (isset($_POST['agregar_clasificacion_tarifa'])) {
-    $nombre_clasif = $conn->real_escape_string($_POST['nombre_clasif']);
-    
-    if (empty($nombre_clasif)) {
-        echo "error: nombre vacío";
-        exit;
-    }
-    
-    // Convertir a formato de columna (sin espacios, minúsculas, sin caracteres especiales)
-    $columna = preg_replace('/[^a-z0-9_]/', '', strtolower(str_replace(' ', '_', $nombre_clasif)));
-    
-    if (empty($columna)) {
-        echo "error: nombre inválido";
-        exit;
-    }
-    
-    // 1. Verificar si la columna ya existe en la tabla tarifas
-    $check = $conn->query("SHOW COLUMNS FROM tarifas LIKE '$columna'");
-    if ($check && $check->num_rows > 0) {
-        echo "error: ya existe";
-        exit;
-    }
-    
-    // 2. Agregar la nueva columna a la tabla tarifas como DECIMAL
-    $sql = "ALTER TABLE tarifas ADD COLUMN `$columna` DECIMAL(10,2) DEFAULT 0.00";
-    if ($conn->query($sql)) {
-        // 3. Crear tabla para trackear las clasificaciones personalizadas si no existe
-        $conn->query("CREATE TABLE IF NOT EXISTS clasificaciones_personalizadas (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            nombre VARCHAR(100) UNIQUE NOT NULL,
-            columna VARCHAR(100) UNIQUE NOT NULL,
-            creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )");
-        
-        // 4. Guardar en la tabla de clasificaciones personalizadas
-        $conn->query("INSERT IGNORE INTO clasificaciones_personalizadas (nombre, columna) VALUES ('$nombre_clasif', '$columna')");
-        
-        echo "ok:$columna";
-    } else {
-        echo "error: " . $conn->error;
-    }
-    exit;
-}
-
-/* =======================================================
    🔹 Guardar tarifas por vehículo y empresa (AJAX)
-   (ahora soporta campos dinámicos)
+   (ahora soporta el campo 'siapana')
 ======================================================= */
 if (isset($_POST['guardar_tarifa'])) {
     $empresa  = $conn->real_escape_string($_POST['empresa']);
     $vehiculo = $conn->real_escape_string($_POST['tipo_vehiculo']);
-    $campo    = $conn->real_escape_string($_POST['campo']);
+    $campo    = $conn->real_escape_string($_POST['campo']); // completo|medio|extra|carrotanque|siapana
     $valor    = (int)$_POST['valor'];
 
-    // ⚠️ Validar que el campo exista en la tabla tarifas
-    $check = $conn->query("SHOW COLUMNS FROM tarifas LIKE '$campo'");
-    if (!$check || $check->num_rows === 0) {
-        echo "error: campo no existe";
-        exit;
-    }
+    // ⚠️ Validar campo
+    $allow = ['completo','medio','extra','carrotanque','siapana'];
+    if (!in_array($campo, $allow, true)) { echo "error: campo inválido"; exit; }
 
     $conn->query("INSERT IGNORE INTO tarifas (empresa, tipo_vehiculo) VALUES ('$empresa', '$vehiculo')");
-    $sql = "UPDATE tarifas SET `$campo` = $valor WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'";
+    $sql = "UPDATE tarifas SET $campo = $valor WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'";
     echo $conn->query($sql) ? "ok" : "error: " . $conn->error;
     exit;
 }
 
 /* =======================================================
    🔹 Guardar CLASIFICACIÓN de rutas (manual) - AJAX
+   (completo/medio/extra/siapana/carrotanque)
 ======================================================= */
 if (isset($_POST['guardar_clasificacion'])) {
     $ruta       = $conn->real_escape_string($_POST['ruta']);
     $vehiculo   = $conn->real_escape_string($_POST['tipo_vehiculo']);
     $clasif     = $conn->real_escape_string($_POST['clasificacion']);
 
-    // ⚠️ PERMITE CUALQUIER CLASIFICACIÓN
+    $allowClasif = ['completo','medio','extra','siapana','carrotanque'];
+    if (!in_array($clasif, $allowClasif, true)) {
+        echo "error: clasificación inválida";
+        exit;
+    }
+
     $sql = "INSERT INTO ruta_clasificacion (ruta, tipo_vehiculo, clasificacion)
             VALUES ('$ruta', '$vehiculo', '$clasif')
             ON DUPLICATE KEY UPDATE clasificacion = VALUES(clasificacion)";
@@ -91,43 +47,7 @@ if (isset($_POST['guardar_clasificacion'])) {
 }
 
 /* =======================================================
-   🔹 Obtener TODAS las clasificaciones/tarifas disponibles
-======================================================= */
-function obtenerTodasClasificacionesTarifas($conn) {
-    $clasificaciones = [];
-    
-    // 1. Obtener columnas de la tabla tarifas (excepto id, empresa, tipo_vehiculo)
-    $res = $conn->query("SHOW COLUMNS FROM tarifas");
-    if ($res) {
-        while ($row = $res->fetch_assoc()) {
-            $field = $row['Field'];
-            // Excluir campos que no son tarifas
-            if (!in_array($field, ['id', 'empresa', 'tipo_vehiculo'])) {
-                // Convertir nombre de columna a nombre legible
-                $nombre = ucfirst(str_replace('_', ' ', $field));
-                $clasificaciones[$field] = $nombre;
-            }
-        }
-    }
-    
-    // 2. También obtener de la tabla clasificaciones_personalizadas para mantener nombres originales
-    $res2 = $conn->query("SELECT columna, nombre FROM clasificaciones_personalizadas");
-    if ($res2) {
-        while ($row = $res2->fetch_assoc()) {
-            if (isset($clasificaciones[$row['columna']])) {
-                $clasificaciones[$row['columna']] = $row['nombre'];
-            }
-        }
-    }
-    
-    // Ordenar alfabéticamente por nombre
-    asort($clasificaciones);
-    
-    return $clasificaciones;
-}
-
-/* =======================================================
-   🔹 Endpoint AJAX: viajes por conductor
+   🔹 Endpoint AJAX: viajes por conductor (CON CLASIFICACIONES Y COLORES)
 ======================================================= */
 if (isset($_GET['viajes_conductor'])) {
     $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
@@ -157,7 +77,7 @@ if (isset($_GET['viajes_conductor'])) {
 
     $res = $conn->query($sql);
 
-    // Definir colores y estilos
+    // Definir colores y estilos (igual que en ajuste_pago.php)
     $legend = [
         'completo'     => ['label'=>'Completo',     'badge'=>'bg-emerald-100 text-emerald-700 border border-emerald-200', 'row'=>'bg-emerald-50/40'],
         'medio'        => ['label'=>'Medio',        'badge'=>'bg-amber-100 text-amber-800 border border-amber-200',       'row'=>'bg-amber-50/40'],
@@ -373,13 +293,12 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
 
 /* =======================================================
    🔹 Cálculo y armado de tablas
+   AHORA usando CLASIFICACIÓN MANUAL DE RUTAS
+   + SUMA pago_parcial POR CONDUCTOR
 ======================================================= */
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
 $empresaFiltro = $_GET['empresa'] ?? "";
-
-/* --- Obtener TODAS las clasificaciones/tarifas disponibles --- */
-$todasClasificaciones = obtenerTodasClasificacionesTarifas($conn);
 
 /* --- Cargar clasificaciones de rutas desde BD --- */
 $clasif_rutas = [];
@@ -387,7 +306,7 @@ $resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_c
 if ($resClasif) {
     while ($r = $resClasif->fetch_assoc()) {
         $key = mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo']), 'UTF-8');
-        $clasif_rutas[$key] = $r['clasificacion'];
+        $clasif_rutas[$key] = $r['clasificacion']; // completo|medio|extra|siapana|carrotanque
     }
 }
 
@@ -404,7 +323,7 @@ $res = $conn->query($sql);
 $datos = [];
 $vehiculos = [];
 $rutasUnicas = [];         // para mostrar todas las rutas y clasificarlas
-$pagosConductor = [];      // suma pago_parcial por conductor
+$pagosConductor = [];      // NUEVO: suma pago_parcial por conductor
 
 if ($res) {
     while ($row = $res->fetch_assoc()) {
@@ -437,22 +356,40 @@ if ($res) {
         // Inicializar datos del conductor
         if (!isset($datos[$nombre])) {
             $datos[$nombre] = [
-                "vehiculo" => $vehiculo,
-                "pagado"   => 0,
+                "vehiculo"     => $vehiculo,
+                "completos"    => 0,
+                "medios"       => 0,
+                "extras"       => 0,
+                "carrotanques" => 0,
+                "siapana"      => 0,
+                "pagado"       => 0,   // NUEVO
             ];
-            
-            // Inicializar contadores para todas las clasificaciones
-            foreach ($todasClasificaciones as $columna => $nombreClasif) {
-                $datos[$nombre][$columna] = 0;
-            }
         }
 
         // 🔹 Clasificación MANUAL de la ruta
         $clasifRuta = $clasif_rutas[$keyRuta] ?? '';
 
-        // Si la ruta tiene clasificación y existe en nuestras tarifas, contarla
-        if ($clasifRuta !== '' && isset($datos[$nombre][$clasifRuta])) {
-            $datos[$nombre][$clasifRuta]++;
+        // Si la ruta todavía no tiene clasificación, NO se suma a ninguna columna
+        if ($clasifRuta === '') {
+            continue;
+        }
+
+        switch ($clasifRuta) {
+            case 'completo':
+                $datos[$nombre]["completos"]++;
+                break;
+            case 'medio':
+                $datos[$nombre]["medios"]++;
+                break;
+            case 'extra':
+                $datos[$nombre]["extras"]++;
+                break;
+            case 'siapana':
+                $datos[$nombre]["siapana"]++;
+                break;
+            case 'carrotanque':
+                $datos[$nombre]["carrotanques"]++;
+                break;
         }
     }
 }
@@ -540,49 +477,15 @@ if ($empresaFiltro !== "") {
       <!-- Columna 1: Tarifas + Filtro + Clasificación de rutas -->
       <section class="space-y-5">
 
-        <!-- 🔹 TARJETAS DE TARIFAS DINÁMICAS -->
+        <!-- Tarjetas de tarifas (con SIAPANA) -->
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
           <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
             <span>🚐 Tarifas por Tipo de Vehículo</span>
-            <!-- Botón para agregar nueva tarifa -->
-            <button onclick="mostrarModalAgregarTarifa()"
-                    class="ml-auto text-xs px-3 py-1 rounded-full bg-purple-100 text-purple-700 border border-purple-200 hover:bg-purple-200">
-              + Nueva tarifa
-            </button>
           </h3>
-
-          <!-- Modal para agregar nueva tarifa (oculto inicialmente) -->
-          <div id="modalAgregarTarifa" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center p-4">
-            <div class="bg-white rounded-2xl p-6 max-w-md w-full">
-              <h4 class="text-lg font-semibold mb-4">➕ Agregar nueva tarifa/clasificación</h4>
-              <div class="space-y-3">
-                <div>
-                  <label class="block text-sm font-medium mb-1">Nombre de la tarifa</label>
-                  <input type="text" id="nombre_nueva_tarifa" 
-                         placeholder="Ej: Riohacha, Local, Express..." 
-                         class="w-full rounded-xl border border-slate-300 px-3 py-2">
-                  <p class="text-xs text-slate-500 mt-1">
-                    Esta tarifa aparecerá en todos los vehículos (excepto Carrotanque)
-                  </p>
-                </div>
-                <div class="flex gap-2 pt-2">
-                  <button onclick="cerrarModalAgregarTarifa()"
-                          class="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-slate-700">
-                    Cancelar
-                  </button>
-                  <button onclick="agregarNuevaTarifa()"
-                          class="flex-1 rounded-xl bg-purple-600 text-white px-3 py-2 font-semibold">
-                    Agregar
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
 
           <div id="tarifas_grid" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <?php foreach ($vehiculos as $veh):
-              $t = $tarifas_guardadas[$veh] ?? [];
-              $esCarrotanque = ($veh === "Carrotanque");
+              $t = $tarifas_guardadas[$veh] ?? ["completo"=>0,"medio"=>0,"extra"=>0,"carrotanque"=>0,"siapana"=>0];
             ?>
             <div class="tarjeta-tarifa rounded-2xl border border-slate-200 p-4 shadow-sm bg-slate-50"
                  data-vehiculo="<?= htmlspecialchars($veh) ?>">
@@ -592,29 +495,54 @@ if ($empresaFiltro !== "") {
                 <span class="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 border border-blue-200">Config</span>
               </div>
 
-              <div class="space-y-3">
-                <?php foreach ($todasClasificaciones as $columna => $nombreClasif): 
-                  // Para Carrotanque, solo mostrar carrotanque y siapana
-                  if ($esCarrotanque && !in_array($columna, ['carrotanque', 'siapana'])) {
-                    continue;
-                  }
-                  
-                  // Para otros vehículos, NO mostrar carrotanque
-                  if (!$esCarrotanque && $columna === 'carrotanque') {
-                    continue;
-                  }
-                  
-                  $valor = isset($t[$columna]) ? (float)$t[$columna] : 0;
-                ?>
-                <label class="block">
-                  <span class="block text-sm font-medium mb-1"><?= htmlspecialchars($nombreClasif) ?></span>
-                  <input type="number" step="1000" value="<?= (int)$valor ?>"
-                         data-campo="<?= htmlspecialchars($columna) ?>"
-                         class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition tarifa-input"
+              <?php if ($veh === "Carrotanque"): ?>
+                <label class="block mb-3">
+                  <span class="block text-sm font-medium mb-1">Carrotanque</span>
+                  <input type="number" step="1000" value="<?= (int)($t['carrotanque'] ?? 0) ?>"
+                         data-campo="carrotanque"
+                         class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
                          oninput="recalcular()">
                 </label>
-                <?php endforeach; ?>
-              </div>
+                <label class="block">
+                  <span class="block text-sm font-medium mb-1">Siapana</span>
+                  <input type="number" step="1000" value="<?= (int)($t['siapana'] ?? 0) ?>"
+                         data-campo="siapana"
+                         class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
+                         oninput="recalcular()">
+                </label>
+              <?php else: ?>
+                <label class="block mb-3">
+                  <span class="block text-sm font-medium mb-1">Viaje Completo</span>
+                  <input type="number" step="1000" value="<?= (int)($t['completo'] ?? 0) ?>"
+                         data-campo="completo"
+                         class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
+                         oninput="recalcular()">
+                </label>
+
+                <label class="block mb-3">
+                  <span class="block text-sm font-medium mb-1">Viaje Medio</span>
+                  <input type="number" step="1000" value="<?= (int)($t['medio'] ?? 0) ?>"
+                         data-campo="medio"
+                         class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
+                         oninput="recalcular()">
+                </label>
+
+                <label class="block mb-3">
+                  <span class="block text-sm font-medium mb-1">Viaje Extra</span>
+                  <input type="number" step="1000" value="<?= (int)($t['extra'] ?? 0) ?>"
+                         data-campo="extra"
+                         class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
+                         oninput="recalcular()">
+                </label>
+
+                <label class="block">
+                  <span class="block text-sm font-medium mb-1">Siapana</span>
+                  <input type="number" step="1000" value="<?= (int)($t['siapana'] ?? 0) ?>"
+                         data-campo="siapana"
+                         class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
+                         oninput="recalcular()">
+                </label>
+              <?php endif; ?>
             </div>
             <?php endforeach; ?>
           </div>
@@ -660,9 +588,8 @@ if ($empresaFiltro !== "") {
             <span>🧭 Clasificación de Rutas</span>
             <span class="text-xs text-slate-500">Se guarda en BD</span>
           </h5>
-          
           <p class="text-xs text-slate-500 mb-3">
-            Ajusta qué tipo es cada ruta. Las opciones vienen de las tarifas configuradas.
+            Ajusta qué tipo es cada ruta. Si aparece una ruta nueva, la verás aquí y la clasificas una vez.
           </p>
 
           <div class="flex flex-col gap-2 mb-3 md:flex-row md:items-end">
@@ -677,9 +604,11 @@ if ($empresaFiltro !== "") {
               <select id="sel_clasif_masiva"
                       class="rounded-xl border border-slate-300 px-3 py-1.5 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500">
                 <option value="">-- Selecciona --</option>
-                <?php foreach($todasClasificaciones as $columna => $nombreClasif): ?>
-                  <option value="<?= htmlspecialchars($columna) ?>"><?= htmlspecialchars($nombreClasif) ?></option>
-                <?php endforeach; ?>
+                <option value="completo">Completo</option>
+                <option value="medio">Medio</option>
+                <option value="extra">Extra</option>
+                <option value="siapana">Siapana</option>
+                <option value="carrotanque">Carrotanque</option>
               </select>
             </div>
             <button type="button"
@@ -714,12 +643,11 @@ if ($empresaFiltro !== "") {
                             data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
                             data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>">
                       <option value="">Sin clasificar</option>
-                      <?php foreach($todasClasificaciones as $columna => $nombreClasif): ?>
-                        <option value="<?= htmlspecialchars($columna) ?>" 
-                                <?= $info['clasificacion']===$columna ? 'selected' : '' ?>>
-                          <?= htmlspecialchars($nombreClasif) ?>
-                        </option>
-                      <?php endforeach; ?>
+                      <option value="completo"    <?= $info['clasificacion']==='completo'    ? 'selected' : '' ?>>Completo</option>
+                      <option value="medio"       <?= $info['clasificacion']==='medio'       ? 'selected' : '' ?>>Medio</option>
+                      <option value="extra"       <?= $info['clasificacion']==='extra'       ? 'selected' : '' ?>>Extra</option>
+                      <option value="siapana"     <?= $info['clasificacion']==='siapana'     ? 'selected' : '' ?>>Siapana</option>
+                      <option value="carrotanque" <?= $info['clasificacion']==='carrotanque' ? 'selected' : '' ?>>Carrotanque</option>
                     </select>
                   </td>
                 </tr>
@@ -771,23 +699,28 @@ if ($empresaFiltro !== "") {
         </div>
 
         <div class="mt-4 w-full rounded-xl border border-slate-200 overflow-x-auto">
-          <table id="tabla_conductores" class="w-full text-sm min-w-[1000px]">
+          <table id="tabla_conductores" class="w-full text-sm table-fixed min-w-[900px]">
+            <colgroup>
+              <col style="width:25%">
+              <col style="width:12%">
+              <col style="width:7%">
+              <col style="width:7%">
+              <col style="width:7%">
+              <col style="width:7%">  <!-- Siapana -->
+              <col style="width:8%">  <!-- Carrotanque -->
+              <col style="width:15%"> <!-- Total -->
+              <col style="width:12%"> <!-- Pagado -->
+              <col style="width:10%"> <!-- Faltante -->
+            </colgroup>
             <thead class="bg-blue-600 text-white">
               <tr>
                 <th class="px-3 py-2 text-left">Conductor</th>
                 <th class="px-3 py-2 text-center">Tipo</th>
-                <?php foreach ($todasClasificaciones as $columna => $nombreClasif): 
-                  // Determinar abreviatura para la columna
-                  $abrev = strtoupper(substr(str_replace('_', ' ', $columna), 0, 2));
-                  if ($columna === 'carrotanque') $abrev = 'CT';
-                  if ($columna === 'siapana') $abrev = 'S';
-                  if ($columna === 'riohacha') $abrev = 'R';
-                  if ($columna === 'completo') $abrev = 'C';
-                  if ($columna === 'medio') $abrev = 'M';
-                  if ($columna === 'extra') $abrev = 'E';
-                ?>
-                <th class="px-3 py-2 text-center" title="<?= htmlspecialchars($nombreClasif) ?>"><?= $abrev ?></th>
-                <?php endforeach; ?>
+                <th class="px-3 py-2 text-center">C</th>
+                <th class="px-3 py-2 text-center">M</th>
+                <th class="px-3 py-2 text-center">E</th>
+                <th class="px-3 py-2 text-center">S</th>
+                <th class="px-3 py-2 text-center">CT</th>
                 <th class="px-3 py-2 text-center">Total</th>
                 <th class="px-3 py-2 text-center">Pagado</th>
                 <th class="px-3 py-2 text-center">Faltante</th>
@@ -795,6 +728,7 @@ if ($empresaFiltro !== "") {
             </thead>
             <tbody id="tabla_conductores_body" class="divide-y divide-slate-100 bg-white">
             <?php foreach ($datos as $conductor => $viajes): 
+              // Detectar si el vehículo es "Mensual" (case insensitive)
               $esMensual = (stripos($viajes['vehiculo'], 'mensual') !== false);
               $claseVehiculo = $esMensual ? 'vehiculo-mensual' : '';
             ?>
@@ -818,11 +752,12 @@ if ($empresaFiltro !== "") {
                     <?php endif; ?>
                   </span>
                 </td>
-                
-                <?php foreach ($todasClasificaciones as $columna => $nombreClasif): ?>
-                  <td class="px-3 py-2 text-center"><?= (int)($viajes[$columna] ?? 0) ?></td>
-                <?php endforeach; ?>
-                
+                <td class="px-3 py-2 text-center"><?= (int)$viajes["completos"] ?></td>
+                <td class="px-3 py-2 text-center"><?= (int)$viajes["medios"] ?></td>
+                <td class="px-3 py-2 text-center"><?= (int)$viajes["extras"] ?></td>
+                <td class="px-3 py-2 text-center"><?= (int)$viajes["siapana"] ?></td>
+                <td class="px-3 py-2 text-center"><?= (int)$viajes["carrotanques"] ?></td>
+
                 <!-- Total -->
                 <td class="px-3 py-2">
                   <input type="text"
@@ -853,8 +788,9 @@ if ($empresaFiltro !== "") {
         </div>
       </section>
 
-      <!-- Columna 3: Panel viajes -->
+      <!-- Columna 3: Panel viajes CON CLASIFICACIONES DE COLORES -->
       <aside class="space-y-5">
+        <!-- Panel viajes -->
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
           <h4 class="text-base font-semibold mb-3">🧳 Viajes del Conductor</h4>
           <div id="contenidoPanel"
@@ -867,6 +803,25 @@ if ($empresaFiltro !== "") {
               </div>
               <p class="m-0 font-medium text-slate-500">Selecciona un conductor para ver sus viajes</p>
               <p class="m-0 text-xs text-slate-400 mt-1">Se mostrarán con clasificaciones de colores</p>
+              
+              <!-- Mini leyenda de colores -->
+              <div class="mt-4 flex flex-wrap gap-1.5 justify-center">
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Completo
+                </span>
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-700 border border-amber-200">
+                  <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span> Medio
+                </span>
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-200 text-slate-700 border border-slate-300">
+                  <span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span> Extra
+                </span>
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-200">
+                  <span class="w-1.5 h-1.5 rounded-full bg-fuchsia-500"></span> Siapana
+                </span>
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-cyan-100 text-cyan-700 border border-cyan-200">
+                  <span class="w-1.5 h-1.5 rounded-full bg-cyan-500"></span> Carrotanque
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -914,7 +869,7 @@ if ($empresaFiltro !== "") {
       
       const totalConductores = filas.length;
       contadorConductores.textContent = `Mostrando ${filasVisibles} de ${totalConductores} conductores`;
-      recalcular();
+      recalcular(); // importantísimo: recalcular totales solo visibles
     }
 
     buscadorConductores.addEventListener('input', filtrarConductores);
@@ -930,129 +885,21 @@ if ($empresaFiltro !== "") {
       }
     });
 
-    // ===== FUNCIONES PARA AGREGAR NUEVAS TARIFAS =====
-    function mostrarModalAgregarTarifa() {
-      document.getElementById('modalAgregarTarifa').classList.remove('hidden');
-      document.getElementById('modalAgregarTarifa').classList.add('flex');
-      document.getElementById('nombre_nueva_tarifa').focus();
-    }
-
-    function cerrarModalAgregarTarifa() {
-      document.getElementById('modalAgregarTarifa').classList.add('hidden');
-      document.getElementById('modalAgregarTarifa').classList.remove('flex');
-      document.getElementById('nombre_nueva_tarifa').value = '';
-    }
-
-    function agregarNuevaTarifa() {
-      const nombre = document.getElementById('nombre_nueva_tarifa').value.trim();
-      
-      if (!nombre) {
-        alert('Ingresa un nombre para la nueva tarifa');
-        return;
-      }
-      
-      fetch('<?= basename(__FILE__) ?>', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: new URLSearchParams({
-          agregar_clasificacion_tarifa: 1,
-          nombre_clasif: nombre
-        })
-      })
-      .then(r => r.text())
-      .then(t => {
-        if (t.startsWith('ok:')) {
-          const columna = t.split(':')[1];
-          const nombreDisplay = nombre.charAt(0).toUpperCase() + nombre.slice(1);
-          
-          // 1. Agregar al select de clasificación masiva
-          const selectMasivo = document.getElementById('sel_clasif_masiva');
-          const nuevaOpcion = document.createElement('option');
-          nuevaOpcion.value = columna;
-          nuevaOpcion.textContent = nombreDisplay;
-          selectMasivo.appendChild(nuevaOpcion);
-          
-          // 2. Agregar a todos los selects de clasificación de rutas
-          document.querySelectorAll('.select-clasif-ruta').forEach(select => {
-            const option = document.createElement('option');
-            option.value = columna;
-            option.textContent = nombreDisplay;
-            select.appendChild(option);
-          });
-          
-          // 3. Agregar campo de tarifa a todos los vehículos (excepto Carrotanque para ciertas tarifas)
-          document.querySelectorAll('.tarjeta-tarifa').forEach(card => {
-            const vehiculo = card.dataset.vehiculo;
-            const esCarrotanque = (vehiculo === "Carrotanque");
-            
-            // Para Carrotanque, solo agregar si no es "carrotanque" (ya tiene) y es "siapana" o similar
-            // Para otros vehículos, agregar todas las tarifas
-            if (!esCarrotanque || (esCarrotanque && ['siapana', nombre.toLowerCase()].includes(nombre.toLowerCase()))) {
-              const nuevoInput = document.createElement('label');
-              nuevoInput.className = 'block';
-              nuevoInput.innerHTML = `
-                <span class="block text-sm font-medium mb-1">${nombreDisplay}</span>
-                <input type="number" step="1000" value="0"
-                       data-campo="${columna}"
-                       class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition tarifa-input"
-                       oninput="recalcular()">
-              `;
-              card.querySelector('.space-y-3').appendChild(nuevoInput);
-            }
-          });
-          
-          // 4. Agregar columna a la tabla de conductores
-          const thead = document.querySelector('#tabla_conductores thead tr');
-          const tbodyRows = document.querySelectorAll('#tabla_conductores_body tr');
-          
-          // Agregar th
-          const nuevoTh = document.createElement('th');
-          nuevoTh.className = 'px-3 py-2 text-center';
-          nuevoTh.title = nombreDisplay;
-          nuevoTh.textContent = nombreDisplay.substring(0, 2).toUpperCase();
-          // Insertar antes de Total (penúltima columna)
-          thead.insertBefore(nuevoTh, thead.children[thead.children.length - 3]);
-          
-          // Agregar td a cada fila
-          tbodyRows.forEach(row => {
-            const nuevoTd = document.createElement('td');
-            nuevoTd.className = 'px-3 py-2 text-center';
-            nuevoTd.textContent = '0';
-            // Insertar antes de Total (penúltima columna)
-            row.insertBefore(nuevoTd, row.children[row.children.length - 3]);
-          });
-          
-          // Cerrar modal y limpiar
-          cerrarModalAgregarTarifa();
-          alert(`✅ Tarifa "${nombre}" agregada exitosamente a todos los vehículos.`);
-          
-          // Recalcular
-          setTimeout(recalcular, 100);
-        } else if (t === 'error: ya existe') {
-          alert('Esta tarifa ya existe');
-        } else {
-          alert('Error al agregar la tarifa: ' + t);
-        }
-      })
-      .catch(err => {
-        console.error('Error:', err);
-        alert('Error al agregar la tarifa');
-      });
-    }
-
-    // ===== FUNCIONES DE CÁLCULO =====
     function getTarifas(){
       const tarifas = {};
       document.querySelectorAll('.tarjeta-tarifa').forEach(card=>{
         const veh = card.dataset.vehiculo;
-        tarifas[veh] = {};
-        
-        // Obtener todos los inputs de tarifa
-        card.querySelectorAll('.tarifa-input').forEach(input=>{
-          const campo = input.dataset.campo;
-          const valor = parseFloat(input.value) || 0;
-          tarifas[veh][campo] = valor;
-        });
+        const val = (campo)=>{
+          const el = card.querySelector(`input[data-campo="${campo}"]`);
+          return el ? (parseFloat(el.value)||0) : 0;
+        };
+        tarifas[veh] = {
+          completo:    val('completo'),
+          medio:       val('medio'),
+          extra:       val('extra'),
+          carrotanque: val('carrotanque'),
+          siapana:     val('siapana')
+        };
       });
       return tarifas;
     }
@@ -1072,25 +919,21 @@ if ($empresaFiltro !== "") {
 
         const veh = f.dataset.vehiculo;
         const conductor = f.dataset.conductor;
-        const tarifasVeh = tarifas[veh] || {};
-        
-        let totalFila = 0;
-        
-        // Calcular sumando todas las columnas (excepto las últimas 3: Total, Pagado, Faltante)
-        for (let i = 2; i < f.cells.length - 3; i++) {
-          const cantidad = parseInt(f.cells[i].innerText) || 0;
-          // Encontrar el nombre de la columna (basado en el índice)
-          const thead = document.querySelector('#tabla_conductores thead th:nth-child(' + (i + 1) + ')');
-          if (thead) {
-            const columna = thead.title.toLowerCase().replace(' ', '_');
-            const tarifa = tarifasVeh[columna] || 0;
-            totalFila += cantidad * tarifa;
-          }
-        }
+
+        const c  = parseInt(f.cells[2].innerText)||0;
+        const m  = parseInt(f.cells[3].innerText)||0;
+        const e  = parseInt(f.cells[4].innerText)||0;
+        const s  = parseInt(f.cells[5].innerText)||0;
+        const ca = parseInt(f.cells[6].innerText)||0;
+
+        const t  = tarifas[veh] || {completo:0,medio:0,extra:0,carrotanque:0,siapana:0};
+        const totalViajesFila = c*t.completo + m*t.medio + e*t.extra + s*t.siapana + ca*t.carrotanque;
+
+        const totalFila = totalViajesFila;
 
         const pagado = parseInt(f.dataset.pagado || '0') || 0;
         let faltante = totalFila - pagado;
-        if (faltante < 0) faltante = 0;
+        if (faltante < 0) faltante = 0; // no mostrar negativo
 
         const inpTotal = f.querySelector('input.totales');
         if (inpTotal) inpTotal.value = formatNumber(totalFila);
@@ -1098,13 +941,14 @@ if ($empresaFiltro !== "") {
         const inpFalt = f.querySelector('input.faltante');
         if (inpFalt) inpFalt.value = formatNumber(faltante);
 
-        totalViajes += totalFila;
+        totalViajes += totalViajesFila;
         totalPagado += pagado;
         totalFaltante += faltante;
       });
 
       document.getElementById('total_viajes').innerText = formatNumber(totalViajes);
       document.getElementById('total_general').innerText = formatNumber(totalViajes);
+
       document.getElementById('total_pagado').innerText = formatNumber(totalPagado);
       document.getElementById('total_faltante').innerText = formatNumber(totalFaltante);
     }
@@ -1150,12 +994,12 @@ if ($empresaFiltro !== "") {
         }
       });
 
-      alert('✅ Se aplicó la clasificación a ' + contador + ' rutas. Vuelve a darle "Filtrar" para recalcular.');
+      alert('✅ Se aplicó la clasificación a ' + contador + ' rutas. Vuelve a darle "Filtrar" para recalcular la liquidación.');
     }
 
     document.addEventListener('DOMContentLoaded', function() {
       // Guardar tarifas AJAX
-      document.querySelectorAll('.tarifa-input').forEach(input=>{
+      document.querySelectorAll('.tarjeta-tarifa input').forEach(input=>{
         input.addEventListener('change', ()=>{
           const card = input.closest('.tarjeta-tarifa');
           const tipoVehiculo = card.dataset.vehiculo;
@@ -1176,7 +1020,7 @@ if ($empresaFiltro !== "") {
         });
       });
 
-      // Click en conductor → carga viajes
+      // Click en conductor → carga viajes (AJAX) CON CLASIFICACIONES DE COLORES
       document.querySelectorAll('.conductor-link').forEach(btn=>{
         btn.addEventListener('click', ()=>{
           const nombre = btn.textContent.trim();
@@ -1190,6 +1034,7 @@ if ($empresaFiltro !== "") {
             .then(r=>r.text())
             .then(html=>{ 
               panel.innerHTML = html;
+              // Agregar título del conductor
               const titulo = `<div class="mb-3 pb-2 border-b border-slate-200">
                                 <h5 class="font-semibold text-blue-700">Viajes de: <span class="text-blue-900">${nombre}</span></h5>
                                 <p class="text-xs text-slate-500">${desde} a ${hasta}</p>
@@ -1212,24 +1057,8 @@ if ($empresaFiltro !== "") {
         });
       });
 
-      // Permitir agregar tarifa con Enter
-      document.getElementById('nombre_nueva_tarifa').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          agregarNuevaTarifa();
-        }
-      });
-
-      // Cerrar modal con Escape
-      document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape' && document.getElementById('modalAgregarTarifa').classList.contains('flex')) {
-          cerrarModalAgregarTarifa();
-        }
-      });
-
       recalcular();
     });
   </script>
-
 </body>
 </html>
