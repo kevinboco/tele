@@ -14,7 +14,16 @@ if (isset($_POST['guardar_tarifa'])) {
     $valor    = (int)$_POST['valor'];
 
     // 🔹 OBTENER COLUMNAS VÁLIDAS DE LA TABLA dinámicamente
-    $columnas_validas = obtenerCamposTarifas($conn);
+    $columnas_validas = [];
+    $res_columnas = $conn->query("SHOW COLUMNS FROM tarifas");
+    if ($res_columnas) {
+        $excluir = ['id', 'empresa', 'tipo_vehiculo', 'riohacha', 'pru'];
+        while ($col = $res_columnas->fetch_assoc()) {
+            if (!in_array($col['Field'], $excluir)) {
+                $columnas_validas[] = $col['Field'];
+            }
+        }
+    }
 
     // Validar campo dinámicamente
     if (!in_array($campo, $columnas_validas, true)) { 
@@ -65,34 +74,28 @@ function nombreAmigable($campo) {
 }
 
 /* =======================================================
-   🔹 Guardar CLASIFICACIÓN de rutas (manual) - AJAX - CORREGIDO
+   🔹 Guardar CLASIFICACIÓN de rutas (manual) - AJAX
 ======================================================= */
 if (isset($_POST['guardar_clasificacion'])) {
     $ruta       = $conn->real_escape_string($_POST['ruta']);
     $vehiculo   = $conn->real_escape_string($_POST['tipo_vehiculo']);
     $clasif     = $conn->real_escape_string($_POST['clasificacion']);
 
-    // 🔹 IMPORTANTE: Obtener campos actuales de tarifas para validar
+    // 🔹 OBTENER CAMPOS DINÁMICAMENTE PARA VALIDACIÓN
     $campos_tarifas = obtenerCamposTarifas($conn);
     
     // Los campos permitidos son los de tarifas + 'otro'
     $allowClasif = array_merge($campos_tarifas, ['otro']);
     
     if (!in_array($clasif, $allowClasif, true)) {
-        echo "error: clasificación inválida: " . $clasif;
+        echo "error: clasificación inválida";
         exit;
     }
 
     $sql = "INSERT INTO ruta_clasificacion (ruta, tipo_vehiculo, clasificacion)
             VALUES ('$ruta', '$vehiculo', '$clasif')
             ON DUPLICATE KEY UPDATE clasificacion = VALUES(clasificacion)";
-    
-    $result = $conn->query($sql);
-    if ($result) {
-        echo "ok";
-    } else {
-        echo "error: " . $conn->error;
-    }
+    echo $conn->query($sql) ? "ok" : ("error: " . $conn->error);
     exit;
 }
 
@@ -142,14 +145,11 @@ if (isset($_GET['viajes_conductor'])) {
     
     // Colores adicionales para nuevos campos
     $colores_extra = [
-        ['bg-purple-100', 'text-purple-700', 'border-purple-200'],
-        ['bg-pink-100', 'text-pink-700', 'border-pink-200'],
-        ['bg-indigo-100', 'text-indigo-700', 'border-indigo-200'],
-        ['bg-teal-100', 'text-teal-700', 'border-teal-200'],
-        ['bg-orange-100', 'text-orange-700', 'border-orange-200'],
-        ['bg-rose-100', 'text-rose-700', 'border-rose-200'],
-        ['bg-lime-100', 'text-lime-700', 'border-lime-200'],
-        ['bg-sky-100', 'text-sky-700', 'border-sky-200']
+        'bg-purple-100', 'text-purple-700', 'border-purple-200',
+        'bg-pink-100', 'text-pink-700', 'border-pink-200',
+        'bg-indigo-100', 'text-indigo-700', 'border-indigo-200',
+        'bg-teal-100', 'text-teal-700', 'border-teal-200',
+        'bg-orange-100', 'text-orange-700', 'border-orange-200'
     ];
     
     $legend = [];
@@ -163,12 +163,12 @@ if (isset($_GET['viajes_conductor'])) {
                 'row' => str_replace('bg-', 'bg-', str_replace('/40', '', $colores_base[$campo][0])) . '/40'
             ];
         } else {
-            // Asignar color de la lista extra (usamos módulo para ciclar)
-            $color_set = $colores_extra[$color_index % count($colores_extra)];
+            // Asignar color de la lista extra
+            $color_class = $colores_extra[$color_index % count($colores_extra)];
             $legend[$campo] = [
                 'label' => nombreAmigable($campo),
-                'badge' => $color_set[0] . ' ' . $color_set[1] . ' border ' . $color_set[2],
-                'row' => str_replace('bg-', 'bg-', $color_set[0]) . '/40'
+                'badge' => $color_class . ' border ' . str_replace('bg-', 'border-', $color_class),
+                'row' => str_replace('bg-', 'bg-', $color_class) . '/40'
             ];
             $color_index++;
         }
@@ -196,7 +196,7 @@ if (isset($_GET['viajes_conductor'])) {
             $cat = $clasif_rutas[$key] ?? 'otro';
             
             // Validar que sea una clasificación válida
-            if (!in_array($cat, $campos_tarifas) && $cat !== 'otro') {
+            if (!in_array($cat, $campos_tarifas)) {
                 $cat = 'otro';
             }
 
@@ -408,6 +408,11 @@ $vehiculos = [];
 $rutasUnicas = [];
 $pagosConductor = [];
 
+// Inicializar estructura dinámica
+foreach ($campos_tarifas as $campo) {
+    $datos_plantilla[$campo] = 0;
+}
+
 if ($res) {
     while ($row = $res->fetch_assoc()) {
         $nombre   = $row['nombre'];
@@ -579,31 +584,37 @@ if ($empresaFiltro !== "") {
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
           <h5 class="text-base font-semibold text-center mb-4">📅 Filtro de Liquidación</h5>
           <form class="grid grid-cols-1 md:grid-cols-4 gap-3" method="get">
-            <input type="hidden" name="desde" value="<?= htmlspecialchars($desde) ?>">
-            <input type="hidden" name="hasta" value="<?= htmlspecialchars($hasta) ?>">
-            <input type="hidden" name="empresa" value="<?= htmlspecialchars($empresaFiltro) ?>">
-            
-            <div class="md:col-span-4">
-              <p class="text-sm text-slate-600 mb-3">
-                Fecha: <?= htmlspecialchars($desde) ?> a <?= htmlspecialchars($hasta) ?>
-                <?php if ($empresaFiltro !== ""): ?>
-                  | Empresa: <?= htmlspecialchars($empresaFiltro) ?>
-                <?php endif; ?>
-              </p>
-            </div>
-            
-            <div class="md:col-span-4 flex justify-end gap-3">
-              <a href="?" class="rounded-xl bg-gray-600 text-white px-4 py-2.5 font-semibold shadow hover:bg-gray-700 transition">
-                🔄 Nueva Consulta
-              </a>
-              <button type="submit" class="rounded-xl bg-blue-600 text-white px-4 py-2.5 font-semibold shadow hover:bg-blue-700 transition">
-                🔁 Re-filtrar
+            <label class="block md:col-span-1">
+              <span class="block text-sm font-medium mb-1">Desde</span>
+              <input type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" required
+                     class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
+            </label>
+            <label class="block md:col-span-1">
+              <span class="block text-sm font-medium mb-1">Hasta</span>
+              <input type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" required
+                     class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
+            </label>
+            <label class="block md:col-span-1">
+              <span class="block text-sm font-medium mb-1">Empresa</span>
+              <select name="empresa"
+                      class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
+                <option value="">-- Todas --</option>
+                <?php foreach($empresas as $e): ?>
+                  <option value="<?= htmlspecialchars($e) ?>" <?= $empresaFiltro==$e?'selected':'' ?>>
+                    <?= htmlspecialchars($e) ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+            </label>
+            <div class="md:col-span-1 flex items-end">
+              <button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow hover:bg-blue-700 active:bg-blue-800 focus:ring-4 focus:ring-blue-200 transition">
+                Filtrar
               </button>
             </div>
           </form>
         </div>
 
-        <!-- 🔹 Panel de CLASIFICACIÓN de RUTAS DINÁMICO - CORREGIDO -->
+        <!-- Panel de CLASIFICACIÓN de RUTAS DINÁMICO -->
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
           <h5 class="text-base font-semibold mb-3 flex items-center justify-between">
             <span>🧭 Clasificación de Rutas</span>
@@ -661,8 +672,7 @@ if ($empresaFiltro !== "") {
                   <td class="px-2 py-1 text-center">
                     <select class="select-clasif-ruta rounded-lg border border-slate-300 px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-blue-100"
                             data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
-                            data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>"
-                            onchange="guardarClasificacionIndividual(this)">
+                            data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>">
                       <option value="">Sin clasificar</option>
                       <?php foreach ($campos_tarifas as $campo): ?>
                         <option value="<?= $campo ?>" <?= $info['clasificacion']===$campo ? 'selected' : '' ?>>
@@ -679,7 +689,7 @@ if ($empresaFiltro !== "") {
           </div>
 
           <p class="text-[11px] text-slate-500 mt-2">
-            <strong>⚠️ IMPORTANTE:</strong> Después de cambiar clasificaciones, da clic en <strong>"Re-filtrar"</strong> para recalcular la tabla de conductores.
+            Después de cambiar clasificaciones, vuelve a darle <strong>Filtrar</strong> para recalcular la tabla de conductores.
           </p>
         </div>
       </section>
@@ -829,10 +839,6 @@ if ($empresaFiltro !== "") {
   </main>
 
   <script>
-    // 🔹 OBTENER CAMPOS DINÁMICAMENTE DESDE PHP
-    const camposTarifas = <?= json_encode($campos_tarifas) ?>;
-    console.log('Campos detectados:', camposTarifas);
-
     // ===== BUSCADOR DE CONDUCTORES =====
     const buscadorConductores = document.getElementById('buscadorConductores');
     const clearBuscar = document.getElementById('clearBuscar');
@@ -886,6 +892,9 @@ if ($empresaFiltro !== "") {
         filtrarConductores();
       }
     });
+
+    // 🔹 OBTENER CAMPOS DINÁMICAMENTE DESDE PHP
+    const camposTarifas = <?= json_encode($campos_tarifas) ?>;
 
     function getTarifas(){
       const tarifas = {};
@@ -946,68 +955,24 @@ if ($empresaFiltro !== "") {
       document.getElementById('total_faltante').innerText = formatNumber(totalFaltante);
     }
 
-    // 🔹 FUNCIÓN CORREGIDA PARA GUARDAR CLASIFICACIÓN INDIVIDUAL
-    function guardarClasificacionIndividual(selectElement) {
-      const ruta = selectElement.dataset.ruta;
-      const vehiculo = selectElement.dataset.vehiculo;
-      const clasificacion = selectElement.value;
-      
-      if (!clasificacion) {
-        console.log('No hay clasificación seleccionada');
-        return;
-      }
-      
-      console.log('Guardando clasificación:', { ruta, vehiculo, clasificacion });
-      
-      // Mostrar indicador de guardando
-      const originalValue = selectElement.value;
-      selectElement.disabled = true;
-      const originalHTML = selectElement.innerHTML;
-      selectElement.innerHTML = '<option>Guardando...</option>';
-      
+    function guardarClasificacionRuta(ruta, vehiculo, clasificacion) {
+      if (!clasificacion) return;
       fetch('<?= basename(__FILE__) ?>', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          guardar_clasificacion: 1,
-          ruta: ruta,
-          tipo_vehiculo: vehiculo,
-          clasificacion: clasificacion
+        method:'POST',
+        headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:new URLSearchParams({
+          guardar_clasificacion:1,
+          ruta:ruta,
+          tipo_vehiculo:vehiculo,
+          clasificacion:clasificacion
         })
       })
-      .then(r => r.text())
-      .then(t => {
-        console.log('Respuesta del servidor:', t);
-        
-        if (t.trim() === 'ok') {
-          // Restaurar select con mensaje de éxito
-          selectElement.innerHTML = originalHTML;
-          selectElement.value = originalValue;
-          selectElement.disabled = false;
-          
-          // Mostrar feedback visual
-          const row = selectElement.closest('tr');
-          row.style.backgroundColor = '#f0fdf4';
-          setTimeout(() => {
-            row.style.backgroundColor = '';
-          }, 1000);
-        } else {
-          alert('Error guardando: ' + t);
-          selectElement.innerHTML = originalHTML;
-          selectElement.value = originalValue;
-          selectElement.disabled = false;
-        }
-      })
-      .catch(error => {
-        console.error('Error en fetch:', error);
-        alert('Error de conexión');
-        selectElement.innerHTML = originalHTML;
-        selectElement.value = originalValue;
-        selectElement.disabled = false;
+      .then(r=>r.text())
+      .then(t=>{
+        if (t.trim() !== 'ok') console.error('Error guardando clasificación:', t);
       });
     }
 
-    // 🔹 FUNCIÓN PARA CLASIFICACIÓN MASIVA
     function aplicarClasificacionMasiva() {
       const patron = document.getElementById('txt_patron_ruta').value.trim().toLowerCase();
       const clasif = document.getElementById('sel_clasif_masiva').value;
@@ -1019,32 +984,19 @@ if ($empresaFiltro !== "") {
 
       const filas = document.querySelectorAll('.fila-ruta');
       let contador = 0;
-      let procesados = 0;
-      const totalProcesar = filas.length;
 
       filas.forEach(row => {
         const ruta = row.dataset.ruta.toLowerCase();
         const vehiculo = row.dataset.vehiculo;
-        
         if (ruta.includes(patron)) {
           const sel = row.querySelector('.select-clasif-ruta');
           sel.value = clasif;
-          
-          // Guardar cada una individualmente
-          setTimeout(() => {
-            guardarClasificacionIndividual(sel);
-          }, procesados * 100); // Espaciar las peticiones
-          
+          guardarClasificacionRuta(row.dataset.ruta, vehiculo, clasif);
           contador++;
         }
-        procesados++;
       });
 
-      if (contador > 0) {
-        alert(`✅ Se aplicará la clasificación a ${contador} rutas. Los cambios se guardarán automáticamente.`);
-      } else {
-        alert('⚠️ No se encontraron rutas que coincidan con el patrón.');
-      }
+      alert('✅ Se aplicó la clasificación a ' + contador + ' rutas. Vuelve a darle "Filtrar" para recalcular la liquidación.');
     }
 
     document.addEventListener('DOMContentLoaded', function() {
@@ -1099,6 +1051,16 @@ if ($empresaFiltro !== "") {
             .catch(() => {
               panel.innerHTML = "<p class='text-center text-rose-600 py-4'>Error cargando viajes.</p>";
             });
+        });
+      });
+
+      // Cambio clasificación ruta
+      document.querySelectorAll('.select-clasif-ruta').forEach(sel=>{
+        sel.addEventListener('change', ()=>{
+          const ruta = sel.dataset.ruta;
+          const vehiculo = sel.dataset.vehiculo;
+          const clasif = sel.value;
+          if (clasif) guardarClasificacionRuta(ruta, vehiculo, clasif);
         });
       });
 
