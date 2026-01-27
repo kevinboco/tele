@@ -1,5 +1,5 @@
 <?php
-// flow_manual.ph
+// flow_manual.php
 require_once __DIR__.'/helpers.php';
 
 function manual_entrypoint($chat_id, $estado) {
@@ -108,6 +108,15 @@ function manual_add_back_button(array $kb, string $back_step): array {
     return $kb;
 }
 
+/* ========= FUNCIÓN PARA AGREGAR BOTÓN OMITIR IMAGEN ========= */
+function manual_add_skip_button(array $kb): array {
+    $kb["inline_keyboard"][] = [[ 
+        "text" => "⏭️ Omitir foto", 
+        "callback_data" => "manual_skip_image" 
+    ]];
+    return $kb;
+}
+
 function manual_resend_current_step($chat_id, $estado) {
     $conn = db();
     switch ($estado['paso']) {
@@ -206,6 +215,17 @@ function manual_resend_current_step($chat_id, $estado) {
         case 'manual_pago_parcial_monto':
             sendMessage($chat_id, "💰 Escribe el *monto del pago parcial* (ej: 1500000):"); 
             break;
+        case 'manual_imagen':
+            $kb = [
+                "inline_keyboard" => [
+                    [
+                        ["text" => "⬅️ Volver", "callback_data" => "manual_back_pago_menu"]
+                    ]
+                ]
+            ];
+            $kb = manual_add_skip_button($kb);
+            sendMessage($chat_id, "📸 *Envía la foto/factura* del viaje (opcional).\n\nPuedes enviar una imagen o usar 'Omitir foto' para continuar sin foto.", $kb);
+            break;
         default:
             sendMessage($chat_id, "Continuamos donde ibas. Escribe /cancel para reiniciar.");
     }
@@ -270,6 +290,14 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
     if (strpos($cb_data, 'manual_back_') === 0) {
         $back_step = substr($cb_data, strlen('manual_back_'));
         manual_handle_back($chat_id, $estado, $back_step);
+        if ($cb_id) answerCallbackQuery($cb_id);
+        return;
+    }
+
+    // ========= OMITIR IMAGEN =========
+    if ($cb_data === 'manual_skip_image') {
+        $estado['manual_imagen'] = null;
+        manual_insert_viaje_and_close($chat_id, $estado);
         if ($cb_id) answerCallbackQuery($cb_id);
         return;
     }
@@ -423,9 +451,20 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
     }
     
     if ($cb_data === 'manual_pago_no') {
-        // No hay pago parcial, proceder a guardar el viaje
+        // No hay pago parcial, proceder al paso de imagen
         $estado['manual_pago_parcial'] = null;
-        manual_insert_viaje_and_close($chat_id, $estado);
+        $estado['paso'] = 'manual_imagen';
+        saveState($chat_id, $estado);
+        
+        $kb = [
+            "inline_keyboard" => [
+                [
+                    ["text" => "⬅️ Volver", "callback_data" => "manual_back_pago_menu"]
+                ]
+            ]
+        ];
+        $kb = manual_add_skip_button($kb);
+        sendMessage($chat_id, "📸 *Envía la foto/factura* del viaje (opcional).\n\nPuedes enviar una imagen o usar 'Omitir foto' para continuar sin foto.", $kb);
     }
 
     if ($cb_id) answerCallbackQuery($cb_id);
@@ -462,6 +501,12 @@ function manual_handle_back($chat_id, &$estado, $back_step) {
             $estado['paso'] = 'manual_empresa_menu';
             // Limpiar datos de empresa
             unset($estado['manual_empresa']);
+            break;
+            
+        case 'pago_menu':
+            $estado['paso'] = 'manual_pago_parcial_pregunta';
+            // Limpiar datos de pago
+            unset($estado['manual_pago_parcial']);
             break;
             
         default:
@@ -620,8 +665,24 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
             // Convertir a entero
             $estado["manual_pago_parcial"] = (int)$monto;
             
-            // Guardar el viaje
-            manual_insert_viaje_and_close($chat_id, $estado);
+            // Ir al paso de imagen
+            $estado['paso'] = 'manual_imagen';
+            saveState($chat_id, $estado);
+            
+            $kb = [
+                "inline_keyboard" => [
+                    [
+                        ["text" => "⬅️ Volver", "callback_data" => "manual_back_pago_menu"]
+                    ]
+                ]
+            ];
+            $kb = manual_add_skip_button($kb);
+            sendMessage($chat_id, "📸 *Envía la foto/factura* del viaje (opcional).\n\nPuedes enviar una imagen o usar 'Omitir foto' para continuar sin foto.", $kb);
+            break;
+
+        case "manual_imagen":
+            // Procesar imagen similar a como lo hace prestamos_handle_text
+            manual_process_image($chat_id, $estado, $photo);
             break;
 
         default:
@@ -631,19 +692,109 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
     }
 }
 
+/* ========= FUNCIÓN PARA PROCESAR IMÁGENES ========= */
+function manual_process_image($chat_id, &$estado, $photo) {
+    $file_id = null;
+    
+    // Buscar file_id en foto o documento
+    if (!empty($photo) && is_array($photo)) {
+        $tmp = end($photo);
+        if (is_array($tmp) && !empty($tmp['file_id'])) {
+            $file_id = $tmp['file_id'];
+        }
+        reset($photo);
+    }
+    
+    // Si no es foto, verificar si es documento de imagen
+    $doc = $GLOBALS['update']['message']['document'] ?? null;
+    if (!$file_id && $doc && isset($doc['mime_type']) && strpos($doc['mime_type'], 'image/') === 0) {
+        $file_id = $doc['file_id'];
+    }
+    
+    // Si no hay file_id válido
+    if (!$file_id) { 
+        $kb = [
+            "inline_keyboard" => [
+                [
+                    ["text" => "⬅️ Volver", "callback_data" => "manual_back_pago_menu"]
+                ]
+            ]
+        ];
+        $kb = manual_add_skip_button($kb);
+        sendMessage($chat_id, "⚠️ No se detectó una imagen válida. Envía una *imagen* o usa 'Omitir foto' para continuar sin foto.", $kb);
+        return;
+    }
+
+    global $TOKEN;
+    $info = @json_decode(@file_get_contents("https://api.telegram.org/bot{$TOKEN}/getFile?file_id=".urlencode($file_id)), true);
+    
+    if (!$info || empty($info['ok']) || empty($info['result']['file_path'])) {
+        sendMessage($chat_id, "❌ No pude obtener el archivo desde Telegram.");
+        return;
+    }
+    
+    $file_path = $info['result']['file_path'];
+    $fileUrl   = "https://api.telegram.org/file/bot{$TOKEN}/{$file_path}";
+
+    $uploads = __DIR__ . "/uploads/";
+    if (!is_dir($uploads)) @mkdir($uploads, 0775, true);
+    
+    $nombreArchivo = time() . "_viaje_" . basename($file_path);
+    $destino       = $uploads . $nombreArchivo;
+
+    $ok = false;
+    if (function_exists('curl_init')) {
+        $ch = curl_init($fileUrl);
+        $fp = fopen($destino, 'wb');
+        curl_setopt_array($ch, [
+            CURLOPT_FILE => $fp,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_TIMEOUT => 30
+        ]);
+        $ok = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        fclose($fp);
+        if ($code !== 200) $ok = false;
+    } else {
+        $data = @file_get_contents($fileUrl);
+        if ($data !== false) {
+            $ok = (file_put_contents($destino, $data) !== false);
+        }
+    }
+    
+    if (!$ok || !file_exists($destino)) {
+        sendMessage($chat_id, "❌ No pude guardar la imagen. Reenvíala, por favor.");
+        return;
+    }
+
+    // Guardar nombre de archivo en estado y proceder a guardar el viaje
+    $estado['manual_imagen'] = $nombreArchivo;
+    
+    // Guardar el viaje
+    manual_insert_viaje_and_close($chat_id, $estado);
+}
+
 function manual_insert_viaje_and_close($chat_id, &$estado) {
     $conn = db();
-    if (!$conn) { sendMessage($chat_id, "❌ Error de conexión a la base de datos."); clearState($chat_id); return; }
+    if (!$conn) { 
+        sendMessage($chat_id, "❌ Error de conexión a la base de datos."); 
+        clearState($chat_id); 
+        return; 
+    }
     
-    // Preparar la consulta con el nuevo campo pago_parcial
-    $stmt = $conn->prepare("INSERT INTO viajes (nombre, ruta, fecha, cedula, tipo_vehiculo, empresa, imagen, pago_parcial) VALUES (?, ?, ?, NULL, ?, ?, NULL, ?)");
+    // Preparar la consulta con el nuevo campo imagen
+    $stmt = $conn->prepare("INSERT INTO viajes (nombre, ruta, fecha, cedula, tipo_vehiculo, empresa, imagen, pago_parcial) VALUES (?, ?, ?, NULL, ?, ?, ?, ?)");
     $pago_parcial = $estado["manual_pago_parcial"] ?? null;
-    $stmt->bind_param("sssssi", 
+    $imagen = $estado["manual_imagen"] ?? null;
+    
+    $stmt->bind_param("ssssssi", 
         $estado["manual_nombre"], 
         $estado["manual_ruta"], 
         $estado["manual_fecha"], 
         $estado["manual_vehiculo"], 
         $estado["manual_empresa"],
+        $imagen,
         $pago_parcial
     );
     
@@ -654,11 +805,15 @@ function manual_insert_viaje_and_close($chat_id, &$estado) {
                    "\n🚐 " . $estado["manual_vehiculo"] .
                    "\n🏢 " . $estado["manual_empresa"];
         
-        // Agregar información del pago parcial si exi
+        // Agregar información del pago parcial si existe
         if (isset($estado["manual_pago_parcial"])) {
-            
             $monto_formateado = number_format($estado["manual_pago_parcial"], 0, ',', '.');
             $mensaje .= "\n💰 Pago parcial: $" . $monto_formateado;
+        }
+        
+        // Agregar información de la imagen si existe
+        if (isset($estado["manual_imagen"])) {
+            $mensaje .= "\n📸 Foto adjunta: Sí";
         }
         
         $mensaje .= "\n\nAtajos rápidos: /agg /manual";
