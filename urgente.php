@@ -150,28 +150,18 @@ $sql_empresas = "SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL A
 $result_empresas = $conn->query($sql_empresas);
 
 // Obtener lista de prestamistas para la tabla de configuración
-// Modificado para adaptarse al modo
 if ($modo_pagados) {
-    // En modo pagados, mostramos prestamistas que tengan préstamos pagados en la fecha seleccionada
-    if (!empty($fecha_pago_seleccionada)) {
-        $sql_prestamistas_lista = "SELECT DISTINCT prestamista 
-                                   FROM prestamos 
-                                   WHERE prestamista != '' 
-                                     AND DATE(pagado_at) = ?
-                                   ORDER BY prestamista";
-        $stmt = $conn->prepare($sql_prestamistas_lista);
-        $stmt->bind_param("s", $fecha_pago_seleccionada);
-        $stmt->execute();
-        $result_prestamistas_lista = $stmt->get_result();
-    } else {
-        $result_prestamistas_lista = false;
-    }
+    // En modo pagados, mostramos todos los prestamistas (como en pendientes)
+    $sql_prestamistas_lista = "SELECT DISTINCT prestamista 
+                               FROM prestamos 
+                               WHERE prestamista != '' 
+                               ORDER BY prestamista";
+    $result_prestamistas_lista = $conn->query($sql_prestamistas_lista);
 } else {
     // Modo pendientes: como estaba antes
     $sql_prestamistas_lista = "SELECT DISTINCT prestamista 
                                FROM prestamos 
                                WHERE prestamista != '' 
-                                 AND (pagado_at IS NULL OR pagado = 0)
                                ORDER BY prestamista";
     $result_prestamistas_lista = $conn->query($sql_prestamistas_lista);
 }
@@ -208,7 +198,7 @@ function calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestam
         }
         $condicion_pagado = "AND DATE(pagado_at) = ?";
     } else {
-        $condicion_pagado = "AND (pagado_at IS NULL OR pagado = 0)";
+        $condicion_pagado = "AND (pagado_at IS NULL)";
     }
     
     $sql = "SELECT 
@@ -227,11 +217,8 @@ function calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestam
     $stmt = $conn->prepare($sql);
     
     // Bind parameters según el modo y si hay empresa
-    $params = [];
-    $types = "ss"; // Siempre al menos fecha_corte y prestamista
-    
-    $params[] = $FECHA_CORTE;
-    $params[] = $prestamista_nombre;
+    $params = [$FECHA_CORTE, $prestamista_nombre];
+    $types = "ss";
     
     if ($modo_pagados) {
         $params[] = $fecha_pago;
@@ -316,24 +303,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
 
     // Prestamistas únicos según el modo
     if ($modo_pagados) {
-        if (!empty($fecha_pago_seleccionada)) {
-            $sql_prestamistas = "SELECT DISTINCT prestamista 
+        // En modo pagados, filtramos por fecha de pago si está seleccionada
+        $sql_base_prestamistas = "SELECT DISTINCT prestamista 
                                  FROM prestamos 
-                                 WHERE prestamista != '' 
-                                   AND DATE(pagado_at) = ?
-                                 ORDER BY prestamista";
-            $stmt = $conn->prepare($sql_prestamistas);
+                                 WHERE prestamista != ''";
+        
+        if (!empty($fecha_pago_seleccionada)) {
+            $sql_base_prestamistas .= " AND DATE(pagado_at) = ?";
+            $stmt = $conn->prepare($sql_base_prestamistas);
             $stmt->bind_param("s", $fecha_pago_seleccionada);
             $stmt->execute();
             $result_prestamistas = $stmt->get_result();
         } else {
-            $result_prestamistas = false;
+            $sql_base_prestamistas .= " ORDER BY prestamista";
+            $result_prestamistas = $conn->query($sql_base_prestamistas);
         }
     } else {
+        // Modo pendientes
         $sql_prestamistas = "SELECT DISTINCT prestamista 
                              FROM prestamos 
                              WHERE prestamista != '' 
-                               AND (pagado_at IS NULL OR pagado = 0)
+                               AND (pagado_at IS NULL)
                              ORDER BY prestamista";
         $result_prestamistas = $conn->query($sql_prestamistas);
     }
@@ -375,7 +365,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
     // ==========================
     // 2) PRÉSTAMOS DE DEUDORES SELECCIONADOS (CUADRO 1)
     // ==========================
-    if ((!empty($deudores_seleccionados) || $modo_pagados) && !empty($prestamista_seleccionado) && !empty($empresa_seleccionada)) {
+    if (!empty($prestamista_seleccionado) && !empty($empresa_seleccionada)) {
         
         // Construir la consulta base
         $sql_base = "SELECT 
@@ -390,15 +380,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         
         // Condición para modo pagado/pendiente
         if ($modo_pagados) {
-            $sql_base .= " AND DATE(pagado_at) = ?";
+            if (!empty($fecha_pago_seleccionada)) {
+                $sql_base .= " AND DATE(pagado_at) = ?";
+            } else {
+                // Si no hay fecha de pago seleccionada, no mostrar nada
+                $sql_base .= " AND 1=0";
+            }
         } else {
-            $sql_base .= " AND (pagado_at IS NULL OR pagado = 0)";
+            $sql_base .= " AND (pagado_at IS NULL)";
         }
         
         // Condición para deudores seleccionados (solo en modo pendientes)
         if (!$modo_pagados && !empty($deudores_seleccionados)) {
             $placeholders = str_repeat('?,', count($deudores_seleccionados) - 1) . '?';
             $sql_base .= " AND deudor IN ($placeholders)";
+        } else if ($modo_pagados) {
+            // En modo pagados, no filtramos por deudores específicos
+            // Mostramos todos los deudores
         }
         
         $sql_base .= " ORDER BY deudor, fecha";
@@ -409,7 +407,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         $params = [$prestamista_seleccionado, $empresa_seleccionada];
         $types = "ss";
         
-        if ($modo_pagados) {
+        if ($modo_pagados && !empty($fecha_pago_seleccionada)) {
             $params[] = $fecha_pago_seleccionada;
             $types .= "s";
         }
@@ -421,86 +419,88 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             }
         }
         
-        $stmt->bind_param($types, ...$params);
-        $stmt->execute();
-        $result_detalle = $stmt->get_result();
+        if (count($params) > 2 || ($modo_pagados && !empty($fecha_pago_seleccionada))) {
+            $stmt->bind_param($types, ...$params);
+            $stmt->execute();
+            $result_detalle = $stmt->get_result();
 
-        // Obtener configuración para este prestamista (SOLO PARA PRÉSTAMOS NUEVOS)
-        $config_actual = isset($config_prestamistas[$prestamista_seleccionado]) 
-            ? $config_prestamistas[$prestamista_seleccionado] 
-            : ['interes' => 10.00, 'comision' => 0.00];
+            // Obtener configuración para este prestamista
+            $config_actual = isset($config_prestamistas[$prestamista_seleccionado]) 
+                ? $config_prestamistas[$prestamista_seleccionado] 
+                : ['interes' => 10.00, 'comision' => 0.00];
 
-        while ($fila = $result_detalle->fetch_assoc()) {
-            $deudor = $fila['deudor'];
-            
-            // En modo pagados, mostramos todos los deudores
-            if ($modo_pagados && !in_array($deudor, $deudores_seleccionados)) {
-                $deudores_seleccionados[] = $deudor;
-            }
-            
-            $meses = $modo_pagados ? 1 : calcularMesesAutomaticos($fila['fecha']);
-            $fecha_prestamo_dt = new DateTime($fila['fecha']);
-            $es_excluido = in_array($fila['id'], $prestamos_excluidos);
-            
-            // DETERMINAR SI ES PRÉSTAMO VIEJO O NUEVO
-            $es_prestamo_viejo = ($fecha_prestamo_dt < $FECHA_CORTE);
-            
-            if ($es_prestamo_viejo) {
-                // PRÉSTAMOS ANTES DEL 29-10-2025: 10% todo para prestamista, 0% para ti
-                $interes_prestamista_monto = $fila['monto'] * (10 / 100) * $meses;
-                $comision_personal_monto = 0;
-                $tasa_interes = 10;
-                $total_prestamo = $fila['monto'] + $interes_prestamista_monto;
-            } else {
-                // PRÉSTAMOS DESPUÉS DEL 29-10-2025: Usar configuración personalizada
-                $interes_prestamista_monto = $fila['monto'] * ($config_actual['interes'] / 100) * $meses;
-                $comision_personal_monto = $fila['monto'] * ($config_actual['comision'] / 100) * $meses;
-                $tasa_interes = $config_actual['interes'];
-                $total_prestamo = $fila['monto'] + $interes_prestamista_monto;
-            }
+            while ($fila = $result_detalle->fetch_assoc()) {
+                $deudor = $fila['deudor'];
+                
+                // En modo pagados, agregamos automáticamente a deudores seleccionados
+                if ($modo_pagados && !in_array($deudor, $deudores_seleccionados)) {
+                    $deudores_seleccionados[] = $deudor;
+                }
+                
+                $meses = $modo_pagados ? 1 : calcularMesesAutomaticos($fila['fecha']);
+                $fecha_prestamo_dt = new DateTime($fila['fecha']);
+                $es_excluido = in_array($fila['id'], $prestamos_excluidos);
+                
+                // DETERMINAR SI ES PRÉSTAMO VIEJO O NUEVO
+                $es_prestamo_viejo = ($fecha_prestamo_dt < $FECHA_CORTE);
+                
+                if ($es_prestamo_viejo) {
+                    // PRÉSTAMOS ANTES DEL 29-10-2025: 10% todo para prestamista, 0% para ti
+                    $interes_prestamista_monto = $fila['monto'] * (10 / 100) * $meses;
+                    $comision_personal_monto = 0;
+                    $tasa_interes = 10;
+                    $total_prestamo = $fila['monto'] + $interes_prestamista_monto;
+                } else {
+                    // PRÉSTAMOS DESPUÉS DEL 29-10-2025: Usar configuración personalizada
+                    $interes_prestamista_monto = $fila['monto'] * ($config_actual['interes'] / 100) * $meses;
+                    $comision_personal_monto = $fila['monto'] * ($config_actual['comision'] / 100) * $meses;
+                    $tasa_interes = $config_actual['interes'];
+                    $total_prestamo = $fila['monto'] + $interes_prestamista_monto;
+                }
 
-            if (!isset($prestamos_por_deudor[$deudor])) {
-                $prestamos_por_deudor[$deudor] = [
-                    'total_capital' => 0,
-                    'total_general' => 0,
-                    'total_interes_prestamista' => 0,
-                    'total_comision_personal' => 0,
-                    'cantidad_prestamos' => 0,
-                    'cantidad_viejos' => 0,
-                    'cantidad_nuevos' => 0,
-                    'prestamos_detalle' => []
+                if (!isset($prestamos_por_deudor[$deudor])) {
+                    $prestamos_por_deudor[$deudor] = [
+                        'total_capital' => 0,
+                        'total_general' => 0,
+                        'total_interes_prestamista' => 0,
+                        'total_comision_personal' => 0,
+                        'cantidad_prestamos' => 0,
+                        'cantidad_viejos' => 0,
+                        'cantidad_nuevos' => 0,
+                        'prestamos_detalle' => []
+                    ];
+                }
+
+                // Solo sumar si NO está excluido
+                if (!$es_excluido) {
+                    $prestamos_por_deudor[$deudor]['total_capital'] += $fila['monto'];
+                    $prestamos_por_deudor[$deudor]['total_general'] += $total_prestamo;
+                    $prestamos_por_deudor[$deudor]['total_interes_prestamista'] += $interes_prestamista_monto;
+                    $prestamos_por_deudor[$deudor]['total_comision_personal'] += $comision_personal_monto;
+                    $prestamos_por_deudor[$deudor]['cantidad_prestamos']++;
+                }
+                
+                if ($es_prestamo_viejo) {
+                    $prestamos_por_deudor[$deudor]['cantidad_viejos']++;
+                } else {
+                    $prestamos_por_deudor[$deudor]['cantidad_nuevos']++;
+                }
+
+                $prestamos_por_deudor[$deudor]['prestamos_detalle'][] = [
+                    'id' => $fila['id'],
+                    'monto' => $fila['monto'],
+                    'fecha' => $fila['fecha'],
+                    'meses' => $meses,
+                    'tipo' => $es_prestamo_viejo ? 'viejo' : 'nuevo',
+                    'tasa_interes' => $tasa_interes,
+                    'interes_prestamista' => $interes_prestamista_monto,
+                    'comision_personal' => $comision_personal_monto,
+                    'total' => $total_prestamo,
+                    'incluido' => !$es_excluido,
+                    'excluido' => $es_excluido,
+                    'pagado_at' => $modo_pagados ? $fecha_pago_seleccionada : NULL
                 ];
             }
-
-            // Solo sumar si NO está excluido
-            if (!$es_excluido) {
-                $prestamos_por_deudor[$deudor]['total_capital'] += $fila['monto'];
-                $prestamos_por_deudor[$deudor]['total_general'] += $total_prestamo;
-                $prestamos_por_deudor[$deudor]['total_interes_prestamista'] += $interes_prestamista_monto;
-                $prestamos_por_deudor[$deudor]['total_comision_personal'] += $comision_personal_monto;
-                $prestamos_por_deudor[$deudor]['cantidad_prestamos']++;
-            }
-            
-            if ($es_prestamo_viejo) {
-                $prestamos_por_deudor[$deudor]['cantidad_viejos']++;
-            } else {
-                $prestamos_por_deudor[$deudor]['cantidad_nuevos']++;
-            }
-
-            $prestamos_por_deudor[$deudor]['prestamos_detalle'][] = [
-                'id' => $fila['id'],
-                'monto' => $fila['monto'],
-                'fecha' => $fila['fecha'],
-                'meses' => $meses,
-                'tipo' => $es_prestamo_viejo ? 'viejo' : 'nuevo',
-                'tasa_interes' => $tasa_interes,
-                'interes_prestamista' => $interes_prestamista_monto,
-                'comision_personal' => $comision_personal_monto,
-                'total' => $total_prestamo,
-                'incluido' => !$es_excluido,
-                'excluido' => $es_excluido,
-                'pagado_at' => $modo_pagados ? $fecha_pago_seleccionada : NULL
-            ];
         }
     }
 
@@ -523,8 +523,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         fecha
                       FROM prestamos
                       WHERE prestamista = ?
-                        AND empresa = ?  -- ¡FILTRO DE EMPRESA AGREGADO!
-                        AND (pagado_at IS NULL OR pagado = 0)
+                        AND empresa = ?
+                        AND (pagado_at IS NULL)
                         AND deudor IS NOT NULL
                         AND deudor != ''
                         $condicion_excluidos
@@ -590,7 +590,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
 
 } else {
     // GET: solo prestamistas (modo pendientes por defecto)
-    $sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' AND (pagado_at IS NULL OR pagado = 0) ORDER BY prestamista";
+    $sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' AND (pagado_at IS NULL) ORDER BY prestamista";
     $result_prestamistas = $conn->query($sql_prestamistas);
     $conductores_filtrados = [];
 }
@@ -967,7 +967,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             border: 1px solid rgba(245, 158, 11, 0.4);
         }
 
-        /* Resto de estilos (igual que antes) */
+        /* Resto de estilos */
         .nota-pagados{
             background:rgba(34,197,94,0.11);
             border-radius:14px;
@@ -1348,6 +1348,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         .campo-oculto-modo {
             display: none !important;
         }
+        
+        /* Estilo para indicar que los filtros son diferentes por modo */
+        .filtro-modo-activo {
+            border-left: 4px solid #22c55e;
+        }
+        
+        .filtro-modo-inactivo {
+            border-left: 4px solid #f59e0b;
+        }
     </style>
 </head>
 <body>
@@ -1519,11 +1528,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     <?php else: ?>
                         <tr>
                             <td colspan="7" style="text-align: center; padding: 20px; color: var(--text-soft);">
-                                <?php if ($modo_pagados && empty($fecha_pago_seleccionada)): ?>
-                                    Selecciona una fecha de pago para ver los prestamistas
-                                <?php else: ?>
-                                    No hay prestamistas registrados
-                                <?php endif; ?>
+                                No hay prestamistas registrados
                             </td>
                         </tr>
                     <?php endif; ?>
@@ -1558,21 +1563,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             <input type="hidden" name="prestamos_excluidos" id="prestamosExcluidos" 
                    value="<?php echo htmlspecialchars(implode(',', $prestamos_excluidos)); ?>">
             
-            <!-- Filtro de Fechas y Empresa (SOLO EN MODO PENDIENTES) -->
-            <?php if (!$modo_pagados): ?>
-            <div class="filtro-fechas form-card" id="filtroFechasPrestamo">
-                <h3>Filtro de conductores (tabla VIAJES) - Solo para préstamos pendientes</h3>
+            <!-- Filtro de Fechas y Empresa -->
+            <div class="filtro-fechas form-card <?php echo $modo_pagados ? 'filtro-modo-activo' : 'filtro-modo-inactivo'; ?>">
+                <h3>Filtro para préstamos <?php echo $modo_pagados ? 'pagados' : 'pendientes'; ?></h3>
+                
                 <div class="fecha-row">
+                    <?php if ($modo_pagados): ?>
+                    <!-- En modo pagados: selector de fecha de pago -->
+                    <div class="fecha-col">
+                        <label for="fecha_pago">Fecha de pago:</label>
+                        <select name="fecha_pago" id="fecha_pago" required>
+                            <option value="">-- Seleccionar fecha de pago --</option>
+                            <?php foreach ($fechas_pago_disponibles as $fecha): ?>
+                                <option value="<?php echo htmlspecialchars($fecha); ?>" 
+                                    <?php echo $fecha_pago_seleccionada == $fecha ? 'selected' : ''; ?>>
+                                    <?php echo date('d/m/Y', strtotime($fecha)); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <?php else: ?>
+                    <!-- En modo pendientes: fechas del préstamo -->
                     <div class="fecha-col">
                         <label for="fecha_desde">Fecha Desde:</label>
                         <input type="date" name="fecha_desde" id="fecha_desde" 
-                               value="<?php echo htmlspecialchars($fecha_desde); ?>" <?php echo $modo_pagados ? 'disabled' : 'required'; ?>>
+                               value="<?php echo htmlspecialchars($fecha_desde); ?>" required>
                     </div>
                     <div class="fecha-col">
                         <label for="fecha_hasta">Fecha Hasta:</label>
                         <input type="date" name="fecha_hasta" id="fecha_hasta" 
-                               value="<?php echo htmlspecialchars($fecha_hasta); ?>" <?php echo $modo_pagados ? 'disabled' : 'required'; ?>>
+                               value="<?php echo htmlspecialchars($fecha_hasta); ?>" required>
                     </div>
+                    <?php endif; ?>
+                    
+                    <!-- Selector de empresa (para ambos modos) -->
                     <div class="fecha-col">
                         <label for="empresa">Empresa:</label>
                         <select name="empresa" id="empresa" required>
@@ -1595,48 +1619,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         </select>
                     </div>
                 </div>
-                <small>Usa el mismo rango de fechas y empresa que en la vista de pago para que salgan los mismos conductores.</small>
+                
+                <small>
+                    <?php if ($modo_pagados): ?>
+                        Selecciona la fecha en que se pagaron los préstamos y la empresa para ver el reporte.
+                    <?php else: ?>
+                        Usa el mismo rango de fechas y empresa que en la vista de pago para que salgan los mismos conductores.
+                    <?php endif; ?>
+                </small>
+                
                 <?php if (!empty($empresa_seleccionada)): ?>
                 <div class="alerta-empresa">
-                    <strong>⚠ FILTRO DE EMPRESA ACTIVO:</strong> Solo se mostrarán préstamos de la empresa <strong>"<?php echo htmlspecialchars($empresa_seleccionada); ?>"</strong> en ambos cuadros.
+                    <strong>⚠ FILTRO DE EMPRESA ACTIVO:</strong> Solo se mostrarán préstamos <?php echo $modo_pagados ? 'pagados' : 'pendientes'; ?> de la empresa <strong>"<?php echo htmlspecialchars($empresa_seleccionada); ?>"</strong>.
                 </div>
                 <?php endif; ?>
             </div>
-            <?php else: ?>
-            <!-- En modo pagados, solo mostramos selector de empresa -->
-            <div class="filtro-fechas form-card">
-                <h3>Filtro para préstamos pagados</h3>
-                <div class="fecha-row">
-                    <div class="fecha-col">
-                        <label for="empresa">Empresa:</label>
-                        <select name="empresa" id="empresa" required>
-                            <option value="">-- Seleccionar Empresa --</option>
-                            <?php 
-                            if ($result_empresas && $result_empresas->num_rows > 0) {
-                                $result_empresas->data_seek(0);
-                                while ($empresa = $result_empresas->fetch_assoc()): 
-                                    if (!empty($empresa['empresa'])):
-                            ?>
-                                    <option value="<?php echo htmlspecialchars($empresa['empresa']); ?>" 
-                                        <?php echo $empresa_seleccionada == $empresa['empresa'] ? 'selected' : ''; ?>>
-                                        <?php echo htmlspecialchars($empresa['empresa']); ?>
-                                    </option>
-                            <?php 
-                                    endif;
-                                endwhile; 
-                            }
-                            ?>
-                        </select>
-                    </div>
-                </div>
-                <small>Selecciona la empresa para ver los préstamos pagados. No necesitas seleccionar conductores en modo pagados.</small>
-                <?php if (!empty($empresa_seleccionada)): ?>
-                <div class="alerta-empresa">
-                    <strong>⚠ FILTRO DE EMPRESA ACTIVO:</strong> Solo se mostrarán préstamos pagados de la empresa <strong>"<?php echo htmlspecialchars($empresa_seleccionada); ?>"</strong>.
-                </div>
-                <?php endif; ?>
-            </div>
-            <?php endif; ?>
 
             <div class="form-row">
                 <!-- Selección de conductores (SOLO EN MODO PENDIENTES) -->
@@ -1710,6 +1707,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 </div>
                 <?php endif; ?>
                 
+                <!-- Selector de prestamista (para ambos modos) -->
                 <div class="form-col">
                     <div class="form-card">
                         <div class="form-group">
@@ -1943,7 +1941,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             <?php endif; ?>
 
             <!-- =========================== -->
-            <!-- CUADRO 2: OTROS DEUDORES    -->
+            <!-- CUADRO 2: OTROS DEUDORES (SOLO EN MODO PENDIENTES) -->
             <!-- =========================== -->
             <?php if (!$modo_pagados): ?>
             <div class="subtitulo-cuadro">
@@ -2098,9 +2096,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     }
                 });
             }
-            
-            // Ocultar/mostrar campos según modo
-            toggleCamposModo();
         });
 
         function toggleModoPagados() {
@@ -2112,11 +2107,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             
             // Enviar formulario automáticamente para recargar con nuevo modo
             document.getElementById('formPrincipal').submit();
-        }
-
-        function toggleCamposModo() {
-            // Esta función se ejecuta después de cargar la página
-            // Para asegurar que los campos estén correctamente mostrados/ocultos
         }
 
         function toggleDeudor(element) {
