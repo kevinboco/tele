@@ -1,5 +1,5 @@
 <?php
-// flow_manual.php
+// flow_manual.ph
 require_once __DIR__.'/helpers.php';
 
 function manual_entrypoint($chat_id, $estado) {
