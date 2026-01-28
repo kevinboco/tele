@@ -8,7 +8,7 @@ $conn->set_charset("utf8mb4");
    🔹 FUNCIONES DINÁMICAS
 ======================================================= */
 
-// Obtener columnas de tarifas dinámicamente
+// Obtener columnas de tarifas dinámicamente (excluyendo las no tarifas)
 function obtenerColumnasTarifas($conn) {
     $columnas = [];
     $res = $conn->query("SHOW COLUMNS FROM tarifas");
@@ -25,25 +25,28 @@ function obtenerColumnasTarifas($conn) {
     return $columnas;
 }
 
-// Crear nueva columna en tarifas
-function crearNuevaColumnaTarifa($conn, $nombre_columna) {
-    $nombre_columna = preg_replace('/[^a-zA-Z0-9_]/', '_', $nombre_columna);
-    $nombre_columna = strtolower($nombre_columna);
+// Obtener clasificaciones disponibles (de tarifas + de ruta_clasificacion)
+function obtenerClasificacionesDisponibles($conn) {
+    $clasificaciones = [];
     
-    // Verificar si la columna ya existe
-    $columnas_existentes = obtenerColumnasTarifas($conn);
-    if (in_array($nombre_columna, $columnas_existentes)) {
-        return true; // Ya existe
+    // 1. Obtener de columnas de tarifas
+    $columnas_tarifas = obtenerColumnasTarifas($conn);
+    foreach ($columnas_tarifas as $columna) {
+        $clasificaciones[$columna] = $columna;
     }
     
-    // Crear nueva columna
-    $sql = "ALTER TABLE tarifas ADD COLUMN `$nombre_columna` DECIMAL(10,2) DEFAULT 0.00";
-    return $conn->query($sql);
-}
-
-// Obtener clasificaciones disponibles (solo de tarifas)
-function obtenerClasificacionesDisponibles($conn) {
-    return obtenerColumnasTarifas($conn);
+    // 2. Obtener de ruta_clasificacion (valores únicos)
+    $res = $conn->query("SELECT DISTINCT clasificacion FROM ruta_clasificacion WHERE clasificacion IS NOT NULL AND clasificacion != ''");
+    if ($res) {
+        while ($row = $res->fetch_assoc()) {
+            $clasif = $row['clasificacion'];
+            $clasificaciones[$clasif] = $clasif;
+        }
+    }
+    
+    // Ordenar alfabéticamente
+    ksort($clasificaciones);
+    return array_values($clasificaciones);
 }
 
 // Mapeo de colores para clasificaciones
@@ -89,30 +92,6 @@ function obtenerEstiloClasificacion($clasificacion) {
 }
 
 /* =======================================================
-   🔹 Crear nueva clasificación (AJAX)
-======================================================= */
-if (isset($_POST['crear_clasificacion'])) {
-    $nombre_clasificacion = trim($conn->real_escape_string($_POST['nombre_clasificacion']));
-    
-    if (empty($nombre_clasificacion)) {
-        echo "error: nombre vacío";
-        exit;
-    }
-    
-    // Limpiar nombre para columna SQL
-    $nombre_columna = preg_replace('/[^a-zA-Z0-9_]/', '_', $nombre_clasificacion);
-    $nombre_columna = strtolower($nombre_columna);
-    
-    // Crear nueva columna
-    if (crearNuevaColumnaTarifa($conn, $nombre_columna)) {
-        echo "ok";
-    } else {
-        echo "error: " . $conn->error;
-    }
-    exit;
-}
-
-/* =======================================================
    🔹 Guardar tarifas dinámicamente (AJAX)
 ======================================================= */
 if (isset($_POST['guardar_tarifa'])) {
@@ -135,14 +114,14 @@ if (isset($_POST['guardar_tarifa'])) {
 }
 
 /* =======================================================
-   🔹 Guardar CLASIFICACIÓN de rutas (AJAX)
+   🔹 Guardar CLASIFICACIÓN de rutas dinámicamente (AJAX)
 ======================================================= */
 if (isset($_POST['guardar_clasificacion'])) {
     $ruta       = $conn->real_escape_string($_POST['ruta']);
     $vehiculo   = $conn->real_escape_string($_POST['tipo_vehiculo']);
     $clasif     = $conn->real_escape_string($_POST['clasificacion']);
 
-    // Permitir cualquier clasificación
+    // Permitir cualquier clasificación (ahora VARCHAR, no ENUM)
     if ($clasif === '') {
         // Eliminar clasificación si está vacía
         $sql = "DELETE FROM ruta_clasificacion WHERE ruta = '$ruta' AND tipo_vehiculo = '$vehiculo'";
@@ -661,47 +640,47 @@ if ($empresaFiltro !== "") {
           </form>
         </div>
 
-        <!-- 🔹 Panel de CREACIÓN de NUEVAS CLASIFICACIONES -->
+        <!-- 🔹 Panel de CLASIFICACIÓN de RUTAS DINÁMICO -->
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
           <h5 class="text-base font-semibold mb-3 flex items-center justify-between">
-            <span>➕ Crear Nueva Clasificación</span>
+            <span>🧭 Clasificación de Rutas</span>
             <span class="text-xs text-slate-500">Dinámico</span>
           </h5>
           <p class="text-xs text-slate-500 mb-3">
-            Crea una nueva clasificación. Se agregará a la tabla tarifas.
+            Clasifica cada ruta. Puedes escribir nuevas clasificaciones.
           </p>
 
-          <div class="flex flex-col gap-2 mb-3">
-            <div>
-              <label class="block text-xs font-medium mb-1">Nombre de la nueva clasificación</label>
-              <input id="txt_nueva_clasificacion" type="text"
-                     class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
-                     placeholder="Ej: Premium, Nocturno, Express...">
-            </div>
-            <div>
-              <label class="block text-xs font-medium mb-1">Texto que deben contener las rutas</label>
+          <div class="flex flex-col gap-2 mb-3 md:flex-row md:items-end">
+            <div class="flex-1">
+              <label class="block text-xs font-medium mb-1">Texto que debe contener la ruta</label>
               <input id="txt_patron_ruta" type="text"
-                     class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
-                     placeholder="Dejar vacío para solo crear la clasificación">
+                     class="w-full rounded-xl border border-slate-300 px-3 py-1.5 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
+                     placeholder="Ej: Riohacha, Uribia-Nazareth...">
+            </div>
+            <div class="flex-1">
+              <label class="block text-xs font-medium mb-1">Clasificación</label>
+              <select id="sel_clasif_masiva"
+                      class="w-full rounded-xl border border-slate-300 px-3 py-1.5 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500">
+                <option value="">-- Selecciona --</option>
+                <?php foreach ($clasificaciones_disponibles as $clasif): 
+                  $estilo = obtenerEstiloClasificacion($clasif);
+                ?>
+                <option value="<?= htmlspecialchars($clasif) ?>" 
+                        style="background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>20; color: <?= str_replace('text-', '#', $estilo['text']) ?>;">
+                  <?= htmlspecialchars(ucfirst($clasif)) ?>
+                </option>
+                <?php endforeach; ?>
+              </select>
+              <input id="txt_nueva_clasif" type="text"
+                     class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-1.5 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
+                     placeholder="O escribe nueva clasificación">
             </div>
             <button type="button"
-                    onclick="crearYAsignarClasificacion()"
-                    class="mt-2 inline-flex items-center justify-center rounded-xl bg-green-600 text-white px-4 py-2 text-sm font-semibold hover:bg-green-700 active:bg-green-800 focus:ring-4 focus:ring-green-200">
-              ⚙️ Crear y Aplicar
+                    onclick="aplicarClasificacionMasiva()"
+                    class="mt-2 md:mt-0 inline-flex items-center justify-center rounded-xl bg-purple-600 text-white px-4 py-2 text-sm font-semibold hover:bg-purple-700 active:bg-purple-800 focus:ring-4 focus:ring-purple-200">
+              ⚙️ Aplicar
             </button>
           </div>
-
-          <p class="text-[11px] text-slate-500 mt-2">
-            La nueva clasificación se creará en la tabla tarifas. Vuelve a dar <strong>Filtrar</strong> para ver los cambios.
-          </p>
-        </div>
-
-        <!-- 🔹 Panel de CLASIFICACIÓN de RUTAS -->
-        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-          <h5 class="text-base font-semibold mb-3 flex items-center justify-between">
-            <span>🧭 Clasificar Rutas Existentes</span>
-            <span class="text-xs text-slate-500">Usa clasificaciones creadas</span>
-          </h5>
 
           <div class="max-h-[260px] overflow-y-auto border border-slate-200 rounded-xl">
             <table class="w-full text-xs">
@@ -749,7 +728,7 @@ if ($empresaFiltro !== "") {
           </div>
 
           <p class="text-[11px] text-slate-500 mt-2">
-            Selecciona una clasificación para cada ruta. Los cambios se guardan automáticamente.
+            Puedes escribir nuevas clasificaciones. Vuelve a dar <strong>Filtrar</strong> para recalcular.
           </p>
         </div>
       </section>
@@ -811,7 +790,6 @@ if ($empresaFiltro !== "") {
                   $abreviatura = strtoupper(substr($clasif, 0, 3));
                   if ($clasif === 'carrotanque') $abreviatura = 'CTK';
                   if ($clasif === 'riohacha') $abreviatura = 'RIO';
-                  if ($clasif === 'siapana') $abreviatura = 'SIA';
                 ?>
                 <th class="px-3 py-2 text-center" title="<?= htmlspecialchars(ucfirst($clasif)) ?>"
                     style="background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>; color: <?= str_replace('text-', '#', $estilo['text']) ?>;">
@@ -1035,79 +1013,7 @@ if ($empresaFiltro !== "") {
       document.getElementById('total_faltante').innerText = formatNumber(totalFaltante);
     }
 
-    // ===== CREAR NUEVA CLASIFICACIÓN =====
-    function crearYAsignarClasificacion() {
-      const nombreClasif = document.getElementById('txt_nueva_clasificacion').value.trim();
-      const patronRuta = document.getElementById('txt_patron_ruta').value.trim().toLowerCase();
-      
-      if (!nombreClasif) {
-        alert('Escribe el nombre de la nueva clasificación.');
-        return;
-      }
-
-      // 1. Crear nueva columna en tarifas
-      fetch('<?= basename(__FILE__) ?>', {
-        method:'POST',
-        headers:{'Content-Type':'application/x-www-form-urlencoded'},
-        body:new URLSearchParams({
-          crear_clasificacion:1,
-          nombre_clasificacion:nombreClasif
-        })
-      })
-      .then(r=>r.text())
-      .then(respuesta=>{
-        if (respuesta.trim() === 'ok') {
-          
-          // 2. Si hay patrón, asignar a rutas
-          if (patronRuta) {
-            const filas = document.querySelectorAll('.fila-ruta');
-            let contador = 0;
-            
-            filas.forEach(row => {
-              const ruta = row.dataset.ruta.toLowerCase();
-              const vehiculo = row.dataset.vehiculo;
-              if (ruta.includes(patronRuta)) {
-                const sel = row.querySelector('.select-clasif-ruta');
-                sel.value = nombreClasif.toLowerCase();
-                
-                // Guardar clasificación
-                fetch('<?= basename(__FILE__) ?>', {
-                  method:'POST',
-                  headers:{'Content-Type':'application/x-www-form-urlencoded'},
-                  body:new URLSearchParams({
-                    guardar_clasificacion:1,
-                    ruta:row.dataset.ruta,
-                    tipo_vehiculo:vehiculo,
-                    clasificacion:nombreClasif.toLowerCase()
-                  })
-                });
-                contador++;
-              }
-            });
-            
-            if (contador > 0) {
-              alert('✅ Se creó "' + nombreClasif + '" y se aplicó a ' + contador + ' rutas. Recarga la página para ver los cambios.');
-            } else {
-              alert('✅ Se creó "' + nombreClasif + '". No se encontraron rutas con "' + patronRuta + '". Recarga la página.');
-            }
-          } else {
-            alert('✅ Se creó la clasificación "' + nombreClasif + '". Recarga la página para verla en los selectores.');
-          }
-          
-          // Limpiar campos
-          document.getElementById('txt_nueva_clasificacion').value = '';
-          document.getElementById('txt_patron_ruta').value = '';
-          
-        } else {
-          alert('❌ Error: ' + respuesta);
-        }
-      })
-      .catch(error=>{
-        alert('❌ Error de conexión: ' + error);
-      });
-    }
-
-    // ===== CLASIFICACIONES INDIVIDUALES =====
+    // ===== CLASIFICACIONES =====
     function guardarClasificacionRuta(ruta, vehiculo, clasificacion) {
       if (!clasificacion) return;
       fetch('<?= basename(__FILE__) ?>', {
@@ -1124,6 +1030,43 @@ if ($empresaFiltro !== "") {
       .then(t=>{
         if (t.trim() !== 'ok') console.error('Error guardando clasificación:', t);
       });
+    }
+
+    function aplicarClasificacionMasiva() {
+      const patron = document.getElementById('txt_patron_ruta').value.trim().toLowerCase();
+      const selectClasif = document.getElementById('sel_clasif_masiva');
+      const txtNuevaClasif = document.getElementById('txt_nueva_clasif');
+      
+      let clasif = selectClasif.value;
+      if (!clasif && txtNuevaClasif.value.trim()) {
+        clasif = txtNuevaClasif.value.trim().toLowerCase();
+      }
+      
+      if (!patron || !clasif) {
+        alert('Escribe un texto para buscar y elige/escribe una clasificación.');
+        return;
+      }
+
+      const filas = document.querySelectorAll('.fila-ruta');
+      let contador = 0;
+
+      filas.forEach(row => {
+        const ruta = row.dataset.ruta.toLowerCase();
+        const vehiculo = row.dataset.vehiculo;
+        if (ruta.includes(patron)) {
+          const sel = row.querySelector('.select-clasif-ruta');
+          sel.value = clasif;
+          guardarClasificacionRuta(row.dataset.ruta, vehiculo, clasif);
+          contador++;
+        }
+      });
+
+      if (contador > 0) {
+        alert('✅ Se aplicó la clasificación "' + clasif + '" a ' + contador + ' rutas.');
+        txtNuevaClasif.value = '';
+      } else {
+        alert('⚠️ No se encontraron rutas que contengan "' + patron + '"');
+      }
     }
 
     // ===== INICIALIZACIÓN =====
