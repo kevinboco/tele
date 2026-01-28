@@ -1280,7 +1280,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-// Validación para edición múltiple
+// Validación para edición múlti
 document.getElementById('formEditarMultiple')?.addEventListener('submit', function(e) {
     const totalRegistros = <?= count($viajes_seleccionados) ?>;
     if (totalRegistros === 0) {
