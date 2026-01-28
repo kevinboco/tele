@@ -89,7 +89,34 @@ function obtenerEstiloClasificacion($clasificacion) {
 }
 
 /* =======================================================
-   🔹 Crear nueva clasificación (AJAX)
+   🔹 MANEJO DE HEADERS PARA AJAX (IMPORTANTE)
+======================================================= */
+
+// Verificar si es una petición AJAX y establecer headers limpios
+if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) || 
+    isset($_POST['crear_clasificacion']) || 
+    isset($_POST['guardar_tarifa']) || 
+    isset($_POST['guardar_clasificacion']) ||
+    isset($_GET['viajes_conductor'])) {
+    
+    // Limpiar cualquier salida anterior
+    ob_clean();
+    
+    // Establecer headers para JSON/texto plano
+    header('Content-Type: text/plain; charset=utf-8');
+    
+    // Evitar que se muestre CSS/HTML en respuestas AJAX
+    if (isset($_POST['crear_clasificacion']) || 
+        isset($_POST['guardar_tarifa']) || 
+        isset($_POST['guardar_clasificacion'])) {
+        
+        // Para peticiones POST de guardado, solo texto
+        if (ob_get_level()) ob_end_clean();
+    }
+}
+
+/* =======================================================
+   🔹 Crear nueva clasificación (AJAX) - CORREGIDO
 ======================================================= */
 if (isset($_POST['crear_clasificacion'])) {
     $nombre_clasificacion = trim($conn->real_escape_string($_POST['nombre_clasificacion']));
@@ -102,6 +129,12 @@ if (isset($_POST['crear_clasificacion'])) {
     // Limpiar nombre para columna SQL
     $nombre_columna = preg_replace('/[^a-zA-Z0-9_]/', '_', $nombre_clasificacion);
     $nombre_columna = strtolower($nombre_columna);
+    
+    // Verificar que el nombre sea válido
+    if (empty($nombre_columna)) {
+        echo "error: nombre inválido";
+        exit;
+    }
     
     // Crear nueva columna
     if (crearNuevaColumnaTarifa($conn, $nombre_columna)) {
@@ -1046,7 +1079,7 @@ if ($empresaFiltro !== "") {
       }
 
       // 1. Crear nueva columna en tarifas
-      fetch('<?= basename(__FILE__) ?>', {
+      fetch(window.location.href, {
         method:'POST',
         headers:{'Content-Type':'application/x-www-form-urlencoded'},
         body:new URLSearchParams({
@@ -1056,7 +1089,8 @@ if ($empresaFiltro !== "") {
       })
       .then(r=>r.text())
       .then(respuesta=>{
-        if (respuesta.trim() === 'ok') {
+        const respuestaLimpia = respuesta.trim();
+        if (respuestaLimpia === 'ok') {
           
           // 2. Si hay patrón, asignar a rutas
           if (patronRuta) {
@@ -1071,7 +1105,7 @@ if ($empresaFiltro !== "") {
                 sel.value = nombreClasif.toLowerCase();
                 
                 // Guardar clasificación
-                fetch('<?= basename(__FILE__) ?>', {
+                fetch(window.location.href, {
                   method:'POST',
                   headers:{'Content-Type':'application/x-www-form-urlencoded'},
                   body:new URLSearchParams({
@@ -1099,18 +1133,20 @@ if ($empresaFiltro !== "") {
           document.getElementById('txt_patron_ruta').value = '';
           
         } else {
-          alert('❌ Error: ' + respuesta);
+          // Mostrar error limpio sin CSS/HTML
+          const errorSimple = respuestaLimpia.replace(/<[^>]*>/g, '').substring(0, 100);
+          alert('❌ Error: ' + errorSimple);
         }
       })
       .catch(error=>{
-        alert('❌ Error de conexión: ' + error);
+        alert('❌ Error de conexión: ' + error.message);
       });
     }
 
     // ===== CLASIFICACIONES INDIVIDUALES =====
     function guardarClasificacionRuta(ruta, vehiculo, clasificacion) {
       if (!clasificacion) return;
-      fetch('<?= basename(__FILE__) ?>', {
+      fetch(window.location.href, {
         method:'POST',
         headers:{'Content-Type':'application/x-www-form-urlencoded'},
         body:new URLSearchParams({
@@ -1122,7 +1158,10 @@ if ($empresaFiltro !== "") {
       })
       .then(r=>r.text())
       .then(t=>{
-        if (t.trim() !== 'ok') console.error('Error guardando clasificación:', t);
+        const respuesta = t.trim();
+        if (respuesta !== 'ok') {
+          console.error('Error guardando clasificación:', respuesta.replace(/<[^>]*>/g, ''));
+        }
       });
     }
 
@@ -1137,14 +1176,15 @@ if ($empresaFiltro !== "") {
           const campo = input.dataset.campo;
           const valor = parseFloat(input.value)||0;
 
-          fetch('<?= basename(__FILE__) ?>', {
+          fetch(window.location.href, {
             method:'POST',
             headers:{'Content-Type':'application/x-www-form-urlencoded'},
             body:new URLSearchParams({guardar_tarifa:1, empresa, tipo_vehiculo:tipoVehiculo, campo, valor})
           })
           .then(r=>r.text())
           .then(t=>{
-            if (t.trim() !== 'ok') console.error('Error guardando tarifa:', t);
+            const respuesta = t.trim();
+            if (respuesta !== 'ok') console.error('Error guardando tarifa:', respuesta.replace(/<[^>]*>/g, ''));
             recalcular();
           });
         });
@@ -1160,7 +1200,7 @@ if ($empresaFiltro !== "") {
           const panel = document.getElementById('contenidoPanel');
           panel.innerHTML = "<div class='flex items-center justify-center h-full'><div class='text-center'><div class='animate-pulse text-blue-500 mb-2'>⏳</div><p class='text-sm text-slate-500'>Cargando viajes...</p></div></div>";
 
-          fetch('<?= basename(__FILE__) ?>?viajes_conductor='+encodeURIComponent(nombre)+'&desde='+desde+'&hasta='+hasta+'&empresa='+encodeURIComponent(empresa))
+          fetch(window.location.href + '?viajes_conductor='+encodeURIComponent(nombre)+'&desde='+desde+'&hasta='+hasta+'&empresa='+encodeURIComponent(empresa))
             .then(r=>r.text())
             .then(html=>{ 
               panel.innerHTML = html;
