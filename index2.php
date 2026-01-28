@@ -185,7 +185,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
     }
     
-    // EDITAR VIAJE INDIVIDUAL
+    // EDITAR VIAJE INDIVIDUAL - CON LA MODIFICACIÓN QUE SOLICITAS
     elseif (isset($_POST['editar'])) {
         $id = (int)$_POST['id'];
         $nombre = $conexion->real_escape_string($_POST['nombre'] ?? '');
@@ -201,6 +201,43 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
         // NUEVO: Pago parcial (opcional)
         $pago_parcial = normalizarPagoParcial($conexion, $_POST['pago_parcial'] ?? null);
+        
+        // Obtener datos ACTUALES del registro para comparar
+        $sql_actual = "SELECT nombre, cedula, fecha, ruta, tipo_vehiculo, empresa, pago_parcial FROM viajes WHERE id = $id";
+        $res_actual = $conexion->query($sql_actual);
+        $datos_actuales = $res_actual->fetch_assoc();
+        
+        // Detectar si SOLO cambió la cédula (y los otros campos obligatorios siguen igual)
+        $solo_cambio_cedula = false;
+        $cedula_nueva = isset($_POST['cedula']) ? trim($_POST['cedula']) : '';
+        
+        if ($datos_actuales) {
+            // Comparar los campos principales (excepto cédula)
+            $mismo_nombre = ($nombre == $datos_actuales['nombre']);
+            $misma_fecha = ($fecha == $datos_actuales['fecha']);
+            $misma_ruta = ($ruta == $datos_actuales['ruta']);
+            $mismo_vehiculo = ($tipo_vehiculo == $datos_actuales['tipo_vehiculo']);
+            
+            // Verificar si la empresa es la misma (manejando NULLs)
+            $empresa_actual = $datos_actuales['empresa'] ?? '';
+            $empresa_nueva = isset($_POST['empresa']) ? trim($_POST['empresa']) : '';
+            $misma_empresa = ($empresa_actual == $empresa_nueva);
+            
+            // Verificar si pago_parcial es el mismo
+            $pago_actual = $datos_actuales['pago_parcial'] ?? null;
+            $mismo_pago = ($pago_parcial === "NULL" && $pago_actual === null) || 
+                         ($pago_parcial !== "NULL" && (int)$pago_parcial === (int)$pago_actual);
+            
+            // Verificar si la cédula cambió
+            $cedula_actual = $datos_actuales['cedula'] ?? '';
+            $cambio_cedula = ($cedula_actual !== $cedula_nueva);
+            
+            // Si todos los otros campos son iguales PERO la cédula cambió
+            if ($mismo_nombre && $misma_fecha && $misma_ruta && $mismo_vehiculo && 
+                $misma_empresa && $mismo_pago && $cambio_cedula) {
+                $solo_cambio_cedula = true;
+            }
+        }
         
         // Manejo de imagen
         $imagen_campo = '';
@@ -222,6 +259,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $_SESSION['error'] = "Los campos Nombre, Fecha, Ruta y Vehículo son obligatorios.";
             $accion = 'editar';
         } else {
+            // PRIMERO: Actualizar el registro individual
             $sql = "UPDATE viajes SET 
                     nombre = '$nombre',
                     cedula = $cedula,
@@ -234,8 +272,29 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     WHERE id = $id";
             
             if ($conexion->query($sql)) {
-                header("Location: ?msg=editado");
-                exit();
+                // SEGUNDO: Si solo cambió la cédula, actualizar TODOS los registros con el mismo nombre
+                if ($solo_cambio_cedula && !empty($cedula_nueva)) {
+                    $nombre_escapado = $conexion->real_escape_string($nombre);
+                    
+                    // Si la cédula nueva está vacía, ponerla como NULL
+                    $valor_cedula = empty($cedula_nueva) ? "NULL" : "'" . $conexion->real_escape_string($cedula_nueva) . "'";
+                    
+                    $sql_masivo = "UPDATE viajes SET cedula = $valor_cedula 
+                                   WHERE nombre = '$nombre_escapado' 
+                                   AND id != $id"; // No incluir el registro que ya actualizamos
+                    
+                    if ($conexion->query($sql_masivo)) {
+                        $registros_afectados = $conexion->affected_rows;
+                        header("Location: ?msg=editado_con_cedula&afectados=$registros_afectados&nombre=" . urlencode($nombre));
+                        exit();
+                    } else {
+                        $_SESSION['error'] = "Error al actualizar cédulas masivas: " . $conexion->error;
+                        $accion = 'editar';
+                    }
+                } else {
+                    header("Location: ?msg=editado");
+                    exit();
+                }
             } else {
                 $_SESSION['error'] = "Error al actualizar: " . $conexion->error;
                 $accion = 'editar';
@@ -475,6 +534,11 @@ include("nav.php");
             switch($mensaje) {
                 case 'creado': echo "✅ Viaje creado exitosamente."; break;
                 case 'editado': echo "✏ Viaje editado exitosamente."; break;
+                case 'editado_con_cedula': 
+                    $afectados = $_GET['afectados'] ?? 0;
+                    $nombre = $_GET['nombre'] ?? '';
+                    echo "✏ Viaje editado exitosamente. <br>✅ La cédula se actualizó en <b>$afectados</b> registros adicionales de <b>" . htmlspecialchars($nombre) . "</b>."; 
+                    break;
                 case 'eliminado': echo "🗑 Viaje eliminado exitosamente."; break;
                 case 'multi_eliminado': 
                     $count = $_GET['count'] ?? 0;
@@ -543,6 +607,12 @@ include("nav.php");
                                 <input type="text" name="cedula" class="form-control" 
                                        value="<?= htmlspecialchars($viaje['cedula'] ?? '') ?>"
                                        placeholder="Opcional - puede estar vacío">
+                                <small class="text-muted">
+                                    <?php if ($accion == 'editar'): ?>
+                                        <strong>NOTA:</strong> Si solo modifica la cédula y los demás campos quedan igual, 
+                                        esta cédula se asignará automáticamente a <strong>TODOS</strong> los registros con el mismo nombre.
+                                    <?php endif; ?>
+                                </small>
                             </div>
 
                             <!-- NUEVO: Pago parcial -->
