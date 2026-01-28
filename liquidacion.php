@@ -8,7 +8,7 @@ $conn->set_charset("utf8mb4");
    🔹 FUNCIONES DINÁMICAS
 ======================================================= */
 
-// Obtener columnas de tarifas dinámicamente
+// Obtener columnas de tarifas dinámicamente (excluyendo las no tarifas)
 function obtenerColumnasTarifas($conn) {
     $columnas = [];
     $res = $conn->query("SHOW COLUMNS FROM tarifas");
@@ -16,7 +16,7 @@ function obtenerColumnasTarifas($conn) {
         while ($row = $res->fetch_assoc()) {
             $field = $row['Field'];
             // Excluir columnas que no son tarifas
-            $excluir = ['id', 'empresa', 'tipo_vehiculo'];
+            $excluir = ['id', 'empresa', 'tipo_vehiculo', 'created_at', 'updated_at'];
             if (!in_array($field, $excluir)) {
                 $columnas[] = $field;
             }
@@ -25,16 +25,28 @@ function obtenerColumnasTarifas($conn) {
     return $columnas;
 }
 
-// Obtener clasificaciones existentes dinámicamente
-function obtenerClasificacionesExistentes($conn) {
+// Obtener clasificaciones disponibles (de tarifas + de ruta_clasificacion)
+function obtenerClasificacionesDisponibles($conn) {
     $clasificaciones = [];
-    $res = $conn->query("SELECT DISTINCT clasificacion FROM ruta_clasificacion WHERE clasificacion IS NOT NULL AND clasificacion != '' ORDER BY clasificacion");
+    
+    // 1. Obtener de columnas de tarifas
+    $columnas_tarifas = obtenerColumnasTarifas($conn);
+    foreach ($columnas_tarifas as $columna) {
+        $clasificaciones[$columna] = $columna;
+    }
+    
+    // 2. Obtener de ruta_clasificacion (valores únicos)
+    $res = $conn->query("SELECT DISTINCT clasificacion FROM ruta_clasificacion WHERE clasificacion IS NOT NULL AND clasificacion != ''");
     if ($res) {
         while ($row = $res->fetch_assoc()) {
-            $clasificaciones[] = $row['clasificacion'];
+            $clasif = $row['clasificacion'];
+            $clasificaciones[$clasif] = $clasif;
         }
     }
-    return $clasificaciones;
+    
+    // Ordenar alfabéticamente
+    ksort($clasificaciones);
+    return array_values($clasificaciones);
 }
 
 // Mapeo de colores para clasificaciones
@@ -44,7 +56,10 @@ function obtenerEstiloClasificacion($clasificacion) {
         'medio'       => ['bg' => 'bg-amber-100', 'text' => 'text-amber-800', 'border' => 'border-amber-200', 'row' => 'bg-amber-50/40', 'label' => 'Medio'],
         'extra'       => ['bg' => 'bg-slate-200', 'text' => 'text-slate-800', 'border' => 'border-slate-300', 'row' => 'bg-slate-50', 'label' => 'Extra'],
         'siapana'     => ['bg' => 'bg-fuchsia-100', 'text' => 'text-fuchsia-700', 'border' => 'border-fuchsia-200', 'row' => 'bg-fuchsia-50/40', 'label' => 'Siapana'],
-        'carrotanque' => ['bg' => 'bg-cyan-100', 'text' => 'text-cyan-800', 'border' => 'border-cyan-200', 'row' => 'bg-cyan-50/40', 'label' => 'Carrotanque']
+        'carrotanque' => ['bg' => 'bg-cyan-100', 'text' => 'text-cyan-800', 'border' => 'border-cyan-200', 'row' => 'bg-cyan-50/40', 'label' => 'Carrotanque'],
+        'riohacha'    => ['bg' => 'bg-indigo-100', 'text' => 'text-indigo-700', 'border' => 'border-indigo-200', 'row' => 'bg-indigo-50/40', 'label' => 'Riohacha'],
+        'pru'         => ['bg' => 'bg-teal-100', 'text' => 'text-teal-700', 'border' => 'border-teal-200', 'row' => 'bg-teal-50/40', 'label' => 'Pru'],
+        'maco'        => ['bg' => 'bg-rose-100', 'text' => 'text-rose-700', 'border' => 'border-rose-200', 'row' => 'bg-rose-50/40', 'label' => 'Maco']
     ];
     
     // Si ya existe, devolverlo
@@ -53,20 +68,7 @@ function obtenerEstiloClasificacion($clasificacion) {
     }
     
     // Generar estilo dinámico para nuevas clasificaciones
-    $clasificaciones_especiales = [
-        'riohacha' => ['bg' => 'bg-indigo-100', 'text' => 'text-indigo-700', 'border' => 'border-indigo-200', 'row' => 'bg-indigo-50/40'],
-        'pru'      => ['bg' => 'bg-teal-100', 'text' => 'text-teal-700', 'border' => 'border-teal-200', 'row' => 'bg-teal-50/40']
-    ];
-    
-    if (isset($clasificaciones_especiales[$clasificacion])) {
-        $estilo = $clasificaciones_especiales[$clasificacion];
-        $estilo['label'] = ucfirst($clasificacion);
-        return $estilo;
-    }
-    
-    // Generar color aleatorio pero consistente basado en el nombre
     $colors = [
-        ['bg' => 'bg-rose-100', 'text' => 'text-rose-700', 'border' => 'border-rose-200'],
         ['bg' => 'bg-violet-100', 'text' => 'text-violet-700', 'border' => 'border-violet-200'],
         ['bg' => 'bg-orange-100', 'text' => 'text-orange-700', 'border' => 'border-orange-200'],
         ['bg' => 'bg-lime-100', 'text' => 'text-lime-700', 'border' => 'border-lime-200'],
@@ -74,6 +76,7 @@ function obtenerEstiloClasificacion($clasificacion) {
         ['bg' => 'bg-pink-100', 'text' => 'text-pink-700', 'border' => 'border-pink-200'],
         ['bg' => 'bg-purple-100', 'text' => 'text-purple-700', 'border' => 'border-purple-200'],
         ['bg' => 'bg-yellow-100', 'text' => 'text-yellow-700', 'border' => 'border-yellow-200'],
+        ['bg' => 'bg-red-100', 'text' => 'text-red-700', 'border' => 'border-red-200'],
     ];
     
     $hash = crc32($clasificacion);
@@ -141,11 +144,11 @@ if (isset($_GET['viajes_conductor'])) {
     $hasta   = $_GET['hasta'];
     $empresa = $_GET['empresa'] ?? "";
 
-    // Obtener clasificaciones existentes
-    $clasificaciones_existentes = obtenerClasificacionesExistentes($conn);
+    // Obtener clasificaciones disponibles
+    $clasificaciones_disponibles = obtenerClasificacionesDisponibles($conn);
     $legend = [];
     
-    foreach ($clasificaciones_existentes as $clasif) {
+    foreach ($clasificaciones_disponibles as $clasif) {
         $estilo = obtenerEstiloClasificacion($clasif);
         $legend[$clasif] = [
             'label' => $estilo['label'],
@@ -387,7 +390,7 @@ $empresaFiltro = $_GET['empresa'] ?? "";
 
 // Obtener datos dinámicos
 $columnas_tarifas = obtenerColumnasTarifas($conn);
-$clasificaciones_existentes = obtenerClasificacionesExistentes($conn);
+$clasificaciones_disponibles = obtenerClasificacionesDisponibles($conn);
 
 // Cargar clasificaciones de rutas desde BD
 $clasif_rutas = [];
@@ -447,8 +450,8 @@ if ($res) {
                 "vehiculo" => $vehiculo,
                 "pagado"   => 0
             ];
-            // Inicializar contadores para cada clasificación existente
-            foreach ($clasificaciones_existentes as $clasif) {
+            // Inicializar contadores para cada clasificación disponible
+            foreach ($clasificaciones_disponibles as $clasif) {
                 $datos[$nombre][$clasif] = 0;
             }
         }
@@ -518,6 +521,13 @@ if ($empresaFiltro !== "") {
     color: #92400e !important;
     font-weight: 600;
   }
+  .table-fixed { table-layout: fixed; }
+  .col-conductor { width: 25%; }
+  .col-vehiculo { width: 12%; }
+  .col-clasif { width: 7%; }
+  .col-total { width: 15%; }
+  .col-pagado { width: 12%; }
+  .col-faltante { width: 10%; }
 </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
@@ -577,7 +587,8 @@ if ($empresaFiltro !== "") {
                     'carrotanque' => 'Carrotanque',
                     'siapana' => 'Siapana',
                     'riohacha' => 'Riohacha',
-                    'pru' => 'Pru'
+                    'pru' => 'Pru',
+                    'maco' => 'Maco'
                 ];
                 
                 $etiqueta_final = $etiquetas_especiales[$columna] ?? $etiqueta;
@@ -651,8 +662,13 @@ if ($empresaFiltro !== "") {
               <select id="sel_clasif_masiva"
                       class="w-full rounded-xl border border-slate-300 px-3 py-1.5 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500">
                 <option value="">-- Selecciona --</option>
-                <?php foreach ($clasificaciones_existentes as $clasif): ?>
-                <option value="<?= htmlspecialchars($clasif) ?>"><?= htmlspecialchars(ucfirst($clasif)) ?></option>
+                <?php foreach ($clasificaciones_disponibles as $clasif): 
+                  $estilo = obtenerEstiloClasificacion($clasif);
+                ?>
+                <option value="<?= htmlspecialchars($clasif) ?>" 
+                        style="background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>20; color: <?= str_replace('text-', '#', $estilo['text']) ?>;">
+                  <?= htmlspecialchars(ucfirst($clasif)) ?>
+                </option>
                 <?php endforeach; ?>
               </select>
               <input id="txt_nueva_clasif" type="text"
@@ -692,9 +708,9 @@ if ($empresaFiltro !== "") {
                     <select class="select-clasif-ruta rounded-lg border border-slate-300 px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-blue-100"
                             data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
                             data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>"
-                            style="<?php if($info['clasificacion']): ?>background-color: var(--bg-color); color: var(--text-color); border-color: var(--border-color);<?php endif; ?>">
+                            style="<?php if($info['clasificacion']): ?>background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>20; color: <?= str_replace('text-', '#', $estilo['text']) ?>; border-color: <?= str_replace('border-', '#', $estilo['border']) ?>;<?php endif; ?>">
                       <option value="">Sin clasificar</option>
-                      <?php foreach ($clasificaciones_existentes as $clasif): 
+                      <?php foreach ($clasificaciones_disponibles as $clasif): 
                         $estilo_opcion = obtenerEstiloClasificacion($clasif);
                       ?>
                       <option value="<?= htmlspecialchars($clasif) ?>" 
@@ -755,13 +771,29 @@ if ($empresaFiltro !== "") {
 
         <div class="mt-4 w-full rounded-xl border border-slate-200 overflow-x-auto">
           <table id="tabla_conductores" class="w-full text-sm table-fixed">
+            <colgroup>
+              <col class="col-conductor">
+              <col class="col-vehiculo">
+              <?php foreach ($clasificaciones_disponibles as $clasif): ?>
+              <col class="col-clasif">
+              <?php endforeach; ?>
+              <col class="col-total">
+              <col class="col-pagado">
+              <col class="col-faltante">
+            </colgroup>
             <thead class="bg-blue-600 text-white">
               <tr>
                 <th class="px-3 py-2 text-left">Conductor</th>
                 <th class="px-3 py-2 text-center">Tipo</th>
-                <?php foreach ($clasificaciones_existentes as $clasif): ?>
-                <th class="px-3 py-2 text-center" title="<?= htmlspecialchars(ucfirst($clasif)) ?>">
-                  <?= htmlspecialchars(strtoupper(substr($clasif, 0, 3))) ?>
+                <?php foreach ($clasificaciones_disponibles as $clasif): 
+                  $estilo = obtenerEstiloClasificacion($clasif);
+                  $abreviatura = strtoupper(substr($clasif, 0, 3));
+                  if ($clasif === 'carrotanque') $abreviatura = 'CTK';
+                  if ($clasif === 'riohacha') $abreviatura = 'RIO';
+                ?>
+                <th class="px-3 py-2 text-center" title="<?= htmlspecialchars(ucfirst($clasif)) ?>"
+                    style="background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>; color: <?= str_replace('text-', '#', $estilo['text']) ?>;">
+                  <?= htmlspecialchars($abreviatura) ?>
                 </th>
                 <?php endforeach; ?>
                 <th class="px-3 py-2 text-center">Total</th>
@@ -795,8 +827,14 @@ if ($empresaFiltro !== "") {
                   </span>
                 </td>
                 
-                <?php foreach ($clasificaciones_existentes as $clasif): ?>
-                <td class="px-3 py-2 text-center"><?= (int)($info[$clasif] ?? 0) ?></td>
+                <?php foreach ($clasificaciones_disponibles as $clasif): 
+                  $estilo = obtenerEstiloClasificacion($clasif);
+                  $cantidad = (int)($info[$clasif] ?? 0);
+                ?>
+                <td class="px-3 py-2 text-center font-medium" 
+                    style="background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>20;">
+                  <?= $cantidad ?>
+                </td>
                 <?php endforeach; ?>
 
                 <!-- Total -->
@@ -926,10 +964,10 @@ if ($empresaFiltro !== "") {
       const tarifas = getTarifas();
       const filas = document.querySelectorAll('#tabla_conductores_body tr');
       
-      // Obtener columnas de clasificación desde los encabezados
-      const columnasClasificacion = [];
+      // Obtener clasificaciones desde los encabezados
+      const clasificaciones = [];
       document.querySelectorAll('#tabla_conductores thead th[title]').forEach(th => {
-        columnasClasificacion.push(th.getAttribute('title').toLowerCase());
+        clasificaciones.push(th.getAttribute('title').toLowerCase());
       });
 
       let totalViajes = 0;
@@ -944,12 +982,14 @@ if ($empresaFiltro !== "") {
         const tarifasVeh = tarifas[veh] || {};
 
         let totalFila = 0;
+        let columnaIndex = 2; // Empieza después de conductor y tipo
         
-        // Calcular por cada columna de clasificación
-        columnasClasificacion.forEach((clasif, index) => {
-          const cantidad = parseInt(celdas[index + 2]?.textContent || 0); // +2 por conductor y tipo
+        // Calcular por cada clasificación
+        clasificaciones.forEach(clasif => {
+          const cantidad = parseInt(celdas[columnaIndex]?.textContent || 0);
           const tarifa = tarifasVeh[clasif] || 0;
           totalFila += cantidad * tarifa;
+          columnaIndex++;
         });
 
         const pagado = parseInt(fila.dataset.pagado || '0') || 0;
