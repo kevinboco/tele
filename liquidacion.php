@@ -123,13 +123,30 @@ if (isset($_POST['guardar_tarifa'])) {
     $campo    = $conn->real_escape_string($_POST['campo']); // completo|medio|extra|carrotanque|siapana|etc
     $valor    = (int)$_POST['valor'];
 
-    // ⚠️ Validar campo contra columnas permitidas
-    $allow = $columnasPermitidas;
-    if (!in_array($campo, $allow, true)) { echo "error: campo inválido"; exit; }
+    // ⚠️ Validar campo contra columnas REALES de la tabla
+    // Primero obtenemos las columnas actuales de la tabla
+    $columnasReales = obtenerColumnasTarifas($conn);
+    $allow = array_merge(['completo','medio','extra','carrotanque','siapana'], $columnasReales);
+    $allow = array_unique($allow);
+    
+    if (!in_array($campo, $allow, true)) { 
+        echo "error: campo inválido '{$campo}'. Campos permitidos: " . implode(', ', $allow); 
+        exit; 
+    }
 
-    $conn->query("INSERT IGNORE INTO tarifas (empresa, tipo_vehiculo) VALUES ('$empresa', '$vehiculo')");
+    // Verificar si existe el registro
+    $check = $conn->query("SELECT id FROM tarifas WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'");
+    if ($check->num_rows == 0) {
+        // Crear registro si no existe
+        $conn->query("INSERT INTO tarifas (empresa, tipo_vehiculo) VALUES ('$empresa', '$vehiculo')");
+    }
+    
     $sql = "UPDATE tarifas SET $campo = $valor WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'";
-    echo $conn->query($sql) ? "ok" : "error: " . $conn->error;
+    if ($conn->query($sql)) {
+        echo "ok";
+    } else {
+        echo "error: " . $conn->error;
+    }
     exit;
 }
 
@@ -143,9 +160,12 @@ if (isset($_POST['guardar_clasificacion'])) {
     $clasif     = $conn->real_escape_string($_POST['clasificacion']);
 
     // Permitir TODAS las columnas de tarifas como clasificaciones
-    $allowClasif = $columnasPermitidas;
+    $columnasReales = obtenerColumnasTarifas($conn);
+    $allowClasif = array_merge(['completo','medio','extra','carrotanque','siapana'], $columnasReales);
+    $allowClasif = array_unique($allowClasif);
+    
     if (!in_array($clasif, $allowClasif, true)) {
-        echo "error: clasificación inválida";
+        echo "error: clasificación inválida '{$clasif}'";
         exit;
     }
 
@@ -199,7 +219,11 @@ if (isset($_GET['viajes_conductor'])) {
     ];
     
     $legend = [];
-    foreach ($columnasPermitidas as $col) {
+    $columnasReales = obtenerColumnasTarifas($conn);
+    $todasColumnas = array_merge(['completo','medio','extra','carrotanque','siapana'], $columnasReales);
+    $todasColumnas = array_unique($todasColumnas);
+    
+    foreach ($todasColumnas as $col) {
         if (isset($coloresBase[$col])) {
             $colors = $coloresBase[$col];
             $legend[$col] = [
@@ -220,7 +244,7 @@ if (isset($_GET['viajes_conductor'])) {
 
     if ($res && $res->num_rows > 0) {
         // Contadores para cada clasificación
-        $counts = array_fill_keys($columnasPermitidas, 0);
+        $counts = array_fill_keys($todasColumnas, 0);
         $counts['otro'] = 0;
 
         $rowsHTML = "";
@@ -234,7 +258,7 @@ if (isset($_GET['viajes_conductor'])) {
             $cat = $clasif_rutas[$key] ?? 'otro';
             
             // Validar que sea una clasificación válida
-            if (!in_array($cat, $columnasPermitidas)) {
+            if (!in_array($cat, $todasColumnas)) {
                 $cat = 'otro';
             }
 
@@ -267,7 +291,7 @@ if (isset($_GET['viajes_conductor'])) {
         
         // Leyenda con contadores y filtro
         echo "<div class='flex flex-wrap gap-2 text-xs' id='legendFilterBar'>";
-        foreach (array_merge($columnasPermitidas, ['otro']) as $k) {
+        foreach (array_merge($todasColumnas, ['otro']) as $k) {
             $l = $legend[$k] ?? $legend['otro'];
             $countVal = $counts[$k] ?? 0;
             $badgeClass = str_replace(['bg-','/40'], ['bg-',''], $l['row']);
@@ -446,6 +470,11 @@ $vehiculos = [];
 $rutasUnicas = [];         // para mostrar todas las rutas y clasificarlas
 $pagosConductor = [];      // NUEVO: suma pago_parcial por conductor
 
+// Obtener columnas actuales para este cálculo
+$columnasReales = obtenerColumnasTarifas($conn);
+$todasColumnas = array_merge(['completo','medio','extra','carrotanque','siapana'], $columnasReales);
+$todasColumnas = array_unique($todasColumnas);
+
 if ($res) {
     while ($row = $res->fetch_assoc()) {
         $nombre   = $row['nombre'];
@@ -476,7 +505,7 @@ if ($res) {
 
         // Inicializar datos del conductor
         if (!isset($datos[$nombre])) {
-            $datos[$nombre] = array_fill_keys($columnasPermitidas, 0);
+            $datos[$nombre] = array_fill_keys($todasColumnas, 0);
             $datos[$nombre]['vehiculo'] = $vehiculo;
             $datos[$nombre]['pagado'] = 0;
         }
@@ -490,7 +519,7 @@ if ($res) {
         }
 
         // Incrementar la clasificación correspondiente
-        if (in_array($clasifRuta, $columnasPermitidas)) {
+        if (in_array($clasifRuta, $todasColumnas)) {
             $datos[$nombre][$clasifRuta]++;
         }
     }
@@ -607,7 +636,7 @@ if ($empresaFiltro !== "") {
                   </span>
                   <input type="number" step="1000" value="<?= (int)($t[$columna] ?? 0) ?>"
                          data-campo="<?= htmlspecialchars($columna) ?>"
-                         class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
+                         class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition tarifa-input"
                          oninput="recalcular()">
                 </label>
               <?php endforeach; ?>
@@ -726,7 +755,7 @@ if ($empresaFiltro !== "") {
           </div>
 
           <p class="text-[11px] text-slate-500 mt-2">
-            Después de cambiar clasificaciones, vuelve a darle <strong>Filtrar</strong> para recalcular la tabla de conductores.
+            Después de cambiar clasificaciones, vuelve a darle <strong>Filtrar</strong> para recalcular la liquidación.
           </p>
         </div>
       </section>
@@ -770,14 +799,14 @@ if ($empresaFiltro !== "") {
         <div class="mt-4 w-full rounded-xl border border-slate-200 overflow-x-auto">
           <?php
           // Calcular ancho de columnas dinámicas
-          $numColumnas = count($columnasPermitidas);
+          $numColumnas = count($todasColumnas);
           $anchoColumna = floor(100 / ($numColumnas + 5)); // +5 para conductor, tipo, total, pagado, faltante
           ?>
           <table id="tabla_conductores" class="w-full text-sm table-fixed min-w-[900px]">
             <colgroup>
               <col style="width:25%">
               <col style="width:12%">
-              <?php foreach ($columnasPermitidas as $col): ?>
+              <?php foreach ($todasColumnas as $col): ?>
                 <col style="width:<?= $anchoColumna ?>%">
               <?php endforeach; ?>
               <col style="width:15%"> <!-- Total -->
@@ -788,7 +817,7 @@ if ($empresaFiltro !== "") {
               <tr>
                 <th class="px-3 py-2 text-left">Conductor</th>
                 <th class="px-3 py-2 text-center">Tipo</th>
-                <?php foreach ($columnasPermitidas as $col): ?>
+                <?php foreach ($todasColumnas as $col): ?>
                   <th class="px-3 py-2 text-center" title="<?= ucfirst(str_replace('_', ' ', $col)) ?>">
                     <?= substr(ucfirst(str_replace('_', ' ', $col)), 0, 3) ?>
                   </th>
@@ -823,7 +852,7 @@ if ($empresaFiltro !== "") {
                     <?php endif; ?>
                   </span>
                 </td>
-                <?php foreach ($columnasPermitidas as $col): ?>
+                <?php foreach ($todasColumnas as $col): ?>
                   <td class="px-3 py-2 text-center"><?= (int)($info[$col] ?? 0) ?></td>
                 <?php endforeach; ?>
                 
@@ -885,7 +914,7 @@ if ($empresaFiltro !== "") {
                     'riohacha' => 'bg-indigo-100 text-indigo-700 border-indigo-200',
                     'pru' => 'bg-violet-100 text-violet-700 border-violet-200'
                 ];
-                foreach ($columnasPermitidas as $col): 
+                foreach ($todasColumnas as $col): 
                     $colorClase = $coloresMini[$col] ?? 'bg-gray-100 text-gray-700 border-gray-200';
                 ?>
                   <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium <?= $colorClase ?>">
@@ -905,7 +934,7 @@ if ($empresaFiltro !== "") {
   <script>
     // ===== VARIABLES GLOBALES =====
     const columnasTarifas = <?= json_encode($columnasTarifas) ?>;
-    const columnasPermitidas = <?= json_encode($columnasPermitidas) ?>;
+    const todasColumnas = <?= json_encode($todasColumnas) ?>;
 
     // ===== BUSCADOR DE CONDUCTORES =====
     const buscadorConductores = document.getElementById('buscadorConductores');
@@ -1000,11 +1029,10 @@ if ($empresaFiltro !== "") {
         if (f.style.display === 'none') return;
 
         const veh = f.dataset.vehiculo;
-        const conductor = f.dataset.conductor;
         
         // Obtener cantidades de cada columna
         const cantidades = {};
-        columnasPermitidas.forEach((col, index) => {
+        todasColumnas.forEach((col, index) => {
           const cellIndex = 2 + index; // 0=conductor, 1=tipo, 2=primera columna tarifa
           cantidades[col] = parseInt(f.cells[cellIndex]?.innerText) || 0;
         });
@@ -1013,7 +1041,7 @@ if ($empresaFiltro !== "") {
         let totalViajesFila = 0;
         
         // Calcular total multiplicando cada cantidad por su tarifa
-        columnasPermitidas.forEach(col => {
+        todasColumnas.forEach(col => {
           totalViajesFila += (cantidades[col] || 0) * (t[col] || 0);
         });
 
@@ -1084,27 +1112,55 @@ if ($empresaFiltro !== "") {
       alert('✅ Se aplicó la clasificación a ' + contador + ' rutas. Vuelve a darle "Filtrar" para recalcular la liquidación.');
     }
 
+    // ===== GUARDAR TARIFA (AJAX) =====
+    function guardarTarifaAJAX(empresa, tipoVehiculo, campo, valor) {
+      return fetch('<?= basename(__FILE__) ?>', {
+        method:'POST',
+        headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:new URLSearchParams({
+          guardar_tarifa:1, 
+          empresa, 
+          tipo_vehiculo:tipoVehiculo, 
+          campo, 
+          valor
+        })
+      })
+      .then(r=>r.text())
+      .then(t=>{
+        if (t.trim() !== 'ok') {
+          console.error('Error guardando tarifa:', t);
+          return false;
+        }
+        return true;
+      });
+    }
+
     // ===== INICIALIZACIÓN =====
     document.addEventListener('DOMContentLoaded', function() {
-      // Guardar tarifas AJAX
-      document.querySelectorAll('.tarjeta-tarifa input').forEach(input=>{
-        input.addEventListener('change', ()=>{
-          const card = input.closest('.tarjeta-tarifa');
+      // Guardar tarifas AJAX - PARA TODAS LAS COLUMNAS
+      document.querySelectorAll('.tarifa-input').forEach(input=>{
+        input.addEventListener('change', function(){
+          const card = this.closest('.tarjeta-tarifa');
           const tipoVehiculo = card.dataset.vehiculo;
           const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
-          const campo = input.dataset.campo;
-          const valor = parseInt(input.value)||0;
-
-          fetch('<?= basename(__FILE__) ?>', {
-            method:'POST',
-            headers:{'Content-Type':'application/x-www-form-urlencoded'},
-            body:new URLSearchParams({guardar_tarifa:1, empresa, tipo_vehiculo:tipoVehiculo, campo, valor})
-          })
-          .then(r=>r.text())
-          .then(t=>{
-            if (t.trim() !== 'ok') console.error('Error guardando tarifa:', t);
-            recalcular();
-          });
+          const campo = this.dataset.campo;
+          const valor = parseInt(this.value)||0;
+          
+          // Verificar que el campo sea válido
+          if (!campo || !tipoVehiculo || !empresa) {
+            console.error('Datos incompletos para guardar tarifa');
+            return;
+          }
+          
+          console.log('Guardando tarifa:', {empresa, tipoVehiculo, campo, valor});
+          
+          guardarTarifaAJAX(empresa, tipoVehiculo, campo, valor)
+            .then(success => {
+              if (success) {
+                console.log('Tarifa guardada exitosamente');
+                recalcular();
+              }
+            });
         });
       });
 
