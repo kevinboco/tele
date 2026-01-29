@@ -1064,7 +1064,7 @@ if ($empresaFiltro !== "") {
                   <span class="block text-sm font-medium mb-1"><?= htmlspecialchars($etiqueta_final) ?></span>
                   <input type="number" step="1000" value="<?= $valor ?>"
                          data-campo="<?= htmlspecialchars($columna) ?>"
-                         class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
+                         class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition tarifa-input"
                          oninput="recalcular()">
                 </label>
                 <?php endforeach; ?>
@@ -2221,7 +2221,7 @@ if ($empresaFiltro !== "") {
     function configurarEventosTarifas() {
         // Usar delegación de eventos para manejar inputs dinámicos
         document.addEventListener('change', function(e) {
-            if (e.target.matches('.tarjeta-tarifa input[data-campo]')) {
+            if (e.target.matches('.tarifa-input')) {
                 const input = e.target;
                 const card = input.closest('.tarjeta-tarifa');
                 const tipoVehiculo = card.dataset.vehiculo;
@@ -2248,28 +2248,25 @@ if ($empresaFiltro !== "") {
                     const respuesta = t.trim();
                     if (respuesta === 'ok') {
                         console.log('Tarifa guardada exitosamente');
-                        showNotification('Tarifa guardada correctamente', 'success');
-                        recalcular();
+                        // Guardar el valor como el nuevo default
+                        input.defaultValue = input.value;
                     } else {
                         console.error('Error guardando tarifa:', respuesta);
-                        showNotification('Error: ' + respuesta, 'error');
-                        // Intentar restaurar el valor original
+                        // Restaurar el valor anterior
                         input.value = input.defaultValue;
                     }
                 })
                 .catch(error => {
                     console.error('Error de conexión:', error);
-                    showNotification('Error de conexión', 'error');
+                    // Restaurar el valor anterior
                     input.value = input.defaultValue;
                 });
             }
         });
         
-        // También configurar eventos input para actualización en tiempo real
-        document.addEventListener('input', function(e) {
-            if (e.target.matches('.tarjeta-tarifa input[data-campo]')) {
-                recalcular();
-            }
+        // Configurar valor por defecto para todos los inputs
+        document.querySelectorAll('.tarifa-input').forEach(input => {
+            input.defaultValue = input.value;
         });
     }
 
