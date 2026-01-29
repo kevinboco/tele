@@ -801,7 +801,6 @@ if ($empresaFiltro !== "") {
     min-width: 60px !important;
     max-width: 60px !important;
     overflow: hidden !important;
-    display: none !important; /* Cambiado para ocultar completamente */
   }
   
   .panel-collapsed .panel-content {
@@ -838,53 +837,10 @@ if ($empresaFiltro !== "") {
     justify-content: space-between;
   }
   
-  /* MEJORA: Espacio para scrollbar */
-  .left-panel .panel-body {
+  .panel-body {
     padding: 1rem;
     overflow-y: auto;
     max-height: calc(100vh - 120px);
-    /* Espacio adicional para scrollbar */
-    padding-right: 1.5rem !important;
-    margin-right: 8px;
-    scrollbar-width: thin;
-    scrollbar-color: #cbd5e1 #f1f5f9;
-  }
-  
-  .right-panel .panel-body {
-    padding: 1rem;
-    overflow-y: auto;
-    max-height: calc(100vh - 120px);
-    /* Espacio adicional para scrollbar */
-    padding-left: 1.5rem !important;
-    margin-left: 8px;
-    scrollbar-width: thin;
-    scrollbar-color: #cbd5e1 #f1f5f9;
-  }
-  
-  .center-panel .panel-body {
-    padding: 1rem;
-    overflow-y: auto;
-    max-height: calc(100vh - 120px);
-  }
-  
-  /* Estilizar scrollbar para mejor visibilidad */
-  .panel-body::-webkit-scrollbar {
-    width: 12px;
-  }
-  
-  .panel-body::-webkit-scrollbar-track {
-    background: #f1f5f9;
-    border-radius: 6px;
-  }
-  
-  .panel-body::-webkit-scrollbar-thumb {
-    background-color: #cbd5e1;
-    border-radius: 6px;
-    border: 3px solid #f1f5f9;
-  }
-  
-  .panel-body::-webkit-scrollbar-thumb:hover {
-    background-color: #94a3b8;
   }
   
   .panel-collapsed .panel-header,
@@ -1012,17 +968,6 @@ if ($empresaFiltro !== "") {
     background: #3b82f6;
     opacity: 0.7;
   }
-  
-  /* Clase para ocultar completamente */
-  .panel-completely-hidden {
-    display: none !important;
-    width: 0 !important;
-    min-width: 0 !important;
-    max-width: 0 !important;
-    opacity: 0 !important;
-    visibility: hidden !important;
-    transition: all 0.3s ease;
-  }
 </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
@@ -1059,13 +1004,13 @@ if ($empresaFiltro !== "") {
           <span class="expand-icon">→</span>
         </button>
         
-        <!-- Botón para minimizar TODO el panel izquierdo -->
+        <!-- NUEVO: Botón para minimizar todo el panel izquierdo -->
         <div class="panel-header">
           <div class="flex items-center justify-between w-full">
             <h3 class="text-lg font-semibold">Panel Izquierdo</h3>
-            <button onclick="minimizarTodoElPanelIzquierdo()" 
+            <button onclick="minimizarTodoPanelIzquierdo()" 
                     class="text-xs px-3 py-1.5 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 transition flex items-center gap-1">
-              ⬇️ Minimizar Todo el Panel
+              ⬇️ Minimizar Todo
             </button>
           </div>
         </div>
@@ -1223,7 +1168,7 @@ if ($empresaFiltro !== "") {
               </button>
             </div>
 
-            <div class="max-h-[260px] overflow-y-auto border border-slate-200 rounded-xl pr-2"> <!-- Agregado pr-2 para espacio -->
+            <div class="max-h-[260px] overflow-y-auto border border-slate-200 rounded-xl">
               <table class="w-full text-xs">
                 <thead class="bg-slate-100 text-slate-600">
                   <tr>
@@ -1561,51 +1506,21 @@ if ($empresaFiltro !== "") {
   </div>
 
   <script>
-    // ===== FUNCIÓN MEJORADA: Minimizar TODO el panel izquierdo =====
-    function minimizarTodoElPanelIzquierdo() {
-      const leftPanel = document.getElementById('leftPanel');
-      const centerPanel = document.getElementById('centerPanel');
-      const rightPanel = document.getElementById('rightPanel');
-      const mainLayout = document.querySelector('.main-layout');
+    // ===== FUNCIÓN NUEVA: Minimizar todo el panel izquierdo =====
+    function minimizarTodoPanelIzquierdo() {
+      // Lista de todos los contenedores dentro del panel izquierdo
+      const contenedores = ['tarifas', 'filtro', 'crear-clasif', 'clasif-rutas'];
       
-      if (leftPanel.classList.contains('panel-completely-hidden')) {
-        // Restaurar panel izquierdo
-        leftPanel.classList.remove('panel-completely-hidden');
-        leftPanel.classList.add('panel-expanded');
-        
-        // Restaurar grid layout
-        mainLayout.style.gridTemplateColumns = 
-          `minmax(300px, var(--left-panel-width)) 
-           minmax(800px, var(--center-panel-width)) 
-           minmax(250px, var(--right-panel-width))`;
-        
-        // Mostrar notificación
-        showNotification('Panel izquierdo restaurado', 'success');
-      } else {
-        // Ocultar completamente el panel izquierdo
-        leftPanel.classList.remove('panel-expanded', 'panel-collapsed');
-        leftPanel.classList.add('panel-completely-hidden');
-        
-        // Expandir panel central para ocupar el espacio
-        mainLayout.style.gridTemplateColumns = 
-          `0px 
-           minmax(800px, calc(var(--center-panel-width) + var(--left-panel-width))) 
-           minmax(250px, var(--right-panel-width))`;
-        
-        // Ajustar ancho de la tabla central
-        const tableContainer = document.getElementById('tableContainer');
-        const currentWidth = parseInt(getComputedStyle(tableContainer).width, 10);
-        const leftPanelWidth = 400; // Ancho aproximado del panel izquierdo
-        tableContainer.style.width = (currentWidth + leftPanelWidth) + 'px';
-        
-        // Mostrar notificación
-        showNotification('Panel izquierdo minimizado completamente', 'info');
-      }
+      // Minimizar cada contenedor
+      contenedores.forEach(id => {
+        const container = document.getElementById(`container-${id}`);
+        if (container && !container.classList.contains('hidden')) {
+          toggleMinimize(id);
+        }
+      });
       
-      // Recalcular layout
-      setTimeout(() => {
-        recalcular();
-      }, 300);
+      // Mostrar mensaje de confirmación
+      showNotification('Panel izquierdo minimizado', 'info');
     }
 
     // Función auxiliar para mostrar notificaciones
@@ -1740,7 +1655,7 @@ if ($empresaFiltro !== "") {
           }
           
           // Aplicar cambios
-          tableContainer.style.width = newCenterWidth + 'px');
+          tableContainer.style.width = newCenterWidth + 'px';
           root.style.setProperty('--center-panel-width', newCenterWidth + 'px');
           root.style.setProperty('--right-panel-width', clampedRightWidth + 'px');
         }
@@ -1814,18 +1729,6 @@ if ($empresaFiltro !== "") {
       // Restaurar también los paneles laterales
       document.getElementById('leftPanel').style.width = '';
       document.getElementById('rightPanel').style.width = '';
-      
-      // Restaurar grid layout si estaba minimizado
-      const leftPanel = document.getElementById('leftPanel');
-      if (leftPanel.classList.contains('panel-completely-hidden')) {
-        leftPanel.classList.remove('panel-completely-hidden');
-        leftPanel.classList.add('panel-expanded');
-        const mainLayout = document.querySelector('.main-layout');
-        mainLayout.style.gridTemplateColumns = 
-          `minmax(300px, var(--left-panel-width)) 
-           minmax(800px, var(--center-panel-width)) 
-           minmax(250px, var(--right-panel-width))`;
-      }
     }
     
     // ===== REDIMENSIONAMIENTO DE COLUMNAS =====
