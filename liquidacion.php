@@ -2195,6 +2195,58 @@ if ($empresaFiltro !== "") {
       });
     }
 
+    // ===== GUARDAR TARIFAS DINÁMICAMENTE =====
+    // CORRECCIÓN: Configurar eventos para inputs de tarifas (incluyendo nuevos)
+    function configurarEventosTarifas() {
+        // Usar delegación de eventos para manejar inputs dinámicos
+        document.addEventListener('change', function(e) {
+            if (e.target.matches('.tarjeta-tarifa input[data-campo]')) {
+                const input = e.target;
+                const card = input.closest('.tarjeta-tarifa');
+                const tipoVehiculo = card.dataset.vehiculo;
+                const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
+                const campo = input.dataset.campo;
+                const valor = parseFloat(input.value) || 0;
+                
+                console.log('Guardando tarifa:', { empresa, tipoVehiculo, campo, valor });
+                
+                // Guardar via AJAX
+                fetch('<?= basename(__FILE__) ?>', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        guardar_tarifa: 1,
+                        empresa: empresa,
+                        tipo_vehiculo: tipoVehiculo,
+                        campo: campo,
+                        valor: valor
+                    })
+                })
+                .then(r => r.text())
+                .then(t => {
+                    if (t.trim() !== 'ok') {
+                        console.error('Error guardando tarifa:', t);
+                        alert('Error al guardar: ' + t);
+                    } else {
+                        console.log('Tarifa guardada exitosamente');
+                        recalcular();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error de conexión:', error);
+                    alert('Error de conexión al guardar');
+                });
+            }
+        });
+        
+        // También configurar eventos input para actualización en tiempo real
+        document.addEventListener('input', function(e) {
+            if (e.target.matches('.tarjeta-tarifa input[data-campo]')) {
+                recalcular();
+            }
+        });
+    }
+
     // ===== CLASIFICACIONES INDIVIDUALES =====
     function guardarClasificacionRuta(ruta, vehiculo, clasificacion) {
       if (!clasificacion) return;
@@ -2235,28 +2287,9 @@ if ($empresaFiltro !== "") {
       `;
       document.head.appendChild(style);
       
-      // Guardar tarifas AJAX
-      document.querySelectorAll('.tarjeta-tarifa input').forEach(input=>{
-        input.addEventListener('change', ()=>{
-          const card = input.closest('.tarjeta-tarifa');
-          const tipoVehiculo = card.dataset.vehiculo;
-          const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
-          const campo = input.dataset.campo;
-          const valor = parseFloat(input.value)||0;
-
-          fetch('<?= basename(__FILE__) ?>', {
-            method:'POST',
-            headers:{'Content-Type':'application/x-www-form-urlencoded'},
-            body:new URLSearchParams({guardar_tarifa:1, empresa, tipo_vehiculo:tipoVehiculo, campo, valor})
-          })
-          .then(r=>r.text())
-          .then(t=>{
-            if (t.trim() !== 'ok') console.error('Error guardando tarifa:', t);
-            recalcular();
-          });
-        });
-      });
-
+      // Configurar eventos de tarifas (CORRECCIÓN IMPORTANTE)
+      configurarEventosTarifas();
+      
       // Click en conductor → carga viajes
       document.querySelectorAll('.conductor-link').forEach(btn=>{
         btn.addEventListener('click', ()=>{
