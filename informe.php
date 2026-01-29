@@ -17,7 +17,7 @@ if ($conn->connect_error) {
 }
 $conn->set_charset('utf8mb4');
 
-// Si no se han enviado fechas, mostramos formulario sencillo (SIN nav.php)
+// Si no se han enviado fechas, mostramos formulario sencillo
 if (empty($_POST['desde']) || empty($_POST['hasta'])) {
     $empresas = [];
     $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
@@ -53,7 +53,6 @@ if (empty($_POST['desde']) || empty($_POST['hasta'])) {
           <button class="btn btn-primary">Generar Informe</button>
           <a class="btn btn-secondary" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/index2.php">Ir a Inicio</a>
         </div>
-        
       </form>
     </div>
     </body></html>
@@ -70,12 +69,23 @@ $empresaFiltro = $_POST['empresa'] ?? "";
 $desdeIni = $conn->real_escape_string($desde . " 00:00:00");
 $hastaFin = $conn->real_escape_string($hasta . " 23:59:59");
 
-// Consulta
+// CONSULTA PARA LISTA DE CONDUCTORES - Únicos con sus datos (RESPETANDO FILTROS)
+$sqlConductores = "SELECT DISTINCT nombre, cedula, tipo_vehiculo 
+                   FROM viajes 
+                   WHERE fecha >= '$desdeIni' AND fecha <= '$hastaFin' 
+                   AND nombre IS NOT NULL AND nombre <> ''";
+if ($empresaFiltro !== "") {
+    $empresaFiltro = $conn->real_escape_string($empresaFiltro);
+    $sqlConductores .= " AND empresa = '$empresaFiltro'";
+}
+$sqlConductores .= " ORDER BY nombre ASC";
+$resConductores = $conn->query($sqlConductores);
+
+// CONSULTA PRINCIPAL - Todos los viajes (RESPETANDO FILTROS)
 $sql = "SELECT fecha, nombre, ruta, empresa 
         FROM viajes 
         WHERE fecha >= '$desdeIni' AND fecha <= '$hastaFin'";
 if ($empresaFiltro !== "") {
-    $empresaFiltro = $conn->real_escape_string($empresaFiltro);
     $sql .= " AND empresa = '$empresaFiltro'";
 }
 $sql .= " ORDER BY fecha ASC, id ASC";
@@ -95,26 +105,68 @@ $section->addText("Periodo: desde $desde hasta $hasta", ['italic' => true]);
 if (!empty($empresaFiltro)) {
     $section->addText("Empresa: $empresaFiltro", ['italic' => true]);
 }
+$section->addTextBreak(2);
+
+// ========== TABLA 1: LISTA DE CONDUCTORES CON CÉDULA Y TIPO DE VEHÍCULO ==========
+$section->addText("LISTA DE CONDUCTORES", ['bold' => true, 'size' => 12]);
 $section->addTextBreak(1);
 
-// Tabla
-$table = $section->addTable(['borderSize' => 6, 'borderColor' => '000000', 'cellMargin' => 80]);
-$table->addRow();
-$table->addCell(2000)->addText("FECHA", ['bold' => true]);
-$table->addCell(4000)->addText("CONDUCTOR", ['bold' => true]);
-$table->addCell(4000)->addText("RUTA", ['bold' => true]);
+$tableConductores = $section->addTable([
+    'borderSize' => 6, 
+    'borderColor' => '000000', 
+    'cellMargin' => 80,
+    'alignment' => \PhpOffice\PhpWord\SimpleType\JcTable::CENTER
+]);
+
+// Encabezado tabla conductores
+$tableConductores->addRow();
+$tableConductores->addCell(4000)->addText("CONDUCTOR", ['bold' => true]);
+$tableConductores->addCell(3000)->addText("CÉDULA", ['bold' => true]);
+$tableConductores->addCell(3000)->addText("TIPO DE VEHÍCULO", ['bold' => true]);
+
+if ($resConductores && $resConductores->num_rows > 0) {
+    while ($row = $resConductores->fetch_assoc()) {
+        $tableConductores->addRow();
+        $tableConductores->addCell(4000)->addText($row['nombre'] ?: '-');
+        $tableConductores->addCell(3000)->addText($row['cedula'] ?: 'N/A');
+        $tableConductores->addCell(3000)->addText($row['tipo_vehiculo'] ?: '-');
+    }
+} else {
+    $tableConductores->addRow();
+    $cell = $tableConductores->addCell(10000, ['gridSpan' => 3]);
+    $cell->addText("📭 No hay conductores en este rango de fechas.");
+}
+
+$section->addTextBreak(3);
+
+// ========== TABLA 2: DETALLE DE VIAJES (TABLA ORIGINAL) ==========
+$section->addText("DETALLE DE VIAJES POR FECHA", ['bold' => true, 'size' => 12]);
+$section->addTextBreak(1);
+
+$tableViajes = $section->addTable([
+    'borderSize' => 6, 
+    'borderColor' => '000000', 
+    'cellMargin' => 80,
+    'alignment' => \PhpOffice\PhpWord\SimpleType\JcTable::CENTER
+]);
+
+// Encabezado tabla viajes (ORIGINAL - solo 3 columnas)
+$tableViajes->addRow();
+$tableViajes->addCell(2000)->addText("FECHA", ['bold' => true]);
+$tableViajes->addCell(4000)->addText("CONDUCTOR", ['bold' => true]);
+$tableViajes->addCell(4000)->addText("RUTA", ['bold' => true]);
 
 if ($res && $res->num_rows > 0) {
     while ($row = $res->fetch_assoc()) {
-        $table->addRow();
-        $table->addCell(2000)->addText(substr($row['fecha'], 0, 10));
-        $table->addCell(4000)->addText($row['nombre'] ?: '-');
-        $table->addCell(4000)->addText($row['ruta'] ?: '-');
+        $tableViajes->addRow();
+        $tableViajes->addCell(2000)->addText(substr($row['fecha'], 0, 10));
+        $tableViajes->addCell(4000)->addText($row['nombre'] ?: '-');
+        $tableViajes->addCell(4000)->addText($row['ruta'] ?: '-');
     }
 } else {
-    $table->addRow();
-    // celda que ocupa 3 columnas
-    $table->addCell(10000, ['gridSpan' => 3])->addText("📭 No hay viajes en este rango de fechas.");
+    $tableViajes->addRow();
+    $cell = $tableViajes->addCell(10000, ['gridSpan' => 3]);
+    $cell->addText("📭 No hay viajes en este rango de fechas.");
 }
 
 // Pie
@@ -126,7 +178,7 @@ $section->addTextBreak(2);
 $section->addText("NUMAS JOSÉ IGUARÁN IGUARÁN", ['bold' => true]);
 $section->addText("Representante Legal");
 
-// Envío directo al navegador (sin crear archivo temporal)
+// Envío directo al navegador
 $filename = "informe_viajes_{$desde}_a_{$hasta}.docx";
 header("Content-Description: File Transfer");
 header("Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document");
