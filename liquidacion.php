@@ -99,7 +99,7 @@ if (isset($_POST['crear_clasificacion'])) {
         exit;
     }
     
-    // Limpiar nombre para columna SQL
+    // Limpiar nombre para columna SQL (siempre minúsculas)
     $nombre_columna = preg_replace('/[^a-zA-Z0-9_]/', '_', $nombre_clasificacion);
     $nombre_columna = strtolower($nombre_columna);
     
@@ -121,16 +121,33 @@ if (isset($_POST['guardar_tarifa'])) {
     $campo    = $conn->real_escape_string($_POST['campo']);
     $valor    = (float)$_POST['valor'];
 
+    // IMPORTANTE: Normalizar el nombre del campo a minúsculas
+    $campo = strtolower($campo);
+    $campo = preg_replace('/[^a-z0-9_]/', '_', $campo);
+
     // Validar que el campo exista en la tabla tarifas
     $columnas_tarifas = obtenerColumnasTarifas($conn);
+    
+    // Si el campo no existe, intentar crearlo
     if (!in_array($campo, $columnas_tarifas)) { 
-        echo "error: campo no válido"; 
-        exit; 
+        if (crearNuevaColumnaTarifa($conn, $campo)) {
+            // Actualizar lista de columnas después de crearla
+            $columnas_tarifas = obtenerColumnasTarifas($conn);
+        } else {
+            echo "error: no se pudo crear el campo '$campo'";
+            exit;
+        }
     }
 
+    // Insertar o actualizar
     $conn->query("INSERT IGNORE INTO tarifas (empresa, tipo_vehiculo) VALUES ('$empresa', '$vehiculo')");
-    $sql = "UPDATE tarifas SET $campo = $valor WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'";
-    echo $conn->query($sql) ? "ok" : "error: " . $conn->error;
+    $sql = "UPDATE tarifas SET `$campo` = $valor WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'";
+    
+    if ($conn->query($sql)) {
+        echo "ok";
+    } else {
+        echo "error: " . $conn->error;
+    }
     exit;
 }
 
@@ -142,7 +159,9 @@ if (isset($_POST['guardar_clasificacion'])) {
     $vehiculo   = $conn->real_escape_string($_POST['tipo_vehiculo']);
     $clasif     = $conn->real_escape_string($_POST['clasificacion']);
 
-    // Permitir cualquier clasificación
+    // Normalizar clasificación a minúsculas
+    $clasif = strtolower($clasif);
+
     if ($clasif === '') {
         // Eliminar clasificación si está vacía
         $sql = "DELETE FROM ruta_clasificacion WHERE ruta = '$ruta' AND tipo_vehiculo = '$vehiculo'";
@@ -216,6 +235,9 @@ if (isset($_GET['viajes_conductor'])) {
             // Determinar clasificación
             $key = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
             $cat = $clasif_rutas[$key] ?? 'otro';
+            
+            // Normalizar a minúsculas
+            $cat = strtolower($cat);
             
             // Si es nueva clasificación, agregar a legend
             if ($cat !== 'otro' && !isset($legend[$cat])) {
@@ -419,7 +441,7 @@ $resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_c
 if ($resClasif) {
     while ($r = $resClasif->fetch_assoc()) {
         $key = mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo']), 'UTF-8');
-        $clasif_rutas[$key] = $r['clasificacion'];
+        $clasif_rutas[$key] = strtolower($r['clasificacion']);
     }
 }
 
@@ -1320,7 +1342,7 @@ if ($empresaFiltro !== "") {
                       $text_color = $colorMap[$estilo['text']] ?? '#1e293b';
                     ?>
                     <th class="px-3 py-2 text-center col-resizable" 
-                        title="<?= htmlspecialchars(ucfirst($clasif)) ?>"
+                        title="<?= htmlspecialchars($clasif) ?>"
                         style="min-width: 70px; width: 7%; background-color: <?= $bg_color ?>; color: <?= $text_color ?>; border-bottom: 2px solid <?= $colorMap[$estilo['border']] ?? '#cbd5e1' ?>;">
                       <?= htmlspecialchars($abreviatura) ?>
                       <div class="col-resize-handle" data-col="<?= $index + 2 ?>"></div>
@@ -2058,7 +2080,7 @@ if ($empresaFiltro !== "") {
         
         // Obtener todas las columnas dinámicas
         card.querySelectorAll('input[data-campo]').forEach(input=>{
-          const campo = input.dataset.campo;
+          const campo = input.dataset.campo.toLowerCase(); // IMPORTANTE: Normalizar a minúsculas
           const valor = parseFloat(input.value) || 0;
           tarifas[veh][campo] = valor;
         });
@@ -2074,7 +2096,7 @@ if ($empresaFiltro !== "") {
       const tarifas = getTarifas();
       const filas = document.querySelectorAll('#tabla_conductores_body tr');
       
-      // Obtener clasificaciones desde los encabezados
+      // Obtener clasificaciones desde los encabezados (en minúsculas)
       const clasificaciones = [];
       document.querySelectorAll('#tabla_conductores thead th[title]').forEach(th => {
         clasificaciones.push(th.getAttribute('title').toLowerCase());
@@ -2133,7 +2155,7 @@ if ($empresaFiltro !== "") {
         return;
       }
 
-      // 1. Crear nueva columna en tarifas
+      // 1. Crear nueva columna en tarifas (normalizada a minúsculas)
       fetch('<?= basename(__FILE__) ?>', {
         method:'POST',
         headers:{'Content-Type':'application/x-www-form-urlencoded'},
@@ -2195,6 +2217,62 @@ if ($empresaFiltro !== "") {
       });
     }
 
+    // ===== GUARDAR TARIFAS DINÁMICAMENTE =====
+    function configurarEventosTarifas() {
+        // Usar delegación de eventos para manejar inputs dinámicos
+        document.addEventListener('change', function(e) {
+            if (e.target.matches('.tarjeta-tarifa input[data-campo]')) {
+                const input = e.target;
+                const card = input.closest('.tarjeta-tarifa');
+                const tipoVehiculo = card.dataset.vehiculo;
+                const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
+                const campo = input.dataset.campo.toLowerCase(); // NORMALIZAR A MINÚSCULAS
+                const valor = parseFloat(input.value) || 0;
+                
+                console.log('Guardando tarifa:', { empresa, tipoVehiculo, campo, valor });
+                
+                // Guardar via AJAX
+                fetch('<?= basename(__FILE__) ?>', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        guardar_tarifa: 1,
+                        empresa: empresa,
+                        tipo_vehiculo: tipoVehiculo,
+                        campo: campo,
+                        valor: valor
+                    })
+                })
+                .then(r => r.text())
+                .then(t => {
+                    const respuesta = t.trim();
+                    if (respuesta === 'ok') {
+                        console.log('Tarifa guardada exitosamente');
+                        showNotification('Tarifa guardada correctamente', 'success');
+                        recalcular();
+                    } else {
+                        console.error('Error guardando tarifa:', respuesta);
+                        showNotification('Error: ' + respuesta, 'error');
+                        // Intentar restaurar el valor original
+                        input.value = input.defaultValue;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error de conexión:', error);
+                    showNotification('Error de conexión', 'error');
+                    input.value = input.defaultValue;
+                });
+            }
+        });
+        
+        // También configurar eventos input para actualización en tiempo real
+        document.addEventListener('input', function(e) {
+            if (e.target.matches('.tarjeta-tarifa input[data-campo]')) {
+                recalcular();
+            }
+        });
+    }
+
     // ===== CLASIFICACIONES INDIVIDUALES =====
     function guardarClasificacionRuta(ruta, vehiculo, clasificacion) {
       if (!clasificacion) return;
@@ -2205,7 +2283,7 @@ if ($empresaFiltro !== "") {
           guardar_clasificacion:1,
           ruta:ruta,
           tipo_vehiculo:vehiculo,
-          clasificacion:clasificacion
+          clasificacion:clasificacion.toLowerCase() // NORMALIZAR A MINÚSCULAS
         })
       })
       .then(r=>r.text())
@@ -2235,28 +2313,9 @@ if ($empresaFiltro !== "") {
       `;
       document.head.appendChild(style);
       
-      // Guardar tarifas AJAX
-      document.querySelectorAll('.tarjeta-tarifa input').forEach(input=>{
-        input.addEventListener('change', ()=>{
-          const card = input.closest('.tarjeta-tarifa');
-          const tipoVehiculo = card.dataset.vehiculo;
-          const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
-          const campo = input.dataset.campo;
-          const valor = parseFloat(input.value)||0;
-
-          fetch('<?= basename(__FILE__) ?>', {
-            method:'POST',
-            headers:{'Content-Type':'application/x-www-form-urlencoded'},
-            body:new URLSearchParams({guardar_tarifa:1, empresa, tipo_vehiculo:tipoVehiculo, campo, valor})
-          })
-          .then(r=>r.text())
-          .then(t=>{
-            if (t.trim() !== 'ok') console.error('Error guardando tarifa:', t);
-            recalcular();
-          });
-        });
-      });
-
+      // Configurar eventos de tarifas
+      configurarEventosTarifas();
+      
       // Click en conductor → carga viajes
       document.querySelectorAll('.conductor-link').forEach(btn=>{
         btn.addEventListener('click', ()=>{
@@ -2288,7 +2347,7 @@ if ($empresaFiltro !== "") {
         sel.addEventListener('change', ()=>{
           const ruta = sel.dataset.ruta;
           const vehiculo = sel.dataset.vehiculo;
-          const clasif = sel.value;
+          const clasif = sel.value.toLowerCase(); // NORMALIZAR A MINÚSCULAS
           if (clasif) guardarClasificacionRuta(ruta, vehiculo, clasif);
         });
       });
