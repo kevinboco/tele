@@ -541,8 +541,8 @@ if ($empresaFiltro !== "") {
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
   ::-webkit-scrollbar{height:10px;width:10px}
-  ::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:999px}
-  ::-webkit-scrollbar-thumb:hover{background:#9ca3af}
+  ::-webkit-slider-thumb{background:#d1d5db;border-radius:999px}
+  ::-webkit-slider-thumb:hover{background:#9ca3af}
   input[type=number]::-webkit-inner-spin-button,
   input[type=number]::-webkit-outer-spin-button{ -webkit-appearance: none; margin: 0; }
   .buscar-container { position: relative; }
@@ -968,6 +968,50 @@ if ($empresaFiltro !== "") {
     background: #3b82f6;
     opacity: 0.7;
   }
+  
+  /* NUEVO: Estilos para minimización completa del panel */
+  .completely-hidden {
+    display: none !important;
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+    transition: all 0.3s ease !important;
+  }
+  
+  /* Bolita especial para panel completo */
+  .entire-panel-ball {
+    width: 70px !important;
+    height: 70px !important;
+    z-index: 10000 !important;
+    box-shadow: 0 15px 35px rgba(59, 130, 246, 0.3) !important;
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8) !important;
+  }
+  
+  .entire-panel-ball:hover {
+    transform: scale(1.15);
+    box-shadow: 0 20px 40px rgba(59, 130, 246, 0.4) !important;
+  }
+  
+  /* Animación de notificaciones */
+  @keyframes fadeInDown {
+    from {
+      opacity: 0;
+      transform: translateY(-20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  .animate-fade-in-down {
+    animation: fadeInDown 0.3s ease-out;
+  }
 </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
@@ -1009,7 +1053,7 @@ if ($empresaFiltro !== "") {
           <div class="flex items-center justify-between w-full">
             <h3 class="text-lg font-semibold">Panel Izquierdo</h3>
             <button onclick="minimizarTodoPanelIzquierdo()" 
-                    class="text-xs px-3 py-1.5 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 transition flex items-center gap-1">
+                    class="text-xs px-3 py-1.5 rounded-lg bg-gradient-to-r from-blue-500 to-indigo-500 text-white hover:from-blue-600 hover:to-indigo-600 transition flex items-center gap-1 shadow-md hover:shadow-lg">
               ⬇️ Minimizar Todo
             </button>
           </div>
@@ -1506,21 +1550,108 @@ if ($empresaFiltro !== "") {
   </div>
 
   <script>
-    // ===== FUNCIÓN NUEVA: Minimizar todo el panel izquierdo =====
+    // ===== FUNCIÓN NUEVA: Minimizar TODO el panel izquierdo =====
     function minimizarTodoPanelIzquierdo() {
-      // Lista de todos los contenedores dentro del panel izquierdo
-      const contenedores = ['tarifas', 'filtro', 'crear-clasif', 'clasif-rutas'];
+      const leftPanel = document.getElementById('leftPanel');
+      const mainLayout = document.querySelector('.main-layout');
+      const ballArea = document.getElementById('floatingBallsArea');
       
-      // Minimizar cada contenedor
-      contenedores.forEach(id => {
-        const container = document.getElementById(`container-${id}`);
-        if (container && !container.classList.contains('hidden')) {
-          toggleMinimize(id);
+      // Verificar si ya está minimizado
+      if (leftPanel.classList.contains('completely-hidden')) {
+        return; // Ya está minimizado
+      }
+      
+      // Guardar estado original del panel izquierdo
+      const rect = leftPanel.getBoundingClientRect();
+      leftPanel.dataset.originalState = JSON.stringify({
+        gridColumn: window.getComputedStyle(leftPanel).gridColumn,
+        width: rect.width,
+        height: rect.height,
+        left: rect.left + window.scrollX,
+        top: rect.top + window.scrollY
+      });
+      
+      // Crear bolita flotante para TODO el panel
+      const ball = document.createElement('div');
+      ball.id = 'ball-entire-left-panel';
+      ball.className = 'floating-ball entire-panel-ball';
+      
+      // Contenido de la bolita
+      ball.innerHTML = `
+        <div class="ball-content">
+          <div class="text-2xl">📊</div>
+          <div class="text-[10px] mt-1">Panel Izquierdo</div>
+        </div>
+        <button class="close-ball absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600">×</button>
+      `;
+      
+      // Posicionar bolita en la esquina superior derecha
+      ball.style.left = '20px';
+      ball.style.top = '100px';
+      
+      // Hacer la bolita arrastrable
+      makeBallDraggable(ball, 'entire-left-panel');
+      
+      // Evento para restaurar el panel
+      ball.addEventListener('click', function(e) {
+        if (!e.target.closest('.close-ball')) {
+          restaurarPanelIzquierdo();
         }
       });
       
-      // Mostrar mensaje de confirmación
-      showNotification('Panel izquierdo minimizado', 'info');
+      // Evento para cerrar permanentemente (solo elimina la bolita)
+      ball.querySelector('.close-ball').addEventListener('click', function(e) {
+        e.stopPropagation();
+        ball.remove();
+      });
+      
+      // Ocultar completamente el panel izquierdo
+      leftPanel.classList.add('completely-hidden', 'hidden');
+      
+      // Cambiar el layout para redistribuir espacio
+      // El panel izquierdo desaparece, centro y derecho se expanden
+      mainLayout.style.gridTemplateColumns = '0px minmax(800px, 1400px) minmax(250px, 450px)';
+      
+      // Ajustar tamaño del contenedor de tabla
+      const tableContainer = document.getElementById('tableContainer');
+      if (tableContainer) {
+        tableContainer.style.width = '1400px';
+        document.documentElement.style.setProperty('--center-panel-width', '1400px');
+      }
+      
+      // Agregar bolita al área de bolitas
+      ballArea.appendChild(ball);
+      
+      // Mostrar notificación
+      showNotification('Panel izquierdo minimizado a bola flotante', 'info');
+    }
+
+    // ===== FUNCIÓN PARA RESTAURAR EL PANEL IZQUIERDO =====
+    function restaurarPanelIzquierdo() {
+      const leftPanel = document.getElementById('leftPanel');
+      const mainLayout = document.querySelector('.main-layout');
+      const ball = document.getElementById('ball-entire-left-panel');
+      
+      // Remover bolita
+      if (ball) {
+        ball.remove();
+      }
+      
+      // Restaurar estado original
+      leftPanel.classList.remove('completely-hidden', 'hidden');
+      
+      // Restaurar layout original
+      const root = document.documentElement;
+      mainLayout.style.gridTemplateColumns = '';
+      
+      // Restaurar tamaño del contenedor de tabla
+      const tableContainer = document.getElementById('tableContainer');
+      if (tableContainer) {
+        tableContainer.style.width = '';
+        root.style.setProperty('--center-panel-width', '1100px');
+      }
+      
+      showNotification('Panel izquierdo restaurado', 'success');
     }
 
     // Función auxiliar para mostrar notificaciones
@@ -1814,7 +1945,7 @@ if ($empresaFiltro !== "") {
       }
     }
     
-    // ===== SISTEMA DE MINIMIZAR CONTENEDORES =====
+    // ===== SISTEMA DE MINIMIZAR CONTENEDORES INDIVIDUALES =====
     const containerStates = {};
     const ballColors = {
       'tarifas': 'bg-gradient-to-br from-blue-500 to-cyan-500',
@@ -2291,24 +2422,7 @@ if ($empresaFiltro !== "") {
 
     // ===== INICIALIZACIÓN =====
     document.addEventListener('DOMContentLoaded', function() {
-      // Agregar animación CSS para notificaciones
-      const style = document.createElement('style');
-      style.textContent = `
-        @keyframes fadeInDown {
-          from {
-            opacity: 0;
-            transform: translateY(-20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        .animate-fade-in-down {
-          animation: fadeInDown 0.3s ease-out;
-        }
-      `;
-      document.head.appendChild(style);
+      // Agregar animación CSS para notificaciones (ya está en el CSS)
       
       // Configurar eventos de tarifas
       configurarEventosTarifas();
