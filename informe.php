@@ -17,6 +17,35 @@ if ($conn->connect_error) {
 }
 $conn->set_charset('utf8mb4');
 
+// Función para obtener el tipo de vehículo formateado
+function obtenerTipoVehiculo($tipo) {
+    if (stripos($tipo, 'burbuja') !== false) {
+        return 'Camioneta Burbuja 4x4 Doble Cabina';
+    }
+    // Para otros tipos, mantener el nombre original
+    return $tipo ?: '-';
+}
+
+// Función para obtener el área de cobertura según tipo de vehículo
+function obtenerAreaCobertura($tipo) {
+    $tipo = strtolower(trim($tipo ?: ''));
+    
+    if (strpos($tipo, 'burbuja') !== false) {
+        return 'Maicao - Nazareth - Maicao';
+    } elseif (strpos($tipo, 'camión 350') !== false || strpos($tipo, 'camion 350') !== false) {
+        return 'Maicao - Nazareth - Maicao';
+    } elseif (strpos($tipo, 'carrotanque') !== false) {
+        return 'Nazareth';
+    } elseif (strpos($tipo, 'camión 750') !== false || strpos($tipo, 'camion 750') !== false) {
+        return 'Maicao - Nazareth - Maicao'; // Asumiendo mismo que camión 350
+    } elseif (strpos($tipo, 'copetrana') !== false) {
+        return 'Maicao - Nazareth - Maicao'; // Asumiendo mismo que burbuja
+    }
+    
+    // Para tipos desconocidos, poner un valor por defecto
+    return 'Maicao - Nazareth - Maicao';
+}
+
 // Si no se han enviado fechas, mostramos formulario sencillo
 if (empty($_POST['desde']) || empty($_POST['hasta'])) {
     $empresas = [];
@@ -107,7 +136,7 @@ if (!empty($empresaFiltro)) {
 }
 $section->addTextBreak(2);
 
-// ========== TABLA 1: LISTA DE CONDUCTORES CON CÉDULA Y TIPO DE VEHÍCULO ==========
+// ========== TABLA 1: LISTA DE CONDUCTORES CON CÉDULA, TIPO DE VEHÍCULO Y ÁREA DE COBERTURA ==========
 $section->addText("LISTA DE CONDUCTORES", ['bold' => true, 'size' => 12]);
 $section->addTextBreak(1);
 
@@ -118,28 +147,36 @@ $tableConductores = $section->addTable([
     'alignment' => \PhpOffice\PhpWord\SimpleType\JcTable::CENTER
 ]);
 
-// Encabezado tabla conductores
+// Encabezado tabla conductores (AHORA CON 4 COLUMNAS)
 $tableConductores->addRow();
-$tableConductores->addCell(4000)->addText("CONDUCTOR", ['bold' => true]);
-$tableConductores->addCell(3000)->addText("CÉDULA", ['bold' => true]);
-$tableConductores->addCell(3000)->addText("TIPO DE VEHÍCULO", ['bold' => true]);
+$tableConductores->addCell(3000)->addText("CONDUCTOR", ['bold' => true]);
+$tableConductores->addCell(2500)->addText("CÉDULA", ['bold' => true]);
+$tableConductores->addCell(2500)->addText("TIPO DE VEHÍCULO", ['bold' => true]);
+$tableConductores->addCell(2000)->addText("ÁREA DE COBERTURA", ['bold' => true]);
 
 if ($resConductores && $resConductores->num_rows > 0) {
     while ($row = $resConductores->fetch_assoc()) {
         $tableConductores->addRow();
-        $tableConductores->addCell(4000)->addText($row['nombre'] ?: '-');
-        $tableConductores->addCell(3000)->addText($row['cedula'] ?: 'N/A');
-        $tableConductores->addCell(3000)->addText($row['tipo_vehiculo'] ?: '-');
+        $tableConductores->addCell(3000)->addText($row['nombre'] ?: '-');
+        $tableConductores->addCell(2500)->addText($row['cedula'] ?: 'N/A');
+        
+        // Tipo de vehículo formateado
+        $tipoVehiculo = obtenerTipoVehiculo($row['tipo_vehiculo']);
+        $tableConductores->addCell(2500)->addText($tipoVehiculo);
+        
+        // Área de cobertura según tipo de vehículo
+        $areaCobertura = obtenerAreaCobertura($row['tipo_vehiculo']);
+        $tableConductores->addCell(2000)->addText($areaCobertura);
     }
 } else {
     $tableConductores->addRow();
-    $cell = $tableConductores->addCell(10000, ['gridSpan' => 3]);
+    $cell = $tableConductores->addCell(10000, ['gridSpan' => 4]);
     $cell->addText("📭 No hay conductores en este rango de fechas.");
 }
 
 $section->addTextBreak(3);
 
-// ========== TABLA 2: DETALLE DE VIAJES (TABLA ORIGINAL) ==========
+// ========== TABLA 2: DETALLE DE VIAJES (TABLA ORIGINAL - SIN CAMBIOS) ==========
 $section->addText("DETALLE DE VIAJES POR FECHA", ['bold' => true, 'size' => 12]);
 $section->addTextBreak(1);
 
