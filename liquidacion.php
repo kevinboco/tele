@@ -982,8 +982,15 @@ if ($empresaFiltro !== "") {
           <span class="expand-icon">→</span>
         </button>
         
+        <!-- NUEVO: Botón para minimizar todo el panel izquierdo -->
         <div class="panel-header">
-          <h3 class="text-lg font-semibold">Panel Izquierdo</h3>
+          <div class="flex items-center justify-between w-full">
+            <h3 class="text-lg font-semibold">Panel Izquierdo</h3>
+            <button onclick="minimizarTodoPanelIzquierdo()" 
+                    class="text-xs px-3 py-1.5 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 transition flex items-center gap-1">
+              ⬇️ Minimizar Todo
+            </button>
+          </div>
         </div>
         
         <div class="panel-body space-y-5">
@@ -1276,14 +1283,45 @@ if ($empresaFiltro !== "") {
                     </th>
                     <?php foreach ($clasificaciones_disponibles as $index => $clasif): 
                       $estilo = obtenerEstiloClasificacion($clasif);
-                      $abreviatura = strtoupper(substr($clasif, 0, 3));
-                      if ($clasif === 'carrotanque') $abreviatura = 'CTK';
-                      if ($clasif === 'riohacha') $abreviatura = 'RIO';
-                      if ($clasif === 'siapana') $abreviatura = 'SIA';
+                      // Definir abreviaturas
+                      $abreviaturas = [
+                          'completo' => 'COM',
+                          'medio' => 'MED', 
+                          'extra' => 'EXT',
+                          'carrotanque' => 'CTK',
+                          'siapana' => 'SIA',
+                          'riohacha' => 'RIO',
+                          'pru' => 'PRU',
+                          'maco' => 'MAC'
+                      ];
+                      $abreviatura = $abreviaturas[$clasif] ?? strtoupper(substr($clasif, 0, 3));
+                      
+                      // Mapear colores Tailwind a colores HEX para CSS inline
+                      $colorMap = [
+                          'bg-emerald-100' => '#d1fae5', 'text-emerald-700' => '#047857', 'border-emerald-200' => '#a7f3d0',
+                          'bg-amber-100' => '#fef3c7', 'text-amber-800' => '#92400e', 'border-amber-200' => '#fcd34d',
+                          'bg-slate-200' => '#e2e8f0', 'text-slate-800' => '#1e293b', 'border-slate-300' => '#cbd5e1',
+                          'bg-fuchsia-100' => '#fae8ff', 'text-fuchsia-700' => '#a21caf', 'border-fuchsia-200' => '#f5d0fe',
+                          'bg-cyan-100' => '#cffafe', 'text-cyan-800' => '#155e75', 'border-cyan-200' => '#a5f3fc',
+                          'bg-indigo-100' => '#e0e7ff', 'text-indigo-700' => '#4338ca', 'border-indigo-200' => '#c7d2fe',
+                          'bg-teal-100' => '#ccfbf1', 'text-teal-700' => '#0f766e', 'border-teal-200' => '#99f6e4',
+                          'bg-rose-100' => '#ffe4e6', 'text-rose-700' => '#be123c', 'border-rose-200' => '#fecdd3',
+                          'bg-violet-100' => '#ede9fe', 'text-violet-700' => '#6d28d9', 'border-violet-200' => '#ddd6fe',
+                          'bg-orange-100' => '#ffedd5', 'text-orange-700' => '#c2410c', 'border-orange-200' => '#fdba74',
+                          'bg-lime-100' => '#ecfccb', 'text-lime-700' => '#4d7c0f', 'border-lime-200' => '#d9f99d',
+                          'bg-sky-100' => '#e0f2fe', 'text-sky-700' => '#0369a1', 'border-sky-200' => '#bae6fd',
+                          'bg-pink-100' => '#fce7f3', 'text-pink-700' => '#be185d', 'border-pink-200' => '#fbcfe8',
+                          'bg-purple-100' => '#f3e8ff', 'text-purple-700' => '#7e22ce', 'border-purple-200' => '#e9d5ff',
+                          'bg-yellow-100' => '#fef9c3', 'text-yellow-700' => '#a16207', 'border-yellow-200' => '#fde68a',
+                          'bg-red-100' => '#fee2e2', 'text-red-700' => '#b91c1c', 'border-red-200' => '#fecaca'
+                      ];
+                      
+                      $bg_color = $colorMap[$estilo['bg']] ?? '#f1f5f9';
+                      $text_color = $colorMap[$estilo['text']] ?? '#1e293b';
                     ?>
                     <th class="px-3 py-2 text-center col-resizable" 
                         title="<?= htmlspecialchars(ucfirst($clasif)) ?>"
-                        style="min-width: 70px; width: 7%; background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>; color: <?= str_replace('text-', '#', $estilo['text']) ?>;">
+                        style="min-width: 70px; width: 7%; background-color: <?= $bg_color ?>; color: <?= $text_color ?>; border-bottom: 2px solid <?= $colorMap[$estilo['border']] ?? '#cbd5e1' ?>;">
                       <?= htmlspecialchars($abreviatura) ?>
                       <div class="col-resize-handle" data-col="<?= $index + 2 ?>"></div>
                     </th>
@@ -1331,9 +1369,32 @@ if ($empresaFiltro !== "") {
                     <?php foreach ($clasificaciones_disponibles as $clasif): 
                       $estilo = obtenerEstiloClasificacion($clasif);
                       $cantidad = (int)($info[$clasif] ?? 0);
+                      
+                      // Mapear colores para fondo de celdas
+                      $colorMap = [
+                          'bg-emerald-100' => '#f0fdf4', 'text-emerald-700' => '#047857',
+                          'bg-amber-100' => '#fffbeb', 'text-amber-800' => '#92400e',
+                          'bg-slate-200' => '#f8fafc', 'text-slate-800' => '#1e293b',
+                          'bg-fuchsia-100' => '#fdf4ff', 'text-fuchsia-700' => '#a21caf',
+                          'bg-cyan-100' => '#ecfeff', 'text-cyan-800' => '#155e75',
+                          'bg-indigo-100' => '#eef2ff', 'text-indigo-700' => '#4338ca',
+                          'bg-teal-100' => '#f0fdfa', 'text-teal-700' => '#0f766e',
+                          'bg-rose-100' => '#fff1f2', 'text-rose-700' => '#be123c',
+                          'bg-violet-100' => '#f5f3ff', 'text-violet-700' => '#6d28d9',
+                          'bg-orange-100' => '#fff7ed', 'text-orange-700' => '#c2410c',
+                          'bg-lime-100' => '#f7fee7', 'text-lime-700' => '#4d7c0f',
+                          'bg-sky-100' => '#f0f9ff', 'text-sky-700' => '#0369a1',
+                          'bg-pink-100' => '#fdf2f8', 'text-pink-700' => '#be185d',
+                          'bg-purple-100' => '#faf5ff', 'text-purple-700' => '#7e22ce',
+                          'bg-yellow-100' => '#fefce8', 'text-yellow-700' => '#a16207',
+                          'bg-red-100' => '#fef2f2', 'text-red-700' => '#b91c1c'
+                      ];
+                      
+                      $bg_cell_color = $colorMap[$estilo['bg']] ?? '#f8fafc';
+                      $text_cell_color = $colorMap[$estilo['text']] ?? '#1e293b';
                     ?>
                     <td class="px-3 py-2 text-center font-medium" 
-                        style="min-width: 70px; background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>20;">
+                        style="min-width: 70px; background-color: <?= $bg_cell_color ?>; color: <?= $text_cell_color ?>; border-left: 1px solid <?= str_replace('bg-', '#', $estilo['bg']) ?>30; border-right: 1px solid <?= str_replace('bg-', '#', $estilo['bg']) ?>30;">
                       <?= $cantidad ?>
                     </td>
                     <?php endforeach; ?>
@@ -1423,6 +1484,49 @@ if ($empresaFiltro !== "") {
   </div>
 
   <script>
+    // ===== FUNCIÓN NUEVA: Minimizar todo el panel izquierdo =====
+    function minimizarTodoPanelIzquierdo() {
+      // Lista de todos los contenedores dentro del panel izquierdo
+      const contenedores = ['tarifas', 'filtro', 'crear-clasif', 'clasif-rutas'];
+      
+      // Minimizar cada contenedor
+      contenedores.forEach(id => {
+        const container = document.getElementById(`container-${id}`);
+        if (container && !container.classList.contains('hidden')) {
+          toggleMinimize(id);
+        }
+      });
+      
+      // Mostrar mensaje de confirmación
+      showNotification('Panel izquierdo minimizado', 'info');
+    }
+
+    // Función auxiliar para mostrar notificaciones
+    function showNotification(message, type = 'info') {
+      // Crear elemento de notificación
+      const notification = document.createElement('div');
+      notification.className = `fixed top-4 right-4 z-50 px-4 py-2 rounded-lg shadow-lg text-white text-sm font-medium animate-fade-in-down ${
+        type === 'info' ? 'bg-blue-500' : 
+        type === 'success' ? 'bg-green-500' : 
+        type === 'warning' ? 'bg-amber-500' : 
+        'bg-red-500'
+      }`;
+      notification.textContent = message;
+      
+      // Agregar al documento
+      document.body.appendChild(notification);
+      
+      // Remover después de 3 segundos
+      setTimeout(() => {
+        notification.classList.add('opacity-0', 'transition-opacity', 'duration-300');
+        setTimeout(() => {
+          if (notification.parentNode) {
+            notification.parentNode.removeChild(notification);
+          }
+        }, 300);
+      }, 3000);
+    }
+
     // ===== SISTEMA DE REDIMENSIONAMIENTO COMPLETO =====
     let isResizing = false;
     let currentPanel = null;
@@ -2112,6 +2216,25 @@ if ($empresaFiltro !== "") {
 
     // ===== INICIALIZACIÓN =====
     document.addEventListener('DOMContentLoaded', function() {
+      // Agregar animación CSS para notificaciones
+      const style = document.createElement('style');
+      style.textContent = `
+        @keyframes fadeInDown {
+          from {
+            opacity: 0;
+            transform: translateY(-20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        .animate-fade-in-down {
+          animation: fadeInDown 0.3s ease-out;
+        }
+      `;
+      document.head.appendChild(style);
+      
       // Guardar tarifas AJAX
       document.querySelectorAll('.tarjeta-tarifa input').forEach(input=>{
         input.addEventListener('change', ()=>{
