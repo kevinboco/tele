@@ -648,13 +648,16 @@ if ($empresaFiltro !== "") {
   /* ===== SISTEMA DE PANELES EXPANDIBLES ===== */
   :root {
     --left-panel-width: 400px;
+    --center-panel-width: 1100px;
     --right-panel-width: 350px;
-    --center-fixed-width: 1100px;
   }
   
   .main-layout {
     display: grid;
-    grid-template-columns: minmax(300px, var(--left-panel-width)) minmax(auto, var(--center-fixed-width)) minmax(250px, var(--right-panel-width));
+    grid-template-columns: 
+      minmax(300px, var(--left-panel-width)) 
+      minmax(800px, var(--center-panel-width)) 
+      minmax(250px, var(--right-panel-width));
     gap: 1rem;
     transition: grid-template-columns 0.3s ease;
     position: relative;
@@ -688,7 +691,8 @@ if ($empresaFiltro !== "") {
     min-width: 0;
   }
   
-  .panel-resize-handle {
+  /* Resize handles para TODOS los paneles */
+  .resize-handle {
     position: absolute;
     top: 0;
     width: 24px;
@@ -703,15 +707,23 @@ if ($empresaFiltro !== "") {
     user-select: none;
   }
   
-  .panel-resize-handle:hover {
+  .resize-handle:hover {
     opacity: 1;
   }
   
-  .panel-resize-handle.left {
+  .resize-handle.left {
     right: -12px;
   }
   
-  .panel-resize-handle.right {
+  .resize-handle.center-left {
+    left: -12px;
+  }
+  
+  .resize-handle.center-right {
+    right: -12px;
+  }
+  
+  .resize-handle.right {
     left: -12px;
   }
   
@@ -747,6 +759,14 @@ if ($empresaFiltro !== "") {
   }
   
   .panel-toggle-btn.left {
+    right: -16px;
+  }
+  
+  .panel-toggle-btn.center-left {
+    left: -16px;
+  }
+  
+  .panel-toggle-btn.center-right {
     right: -16px;
   }
   
@@ -816,12 +836,122 @@ if ($empresaFiltro !== "") {
     color: #475569;
     margin: auto;
   }
+  
+  /* Controles de tamaño para tabla central */
+  .table-controls {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 40;
+    display: flex;
+    gap: 4px;
+  }
+  
+  .table-control-btn {
+    background: white;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 12px;
+    color: #475569;
+    transition: all 0.2s;
+  }
+  
+  .table-control-btn:hover {
+    background: #f1f5f9;
+    color: #1e293b;
+  }
+  
+  /* Tabla expansible */
+  .table-container {
+    overflow-x: auto;
+    border-radius: 0.75rem;
+    border: 1px solid #e2e8f0;
+    transition: all 0.3s ease;
+    position: relative;
+  }
+  
+  .table-container.resizable {
+    min-width: 800px;
+    max-width: 1600px;
+    resize: horizontal;
+    overflow: auto;
+  }
+  
+  .table-container .table-wrapper {
+    min-width: 100%;
+  }
+  
+  /* Columnas ajustables */
+  .col-resizable {
+    position: relative;
+  }
+  
+  .col-resize-handle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 8px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  
+  .col-resize-handle:hover {
+    opacity: 1;
+    background: rgba(59, 130, 246, 0.1);
+  }
+  
+  /* Ancho dinámico para columnas de la tabla */
+  .dynamic-table {
+    width: 100%;
+    min-width: fit-content;
+  }
+  
+  .dynamic-table th,
+  .dynamic-table td {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  
+  /* Indicador visual de redimensionamiento */
+  .resize-indicator {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 10000;
+    display: none;
+  }
+  
+  .resize-indicator.active {
+    display: block;
+  }
+  
+  .resize-line {
+    position: absolute;
+    top: 0;
+    width: 2px;
+    height: 100%;
+    background: #3b82f6;
+    opacity: 0.7;
+  }
 </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
 
   <!-- Encabezado -->
-  <header class="max-w-[1600px] mx-auto px-3 md:px-4 pt-6">
+  <header class="max-w-[1800px] mx-auto px-3 md:px-4 pt-6">
     <div class="bg-white border border-slate-200 rounded-2xl shadow-sm px-5 py-4">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <h2 class="text-xl md:text-2xl font-bold">🪙 Liquidación de Conductores</h2>
@@ -843,7 +973,7 @@ if ($empresaFiltro !== "") {
       
       <!-- PANEL IZQUIERDO (Colapsable) -->
       <div id="leftPanel" class="left-panel panel-expanded">
-        <div class="panel-resize-handle left" data-panel="left">
+        <div class="resize-handle left" data-panel="left">
           <div class="resize-dot"></div>
         </div>
         
@@ -1061,17 +1191,49 @@ if ($empresaFiltro !== "") {
         </div>
       </div>
 
-      <!-- PANEL CENTRAL (Fijo - no se adapta) -->
-      <div id="centerPanel" class="center-panel">
-        <section id="container-resumen" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-          
-          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+      <!-- PANEL CENTRAL (Expansible/Retraible) -->
+      <div id="centerPanel" class="center-panel panel-expanded">
+        <!-- Resize handles para ambos lados -->
+        <div class="resize-handle center-left" data-panel="center" data-side="left">
+          <div class="resize-dot"></div>
+        </div>
+        
+        <div class="resize-handle center-right" data-panel="center" data-side="right">
+          <div class="resize-dot"></div>
+        </div>
+        
+        <!-- Controles de expansión -->
+        <div class="table-controls">
+          <button class="table-control-btn" onclick="expandTableWidth(100)" title="Expandir">
+            <span>+</span>
+          </button>
+          <button class="table-control-btn" onclick="shrinkTableWidth(100)" title="Contraer">
+            <span>-</span>
+          </button>
+          <button class="table-control-btn" onclick="resetTableWidth()" title="Restaurar tamaño">
+            <span>⟲</span>
+          </button>
+        </div>
+        
+        <div class="panel-header">
+          <div class="flex items-center justify-between w-full">
             <div>
               <h3 class="text-lg font-semibold">🧑‍✈️ Resumen por Conductor</h3>
               <div id="contador-conductores" class="text-xs text-slate-500 mt-1">
                 Mostrando <?= count($datos) ?> conductores
               </div>
             </div>
+            <div class="flex items-center gap-2">
+              <button onclick="toggleMinimize('resumen')" 
+                      class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+                ⬇️ Minimizar
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <div class="panel-body">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
             <div class="flex flex-col md:flex-row gap-3 w-full md:w-auto">
               <!-- BUSCADOR -->
               <div class="buscar-container w-full md:w-64">
@@ -1080,11 +1242,6 @@ if ($empresaFiltro !== "") {
                        class="w-full rounded-lg border border-slate-300 px-3 py-2 pl-3 pr-10 text-sm">
                 <button id="clearBuscar" class="buscar-clear">✕</button>
               </div>
-
-              <button onclick="toggleMinimize('resumen')" 
-                      class="minimize-btn text-xs px-3 py-2 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
-                ⬇️ Minimizar
-              </button>
 
               <div id="total_chip_container" class="flex flex-wrap items-center gap-2">
                 <span class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-700 font-semibold text-sm">
@@ -1103,109 +1260,119 @@ if ($empresaFiltro !== "") {
             </div>
           </div>
 
-          <div class="mt-4 w-full rounded-xl border border-slate-200 overflow-x-auto">
-            <table id="tabla_conductores" class="w-full text-sm table-fixed">
-              <colgroup>
-                <col class="col-conductor">
-                <col class="col-vehiculo">
-                <?php foreach ($clasificaciones_disponibles as $clasif): ?>
-                <col class="col-clasif">
+          <!-- CONTENEDOR DE TABLA EXPANSIBLE -->
+          <div id="tableContainer" class="table-container resizable" style="width: 1100px;">
+            <div class="table-wrapper">
+              <table id="tabla_conductores" class="dynamic-table w-full text-sm">
+                <thead class="bg-blue-600 text-white">
+                  <tr>
+                    <th class="px-3 py-2 text-left col-resizable" style="min-width: 200px; width: 25%;">
+                      Conductor
+                      <div class="col-resize-handle" data-col="0"></div>
+                    </th>
+                    <th class="px-3 py-2 text-center col-resizable" style="min-width: 100px; width: 12%;">
+                      Tipo
+                      <div class="col-resize-handle" data-col="1"></div>
+                    </th>
+                    <?php foreach ($clasificaciones_disponibles as $index => $clasif): 
+                      $estilo = obtenerEstiloClasificacion($clasif);
+                      $abreviatura = strtoupper(substr($clasif, 0, 3));
+                      if ($clasif === 'carrotanque') $abreviatura = 'CTK';
+                      if ($clasif === 'riohacha') $abreviatura = 'RIO';
+                      if ($clasif === 'siapana') $abreviatura = 'SIA';
+                    ?>
+                    <th class="px-3 py-2 text-center col-resizable" 
+                        title="<?= htmlspecialchars(ucfirst($clasif)) ?>"
+                        style="min-width: 70px; width: 7%; background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>; color: <?= str_replace('text-', '#', $estilo['text']) ?>;">
+                      <?= htmlspecialchars($abreviatura) ?>
+                      <div class="col-resize-handle" data-col="<?= $index + 2 ?>"></div>
+                    </th>
+                    <?php endforeach; ?>
+                    <th class="px-3 py-2 text-center col-resizable" style="min-width: 120px; width: 15%;">
+                      Total
+                      <div class="col-resize-handle" data-col="<?= count($clasificaciones_disponibles) + 2 ?>"></div>
+                    </th>
+                    <th class="px-3 py-2 text-center col-resizable" style="min-width: 100px; width: 12%;">
+                      Pagado
+                      <div class="col-resize-handle" data-col="<?= count($clasificaciones_disponibles) + 3 ?>"></div>
+                    </th>
+                    <th class="px-3 py-2 text-center col-resizable" style="min-width: 80px; width: 10%;">
+                      Faltante
+                      <div class="col-resize-handle" data-col="<?= count($clasificaciones_disponibles) + 4 ?>"></div>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody id="tabla_conductores_body" class="divide-y divide-slate-100 bg-white">
+                <?php foreach ($datos as $conductor => $info): 
+                  $esMensual = (stripos($info['vehiculo'], 'mensual') !== false);
+                  $claseVehiculo = $esMensual ? 'vehiculo-mensual' : '';
+                ?>
+                  <tr data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>" 
+                      data-conductor="<?= htmlspecialchars($conductor) ?>" 
+                      data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
+                      data-pagado="<?= (int)($info['pagado'] ?? 0) ?>"
+                      class="hover:bg-blue-50/40 transition-colors">
+                    <td class="px-3 py-2" style="min-width: 200px;">
+                      <button type="button"
+                              class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition"
+                              title="Ver viajes">
+                        <?= htmlspecialchars($conductor) ?>
+                      </button>
+                    </td>
+                    <td class="px-3 py-2 text-center" style="min-width: 100px;">
+                      <span class="inline-block <?= $claseVehiculo ?> px-2 py-1 rounded-lg text-xs font-medium">
+                        <?= htmlspecialchars($info['vehiculo']) ?>
+                        <?php if ($esMensual): ?>
+                          <span class="ml-1">📅</span>
+                        <?php endif; ?>
+                      </span>
+                    </td>
+                    
+                    <?php foreach ($clasificaciones_disponibles as $clasif): 
+                      $estilo = obtenerEstiloClasificacion($clasif);
+                      $cantidad = (int)($info[$clasif] ?? 0);
+                    ?>
+                    <td class="px-3 py-2 text-center font-medium" 
+                        style="min-width: 70px; background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>20;">
+                      <?= $cantidad ?>
+                    </td>
+                    <?php endforeach; ?>
+
+                    <!-- Total -->
+                    <td class="px-3 py-2" style="min-width: 120px;">
+                      <input type="text"
+                             class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none whitespace-nowrap tabular-nums"
+                             readonly dir="ltr">
+                    </td>
+
+                    <!-- Pagado -->
+                    <td class="px-3 py-2" style="min-width: 100px;">
+                      <input type="text"
+                             class="pagado w-full rounded-xl border border-emerald-200 px-3 py-2 text-right bg-emerald-50 outline-none whitespace-nowrap tabular-nums"
+                             readonly dir="ltr"
+                             value="<?= number_format((int)($info['pagado'] ?? 0), 0, ',', '.') ?>">
+                    </td>
+
+                    <!-- Faltante -->
+                    <td class="px-3 py-2" style="min-width: 80px;">
+                      <input type="text"
+                             class="faltante w-full rounded-xl border border-rose-200 px-3 py-2 text-right bg-rose-50 outline-none whitespace-nowrap tabular-nums"
+                             readonly dir="ltr"
+                             value="0">
+                    </td>
+
+                  </tr>
                 <?php endforeach; ?>
-                <col class="col-total">
-                <col class="col-pagado">
-                <col class="col-faltante">
-              </colgroup>
-              <thead class="bg-blue-600 text-white">
-                <tr>
-                  <th class="px-3 py-2 text-left">Conductor</th>
-                  <th class="px-3 py-2 text-center">Tipo</th>
-                  <?php foreach ($clasificaciones_disponibles as $clasif): 
-                    $estilo = obtenerEstiloClasificacion($clasif);
-                    $abreviatura = strtoupper(substr($clasif, 0, 3));
-                    if ($clasif === 'carrotanque') $abreviatura = 'CTK';
-                    if ($clasif === 'riohacha') $abreviatura = 'RIO';
-                    if ($clasif === 'siapana') $abreviatura = 'SIA';
-                  ?>
-                  <th class="px-3 py-2 text-center" title="<?= htmlspecialchars(ucfirst($clasif)) ?>"
-                      style="background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>; color: <?= str_replace('text-', '#', $estilo['text']) ?>;">
-                    <?= htmlspecialchars($abreviatura) ?>
-                  </th>
-                  <?php endforeach; ?>
-                  <th class="px-3 py-2 text-center">Total</th>
-                  <th class="px-3 py-2 text-center">Pagado</th>
-                  <th class="px-3 py-2 text-center">Faltante</th>
-                </tr>
-              </thead>
-              <tbody id="tabla_conductores_body" class="divide-y divide-slate-100 bg-white">
-              <?php foreach ($datos as $conductor => $info): 
-                $esMensual = (stripos($info['vehiculo'], 'mensual') !== false);
-                $claseVehiculo = $esMensual ? 'vehiculo-mensual' : '';
-              ?>
-                <tr data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>" 
-                    data-conductor="<?= htmlspecialchars($conductor) ?>" 
-                    data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
-                    data-pagado="<?= (int)($info['pagado'] ?? 0) ?>"
-                    class="hover:bg-blue-50/40 transition-colors">
-                  <td class="px-3 py-2">
-                    <button type="button"
-                            class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition"
-                            title="Ver viajes">
-                      <?= htmlspecialchars($conductor) ?>
-                    </button>
-                  </td>
-                  <td class="px-3 py-2 text-center">
-                    <span class="inline-block <?= $claseVehiculo ?> px-2 py-1 rounded-lg text-xs font-medium">
-                      <?= htmlspecialchars($info['vehiculo']) ?>
-                      <?php if ($esMensual): ?>
-                        <span class="ml-1">📅</span>
-                      <?php endif; ?>
-                    </span>
-                  </td>
-                  
-                  <?php foreach ($clasificaciones_disponibles as $clasif): 
-                    $estilo = obtenerEstiloClasificacion($clasif);
-                    $cantidad = (int)($info[$clasif] ?? 0);
-                  ?>
-                  <td class="px-3 py-2 text-center font-medium" 
-                      style="background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>20;">
-                    <?= $cantidad ?>
-                  </td>
-                  <?php endforeach; ?>
-
-                  <!-- Total -->
-                  <td class="px-3 py-2">
-                    <input type="text"
-                           class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none whitespace-nowrap tabular-nums"
-                           readonly dir="ltr">
-                  </td>
-
-                  <!-- Pagado -->
-                  <td class="px-3 py-2">
-                    <input type="text"
-                           class="pagado w-full rounded-xl border border-emerald-200 px-3 py-2 text-right bg-emerald-50 outline-none whitespace-nowrap tabular-nums"
-                           readonly dir="ltr"
-                           value="<?= number_format((int)($info['pagado'] ?? 0), 0, ',', '.') ?>">
-                  </td>
-
-                  <!-- Faltante -->
-                  <td class="px-3 py-2">
-                    <input type="text"
-                           class="faltante w-full rounded-xl border border-rose-200 px-3 py-2 text-right bg-rose-50 outline-none whitespace-nowrap tabular-nums"
-                           readonly dir="ltr"
-                           value="0">
-                  </td>
-
-                </tr>
-              <?php endforeach; ?>
-              </tbody>
-            </table>
+                </tbody>
+              </table>
+            </div>
           </div>
-        </section>
+        </div>
       </div>
 
       <!-- PANEL DERECHO (Colapsable) -->
       <div id="rightPanel" class="right-panel panel-expanded">
-        <div class="panel-resize-handle right" data-panel="right">
+        <div class="resize-handle right" data-panel="right">
           <div class="resize-dot"></div>
         </div>
         
@@ -1250,54 +1417,59 @@ if ($empresaFiltro !== "") {
   <!-- Área para las bolitas flotantes -->
   <div id="floatingBallsArea"></div>
 
+  <!-- Indicador visual de redimensionamiento -->
+  <div id="resizeIndicator" class="resize-indicator">
+    <div id="resizeLine" class="resize-line"></div>
+  </div>
+
   <script>
-    // ===== SISTEMA DE PANELES EXPANDIBLES/REDUCIBLES =====
+    // ===== SISTEMA DE REDIMENSIONAMIENTO COMPLETO =====
     let isResizing = false;
     let currentPanel = null;
+    let currentSide = null;
     let startX, startWidth;
+    let startCenterWidth, startLeftWidth, startRightWidth;
+    const originalCenterWidth = 1100;
+    const originalLeftWidth = 400;
+    const originalRightWidth = 350;
+    const minCenterWidth = 800;
+    const maxCenterWidth = 1600;
+    const minPanelWidth = 250;
+    const maxPanelWidth = 600;
     
-    function togglePanel(panelSide) {
-      const panel = document.getElementById(panelSide + 'Panel');
-      const mainLayout = document.querySelector('.main-layout');
-      
-      if (panel.classList.contains('panel-collapsed')) {
-        // Expandir panel
-        panel.classList.remove('panel-collapsed');
-        panel.classList.add('panel-expanded');
-        
-        // Restaurar grid
-        if (panelSide === 'left') {
-          mainLayout.style.gridTemplateColumns = 'minmax(300px, 400px) minmax(auto, 1100px) minmax(250px, 350px)';
-        } else {
-          mainLayout.style.gridTemplateColumns = 'minmax(300px, 400px) minmax(auto, 1100px) minmax(250px, 350px)';
-        }
-      } else {
-        // Colapsar panel
-        panel.classList.remove('panel-expanded');
-        panel.classList.add('panel-collapsed');
-        
-        // Ajustar grid
-        if (panelSide === 'left') {
-          mainLayout.style.gridTemplateColumns = '60px minmax(auto, 1100px) minmax(250px, 350px)';
-        } else {
-          mainLayout.style.gridTemplateColumns = 'minmax(300px, 400px) minmax(auto, 1100px) 60px';
-        }
-      }
-    }
+    // Configuración inicial de CSS
+    document.documentElement.style.setProperty('--center-panel-width', originalCenterWidth + 'px');
+    document.documentElement.style.setProperty('--left-panel-width', originalLeftWidth + 'px');
+    document.documentElement.style.setProperty('--right-panel-width', originalRightWidth + 'px');
     
-    // Sistema de redimensionamiento
-    document.querySelectorAll('.panel-resize-handle').forEach(handle => {
+    // Sistema de redimensionamiento para TODOS los paneles
+    document.querySelectorAll('.resize-handle').forEach(handle => {
       handle.addEventListener('mousedown', initResize);
     });
     
     function initResize(e) {
-      currentPanel = e.target.closest('.panel-resize-handle').dataset.panel;
+      const handle = e.target.closest('.resize-handle');
+      currentPanel = handle.dataset.panel;
+      currentSide = handle.dataset.side || 'right'; // Por defecto
+      
       const panel = document.getElementById(currentPanel + 'Panel');
+      const tableContainer = document.getElementById('tableContainer');
       const mainLayout = document.querySelector('.main-layout');
       
       isResizing = true;
       startX = e.clientX;
-      startWidth = parseInt(getComputedStyle(panel).width, 10);
+      
+      // Guardar dimensiones iniciales
+      if (currentPanel === 'center') {
+        startCenterWidth = parseInt(getComputedStyle(tableContainer).width, 10);
+        startLeftWidth = parseInt(getComputedStyle(document.getElementById('leftPanel')).width, 10);
+        startRightWidth = parseInt(getComputedStyle(document.getElementById('rightPanel')).width, 10);
+      } else {
+        startWidth = parseInt(getComputedStyle(panel).width, 10);
+      }
+      
+      // Mostrar indicador visual
+      document.getElementById('resizeIndicator').classList.add('active');
       
       document.addEventListener('mousemove', resize);
       document.addEventListener('mouseup', stopResize);
@@ -1308,26 +1480,78 @@ if ($empresaFiltro !== "") {
     function resize(e) {
       if (!isResizing) return;
       
-      const panel = document.getElementById(currentPanel + 'Panel');
-      const mainLayout = document.querySelector('.main-layout');
       const dx = e.clientX - startX;
+      const tableContainer = document.getElementById('tableContainer');
+      const mainLayout = document.querySelector('.main-layout');
+      const root = document.documentElement;
       
-      let newWidth;
-      if (currentPanel === 'left') {
-        newWidth = startWidth + dx;
-        // Límites mínimo y máximo
-        newWidth = Math.max(250, Math.min(newWidth, 600));
+      // Actualizar línea visual
+      const resizeLine = document.getElementById('resizeLine');
+      resizeLine.style.left = e.clientX + 'px';
+      
+      if (currentPanel === 'center') {
+        // Redimensionar panel CENTRAL
+        let newCenterWidth;
+        
+        if (currentSide === 'left') {
+          // Redimensionar desde el lado izquierdo
+          newCenterWidth = startCenterWidth - dx;
+          const newLeftWidth = startLeftWidth + dx;
+          
+          // Aplicar límites
+          newCenterWidth = Math.max(minCenterWidth, Math.min(newCenterWidth, maxCenterWidth));
+          const clampedLeftWidth = Math.max(minPanelWidth, Math.min(newLeftWidth, maxPanelWidth));
+          
+          // Ajustar diferencial
+          const leftDiff = newLeftWidth - clampedLeftWidth;
+          if (leftDiff !== 0) {
+            newCenterWidth += leftDiff;
+          }
+          
+          // Aplicar cambios
+          tableContainer.style.width = newCenterWidth + 'px';
+          root.style.setProperty('--center-panel-width', newCenterWidth + 'px');
+          root.style.setProperty('--left-panel-width', clampedLeftWidth + 'px');
+          
+        } else {
+          // Redimensionar desde el lado derecho
+          newCenterWidth = startCenterWidth + dx;
+          const newRightWidth = startRightWidth - dx;
+          
+          // Aplicar límites
+          newCenterWidth = Math.max(minCenterWidth, Math.min(newCenterWidth, maxCenterWidth));
+          const clampedRightWidth = Math.max(minPanelWidth, Math.min(newRightWidth, maxPanelWidth));
+          
+          // Ajustar diferencial
+          const rightDiff = newRightWidth - clampedRightWidth;
+          if (rightDiff !== 0) {
+            newCenterWidth -= rightDiff;
+          }
+          
+          // Aplicar cambios
+          tableContainer.style.width = newCenterWidth + 'px';
+          root.style.setProperty('--center-panel-width', newCenterWidth + 'px');
+          root.style.setProperty('--right-panel-width', clampedRightWidth + 'px');
+        }
+        
       } else {
-        newWidth = startWidth - dx;
-        newWidth = Math.max(200, Math.min(newWidth, 500));
+        // Redimensionar paneles LATERALES
+        const panel = document.getElementById(currentPanel + 'Panel');
+        let newWidth;
+        
+        if (currentPanel === 'left') {
+          newWidth = startWidth + dx;
+        } else {
+          newWidth = startWidth - dx;
+        }
+        
+        // Aplicar límites
+        newWidth = Math.max(minPanelWidth, Math.min(newWidth, maxPanelWidth));
+        
+        // Aplicar nuevo ancho
+        panel.style.width = newWidth + 'px';
+        root.style.setProperty(`--${currentPanel}-panel-width`, newWidth + 'px');
       }
-      
-      // Aplicar nuevo ancho
-      panel.style.width = newWidth + 'px';
-      
-      // Forzar ancho fijo en panel central
-      document.getElementById('centerPanel').style.minWidth = '1100px';
-      document.getElementById('centerPanel').style.maxWidth = '1100px';
       
       // Prevenir selección de texto durante el resize
       document.body.style.userSelect = 'none';
@@ -1339,8 +1563,129 @@ if ($empresaFiltro !== "") {
       document.removeEventListener('mousemove', resize);
       document.removeEventListener('mouseup', stopResize);
       
+      // Ocultar indicador visual
+      document.getElementById('resizeIndicator').classList.remove('active');
+      
       document.body.style.userSelect = '';
       document.body.style.cursor = '';
+    }
+    
+    // ===== CONTROLES PARA TABLA CENTRAL =====
+    function expandTableWidth(amount = 100) {
+      const tableContainer = document.getElementById('tableContainer');
+      const root = document.documentElement;
+      const currentWidth = parseInt(getComputedStyle(tableContainer).width, 10);
+      const newWidth = Math.min(currentWidth + amount, maxCenterWidth);
+      
+      tableContainer.style.width = newWidth + 'px';
+      root.style.setProperty('--center-panel-width', newWidth + 'px');
+    }
+    
+    function shrinkTableWidth(amount = 100) {
+      const tableContainer = document.getElementById('tableContainer');
+      const root = document.documentElement;
+      const currentWidth = parseInt(getComputedStyle(tableContainer).width, 10);
+      const newWidth = Math.max(currentWidth - amount, minCenterWidth);
+      
+      tableContainer.style.width = newWidth + 'px';
+      root.style.setProperty('--center-panel-width', newWidth + 'px');
+    }
+    
+    function resetTableWidth() {
+      const tableContainer = document.getElementById('tableContainer');
+      const root = document.documentElement;
+      
+      tableContainer.style.width = originalCenterWidth + 'px';
+      root.style.setProperty('--center-panel-width', originalCenterWidth + 'px');
+      root.style.setProperty('--left-panel-width', originalLeftWidth + 'px');
+      root.style.setProperty('--right-panel-width', originalRightWidth + 'px');
+      
+      // Restaurar también los paneles laterales
+      document.getElementById('leftPanel').style.width = '';
+      document.getElementById('rightPanel').style.width = '';
+    }
+    
+    // ===== REDIMENSIONAMIENTO DE COLUMNAS =====
+    let isResizingColumn = false;
+    let currentColIndex = null;
+    let startColX, startColWidth;
+    
+    document.querySelectorAll('.col-resize-handle').forEach(handle => {
+      handle.addEventListener('mousedown', initColResize);
+    });
+    
+    function initColResize(e) {
+      currentColIndex = parseInt(e.target.dataset.col);
+      isResizingColumn = true;
+      startColX = e.clientX;
+      
+      const table = document.getElementById('tabla_conductores');
+      const col = table.querySelectorAll('th, td').nth(currentColIndex);
+      startColWidth = col.getBoundingClientRect().width;
+      
+      // Mostrar indicador visual
+      document.getElementById('resizeIndicator').classList.add('active');
+      const resizeLine = document.getElementById('resizeLine');
+      resizeLine.style.left = e.clientX + 'px';
+      
+      document.addEventListener('mousemove', resizeColumn);
+      document.addEventListener('mouseup', stopColResize);
+      
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    
+    function resizeColumn(e) {
+      if (!isResizingColumn) return;
+      
+      const dx = e.clientX - startColX;
+      const newWidth = Math.max(50, startColWidth + dx);
+      
+      // Actualizar línea visual
+      const resizeLine = document.getElementById('resizeLine');
+      resizeLine.style.left = e.clientX + 'px';
+      
+      // Aplicar nuevo ancho a todas las celdas de esta columna
+      const table = document.getElementById('tabla_conductores');
+      const allRows = table.querySelectorAll('tr');
+      
+      allRows.forEach(row => {
+        const cell = row.children[currentColIndex];
+        if (cell) {
+          cell.style.width = newWidth + 'px';
+          cell.style.minWidth = newWidth + 'px';
+        }
+      });
+      
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'col-resize';
+    }
+    
+    function stopColResize() {
+      isResizingColumn = false;
+      document.removeEventListener('mousemove', resizeColumn);
+      document.removeEventListener('mouseup', stopColResize);
+      
+      // Ocultar indicador visual
+      document.getElementById('resizeIndicator').classList.remove('active');
+      
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    }
+    
+    // ===== SISTEMA DE PANELES COLAPSABLES =====
+    function togglePanel(panelSide) {
+      const panel = document.getElementById(panelSide + 'Panel');
+      
+      if (panel.classList.contains('panel-collapsed')) {
+        // Expandir panel
+        panel.classList.remove('panel-collapsed');
+        panel.classList.add('panel-expanded');
+      } else {
+        // Colapsar panel
+        panel.classList.remove('panel-expanded');
+        panel.classList.add('panel-collapsed');
+      }
     }
     
     // ===== SISTEMA DE MINIMIZAR CONTENEDORES =====
