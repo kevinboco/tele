@@ -549,6 +549,101 @@ if ($empresaFiltro !== "") {
   .col-total { width: 15%; }
   .col-pagado { width: 12%; }
   .col-faltante { width: 10%; }
+  
+  /* Estilos para las bolitas flotantes */
+  .container-minimized {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  .floating-ball {
+    position: fixed !important;
+    z-index: 9999;
+    width: 60px !important;
+    height: 60px !important;
+    border-radius: 50% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: move !important;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2) !important;
+    transition: transform 0.2s, box-shadow 0.2s !important;
+    user-select: none !important;
+    overflow: hidden !important;
+    border: 2px solid white !important;
+  }
+  
+  .floating-ball:hover {
+    transform: scale(1.1);
+    box-shadow: 0 15px 30px rgba(0, 0, 0, 0.3);
+  }
+  
+  .floating-ball:active {
+    cursor: grabbing !important;
+  }
+  
+  .floating-ball.minimized {
+    animation: shrinkToBall 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+  
+  .floating-ball.restored {
+    animation: expandFromBall 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+  
+  @keyframes shrinkToBall {
+    0% {
+      border-radius: 12px;
+      width: var(--original-width);
+      height: var(--original-height);
+      left: var(--original-left);
+      top: var(--original-top);
+    }
+    50% {
+      border-radius: 30px;
+      transform: scale(0.7);
+    }
+    100% {
+      border-radius: 50%;
+      width: 60px !important;
+      height: 60px !important;
+      transform: scale(1);
+      left: var(--ball-left, 20px) !important;
+      top: var(--ball-top, 20px) !important;
+    }
+  }
+  
+  @keyframes expandFromBall {
+    0% {
+      border-radius: 50%;
+      width: 60px !important;
+      height: 60px !important;
+      left: var(--ball-left, 20px) !important;
+      top: var(--ball-top, 20px) !important;
+    }
+    50% {
+      border-radius: 30px;
+      transform: scale(1.2);
+    }
+    100% {
+      border-radius: 12px;
+      width: var(--original-width) !important;
+      height: var(--original-height) !important;
+      left: var(--original-left) !important;
+      top: var(--original-top) !important;
+      transform: scale(1);
+    }
+  }
+  
+  .ball-content {
+    font-size: 12px;
+    font-weight: bold;
+    text-align: center;
+    color: white;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 90%;
+  }
 </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
@@ -578,11 +673,17 @@ if ($empresaFiltro !== "") {
       <section class="space-y-5">
 
         <!-- Tarjetas de tarifas DINÁMICAS -->
-        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-          <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
-            <span>🚐 Tarifas por Tipo de Vehículo</span>
-            <span class="text-xs text-slate-500">(<?= count($columnas_tarifas) ?> tipos de tarifas)</span>
-          </h3>
+        <div id="container-tarifas" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold flex items-center gap-2">
+              <span>🚐 Tarifas por Tipo de Vehículo</span>
+              <span class="text-xs text-slate-500">(<?= count($columnas_tarifas) ?> tipos de tarifas)</span>
+            </h3>
+            <button onclick="toggleMinimize('tarifas')" 
+                    class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+              ⬇️ Minimizar
+            </button>
+          </div>
 
           <div id="tarifas_grid" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <?php foreach ($vehiculos as $veh):
@@ -628,8 +729,14 @@ if ($empresaFiltro !== "") {
         </div>
 
         <!-- Filtro -->
-        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-          <h5 class="text-base font-semibold text-center mb-4">📅 Filtro de Liquidación</h5>
+        <div id="container-filtro" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h5 class="text-base font-semibold text-center">📅 Filtro de Liquidación</h5>
+            <button onclick="toggleMinimize('filtro')" 
+                    class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+              ⬇️ Minimizar
+            </button>
+          </div>
           <form class="grid grid-cols-1 md:grid-cols-4 gap-3" method="get">
             <label class="block md:col-span-1">
               <span class="block text-sm font-medium mb-1">Desde</span>
@@ -662,11 +769,18 @@ if ($empresaFiltro !== "") {
         </div>
 
         <!-- 🔹 Panel de CREACIÓN de NUEVAS CLASIFICACIONES -->
-        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-          <h5 class="text-base font-semibold mb-3 flex items-center justify-between">
-            <span>➕ Crear Nueva Clasificación</span>
-            <span class="text-xs text-slate-500">Dinámico</span>
-          </h5>
+        <div id="container-crear-clasif" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h5 class="text-base font-semibold flex items-center justify-between">
+              <span>➕ Crear Nueva Clasificación</span>
+              <span class="text-xs text-slate-500">Dinámico</span>
+            </h5>
+            <button onclick="toggleMinimize('crear-clasif')" 
+                    class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+              ⬇️ Minimizar
+            </button>
+          </div>
+          
           <p class="text-xs text-slate-500 mb-3">
             Crea una nueva clasificación. Se agregará a la tabla tarifas.
           </p>
@@ -697,11 +811,17 @@ if ($empresaFiltro !== "") {
         </div>
 
         <!-- 🔹 Panel de CLASIFICACIÓN de RUTAS -->
-        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-          <h5 class="text-base font-semibold mb-3 flex items-center justify-between">
-            <span>🧭 Clasificar Rutas Existentes</span>
-            <span class="text-xs text-slate-500">Usa clasificaciones creadas</span>
-          </h5>
+        <div id="container-clasif-rutas" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h5 class="text-base font-semibold flex items-center justify-between">
+              <span>🧭 Clasificar Rutas Existentes</span>
+              <span class="text-xs text-slate-500">Usa clasificaciones creadas</span>
+            </h5>
+            <button onclick="toggleMinimize('clasif-rutas')" 
+                    class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+              ⬇️ Minimizar
+            </button>
+          </div>
 
           <div class="max-h-[260px] overflow-y-auto border border-slate-200 rounded-xl">
             <table class="w-full text-xs">
@@ -755,7 +875,7 @@ if ($empresaFiltro !== "") {
       </section>
 
       <!-- Columna 2: Resumen por conductor -->
-      <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+      <section id="container-resumen" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
         
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
           <div>
@@ -772,6 +892,11 @@ if ($empresaFiltro !== "") {
                      class="w-full rounded-lg border border-slate-300 px-3 py-2 pl-3 pr-10 text-sm">
               <button id="clearBuscar" class="buscar-clear">✕</button>
             </div>
+
+            <button onclick="toggleMinimize('resumen')" 
+                    class="minimize-btn text-xs px-3 py-2 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+              ⬇️ Minimizar
+            </button>
 
             <div id="total_chip_container" class="flex flex-wrap items-center gap-2">
               <span class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-700 font-semibold text-sm">
@@ -892,8 +1017,14 @@ if ($empresaFiltro !== "") {
       <!-- Columna 3: Panel viajes -->
       <aside class="space-y-5">
         <!-- Panel viajes -->
-        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-          <h4 class="text-base font-semibold mb-3">🧳 Viajes del Conductor</h4>
+        <div id="container-panel-viajes" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h4 class="text-base font-semibold">🧳 Viajes del Conductor</h4>
+            <button onclick="toggleMinimize('panel-viajes')" 
+                    class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+              ⬇️ Minimizar
+            </button>
+          </div>
           <div id="contenidoPanel"
                class="min-h-[220px] max-h-[400px] overflow-y-auto rounded-xl border border-slate-200 p-4 text-sm text-slate-600">
             <div class="flex flex-col items-center justify-center h-full text-center">
@@ -912,7 +1043,219 @@ if ($empresaFiltro !== "") {
     </div>
   </main>
 
+  <!-- Área para las bolitas flotantes -->
+  <div id="floatingBallsArea"></div>
+
   <script>
+    // ===== SISTEMA DE MINIMIZAR CONTENEDORES =====
+    const containerStates = {};
+    const ballColors = {
+      'tarifas': 'bg-gradient-to-br from-blue-500 to-cyan-500',
+      'filtro': 'bg-gradient-to-br from-green-500 to-emerald-500',
+      'crear-clasif': 'bg-gradient-to-br from-purple-500 to-pink-500',
+      'clasif-rutas': 'bg-gradient-to-br from-orange-500 to-amber-500',
+      'resumen': 'bg-gradient-to-br from-indigo-500 to-purple-500',
+      'panel-viajes': 'bg-gradient-to-br from-teal-500 to-cyan-500'
+    };
+    
+    const ballIcons = {
+      'tarifas': '🚐',
+      'filtro': '📅',
+      'crear-clasif': '➕',
+      'clasif-rutas': '🧭',
+      'resumen': '🧑‍✈️',
+      'panel-viajes': '🧳'
+    };
+    
+    const ballTitles = {
+      'tarifas': 'Tarifas',
+      'filtro': 'Filtro',
+      'crear-clasif': 'Crear Clasif',
+      'clasif-rutas': 'Clasif Rutas',
+      'resumen': 'Resumen',
+      'panel-viajes': 'Viajes'
+    };
+
+    function toggleMinimize(containerId) {
+      const container = document.getElementById(`container-${containerId}`);
+      const ball = document.getElementById(`ball-${containerId}`);
+      
+      if (container.classList.contains('hidden')) {
+        // Restaurar desde la bolita
+        restoreContainer(containerId);
+      } else {
+        // Minimizar a bolita
+        minimizeToBall(containerId);
+      }
+    }
+
+    function minimizeToBall(containerId) {
+      const container = document.getElementById(`container-${containerId}`);
+      const ballArea = document.getElementById('floatingBallsArea');
+      
+      // Guardar posición original
+      const rect = container.getBoundingClientRect();
+      containerStates[containerId] = {
+        originalLeft: rect.left + window.scrollX,
+        originalTop: rect.top + window.scrollY,
+        originalWidth: rect.width,
+        originalHeight: rect.height,
+        container: container
+      };
+      
+      // Crear bolita flotante
+      const ball = document.createElement('div');
+      ball.id = `ball-${containerId}`;
+      ball.className = `floating-ball minimized ${ballColors[containerId]}`;
+      ball.style.setProperty('--original-width', rect.width + 'px');
+      ball.style.setProperty('--original-height', rect.height + 'px');
+      ball.style.setProperty('--original-left', rect.left + window.scrollX + 'px');
+      ball.style.setProperty('--original-top', rect.top + window.scrollY + 'px');
+      
+      // Posición aleatoria inicial
+      const randomLeft = Math.random() * (window.innerWidth - 100) + 20;
+      const randomTop = Math.random() * (window.innerHeight - 100) + 20;
+      ball.style.setProperty('--ball-left', randomLeft + 'px');
+      ball.style.setProperty('--ball-top', randomTop + 'px');
+      
+      // Contenido de la bolita
+      ball.innerHTML = `
+        <div class="ball-content">
+          <div class="text-2xl">${ballIcons[containerId]}</div>
+          <div class="text-[10px] mt-1">${ballTitles[containerId]}</div>
+        </div>
+      `;
+      
+      // Hacer la bolita arrastrable
+      makeBallDraggable(ball, containerId);
+      
+      // Agregar evento de clic para restaurar
+      ball.addEventListener('click', function(e) {
+        if (!e.target.closest('.close-ball')) {
+          restoreContainer(containerId);
+        }
+      });
+      
+      // Botón para cerrar la bolita
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'close-ball absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600';
+      closeBtn.innerHTML = '×';
+      closeBtn.onclick = function(e) {
+        e.stopPropagation();
+        removeBall(containerId);
+      };
+      ball.appendChild(closeBtn);
+      
+      // Ocultar contenedor y mostrar bolita
+      container.classList.add('hidden');
+      ballArea.appendChild(ball);
+      
+      // Animar la transformación a bolita
+      setTimeout(() => {
+        ball.classList.remove('minimized');
+        ball.style.left = randomLeft + 'px';
+        ball.style.top = randomTop + 'px';
+        ball.style.width = '60px';
+        ball.style.height = '60px';
+      }, 50);
+    }
+
+    function restoreContainer(containerId) {
+      const container = containerStates[containerId].container;
+      const ball = document.getElementById(`ball-${containerId}`);
+      
+      if (!ball || !container) return;
+      
+      // Animar restauración
+      ball.classList.add('restored');
+      
+      setTimeout(() => {
+        // Mostrar contenedor
+        container.classList.remove('hidden');
+        
+        // Eliminar bolita
+        if (ball.parentNode) {
+          ball.parentNode.removeChild(ball);
+        }
+        
+        // Limpiar animación
+        ball.classList.remove('restored');
+      }, 500);
+    }
+
+    function removeBall(containerId) {
+      const ball = document.getElementById(`ball-${containerId}`);
+      if (ball && ball.parentNode) {
+        ball.parentNode.removeChild(ball);
+      }
+    }
+
+    function makeBallDraggable(ball, containerId) {
+      let isDragging = false;
+      let currentX;
+      let currentY;
+      let initialX;
+      let initialY;
+      let xOffset = 0;
+      let yOffset = 0;
+      
+      ball.addEventListener('mousedown', dragStart);
+      ball.addEventListener('touchstart', dragStart);
+      
+      function dragStart(e) {
+        if (e.type === "touchstart") {
+          initialX = e.touches[0].clientX - xOffset;
+          initialY = e.touches[0].clientY - yOffset;
+        } else {
+          initialX = e.clientX - xOffset;
+          initialY = e.clientY - yOffset;
+        }
+        
+        if (e.target === ball || e.target.closest('.ball-content')) {
+          isDragging = true;
+          ball.style.cursor = 'grabbing';
+          ball.style.zIndex = '10000';
+        }
+      }
+      
+      function dragEnd(e) {
+        initialX = currentX;
+        initialY = currentY;
+        isDragging = false;
+        ball.style.cursor = 'move';
+        ball.style.zIndex = '9999';
+        
+        // Guardar posición final
+        ball.style.setProperty('--ball-left', ball.style.left);
+        ball.style.setProperty('--ball-top', ball.style.top);
+      }
+      
+      function drag(e) {
+        if (isDragging) {
+          e.preventDefault();
+          
+          if (e.type === "touchmove") {
+            currentX = e.touches[0].clientX - initialX;
+            currentY = e.touches[0].clientY - initialY;
+          } else {
+            currentX = e.clientX - initialX;
+            currentY = e.clientY - initialY;
+          }
+          
+          xOffset = currentX;
+          yOffset = currentY;
+          
+          ball.style.left = currentX + "px";
+          ball.style.top = currentY + "px";
+        }
+      }
+      
+      document.addEventListener('mousemove', drag);
+      document.addEventListener('touchmove', drag, { passive: false });
+      document.addEventListener('mouseup', dragEnd);
+      document.addEventListener('touchend', dragEnd);
+    }
+
     // ===== BUSCADOR DE CONDUCTORES =====
     const buscadorConductores = document.getElementById('buscadorConductores');
     const clearBuscar = document.getElementById('clearBuscar');
