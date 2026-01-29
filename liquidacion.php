@@ -644,6 +644,178 @@ if ($empresaFiltro !== "") {
     text-overflow: ellipsis;
     max-width: 90%;
   }
+  
+  /* ===== SISTEMA DE PANELES EXPANDIBLES ===== */
+  :root {
+    --left-panel-width: 400px;
+    --right-panel-width: 350px;
+    --center-fixed-width: 1100px;
+  }
+  
+  .main-layout {
+    display: grid;
+    grid-template-columns: minmax(300px, var(--left-panel-width)) minmax(auto, var(--center-fixed-width)) minmax(250px, var(--right-panel-width));
+    gap: 1rem;
+    transition: grid-template-columns 0.3s ease;
+    position: relative;
+    overflow: hidden !important;
+  }
+  
+  .left-panel {
+    position: relative;
+    transition: all 0.3s ease;
+    background: white;
+    border-radius: 1rem;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    min-width: 0;
+  }
+  
+  .center-panel {
+    position: relative;
+    min-width: 0;
+    overflow: visible !important;
+    transition: all 0.3s ease;
+  }
+  
+  .right-panel {
+    position: relative;
+    transition: all 0.3s ease;
+    background: white;
+    border-radius: 1rem;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    min-width: 0;
+  }
+  
+  .panel-resize-handle {
+    position: absolute;
+    top: 0;
+    width: 24px;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: col-resize;
+    z-index: 100;
+    opacity: 0;
+    transition: opacity 0.2s;
+    user-select: none;
+  }
+  
+  .panel-resize-handle:hover {
+    opacity: 1;
+  }
+  
+  .panel-resize-handle.left {
+    right: -12px;
+  }
+  
+  .panel-resize-handle.right {
+    left: -12px;
+  }
+  
+  .resize-dot {
+    width: 4px;
+    height: 30px;
+    background: #94a3b8;
+    border-radius: 2px;
+  }
+  
+  .panel-toggle-btn {
+    position: absolute;
+    top: 10px;
+    z-index: 50;
+    background: white;
+    border: 1px solid #cbd5e1;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    transition: all 0.2s;
+    color: #475569;
+  }
+  
+  .panel-toggle-btn:hover {
+    background: #f1f5f9;
+    transform: scale(1.1);
+    color: #1e293b;
+  }
+  
+  .panel-toggle-btn.left {
+    right: -16px;
+  }
+  
+  .panel-toggle-btn.right {
+    left: -16px;
+  }
+  
+  .panel-collapsed {
+    width: 60px !important;
+    min-width: 60px !important;
+    max-width: 60px !important;
+    overflow: hidden !important;
+  }
+  
+  .panel-collapsed .panel-content {
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s, visibility 0.2s;
+  }
+  
+  .panel-collapsed .panel-toggle-btn .expand-icon {
+    display: block;
+  }
+  
+  .panel-collapsed .panel-toggle-btn .collapse-icon {
+    display: none;
+  }
+  
+  .panel-expanded .panel-toggle-btn .expand-icon {
+    display: none;
+  }
+  
+  .panel-expanded .panel-toggle-btn .collapse-icon {
+    display: block;
+  }
+  
+  .panel-header {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    background: white;
+    padding: 1rem;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  
+  .panel-body {
+    padding: 1rem;
+    overflow-y: auto;
+    max-height: calc(100vh - 120px);
+  }
+  
+  .panel-collapsed .panel-header,
+  .panel-collapsed .panel-body {
+    padding: 0.5rem;
+    text-align: center;
+  }
+  
+  .panel-title-collapsed {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #475569;
+    margin: auto;
+  }
 </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
@@ -666,379 +838,411 @@ if ($empresaFiltro !== "") {
   </header>
 
   <!-- Contenido -->
-  <main class="max-w-[1600px] mx-auto px-3 md:px-4 py-6">
-    <div class="grid grid-cols-1 xl:grid-cols-[1fr_2.6fr_0.9fr] gap-5 items-start">
-
-      <!-- Columna 1: Tarifas + Filtro + Clasificación de rutas -->
-      <section class="space-y-5">
-
-        <!-- Tarjetas de tarifas DINÁMICAS -->
-        <div id="container-tarifas" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="text-lg font-semibold flex items-center gap-2">
-              <span>🚐 Tarifas por Tipo de Vehículo</span>
-              <span class="text-xs text-slate-500">(<?= count($columnas_tarifas) ?> tipos de tarifas)</span>
-            </h3>
-            <button onclick="toggleMinimize('tarifas')" 
-                    class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
-              ⬇️ Minimizar
-            </button>
-          </div>
-
-          <div id="tarifas_grid" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <?php foreach ($vehiculos as $veh):
-              $t = $tarifas_guardadas[$veh] ?? [];
-            ?>
-            <div class="tarjeta-tarifa rounded-2xl border border-slate-200 p-4 shadow-sm bg-slate-50"
-                 data-vehiculo="<?= htmlspecialchars($veh) ?>">
-
-              <div class="flex items-center justify-between mb-3">
-                <div class="text-base font-semibold"><?= htmlspecialchars($veh) ?></div>
-                <span class="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 border border-blue-200">Config</span>
-              </div>
-
-              <?php foreach ($columnas_tarifas as $columna): 
-                $valor = isset($t[$columna]) ? (float)$t[$columna] : 0;
-                $etiqueta = ucfirst($columna);
-                
-                // Etiquetas especiales
-                $etiquetas_especiales = [
-                    'completo' => 'Viaje Completo',
-                    'medio' => 'Viaje Medio',
-                    'extra' => 'Viaje Extra',
-                    'carrotanque' => 'Carrotanque',
-                    'siapana' => 'Siapana',
-                    'riohacha' => 'Riohacha',
-                    'pru' => 'Pru',
-                    'maco' => 'Maco'
-                ];
-                
-                $etiqueta_final = $etiquetas_especiales[$columna] ?? $etiqueta;
-              ?>
-              <label class="block mb-3">
-                <span class="block text-sm font-medium mb-1"><?= htmlspecialchars($etiqueta_final) ?></span>
-                <input type="number" step="1000" value="<?= $valor ?>"
-                       data-campo="<?= htmlspecialchars($columna) ?>"
-                       class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
-                       oninput="recalcular()">
-              </label>
-              <?php endforeach; ?>
-            </div>
-            <?php endforeach; ?>
-          </div>
+  <main class="max-w-[1800px] mx-auto px-3 md:px-4 py-6">
+    <div class="main-layout">
+      
+      <!-- PANEL IZQUIERDO (Colapsable) -->
+      <div id="leftPanel" class="left-panel panel-expanded">
+        <div class="panel-resize-handle left" data-panel="left">
+          <div class="resize-dot"></div>
         </div>
-
-        <!-- Filtro -->
-        <div id="container-filtro" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-          <div class="flex items-center justify-between mb-4">
-            <h5 class="text-base font-semibold text-center">📅 Filtro de Liquidación</h5>
-            <button onclick="toggleMinimize('filtro')" 
-                    class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
-              ⬇️ Minimizar
-            </button>
-          </div>
-          <form class="grid grid-cols-1 md:grid-cols-4 gap-3" method="get">
-            <label class="block md:col-span-1">
-              <span class="block text-sm font-medium mb-1">Desde</span>
-              <input type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" required
-                     class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
-            </label>
-            <label class="block md:col-span-1">
-              <span class="block text-sm font-medium mb-1">Hasta</span>
-              <input type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" required
-                     class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
-            </label>
-            <label class="block md:col-span-1">
-              <span class="block text-sm font-medium mb-1">Empresa</span>
-              <select name="empresa"
-                      class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
-                <option value="">-- Todas --</option>
-                <?php foreach($empresas as $e): ?>
-                  <option value="<?= htmlspecialchars($e) ?>" <?= $empresaFiltro==$e?'selected':'' ?>>
-                    <?= htmlspecialchars($e) ?>
-                  </option>
-                <?php endforeach; ?>
-              </select>
-            </label>
-            <div class="md:col-span-1 flex items-end">
-              <button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow hover:bg-blue-700 active:bg-blue-800 focus:ring-4 focus:ring-blue-200 transition">
-                Filtrar
+        
+        <button class="panel-toggle-btn left" onclick="togglePanel('left')">
+          <span class="collapse-icon">←</span>
+          <span class="expand-icon">→</span>
+        </button>
+        
+        <div class="panel-header">
+          <h3 class="text-lg font-semibold">Panel Izquierdo</h3>
+        </div>
+        
+        <div class="panel-body space-y-5">
+          
+          <!-- Tarjetas de tarifas DINÁMICAS -->
+          <div id="container-tarifas" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-lg font-semibold flex items-center gap-2">
+                <span>🚐 Tarifas por Tipo de Vehículo</span>
+                <span class="text-xs text-slate-500">(<?= count($columnas_tarifas) ?> tipos de tarifas)</span>
+              </h3>
+              <button onclick="toggleMinimize('tarifas')" 
+                      class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+                ⬇️ Minimizar
               </button>
             </div>
-          </form>
-        </div>
 
-        <!-- 🔹 Panel de CREACIÓN de NUEVAS CLASIFICACIONES -->
-        <div id="container-crear-clasif" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-          <div class="flex items-center justify-between mb-4">
-            <h5 class="text-base font-semibold flex items-center justify-between">
-              <span>➕ Crear Nueva Clasificación</span>
-              <span class="text-xs text-slate-500">Dinámico</span>
-            </h5>
-            <button onclick="toggleMinimize('crear-clasif')" 
-                    class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
-              ⬇️ Minimizar
-            </button>
+            <div id="tarifas_grid" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <?php foreach ($vehiculos as $veh):
+                $t = $tarifas_guardadas[$veh] ?? [];
+              ?>
+              <div class="tarjeta-tarifa rounded-2xl border border-slate-200 p-4 shadow-sm bg-slate-50"
+                   data-vehiculo="<?= htmlspecialchars($veh) ?>">
+
+                <div class="flex items-center justify-between mb-3">
+                  <div class="text-base font-semibold"><?= htmlspecialchars($veh) ?></div>
+                  <span class="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 border border-blue-200">Config</span>
+                </div>
+
+                <?php foreach ($columnas_tarifas as $columna): 
+                  $valor = isset($t[$columna]) ? (float)$t[$columna] : 0;
+                  $etiqueta = ucfirst($columna);
+                  
+                  // Etiquetas especiales
+                  $etiquetas_especiales = [
+                      'completo' => 'Viaje Completo',
+                      'medio' => 'Viaje Medio',
+                      'extra' => 'Viaje Extra',
+                      'carrotanque' => 'Carrotanque',
+                      'siapana' => 'Siapana',
+                      'riohacha' => 'Riohacha',
+                      'pru' => 'Pru',
+                      'maco' => 'Maco'
+                  ];
+                  
+                  $etiqueta_final = $etiquetas_especiales[$columna] ?? $etiqueta;
+                ?>
+                <label class="block mb-3">
+                  <span class="block text-sm font-medium mb-1"><?= htmlspecialchars($etiqueta_final) ?></span>
+                  <input type="number" step="1000" value="<?= $valor ?>"
+                         data-campo="<?= htmlspecialchars($columna) ?>"
+                         class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"
+                         oninput="recalcular()">
+                </label>
+                <?php endforeach; ?>
+              </div>
+              <?php endforeach; ?>
+            </div>
           </div>
+
+          <!-- Filtro -->
+          <div id="container-filtro" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+            <div class="flex items-center justify-between mb-4">
+              <h5 class="text-base font-semibold text-center">📅 Filtro de Liquidación</h5>
+              <button onclick="toggleMinimize('filtro')" 
+                      class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+                ⬇️ Minimizar
+              </button>
+            </div>
+            <form class="grid grid-cols-1 md:grid-cols-4 gap-3" method="get">
+              <label class="block md:col-span-1">
+                <span class="block text-sm font-medium mb-1">Desde</span>
+                <input type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" required
+                       class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
+              </label>
+              <label class="block md:col-span-1">
+                <span class="block text-sm font-medium mb-1">Hasta</span>
+                <input type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" required
+                       class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
+              </label>
+              <label class="block md:col-span-1">
+                <span class="block text-sm font-medium mb-1">Empresa</span>
+                <select name="empresa"
+                        class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
+                  <option value="">-- Todas --</option>
+                  <?php foreach($empresas as $e): ?>
+                    <option value="<?= htmlspecialchars($e) ?>" <?= $empresaFiltro==$e?'selected':'' ?>>
+                      <?= htmlspecialchars($e) ?>
+                    </option>
+                  <?php endforeach; ?>
+                </select>
+              </label>
+              <div class="md:col-span-1 flex items-end">
+                <button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow hover:bg-blue-700 active:bg-blue-800 focus:ring-4 focus:ring-blue-200 transition">
+                  Filtrar
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- 🔹 Panel de CREACIÓN de NUEVAS CLASIFICACIONES -->
+          <div id="container-crear-clasif" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+            <div class="flex items-center justify-between mb-4">
+              <h5 class="text-base font-semibold flex items-center justify-between">
+                <span>➕ Crear Nueva Clasificación</span>
+                <span class="text-xs text-slate-500">Dinámico</span>
+              </h5>
+              <button onclick="toggleMinimize('crear-clasif')" 
+                      class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+                ⬇️ Minimizar
+              </button>
+            </div>
+            
+            <p class="text-xs text-slate-500 mb-3">
+              Crea una nueva clasificación. Se agregará a la tabla tarifas.
+            </p>
+
+            <div class="flex flex-col gap-2 mb-3">
+              <div>
+                <label class="block text-xs font-medium mb-1">Nombre de la nueva clasificación</label>
+                <input id="txt_nueva_clasificacion" type="text"
+                       class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
+                       placeholder="Ej: Premium, Nocturno, Express...">
+              </div>
+              <div>
+                <label class="block text-xs font-medium mb-1">Texto que deben contener las rutas</label>
+                <input id="txt_patron_ruta" type="text"
+                       class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
+                       placeholder="Dejar vacío para solo crear la clasificación">
+              </div>
+              <button type="button"
+                      onclick="crearYAsignarClasificacion()"
+                      class="mt-2 inline-flex items-center justify-center rounded-xl bg-green-600 text-white px-4 py-2 text-sm font-semibold hover:bg-green-700 active:bg-green-800 focus:ring-4 focus:ring-green-200">
+                ⚙️ Crear y Aplicar
+              </button>
+            </div>
+
+            <p class="text-[11px] text-slate-500 mt-2">
+              La nueva clasificación se creará en la tabla tarifas. Vuelve a dar <strong>Filtrar</strong> para ver los cambios.
+            </p>
+          </div>
+
+          <!-- 🔹 Panel de CLASIFICACIÓN de RUTAS -->
+          <div id="container-clasif-rutas" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+            <div class="flex items-center justify-between mb-4">
+              <h5 class="text-base font-semibold flex items-center justify-between">
+                <span>🧭 Clasificar Rutas Existentes</span>
+                <span class="text-xs text-slate-500">Usa clasificaciones creadas</span>
+              </h5>
+              <button onclick="toggleMinimize('clasif-rutas')" 
+                      class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+                ⬇️ Minimizar
+              </button>
+            </div>
+
+            <div class="max-h-[260px] overflow-y-auto border border-slate-200 rounded-xl">
+              <table class="w-full text-xs">
+                <thead class="bg-slate-100 text-slate-600">
+                  <tr>
+                    <th class="px-2 py-1 text-left">Ruta</th>
+                    <th class="px-2 py-1 text-center">Vehículo</th>
+                    <th class="px-2 py-1 text-center">Clasificación</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                <?php foreach($rutasUnicas as $info): 
+                  $estilo = obtenerEstiloClasificacion($info['clasificacion'] ?? '');
+                ?>
+                  <tr class="fila-ruta hover:bg-slate-50"
+                      data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
+                      data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>">
+                    <td class="px-2 py-1 whitespace-nowrap text-left">
+                      <?= htmlspecialchars($info['ruta']) ?>
+                    </td>
+                    <td class="px-2 py-1 text-center">
+                      <?= htmlspecialchars($info['vehiculo']) ?>
+                    </td>
+                    <td class="px-2 py-1 text-center">
+                      <select class="select-clasif-ruta rounded-lg border border-slate-300 px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-blue-100"
+                              data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
+                              data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>"
+                              style="<?php if($info['clasificacion']): ?>background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>20; color: <?= str_replace('text-', '#', $estilo['text']) ?>; border-color: <?= str_replace('border-', '#', $estilo['border']) ?>;<?php endif; ?>">
+                        <option value="">Sin clasificar</option>
+                        <?php foreach ($clasificaciones_disponibles as $clasif): 
+                          $estilo_opcion = obtenerEstiloClasificacion($clasif);
+                        ?>
+                        <option value="<?= htmlspecialchars($clasif) ?>" 
+                                <?= $info['clasificacion']===$clasif ? 'selected' : '' ?>
+                                style="background-color: <?= str_replace('bg-', '#', $estilo_opcion['bg']) ?>20; color: <?= str_replace('text-', '#', $estilo_opcion['text']) ?>;">
+                          <?= htmlspecialchars(ucfirst($clasif)) ?>
+                        </option>
+                        <?php endforeach; ?>
+                      </select>
+                    </td>
+                  </tr>
+                <?php endforeach; ?>
+                </tbody>
+              </table>
+            </div>
+
+            <p class="text-[11px] text-slate-500 mt-2">
+              Selecciona una clasificación para cada ruta. Los cambios se guardan automáticamente.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- PANEL CENTRAL (Fijo - no se adapta) -->
+      <div id="centerPanel" class="center-panel">
+        <section id="container-resumen" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
           
-          <p class="text-xs text-slate-500 mb-3">
-            Crea una nueva clasificación. Se agregará a la tabla tarifas.
-          </p>
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 class="text-lg font-semibold">🧑‍✈️ Resumen por Conductor</h3>
+              <div id="contador-conductores" class="text-xs text-slate-500 mt-1">
+                Mostrando <?= count($datos) ?> conductores
+              </div>
+            </div>
+            <div class="flex flex-col md:flex-row gap-3 w-full md:w-auto">
+              <!-- BUSCADOR -->
+              <div class="buscar-container w-full md:w-64">
+                <input id="buscadorConductores" type="text" 
+                       placeholder="Buscar conductor..." 
+                       class="w-full rounded-lg border border-slate-300 px-3 py-2 pl-3 pr-10 text-sm">
+                <button id="clearBuscar" class="buscar-clear">✕</button>
+              </div>
 
-          <div class="flex flex-col gap-2 mb-3">
-            <div>
-              <label class="block text-xs font-medium mb-1">Nombre de la nueva clasificación</label>
-              <input id="txt_nueva_clasificacion" type="text"
-                     class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
-                     placeholder="Ej: Premium, Nocturno, Express...">
+              <button onclick="toggleMinimize('resumen')" 
+                      class="minimize-btn text-xs px-3 py-2 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+                ⬇️ Minimizar
+              </button>
+
+              <div id="total_chip_container" class="flex flex-wrap items-center gap-2">
+                <span class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-700 font-semibold text-sm">
+                  🔢 Viajes: <span id="total_viajes">0</span>
+                </span>
+                <span class="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-purple-700 font-semibold text-sm">
+                  💰 Total: <span id="total_general">0</span>
+                </span>
+                <span class="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700 font-semibold text-sm">
+                  ✅ Pagado: <span id="total_pagado">0</span>
+                </span>
+                <span class="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-rose-700 font-semibold text-sm">
+                  ⏳ Faltante: <span id="total_faltante">0</span>
+                </span>
+              </div>
             </div>
-            <div>
-              <label class="block text-xs font-medium mb-1">Texto que deben contener las rutas</label>
-              <input id="txt_patron_ruta" type="text"
-                     class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
-                     placeholder="Dejar vacío para solo crear la clasificación">
-            </div>
-            <button type="button"
-                    onclick="crearYAsignarClasificacion()"
-                    class="mt-2 inline-flex items-center justify-center rounded-xl bg-green-600 text-white px-4 py-2 text-sm font-semibold hover:bg-green-700 active:bg-green-800 focus:ring-4 focus:ring-green-200">
-              ⚙️ Crear y Aplicar
-            </button>
           </div>
 
-          <p class="text-[11px] text-slate-500 mt-2">
-            La nueva clasificación se creará en la tabla tarifas. Vuelve a dar <strong>Filtrar</strong> para ver los cambios.
-          </p>
-        </div>
-
-        <!-- 🔹 Panel de CLASIFICACIÓN de RUTAS -->
-        <div id="container-clasif-rutas" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-          <div class="flex items-center justify-between mb-4">
-            <h5 class="text-base font-semibold flex items-center justify-between">
-              <span>🧭 Clasificar Rutas Existentes</span>
-              <span class="text-xs text-slate-500">Usa clasificaciones creadas</span>
-            </h5>
-            <button onclick="toggleMinimize('clasif-rutas')" 
-                    class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
-              ⬇️ Minimizar
-            </button>
-          </div>
-
-          <div class="max-h-[260px] overflow-y-auto border border-slate-200 rounded-xl">
-            <table class="w-full text-xs">
-              <thead class="bg-slate-100 text-slate-600">
+          <div class="mt-4 w-full rounded-xl border border-slate-200 overflow-x-auto">
+            <table id="tabla_conductores" class="w-full text-sm table-fixed">
+              <colgroup>
+                <col class="col-conductor">
+                <col class="col-vehiculo">
+                <?php foreach ($clasificaciones_disponibles as $clasif): ?>
+                <col class="col-clasif">
+                <?php endforeach; ?>
+                <col class="col-total">
+                <col class="col-pagado">
+                <col class="col-faltante">
+              </colgroup>
+              <thead class="bg-blue-600 text-white">
                 <tr>
-                  <th class="px-2 py-1 text-left">Ruta</th>
-                  <th class="px-2 py-1 text-center">Vehículo</th>
-                  <th class="px-2 py-1 text-center">Clasificación</th>
+                  <th class="px-3 py-2 text-left">Conductor</th>
+                  <th class="px-3 py-2 text-center">Tipo</th>
+                  <?php foreach ($clasificaciones_disponibles as $clasif): 
+                    $estilo = obtenerEstiloClasificacion($clasif);
+                    $abreviatura = strtoupper(substr($clasif, 0, 3));
+                    if ($clasif === 'carrotanque') $abreviatura = 'CTK';
+                    if ($clasif === 'riohacha') $abreviatura = 'RIO';
+                    if ($clasif === 'siapana') $abreviatura = 'SIA';
+                  ?>
+                  <th class="px-3 py-2 text-center" title="<?= htmlspecialchars(ucfirst($clasif)) ?>"
+                      style="background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>; color: <?= str_replace('text-', '#', $estilo['text']) ?>;">
+                    <?= htmlspecialchars($abreviatura) ?>
+                  </th>
+                  <?php endforeach; ?>
+                  <th class="px-3 py-2 text-center">Total</th>
+                  <th class="px-3 py-2 text-center">Pagado</th>
+                  <th class="px-3 py-2 text-center">Faltante</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-slate-100">
-              <?php foreach($rutasUnicas as $info): 
-                $estilo = obtenerEstiloClasificacion($info['clasificacion'] ?? '');
+              <tbody id="tabla_conductores_body" class="divide-y divide-slate-100 bg-white">
+              <?php foreach ($datos as $conductor => $info): 
+                $esMensual = (stripos($info['vehiculo'], 'mensual') !== false);
+                $claseVehiculo = $esMensual ? 'vehiculo-mensual' : '';
               ?>
-                <tr class="fila-ruta hover:bg-slate-50"
-                    data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
-                    data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>">
-                  <td class="px-2 py-1 whitespace-nowrap text-left">
-                    <?= htmlspecialchars($info['ruta']) ?>
+                <tr data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>" 
+                    data-conductor="<?= htmlspecialchars($conductor) ?>" 
+                    data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
+                    data-pagado="<?= (int)($info['pagado'] ?? 0) ?>"
+                    class="hover:bg-blue-50/40 transition-colors">
+                  <td class="px-3 py-2">
+                    <button type="button"
+                            class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition"
+                            title="Ver viajes">
+                      <?= htmlspecialchars($conductor) ?>
+                    </button>
                   </td>
-                  <td class="px-2 py-1 text-center">
-                    <?= htmlspecialchars($info['vehiculo']) ?>
+                  <td class="px-3 py-2 text-center">
+                    <span class="inline-block <?= $claseVehiculo ?> px-2 py-1 rounded-lg text-xs font-medium">
+                      <?= htmlspecialchars($info['vehiculo']) ?>
+                      <?php if ($esMensual): ?>
+                        <span class="ml-1">📅</span>
+                      <?php endif; ?>
+                    </span>
                   </td>
-                  <td class="px-2 py-1 text-center">
-                    <select class="select-clasif-ruta rounded-lg border border-slate-300 px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-blue-100"
-                            data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
-                            data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>"
-                            style="<?php if($info['clasificacion']): ?>background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>20; color: <?= str_replace('text-', '#', $estilo['text']) ?>; border-color: <?= str_replace('border-', '#', $estilo['border']) ?>;<?php endif; ?>">
-                      <option value="">Sin clasificar</option>
-                      <?php foreach ($clasificaciones_disponibles as $clasif): 
-                        $estilo_opcion = obtenerEstiloClasificacion($clasif);
-                      ?>
-                      <option value="<?= htmlspecialchars($clasif) ?>" 
-                              <?= $info['clasificacion']===$clasif ? 'selected' : '' ?>
-                              style="background-color: <?= str_replace('bg-', '#', $estilo_opcion['bg']) ?>20; color: <?= str_replace('text-', '#', $estilo_opcion['text']) ?>;">
-                        <?= htmlspecialchars(ucfirst($clasif)) ?>
-                      </option>
-                      <?php endforeach; ?>
-                    </select>
+                  
+                  <?php foreach ($clasificaciones_disponibles as $clasif): 
+                    $estilo = obtenerEstiloClasificacion($clasif);
+                    $cantidad = (int)($info[$clasif] ?? 0);
+                  ?>
+                  <td class="px-3 py-2 text-center font-medium" 
+                      style="background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>20;">
+                    <?= $cantidad ?>
                   </td>
+                  <?php endforeach; ?>
+
+                  <!-- Total -->
+                  <td class="px-3 py-2">
+                    <input type="text"
+                           class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none whitespace-nowrap tabular-nums"
+                           readonly dir="ltr">
+                  </td>
+
+                  <!-- Pagado -->
+                  <td class="px-3 py-2">
+                    <input type="text"
+                           class="pagado w-full rounded-xl border border-emerald-200 px-3 py-2 text-right bg-emerald-50 outline-none whitespace-nowrap tabular-nums"
+                           readonly dir="ltr"
+                           value="<?= number_format((int)($info['pagado'] ?? 0), 0, ',', '.') ?>">
+                  </td>
+
+                  <!-- Faltante -->
+                  <td class="px-3 py-2">
+                    <input type="text"
+                           class="faltante w-full rounded-xl border border-rose-200 px-3 py-2 text-right bg-rose-50 outline-none whitespace-nowrap tabular-nums"
+                           readonly dir="ltr"
+                           value="0">
+                  </td>
+
                 </tr>
               <?php endforeach; ?>
               </tbody>
             </table>
           </div>
+        </section>
+      </div>
 
-          <p class="text-[11px] text-slate-500 mt-2">
-            Selecciona una clasificación para cada ruta. Los cambios se guardan automáticamente.
-          </p>
+      <!-- PANEL DERECHO (Colapsable) -->
+      <div id="rightPanel" class="right-panel panel-expanded">
+        <div class="panel-resize-handle right" data-panel="right">
+          <div class="resize-dot"></div>
         </div>
-      </section>
-
-      <!-- Columna 2: Resumen por conductor -->
-      <section id="container-resumen" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
         
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-          <div>
-            <h3 class="text-lg font-semibold">🧑‍✈️ Resumen por Conductor</h3>
-            <div id="contador-conductores" class="text-xs text-slate-500 mt-1">
-              Mostrando <?= count($datos) ?> conductores
-            </div>
-          </div>
-          <div class="flex flex-col md:flex-row gap-3 w-full md:w-auto">
-            <!-- BUSCADOR -->
-            <div class="buscar-container w-full md:w-64">
-              <input id="buscadorConductores" type="text" 
-                     placeholder="Buscar conductor..." 
-                     class="w-full rounded-lg border border-slate-300 px-3 py-2 pl-3 pr-10 text-sm">
-              <button id="clearBuscar" class="buscar-clear">✕</button>
-            </div>
-
-            <button onclick="toggleMinimize('resumen')" 
-                    class="minimize-btn text-xs px-3 py-2 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
-              ⬇️ Minimizar
-            </button>
-
-            <div id="total_chip_container" class="flex flex-wrap items-center gap-2">
-              <span class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-700 font-semibold text-sm">
-                🔢 Viajes: <span id="total_viajes">0</span>
-              </span>
-              <span class="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-purple-700 font-semibold text-sm">
-                💰 Total: <span id="total_general">0</span>
-              </span>
-              <span class="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700 font-semibold text-sm">
-                ✅ Pagado: <span id="total_pagado">0</span>
-              </span>
-              <span class="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-rose-700 font-semibold text-sm">
-                ⏳ Faltante: <span id="total_faltante">0</span>
-              </span>
-            </div>
-          </div>
+        <button class="panel-toggle-btn right" onclick="togglePanel('right')">
+          <span class="collapse-icon">→</span>
+          <span class="expand-icon">←</span>
+        </button>
+        
+        <div class="panel-header">
+          <h3 class="text-lg font-semibold">Panel Derecho</h3>
         </div>
-
-        <div class="mt-4 w-full rounded-xl border border-slate-200 overflow-x-auto">
-          <table id="tabla_conductores" class="w-full text-sm table-fixed">
-            <colgroup>
-              <col class="col-conductor">
-              <col class="col-vehiculo">
-              <?php foreach ($clasificaciones_disponibles as $clasif): ?>
-              <col class="col-clasif">
-              <?php endforeach; ?>
-              <col class="col-total">
-              <col class="col-pagado">
-              <col class="col-faltante">
-            </colgroup>
-            <thead class="bg-blue-600 text-white">
-              <tr>
-                <th class="px-3 py-2 text-left">Conductor</th>
-                <th class="px-3 py-2 text-center">Tipo</th>
-                <?php foreach ($clasificaciones_disponibles as $clasif): 
-                  $estilo = obtenerEstiloClasificacion($clasif);
-                  $abreviatura = strtoupper(substr($clasif, 0, 3));
-                  if ($clasif === 'carrotanque') $abreviatura = 'CTK';
-                  if ($clasif === 'riohacha') $abreviatura = 'RIO';
-                  if ($clasif === 'siapana') $abreviatura = 'SIA';
-                ?>
-                <th class="px-3 py-2 text-center" title="<?= htmlspecialchars(ucfirst($clasif)) ?>"
-                    style="background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>; color: <?= str_replace('text-', '#', $estilo['text']) ?>;">
-                  <?= htmlspecialchars($abreviatura) ?>
-                </th>
-                <?php endforeach; ?>
-                <th class="px-3 py-2 text-center">Total</th>
-                <th class="px-3 py-2 text-center">Pagado</th>
-                <th class="px-3 py-2 text-center">Faltante</th>
-              </tr>
-            </thead>
-            <tbody id="tabla_conductores_body" class="divide-y divide-slate-100 bg-white">
-            <?php foreach ($datos as $conductor => $info): 
-              $esMensual = (stripos($info['vehiculo'], 'mensual') !== false);
-              $claseVehiculo = $esMensual ? 'vehiculo-mensual' : '';
-            ?>
-              <tr data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>" 
-                  data-conductor="<?= htmlspecialchars($conductor) ?>" 
-                  data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
-                  data-pagado="<?= (int)($info['pagado'] ?? 0) ?>"
-                  class="hover:bg-blue-50/40 transition-colors">
-                <td class="px-3 py-2">
-                  <button type="button"
-                          class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition"
-                          title="Ver viajes">
-                    <?= htmlspecialchars($conductor) ?>
-                  </button>
-                </td>
-                <td class="px-3 py-2 text-center">
-                  <span class="inline-block <?= $claseVehiculo ?> px-2 py-1 rounded-lg text-xs font-medium">
-                    <?= htmlspecialchars($info['vehiculo']) ?>
-                    <?php if ($esMensual): ?>
-                      <span class="ml-1">📅</span>
-                    <?php endif; ?>
-                  </span>
-                </td>
-                
-                <?php foreach ($clasificaciones_disponibles as $clasif): 
-                  $estilo = obtenerEstiloClasificacion($clasif);
-                  $cantidad = (int)($info[$clasif] ?? 0);
-                ?>
-                <td class="px-3 py-2 text-center font-medium" 
-                    style="background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>20;">
-                  <?= $cantidad ?>
-                </td>
-                <?php endforeach; ?>
-
-                <!-- Total -->
-                <td class="px-3 py-2">
-                  <input type="text"
-                         class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none whitespace-nowrap tabular-nums"
-                         readonly dir="ltr">
-                </td>
-
-                <!-- Pagado -->
-                <td class="px-3 py-2">
-                  <input type="text"
-                         class="pagado w-full rounded-xl border border-emerald-200 px-3 py-2 text-right bg-emerald-50 outline-none whitespace-nowrap tabular-nums"
-                         readonly dir="ltr"
-                         value="<?= number_format((int)($info['pagado'] ?? 0), 0, ',', '.') ?>">
-                </td>
-
-                <!-- Faltante -->
-                <td class="px-3 py-2">
-                  <input type="text"
-                         class="faltante w-full rounded-xl border border-rose-200 px-3 py-2 text-right bg-rose-50 outline-none whitespace-nowrap tabular-nums"
-                         readonly dir="ltr"
-                         value="0">
-                </td>
-
-              </tr>
-            <?php endforeach; ?>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <!-- Columna 3: Panel viajes -->
-      <aside class="space-y-5">
-        <!-- Panel viajes -->
-        <div id="container-panel-viajes" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-          <div class="flex items-center justify-between mb-4">
-            <h4 class="text-base font-semibold">🧳 Viajes del Conductor</h4>
-            <button onclick="toggleMinimize('panel-viajes')" 
-                    class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
-              ⬇️ Minimizar
-            </button>
-          </div>
-          <div id="contenidoPanel"
-               class="min-h-[220px] max-h-[400px] overflow-y-auto rounded-xl border border-slate-200 p-4 text-sm text-slate-600">
-            <div class="flex flex-col items-center justify-center h-full text-center">
-              <div class="text-slate-400 mb-2">
-                <svg class="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
-                </svg>
+        
+        <div class="panel-body space-y-5">
+          <!-- Panel viajes -->
+          <div id="container-panel-viajes" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+            <div class="flex items-center justify-between mb-4">
+              <h4 class="text-base font-semibold">🧳 Viajes del Conductor</h4>
+              <button onclick="toggleMinimize('panel-viajes')" 
+                      class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+                ⬇️ Minimizar
+              </button>
+            </div>
+            <div id="contenidoPanel"
+                 class="min-h-[220px] max-h-[400px] overflow-y-auto rounded-xl border border-slate-200 p-4 text-sm text-slate-600">
+              <div class="flex flex-col items-center justify-center h-full text-center">
+                <div class="text-slate-400 mb-2">
+                  <svg class="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                  </svg>
+                </div>
+                <p class="m-0 font-medium text-slate-500">Selecciona un conductor para ver sus viajes</p>
+                <p class="m-0 text-xs text-slate-400 mt-1">Clasificaciones dinámicas con colores</p>
               </div>
-              <p class="m-0 font-medium text-slate-500">Selecciona un conductor para ver sus viajes</p>
-              <p class="m-0 text-xs text-slate-400 mt-1">Clasificaciones dinámicas con colores</p>
             </div>
           </div>
         </div>
-      </aside>
+      </div>
 
     </div>
   </main>
@@ -1047,6 +1251,98 @@ if ($empresaFiltro !== "") {
   <div id="floatingBallsArea"></div>
 
   <script>
+    // ===== SISTEMA DE PANELES EXPANDIBLES/REDUCIBLES =====
+    let isResizing = false;
+    let currentPanel = null;
+    let startX, startWidth;
+    
+    function togglePanel(panelSide) {
+      const panel = document.getElementById(panelSide + 'Panel');
+      const mainLayout = document.querySelector('.main-layout');
+      
+      if (panel.classList.contains('panel-collapsed')) {
+        // Expandir panel
+        panel.classList.remove('panel-collapsed');
+        panel.classList.add('panel-expanded');
+        
+        // Restaurar grid
+        if (panelSide === 'left') {
+          mainLayout.style.gridTemplateColumns = 'minmax(300px, 400px) minmax(auto, 1100px) minmax(250px, 350px)';
+        } else {
+          mainLayout.style.gridTemplateColumns = 'minmax(300px, 400px) minmax(auto, 1100px) minmax(250px, 350px)';
+        }
+      } else {
+        // Colapsar panel
+        panel.classList.remove('panel-expanded');
+        panel.classList.add('panel-collapsed');
+        
+        // Ajustar grid
+        if (panelSide === 'left') {
+          mainLayout.style.gridTemplateColumns = '60px minmax(auto, 1100px) minmax(250px, 350px)';
+        } else {
+          mainLayout.style.gridTemplateColumns = 'minmax(300px, 400px) minmax(auto, 1100px) 60px';
+        }
+      }
+    }
+    
+    // Sistema de redimensionamiento
+    document.querySelectorAll('.panel-resize-handle').forEach(handle => {
+      handle.addEventListener('mousedown', initResize);
+    });
+    
+    function initResize(e) {
+      currentPanel = e.target.closest('.panel-resize-handle').dataset.panel;
+      const panel = document.getElementById(currentPanel + 'Panel');
+      const mainLayout = document.querySelector('.main-layout');
+      
+      isResizing = true;
+      startX = e.clientX;
+      startWidth = parseInt(getComputedStyle(panel).width, 10);
+      
+      document.addEventListener('mousemove', resize);
+      document.addEventListener('mouseup', stopResize);
+      
+      e.preventDefault();
+    }
+    
+    function resize(e) {
+      if (!isResizing) return;
+      
+      const panel = document.getElementById(currentPanel + 'Panel');
+      const mainLayout = document.querySelector('.main-layout');
+      const dx = e.clientX - startX;
+      
+      let newWidth;
+      if (currentPanel === 'left') {
+        newWidth = startWidth + dx;
+        // Límites mínimo y máximo
+        newWidth = Math.max(250, Math.min(newWidth, 600));
+      } else {
+        newWidth = startWidth - dx;
+        newWidth = Math.max(200, Math.min(newWidth, 500));
+      }
+      
+      // Aplicar nuevo ancho
+      panel.style.width = newWidth + 'px';
+      
+      // Forzar ancho fijo en panel central
+      document.getElementById('centerPanel').style.minWidth = '1100px';
+      document.getElementById('centerPanel').style.maxWidth = '1100px';
+      
+      // Prevenir selección de texto durante el resize
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'col-resize';
+    }
+    
+    function stopResize() {
+      isResizing = false;
+      document.removeEventListener('mousemove', resize);
+      document.removeEventListener('mouseup', stopResize);
+      
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    }
+    
     // ===== SISTEMA DE MINIMIZAR CONTENEDORES =====
     const containerStates = {};
     const ballColors = {
