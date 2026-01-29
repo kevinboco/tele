@@ -541,8 +541,8 @@ if ($empresaFiltro !== "") {
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
   ::-webkit-scrollbar{height:10px;width:10px}
-  ::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:999px}
-  ::-webkit-scrollbar-thumb:hover{background:#9ca3af}
+  ::-webkit-slider-thumb{background:#d1d5db;border-radius:999px}
+  ::-webkit-slider-thumb:hover{background:#9ca3af}
   input[type=number]::-webkit-inner-spin-button,
   input[type=number]::-webkit-outer-spin-button{ -webkit-appearance: none; margin: 0; }
   .buscar-container { position: relative; }
@@ -564,122 +564,11 @@ if ($empresaFiltro !== "") {
     color: #92400e !important;
     font-weight: 600;
   }
-  .table-fixed { table-layout: fixed; }
-  .col-conductor { width: 25%; }
-  .col-vehiculo { width: 12%; }
-  .col-clasif { width: 7%; }
-  .col-total { width: 15%; }
-  .col-pagado { width: 12%; }
-  .col-faltante { width: 10%; }
-  
-  /* Estilos para las bolitas flotantes */
-  .container-minimized {
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-  
-  .floating-ball {
-    position: fixed !important;
-    z-index: 9999;
-    width: 60px !important;
-    height: 60px !important;
-    border-radius: 50% !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    cursor: move !important;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2) !important;
-    transition: transform 0.2s, box-shadow 0.2s !important;
-    user-select: none !important;
-    overflow: hidden !important;
-    border: 2px solid white !important;
-  }
-  
-  .floating-ball:hover {
-    transform: scale(1.1);
-    box-shadow: 0 15px 30px rgba(0, 0, 0, 0.3);
-  }
-  
-  .floating-ball:active {
-    cursor: grabbing !important;
-  }
-  
-  .floating-ball.minimized {
-    animation: shrinkToBall 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-  }
-  
-  .floating-ball.restored {
-    animation: expandFromBall 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-  }
-  
-  @keyframes shrinkToBall {
-    0% {
-      border-radius: 12px;
-      width: var(--original-width);
-      height: var(--original-height);
-      left: var(--original-left);
-      top: var(--original-top);
-    }
-    50% {
-      border-radius: 30px;
-      transform: scale(0.7);
-    }
-    100% {
-      border-radius: 50%;
-      width: 60px !important;
-      height: 60px !important;
-      transform: scale(1);
-      left: var(--ball-left, 20px) !important;
-      top: var(--ball-top, 20px) !important;
-    }
-  }
-  
-  @keyframes expandFromBall {
-    0% {
-      border-radius: 50%;
-      width: 60px !important;
-      height: 60px !important;
-      left: var(--ball-left, 20px) !important;
-      top: var(--ball-top, 20px) !important;
-    }
-    50% {
-      border-radius: 30px;
-      transform: scale(1.2);
-    }
-    100% {
-      border-radius: 12px;
-      width: var(--original-width) !important;
-      height: var(--original-height) !important;
-      left: var(--original-left) !important;
-      top: var(--original-top) !important;
-      transform: scale(1);
-    }
-  }
-  
-  .ball-content {
-    font-size: 12px;
-    font-weight: bold;
-    text-align: center;
-    color: white;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 90%;
-  }
   
   /* ===== SISTEMA DE PANELES EXPANDIBLES ===== */
-  :root {
-    --left-panel-width: 400px;
-    --center-panel-width: 1100px;
-    --right-panel-width: 350px;
-  }
-  
   .main-layout {
     display: grid;
-    grid-template-columns: 
-      minmax(300px, var(--left-panel-width)) 
-      minmax(800px, var(--center-panel-width)) 
-      minmax(250px, var(--right-panel-width));
+    grid-template-columns: 400px 1100px 350px;
     gap: 1rem;
     transition: grid-template-columns 0.3s ease;
     position: relative;
@@ -968,6 +857,158 @@ if ($empresaFiltro !== "") {
     background: #3b82f6;
     opacity: 0.7;
   }
+  
+  /* ===== SISTEMA DE BOLITAS FLOTANTES ===== */
+  .container-minimized {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  .floating-ball {
+    position: fixed !important;
+    z-index: 9999;
+    width: 60px !important;
+    height: 60px !important;
+    border-radius: 50% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: move !important;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2) !important;
+    transition: transform 0.2s, box-shadow 0.2s !important;
+    user-select: none !important;
+    overflow: hidden !important;
+    border: 2px solid white !important;
+  }
+  
+  .floating-ball:hover {
+    transform: scale(1.1);
+    box-shadow: 0 15px 30px rgba(0, 0, 0, 0.3);
+  }
+  
+  .floating-ball:active {
+    cursor: grabbing !important;
+  }
+  
+  .floating-ball.minimized {
+    animation: shrinkToBall 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+  
+  .floating-ball.restored {
+    animation: expandFromBall 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+  
+  @keyframes shrinkToBall {
+    0% {
+      border-radius: 12px;
+      width: var(--original-width);
+      height: var(--original-height);
+      left: var(--original-left);
+      top: var(--original-top);
+    }
+    50% {
+      border-radius: 30px;
+      transform: scale(0.7);
+    }
+    100% {
+      border-radius: 50%;
+      width: 60px !important;
+      height: 60px !important;
+      transform: scale(1);
+      left: var(--ball-left, 20px) !important;
+      top: var(--ball-top, 20px) !important;
+    }
+  }
+  
+  @keyframes expandFromBall {
+    0% {
+      border-radius: 50%;
+      width: 60px !important;
+      height: 60px !important;
+      left: var(--ball-left, 20px) !important;
+      top: var(--ball-top, 20px) !important;
+    }
+    50% {
+      border-radius: 30px;
+      transform: scale(1.2);
+    }
+    100% {
+      border-radius: 12px;
+      width: var(--original-width) !important;
+      height: var(--original-height) !important;
+      left: var(--original-left) !important;
+      top: var(--original-top) !important;
+      transform: scale(1);
+    }
+  }
+  
+  .ball-content {
+    font-size: 12px;
+    font-weight: bold;
+    text-align: center;
+    color: white;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 90%;
+  }
+  
+  /* NUEVO: Estilos para minimización completa del panel */
+  .left-panel-completely-hidden {
+    display: none !important;
+    visibility: hidden !important;
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    opacity: 0 !important;
+  }
+  
+  /* Cuando el panel izquierdo está oculto, cambiamos el layout */
+  .main-layout.left-panel-hidden {
+    grid-template-columns: 0px 1400px 450px !important;
+    gap: 0.5rem !important;
+  }
+  
+  .main-layout.left-panel-hidden .center-panel {
+    grid-column: 2 !important;
+  }
+  
+  .main-layout.left-panel-hidden .right-panel {
+    grid-column: 3 !important;
+  }
+  
+  /* Bolita especial para panel completo */
+  .entire-panel-ball {
+    width: 70px !important;
+    height: 70px !important;
+    z-index: 10000 !important;
+    box-shadow: 0 15px 35px rgba(59, 130, 246, 0.3) !important;
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8) !important;
+  }
+  
+  .entire-panel-ball:hover {
+    transform: scale(1.15);
+    box-shadow: 0 20px 40px rgba(59, 130, 246, 0.4) !important;
+  }
+  
+  /* Animación de notificaciones */
+  @keyframes fadeInDown {
+    from {
+      opacity: 0;
+      transform: translateY(-20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  .animate-fade-in-down {
+    animation: fadeInDown 0.3s ease-out;
+  }
 </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
@@ -991,7 +1032,7 @@ if ($empresaFiltro !== "") {
 
   <!-- Contenido -->
   <main class="max-w-[1800px] mx-auto px-3 md:px-4 py-6">
-    <div class="main-layout">
+    <div id="mainLayout" class="main-layout">
       
       <!-- PANEL IZQUIERDO (Colapsable) -->
       <div id="leftPanel" class="left-panel panel-expanded">
@@ -1009,7 +1050,7 @@ if ($empresaFiltro !== "") {
           <div class="flex items-center justify-between w-full">
             <h3 class="text-lg font-semibold">Panel Izquierdo</h3>
             <button onclick="minimizarTodoPanelIzquierdo()" 
-                    class="text-xs px-3 py-1.5 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 transition flex items-center gap-1">
+                    class="text-xs px-3 py-1.5 rounded-lg bg-gradient-to-r from-blue-500 to-indigo-500 text-white hover:from-blue-600 hover:to-indigo-600 transition flex items-center gap-1 shadow-md hover:shadow-lg">
               ⬇️ Minimizar Todo
             </button>
           </div>
@@ -1506,21 +1547,89 @@ if ($empresaFiltro !== "") {
   </div>
 
   <script>
-    // ===== FUNCIÓN NUEVA: Minimizar todo el panel izquierdo =====
+    // ===== FUNCIÓN CORREGIDA: Minimizar TODO el panel izquierdo =====
     function minimizarTodoPanelIzquierdo() {
-      // Lista de todos los contenedores dentro del panel izquierdo
-      const contenedores = ['tarifas', 'filtro', 'crear-clasif', 'clasif-rutas'];
+      const leftPanel = document.getElementById('leftPanel');
+      const mainLayout = document.getElementById('mainLayout');
+      const ballArea = document.getElementById('floatingBallsArea');
       
-      // Minimizar cada contenedor
-      contenedores.forEach(id => {
-        const container = document.getElementById(`container-${id}`);
-        if (container && !container.classList.contains('hidden')) {
-          toggleMinimize(id);
+      // Verificar si ya está minimizado
+      if (leftPanel.classList.contains('left-panel-completely-hidden')) {
+        return; // Ya está minimizado
+      }
+      
+      // Guardar estado original del panel izquierdo
+      leftPanel.dataset.originalState = JSON.stringify({
+        isHidden: false
+      });
+      
+      // Crear bolita flotante para TODO el panel
+      const ball = document.createElement('div');
+      ball.id = 'ball-entire-left-panel';
+      ball.className = 'floating-ball entire-panel-ball';
+      
+      // Contenido de la bolita
+      ball.innerHTML = `
+        <div class="ball-content">
+          <div class="text-2xl">📊</div>
+          <div class="text-[10px] mt-1">Panel Izquierdo</div>
+        </div>
+        <button class="close-ball absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600">×</button>
+      `;
+      
+      // Posicionar bolita en la esquina superior derecha
+      ball.style.left = '20px';
+      ball.style.top = '100px';
+      
+      // Hacer la bolita arrastrable
+      makeBallDraggable(ball, 'entire-left-panel');
+      
+      // Evento para restaurar el panel
+      ball.addEventListener('click', function(e) {
+        if (!e.target.closest('.close-ball')) {
+          restaurarPanelIzquierdo();
         }
       });
       
-      // Mostrar mensaje de confirmación
-      showNotification('Panel izquierdo minimizado', 'info');
+      // Evento para cerrar permanentemente (solo elimina la bolita)
+      ball.querySelector('.close-ball').addEventListener('click', function(e) {
+        e.stopPropagation();
+        ball.remove();
+      });
+      
+      // Ocultar completamente el panel izquierdo
+      leftPanel.classList.add('left-panel-completely-hidden');
+      leftPanel.style.display = 'none';
+      
+      // Cambiar el layout para redistribuir espacio
+      mainLayout.classList.add('left-panel-hidden');
+      
+      // Agregar bolita al área de bolitas
+      ballArea.appendChild(ball);
+      
+      // Mostrar notificación
+      showNotification('Panel izquierdo minimizado a bola flotante', 'info');
+    }
+
+    // ===== FUNCIÓN PARA RESTAURAR EL PANEL IZQUIERDO =====
+    function restaurarPanelIzquierdo() {
+      const leftPanel = document.getElementById('leftPanel');
+      const mainLayout = document.getElementById('mainLayout');
+      const ball = document.getElementById('ball-entire-left-panel');
+      
+      // Remover bolita
+      if (ball) {
+        ball.remove();
+      }
+      
+      // Restaurar estado original
+      leftPanel.classList.remove('left-panel-completely-hidden');
+      leftPanel.style.display = '';
+      
+      // Restaurar layout original
+      mainLayout.classList.remove('left-panel-hidden');
+      
+      showNotification('Panel izquierdo restaurado', 'success');
     }
 
     // Función auxiliar para mostrar notificaciones
@@ -1556,17 +1665,10 @@ if ($empresaFiltro !== "") {
     let startX, startWidth;
     let startCenterWidth, startLeftWidth, startRightWidth;
     const originalCenterWidth = 1100;
-    const originalLeftWidth = 400;
-    const originalRightWidth = 350;
     const minCenterWidth = 800;
     const maxCenterWidth = 1600;
     const minPanelWidth = 250;
     const maxPanelWidth = 600;
-    
-    // Configuración inicial de CSS
-    document.documentElement.style.setProperty('--center-panel-width', originalCenterWidth + 'px');
-    document.documentElement.style.setProperty('--left-panel-width', originalLeftWidth + 'px');
-    document.documentElement.style.setProperty('--right-panel-width', originalRightWidth + 'px');
     
     // Sistema de redimensionamiento para TODOS los paneles
     document.querySelectorAll('.resize-handle').forEach(handle => {
@@ -1580,7 +1682,12 @@ if ($empresaFiltro !== "") {
       
       const panel = document.getElementById(currentPanel + 'Panel');
       const tableContainer = document.getElementById('tableContainer');
-      const mainLayout = document.querySelector('.main-layout');
+      const mainLayout = document.getElementById('mainLayout');
+      
+      // Si el panel izquierdo está oculto, no permitir redimensionar
+      if (currentPanel === 'left' && panel.classList.contains('left-panel-completely-hidden')) {
+        return;
+      }
       
       isResizing = true;
       startX = e.clientX;
@@ -1588,7 +1695,7 @@ if ($empresaFiltro !== "") {
       // Guardar dimensiones iniciales
       if (currentPanel === 'center') {
         startCenterWidth = parseInt(getComputedStyle(tableContainer).width, 10);
-        startLeftWidth = parseInt(getComputedStyle(document.getElementById('leftPanel')).width, 10);
+        startLeftWidth = parseInt(getComputedStyle(document.getElementById('leftPanel')).width, 10) || 400;
         startRightWidth = parseInt(getComputedStyle(document.getElementById('rightPanel')).width, 10);
       } else {
         startWidth = parseInt(getComputedStyle(panel).width, 10);
@@ -1608,8 +1715,7 @@ if ($empresaFiltro !== "") {
       
       const dx = e.clientX - startX;
       const tableContainer = document.getElementById('tableContainer');
-      const mainLayout = document.querySelector('.main-layout');
-      const root = document.documentElement;
+      const mainLayout = document.getElementById('mainLayout');
       
       // Actualizar línea visual
       const resizeLine = document.getElementById('resizeLine');
@@ -1636,8 +1742,6 @@ if ($empresaFiltro !== "") {
           
           // Aplicar cambios
           tableContainer.style.width = newCenterWidth + 'px';
-          root.style.setProperty('--center-panel-width', newCenterWidth + 'px');
-          root.style.setProperty('--left-panel-width', clampedLeftWidth + 'px');
           
         } else {
           // Redimensionar desde el lado derecho
@@ -1656,8 +1760,6 @@ if ($empresaFiltro !== "") {
           
           // Aplicar cambios
           tableContainer.style.width = newCenterWidth + 'px';
-          root.style.setProperty('--center-panel-width', newCenterWidth + 'px');
-          root.style.setProperty('--right-panel-width', clampedRightWidth + 'px');
         }
         
       } else {
@@ -1676,7 +1778,6 @@ if ($empresaFiltro !== "") {
         
         // Aplicar nuevo ancho
         panel.style.width = newWidth + 'px';
-        root.style.setProperty(`--${currentPanel}-panel-width`, newWidth + 'px');
       }
       
       // Prevenir selección de texto durante el resize
@@ -1699,32 +1800,24 @@ if ($empresaFiltro !== "") {
     // ===== CONTROLES PARA TABLA CENTRAL =====
     function expandTableWidth(amount = 100) {
       const tableContainer = document.getElementById('tableContainer');
-      const root = document.documentElement;
       const currentWidth = parseInt(getComputedStyle(tableContainer).width, 10);
       const newWidth = Math.min(currentWidth + amount, maxCenterWidth);
       
       tableContainer.style.width = newWidth + 'px';
-      root.style.setProperty('--center-panel-width', newWidth + 'px');
     }
     
     function shrinkTableWidth(amount = 100) {
       const tableContainer = document.getElementById('tableContainer');
-      const root = document.documentElement;
       const currentWidth = parseInt(getComputedStyle(tableContainer).width, 10);
       const newWidth = Math.max(currentWidth - amount, minCenterWidth);
       
       tableContainer.style.width = newWidth + 'px';
-      root.style.setProperty('--center-panel-width', newWidth + 'px');
     }
     
     function resetTableWidth() {
       const tableContainer = document.getElementById('tableContainer');
-      const root = document.documentElement;
       
       tableContainer.style.width = originalCenterWidth + 'px';
-      root.style.setProperty('--center-panel-width', originalCenterWidth + 'px');
-      root.style.setProperty('--left-panel-width', originalLeftWidth + 'px');
-      root.style.setProperty('--right-panel-width', originalRightWidth + 'px');
       
       // Restaurar también los paneles laterales
       document.getElementById('leftPanel').style.width = '';
@@ -1814,7 +1907,7 @@ if ($empresaFiltro !== "") {
       }
     }
     
-    // ===== SISTEMA DE MINIMIZAR CONTENEDORES =====
+    // ===== SISTEMA DE MINIMIZAR CONTENEDORES INDIVIDUALES =====
     const containerStates = {};
     const ballColors = {
       'tarifas': 'bg-gradient-to-br from-blue-500 to-cyan-500',
@@ -2291,25 +2384,6 @@ if ($empresaFiltro !== "") {
 
     // ===== INICIALIZACIÓN =====
     document.addEventListener('DOMContentLoaded', function() {
-      // Agregar animación CSS para notificaciones
-      const style = document.createElement('style');
-      style.textContent = `
-        @keyframes fadeInDown {
-          from {
-            opacity: 0;
-            transform: translateY(-20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        .animate-fade-in-down {
-          animation: fadeInDown 0.3s ease-out;
-        }
-      `;
-      document.head.appendChild(style);
-      
       // Configurar eventos de tarifas
       configurarEventosTarifas();
       
