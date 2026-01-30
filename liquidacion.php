@@ -583,6 +583,8 @@ if ($empresaFiltro !== "") {
     border: 1px solid #e2e8f0;
     box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     min-width: 0;
+    resize: horizontal;
+    overflow: auto;
   }
   
   .center-panel {
@@ -600,6 +602,8 @@ if ($empresaFiltro !== "") {
     border: 1px solid #e2e8f0;
     box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     min-width: 0;
+    resize: horizontal;
+    overflow: auto;
   }
   
   /* Resize handles para TODOS los paneles */
@@ -1658,7 +1662,7 @@ if ($empresaFiltro !== "") {
       }, 3000);
     }
 
-    // ===== SISTEMA DE REDIMENSIONAMIENTO COMPLETO =====
+    // ===== SISTEMA DE REDIMENSIONAMIENTO COMPLETO CORREGIDO =====
     let isResizing = false;
     let currentPanel = null;
     let currentSide = null;
@@ -1669,6 +1673,8 @@ if ($empresaFiltro !== "") {
     const maxCenterWidth = 1600;
     const minPanelWidth = 250;
     const maxPanelWidth = 600;
+    const minRightPanelWidth = 250;
+    const maxRightPanelWidth = 600;
     
     // Sistema de redimensionamiento para TODOS los paneles
     document.querySelectorAll('.resize-handle').forEach(handle => {
@@ -1716,22 +1722,28 @@ if ($empresaFiltro !== "") {
       const dx = e.clientX - startX;
       const tableContainer = document.getElementById('tableContainer');
       const mainLayout = document.getElementById('mainLayout');
+      const leftPanel = document.getElementById('leftPanel');
+      const rightPanel = document.getElementById('rightPanel');
       
       // Actualizar línea visual
       const resizeLine = document.getElementById('resizeLine');
       resizeLine.style.left = e.clientX + 'px';
       
       if (currentPanel === 'center') {
-        // Redimensionar panel CENTRAL
+        // Redimensionar panel CENTRAL - Toma espacio de los paneles laterales
         let newCenterWidth;
         
         if (currentSide === 'left') {
-          // Redimensionar desde el lado izquierdo
+          // Redimensionar desde el lado izquierdo - Toma espacio del panel izquierdo
           newCenterWidth = startCenterWidth - dx;
-          const newLeftWidth = startLeftWidth + dx;
           
-          // Aplicar límites
+          // Aplicar límites al panel central
           newCenterWidth = Math.max(minCenterWidth, Math.min(newCenterWidth, maxCenterWidth));
+          
+          // Calcular nuevo ancho para el panel izquierdo
+          const newLeftWidth = startLeftWidth + (startCenterWidth - newCenterWidth);
+          
+          // Aplicar límites al panel izquierdo
           const clampedLeftWidth = Math.max(minPanelWidth, Math.min(newLeftWidth, maxPanelWidth));
           
           // Ajustar diferencial
@@ -1740,17 +1752,24 @@ if ($empresaFiltro !== "") {
             newCenterWidth += leftDiff;
           }
           
-          // Aplicar cambios
+          // Aplicar cambios si el panel izquierdo no está oculto
+          if (!leftPanel.classList.contains('left-panel-completely-hidden')) {
+            leftPanel.style.width = clampedLeftWidth + 'px';
+          }
           tableContainer.style.width = newCenterWidth + 'px';
           
         } else {
-          // Redimensionar desde el lado derecho
+          // Redimensionar desde el lado derecho - Toma espacio del panel derecho
           newCenterWidth = startCenterWidth + dx;
-          const newRightWidth = startRightWidth - dx;
           
-          // Aplicar límites
+          // Aplicar límites al panel central
           newCenterWidth = Math.max(minCenterWidth, Math.min(newCenterWidth, maxCenterWidth));
-          const clampedRightWidth = Math.max(minPanelWidth, Math.min(newRightWidth, maxPanelWidth));
+          
+          // Calcular nuevo ancho para el panel derecho
+          const newRightWidth = startRightWidth - (newCenterWidth - startCenterWidth);
+          
+          // Aplicar límites al panel derecho
+          const clampedRightWidth = Math.max(minRightPanelWidth, Math.min(newRightWidth, maxRightPanelWidth));
           
           // Ajustar diferencial
           const rightDiff = newRightWidth - clampedRightWidth;
@@ -1759,25 +1778,43 @@ if ($empresaFiltro !== "") {
           }
           
           // Aplicar cambios
+          rightPanel.style.width = clampedRightWidth + 'px';
           tableContainer.style.width = newCenterWidth + 'px';
         }
         
-      } else {
-        // Redimensionar paneles LATERALES
-        const panel = document.getElementById(currentPanel + 'Panel');
-        let newWidth;
-        
-        if (currentPanel === 'left') {
-          newWidth = startWidth + dx;
-        } else {
-          newWidth = startWidth - dx;
-        }
+      } else if (currentPanel === 'left') {
+        // Redimensionar panel IZQUIERDO - Toma espacio del centro
+        let newLeftWidth = startWidth + dx;
         
         // Aplicar límites
-        newWidth = Math.max(minPanelWidth, Math.min(newWidth, maxPanelWidth));
+        newLeftWidth = Math.max(minPanelWidth, Math.min(newLeftWidth, maxPanelWidth));
         
-        // Aplicar nuevo ancho
-        panel.style.width = newWidth + 'px';
+        // Calcular nuevo ancho para el centro (tomando espacio del centro)
+        const centerWidth = parseInt(getComputedStyle(tableContainer).width, 10);
+        const newCenterWidth = centerWidth - (newLeftWidth - startWidth);
+        
+        // Aplicar cambios solo si el centro no es muy pequeño
+        if (newCenterWidth >= minCenterWidth) {
+          leftPanel.style.width = newLeftWidth + 'px';
+          tableContainer.style.width = newCenterWidth + 'px';
+        }
+        
+      } else if (currentPanel === 'right') {
+        // ¡CORREGIDO! Redimensionar panel DERECHO - Toma espacio del centro (hacia la izquierda)
+        let newRightWidth = startWidth - dx; // NOTA: Menos dx porque movemos hacia la izquierda
+        
+        // Aplicar límites
+        newRightWidth = Math.max(minRightPanelWidth, Math.min(newRightWidth, maxRightPanelWidth));
+        
+        // Calcular nuevo ancho para el centro (el centro pierde espacio)
+        const centerWidth = parseInt(getComputedStyle(tableContainer).width, 10);
+        const newCenterWidth = centerWidth - (startWidth - newRightWidth);
+        
+        // Aplicar cambios solo si el centro no es muy pequeño
+        if (newCenterWidth >= minCenterWidth) {
+          rightPanel.style.width = newRightWidth + 'px';
+          tableContainer.style.width = newCenterWidth + 'px';
+        }
       }
       
       // Prevenir selección de texto durante el resize
@@ -1800,28 +1837,43 @@ if ($empresaFiltro !== "") {
     // ===== CONTROLES PARA TABLA CENTRAL =====
     function expandTableWidth(amount = 100) {
       const tableContainer = document.getElementById('tableContainer');
+      const rightPanel = document.getElementById('rightPanel');
       const currentWidth = parseInt(getComputedStyle(tableContainer).width, 10);
-      const newWidth = Math.min(currentWidth + amount, maxCenterWidth);
+      const rightWidth = parseInt(getComputedStyle(rightPanel).width, 10);
       
-      tableContainer.style.width = newWidth + 'px';
+      // Reducir el panel derecho para expandir el centro
+      const newCenterWidth = Math.min(currentWidth + amount, maxCenterWidth);
+      const newRightWidth = Math.max(rightWidth - (newCenterWidth - currentWidth), minRightPanelWidth);
+      
+      // Aplicar cambios
+      tableContainer.style.width = newCenterWidth + 'px';
+      rightPanel.style.width = newRightWidth + 'px';
     }
     
     function shrinkTableWidth(amount = 100) {
       const tableContainer = document.getElementById('tableContainer');
+      const rightPanel = document.getElementById('rightPanel');
       const currentWidth = parseInt(getComputedStyle(tableContainer).width, 10);
-      const newWidth = Math.max(currentWidth - amount, minCenterWidth);
+      const rightWidth = parseInt(getComputedStyle(rightPanel).width, 10);
       
-      tableContainer.style.width = newWidth + 'px';
+      // Aumentar el panel derecho para reducir el centro
+      const newCenterWidth = Math.max(currentWidth - amount, minCenterWidth);
+      const newRightWidth = Math.min(rightWidth + (currentWidth - newCenterWidth), maxRightPanelWidth);
+      
+      // Aplicar cambios
+      tableContainer.style.width = newCenterWidth + 'px';
+      rightPanel.style.width = newRightWidth + 'px';
     }
     
     function resetTableWidth() {
       const tableContainer = document.getElementById('tableContainer');
+      const leftPanel = document.getElementById('leftPanel');
+      const rightPanel = document.getElementById('rightPanel');
       
+      // Restaurar tamaños originales
       tableContainer.style.width = originalCenterWidth + 'px';
-      
-      // Restaurar también los paneles laterales
-      document.getElementById('leftPanel').style.width = '';
-      document.getElementById('rightPanel').style.width = '';
+      leftPanel.style.width = '400px';
+      rightPanel.style.width = '350px';
     }
     
     // ===== REDIMENSIONAMIENTO DE COLUMNAS =====
