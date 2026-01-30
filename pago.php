@@ -19,17 +19,93 @@ function norm_person($s){
   return $s;
 }
 
+/* ================= TARIFAS DINÁMICAS - EXTRACCIÓN CORRECTA ================= */
+$columnas_tarifas = []; // Para almacenar TODAS las columnas de precio
+$tarifas = [];
+
+// PRIMERO: Obtener todas las columnas de la tabla tarifas
+$resColumns = $conn->query("SHOW COLUMNS FROM tarifas");
+if ($resColumns) {
+    while ($col = $resColumns->fetch_assoc()) {
+        $field = $col['Field'];
+        // Excluir columnas que no son tarifas
+        if (!in_array($field, ['id', 'empresa', 'tipo_vehiculo', 'created_at', 'updated_at'])) {
+            $columnas_tarifas[] = $field;
+        }
+    }
+}
+
+/* ================= OBTENER TODAS LAS CLASIFICACIONES DINÁMICAMENTE ================= */
+$todas_clasificaciones = [];
+$resClasifAll = $conn->query("SELECT DISTINCT clasificacion FROM ruta_clasificacion");
+if ($resClasifAll) {
+    while ($r = $resClasifAll->fetch_assoc()) {
+        // 🔹 IMPORTANTE: Normalizar a minúsculas
+        $todas_clasificaciones[] = strtolower($r['clasificacion']);
+    }
+}
+
+// 🔹 AGREGAR las columnas de tarifas como clasificaciones válidas (normalizadas a minúsculas)
+foreach ($columnas_tarifas as $columna) {
+    $columna_normalizada = strtolower($columna);
+    if (!in_array($columna_normalizada, $todas_clasificaciones)) {
+        $todas_clasificaciones[] = $columna_normalizada;
+    }
+}
+
 /* ================= Cargar clasificaciones desde BD ================= */
 $clasificaciones = [];
 $resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
 if ($resClasif) {
     while ($r = $resClasif->fetch_assoc()) {
         $key = mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo']), 'UTF-8');
-        $clasificaciones[$key] = $r['clasificacion']; // completo|medio|extra|siapana|carrotanque
+        $clasificaciones[$key] = strtolower($r['clasificacion']);
     }
 }
 
-/* ================= AJAX: Viajes por conductor (usando clasificación de BD) ================= */
+/* ================= LEYENDA DINÁMICA DE CLASIFICACIONES ================= */
+$colores_base = [
+    'completo'         => ['badge'=>'bg-emerald-100 text-emerald-700 border border-emerald-200', 'row'=>'bg-emerald-50/40'],
+    'medio'            => ['badge'=>'bg-amber-100 text-amber-800 border border-amber-200', 'row'=>'bg-amber-50/40'],
+    'extra'            => ['badge'=>'bg-slate-200 text-slate-800 border border-slate-300', 'row'=>'bg-slate-50'],
+    'siapana'          => ['badge'=>'bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-200', 'row'=>'bg-fuchsia-50/40'],
+    'carrotanque'      => ['badge'=>'bg-cyan-100 text-cyan-800 border border-cyan-200', 'row'=>'bg-cyan-50/40'],
+];
+
+// Generar leyenda dinámica
+$legend = [];
+foreach ($todas_clasificaciones as $clas) {
+    $clas_normalizada = strtolower($clas);
+    
+    if (isset($colores_base[$clas_normalizada])) {
+        $legend[$clas_normalizada] = [
+            'label' => ucwords(str_replace(['_', ' medio', ' completo'], [' ', ' Medio', ' Completo'], $clas)),
+            'badge' => $colores_base[$clas_normalizada]['badge'],
+            'row'   => $colores_base[$clas_normalizada]['row']
+        ];
+    } else {
+        // Generar color aleatorio para clasificaciones nuevas
+        $colors = [
+            ['badge'=>'bg-red-100 text-red-700 border border-red-200', 'row'=>'bg-red-50/40'],
+            ['badge'=>'bg-green-100 text-green-700 border border-green-200', 'row'=>'bg-green-50/40'],
+            ['badge'=>'bg-purple-100 text-purple-700 border border-purple-200', 'row'=>'bg-purple-50/40'],
+            ['badge'=>'bg-pink-100 text-pink-700 border border-pink-200', 'row'=>'bg-pink-50/40'],
+            ['badge'=>'bg-yellow-100 text-yellow-700 border border-yellow-200', 'row'=>'bg-yellow-50/40'],
+            ['badge'=>'bg-blue-100 text-blue-700 border border-blue-200', 'row'=>'bg-blue-50/40'],
+            ['badge'=>'bg-indigo-100 text-indigo-700 border border-indigo-200', 'row'=>'bg-indigo-50/40'],
+        ];
+        $color_idx = crc32($clas_normalizada) % count($colors);
+        $legend[$clas_normalizada] = [
+            'label' => ucwords(str_replace('_', ' ', $clas)),
+            'badge' => $colors[$color_idx]['badge'],
+            'row'   => $colors[$color_idx]['row']
+        ];
+    }
+}
+// Agregar "otro" para clasificaciones no encontradas
+$legend['otro'] = ['label'=>'Sin clasificar','badge'=>'bg-gray-100 text-gray-700 border border-gray-200','row'=>'bg-gray-50/20'];
+
+/* ================= AJAX: Viajes por conductor ================= */
 if (isset($_GET['viajes_conductor'])) {
     $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
     $desde   = $conn->real_escape_string($_GET['desde'] ?? '');
@@ -45,37 +121,26 @@ if (isset($_GET['viajes_conductor'])) {
     }
     $sql .= " ORDER BY fecha ASC";
 
-    $legend = [
-        'completo'     => ['label'=>'Completo',     'badge'=>'bg-emerald-100 text-emerald-700 border border-emerald-200', 'row'=>'bg-emerald-50/40'],
-        'medio'        => ['label'=>'Medio',        'badge'=>'bg-amber-100 text-amber-800 border border-amber-200',       'row'=>'bg-amber-50/40'],
-        'extra'        => ['label'=>'Extra',        'badge'=>'bg-slate-200 text-slate-800 border border-slate-300',       'row'=>'bg-slate-50'],
-        'siapana'      => ['label'=>'Siapana',      'badge'=>'bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-200', 'row'=>'bg-fuchsia-50/40'],
-        'carrotanque'  => ['label'=>'Carrotanque',  'badge'=>'bg-cyan-100 text-cyan-800 border border-cyan-200',          'row'=>'bg-cyan-50/40'],
-        'otro'         => ['label'=>'Sin clasificar','badge'=>'bg-gray-100 text-gray-700 border border-gray-200',         'row'=>'bg-gray-50/20']
-    ];
-
     $res = $conn->query($sql);
 
     $rowsHTML = "";
-    $counts = [
-        'completo'=>0,
-        'medio'=>0,
-        'extra'=>0,
-        'siapana'=>0,
-        'carrotanque'=>0,
-        'otro'=>0
-    ];
+    // Inicializar contadores dinámicamente
+    $counts = ['otro' => 0];
+    foreach ($todas_clasificaciones as $clas) {
+        $counts[strtolower($clas)] = 0;
+    }
 
     if ($res && $res->num_rows > 0) {
         while ($r = $res->fetch_assoc()) {
             $ruta = (string)$r['ruta'];
             $vehiculo = $r['tipo_vehiculo'];
             
-            // 🔹 Clasificación desde la tabla ruta_clasificacion
+            // Clasificación desde la tabla ruta_clasificacion
             $key = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
-            $cat = $clasificaciones[$key] ?? 'otro';
+            $cat = isset($clasificaciones[$key]) ? strtolower($clasificaciones[$key]) : 'otro';
             
-            if (!in_array($cat, ['completo','medio','extra','siapana','carrotanque'])) {
+            // Si la clasificación no está en nuestras clasificaciones conocidas, usar 'otro'
+            if (!in_array($cat, $todas_clasificaciones)) {
                 $cat = 'otro';
             }
 
@@ -85,7 +150,7 @@ if (isset($_GET['viajes_conductor'])) {
                 $counts[$cat] = 1;
             }
 
-            $l = $legend[$cat];
+            $l = $legend[$cat] ?? $legend['otro'];
             $badge = "<span class='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold {$l['badge']}'>".$l['label']."</span>";
             $rowCls = trim("row-viaje hover:bg-blue-50 transition-colors {$l['row']} cat-$cat");
 
@@ -110,17 +175,19 @@ if (isset($_GET['viajes_conductor'])) {
         <!-- Leyenda con contadores y filtro -->
         <div class='flex flex-wrap gap-2 text-xs' id="legendFilterBar">
             <?php
-            foreach (['completo','medio','extra','siapana','carrotanque','otro'] as $k) {
-                $l = $legend[$k];
+            // Mostrar todas las clasificaciones dinámicamente
+            foreach ($legend as $k => $l) {
                 $countVal = $counts[$k] ?? 0;
-                echo "<button
-                        class='legend-pill inline-flex items-center gap-2 px-3 py-2 rounded-full {$l['badge']} hover:opacity-90 transition ring-0 outline-none border cursor-pointer select-none'
-                        data-tipo='{$k}'
-                      >
-                        <span class='w-2.5 h-2.5 rounded-full ".str_replace(['bg-','/40'], ['bg-',''], $l['row'])." bg-opacity-100 border border-white/30 shadow-inner'></span>
-                        <span class='font-semibold text-[13px]'>{$l['label']}</span>
-                        <span class='text-[11px] font-semibold opacity-80'>({$countVal})</span>
-                      </button>";
+                if ($countVal > 0) {
+                    echo "<button
+                            class='legend-pill inline-flex items-center gap-2 px-3 py-2 rounded-full {$l['badge']} hover:opacity-90 transition ring-0 outline-none border cursor-pointer select-none'
+                            data-tipo='{$k}'
+                          >
+                            <span class='w-2.5 h-2.5 rounded-full ".str_replace(['bg-','/40'], ['bg-',''], $l['row'])." bg-opacity-100 border border-white/30 shadow-inner'></span>
+                            <span class='font-semibold text-[13px]'>{$l['label']}</span>
+                            <span class='text-[11px] font-semibold opacity-80'>({$countVal})</span>
+                          </button>";
+                }
             }
             ?>
         </div>
@@ -190,7 +257,24 @@ $hasta = $_GET['hasta'];
 $empresaFiltro = $_GET['empresa'] ?? "";
 $empresaFiltroEsc = $conn->real_escape_string($empresaFiltro);
 
-/* ================= Viajes del rango (usando clasificación de BD) ================= */
+/* ================= CARGAR TARIFAS PARA LA EMPRESA ================= */
+$tarifas = [];
+if ($empresaFiltro !== "") {
+    // Obtener tarifas específicas para esta empresa
+    $resT = $conn->query("SELECT * FROM tarifas WHERE empresa='".$empresaFiltroEsc."'");
+    if ($resT) {
+        while($r = $resT->fetch_assoc()) {
+            // Normalizar todas las claves del array a minúsculas
+            $tarifa_normalizada = [];
+            foreach ($r as $key => $value) {
+                $tarifa_normalizada[strtolower($key)] = $value;
+            }
+            $tarifas[$r['tipo_vehiculo']] = $tarifa_normalizada;
+        }
+    }
+}
+
+/* ================= Viajes del rango ================= */
 $sqlV = "SELECT nombre, ruta, empresa, tipo_vehiculo
          FROM viajes
          WHERE fecha BETWEEN '$desde' AND '$hasta'";
@@ -207,43 +291,25 @@ if ($resV) {
         $vehiculo = $row['tipo_vehiculo'];
         
         if (!isset($contadores[$nombre])) {
-            $contadores[$nombre] = [
-                'vehiculo' => $vehiculo,
-                'completos'=>0, 'medios'=>0, 'extras'=>0, 'carrotanques'=>0, 'siapana'=>0
-            ];
+            // Inicializar con todas las clasificaciones posibles
+            $contadores[$nombre] = ['vehiculo' => $vehiculo];
+            foreach ($todas_clasificaciones as $clas) {
+                $clas_normalizada = strtolower($clas);
+                $contadores[$nombre][$clas_normalizada] = 0;
+            }
         }
         
-        // 🔹 Clasificación desde la tabla ruta_clasificacion
+        // Clasificación desde la tabla ruta_clasificacion
         $key = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
-        $clasif = $clasificaciones[$key] ?? '';
+        $clasif = isset($clasificaciones[$key]) ? strtolower($clasificaciones[$key]) : '';
         
-        // Solo contar si tiene clasificación válida
-        switch ($clasif) {
-            case 'completo':
-                $contadores[$nombre]['completos']++;
-                break;
-            case 'medio':
-                $contadores[$nombre]['medios']++;
-                break;
-            case 'extra':
-                $contadores[$nombre]['extras']++;
-                break;
-            case 'siapana':
-                $contadores[$nombre]['siapana']++;
-                break;
-            case 'carrotanque':
-                $contadores[$nombre]['carrotanques']++;
-                break;
-            // Si no tiene clasificación, no se cuenta en ninguna columna
+        // Solo contar si tiene clasificación válida (y está en nuestras clasificaciones)
+        if ($clasif !== '' && in_array($clasif, $todas_clasificaciones)) {
+            if (isset($contadores[$nombre][$clasif])) {
+                $contadores[$nombre][$clasif]++;
+            }
         }
     }
-}
-
-/* ================= Tarifas ================= */
-$tarifas = [];
-if ($empresaFiltro !== "") {
-    $resT = $conn->query("SELECT * FROM tarifas WHERE empresa='".$empresaFiltroEsc."'");
-    if ($resT) while($r=$resT->fetch_assoc()) $tarifas[$r['tipo_vehiculo']] = $r;
 }
 
 /* ================= Préstamos: listado multiselección ================= */
@@ -280,22 +346,59 @@ if ($rP = $conn->query($qPrest)) {
     }
 }
 
-/* ================= Filas base (viajes) ================= */
-$filas = []; $total_facturado = 0;
+/* ================= Filas base (viajes) - CÁLCULO CORREGIDO ================= */
+$filas = []; 
+$total_facturado = 0;
+
 foreach ($contadores as $nombre => $v) {
     $veh = $v['vehiculo'];
-    $t = $tarifas[$veh] ?? ["completo"=>0,"medio"=>0,"extra"=>0,"carrotanque"=>0,"siapana"=>0];
-
-    $total = $v['completos']   * (int)($t['completo']    ?? 0)
-             + $v['medios']      * (int)($t['medio']       ?? 0)
-             + $v['extras']      * (int)($t['extra']       ?? 0)
-             + $v['carrotanques']* (int)($t['carrotanque'] ?? 0)
-             + $v['siapana']     * (int)($t['siapana']     ?? 0);
+    $t = $tarifas[$veh] ?? [];
+    
+    // Cálculo CORRECTO: Sumar TODAS las clasificaciones
+    $total = 0;
+    
+    foreach ($todas_clasificaciones as $clas) {
+        $clas_normalizada = strtolower($clas);
+        $cantidad = $v[$clas_normalizada] ?? 0;
+        
+        if ($cantidad > 0) {
+            // Buscar precio - probar diferentes formatos
+            $precio = 0;
+            
+            // 1. Buscar con el nombre exacto
+            if (isset($t[$clas_normalizada])) {
+                $precio = (float)$t[$clas_normalizada];
+            }
+            // 2. Si no, buscar reemplazando espacios por guiones bajos
+            else {
+                $clas_con_guion = str_replace(' ', '_', $clas_normalizada);
+                if (isset($t[$clas_con_guion])) {
+                    $precio = (float)$t[$clas_con_guion];
+                }
+                // 3. Si no, buscar reemplazando guiones bajos por espacios
+                else {
+                    $clas_con_espacio = str_replace('_', ' ', $clas_normalizada);
+                    if (isset($t[$clas_con_espacio])) {
+                        $precio = (float)$t[$clas_con_espacio];
+                    }
+                }
+            }
+            
+            $subtotal = $cantidad * $precio;
+            $total += $subtotal;
+        }
+    }
 
     $filas[] = ['nombre'=>$nombre, 'total_bruto'=>(int)$total];
     $total_facturado += (int)$total;
 }
+
 usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
+
+// DEBUG: Mostrar qué está sumando
+// echo "<!-- DEBUG: Total facturado: $total_facturado -->";
+// echo "<!-- DEBUG: Columnas tarifas: " . implode(', ', $columnas_tarifas) . " -->";
+// echo "<!-- DEBUG: Clasificaciones: " . implode(', ', $todas_clasificaciones) . " -->";
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -731,7 +834,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         </div>
         <div class="px-5 py-4 border-t border-slate-200 text-right">
             <button id="btnAddDesdeFiltro" class="rounded-lg border border-amber-300 px-3 py-2 text-sm bg-amber-50 hover:bg-amber-100">⭐ Guardar rango actual</button>
-        </div>
+</div>
     </div>
 </div>
 
@@ -740,7 +843,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const COMPANY_SCOPE = <?= json_encode(($empresaFiltro ?: '__todas__')) ?>;
     const ACC_KEY   = 'cuentas:'+COMPANY_SCOPE;
     const SS_KEY    = 'seg_social:'+COMPANY_SCOPE;
-    const PREST_SEL_KEY = 'prestamo_sel_multi:v4:'+COMPANY_SCOPE; // Cambiado a v4
+    const PREST_SEL_KEY = 'prestamo_sel_multi:v4:'+COMPANY_SCOPE;
     const ESTADO_PAGO_KEY = 'estado_pago:'+COMPANY_SCOPE;
     const PERIODOS_KEY  = 'cuentas_cobro_periodos:v1';
     const MANUAL_ROWS_KEY = 'filas_manuales:'+COMPANY_SCOPE;
@@ -897,14 +1000,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         }
 
         configurarEventosFila(nuevaFila);
-        // Asignar préstamos basados en el nombre
         asignarPrestamosAFilas();
         recalc();
-        
-        // Aplicar filtro si hay búsqueda activa
         filtrarConductores();
-        
-        // Restaurar selección si estaba guardada
         restaurarSeleccionCheckbox(nuevaFila);
     }
 
@@ -922,12 +1020,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         let baseName = '';
         if (conductorSelect) {
             baseName = conductorSelect.value || '';
-            // Actualizar data-conductor cuando cambie la selección
             conductorSelect.addEventListener('change', () => {
                 tr.dataset.conductor = normalizarTexto(conductorSelect.value);
-                // Aplicar filtro cuando cambia el conductor
                 filtrarConductores();
-                // Reasignar préstamos cuando cambia el conductor
                 asignarPrestamosAFilas();
             });
             tr.dataset.conductor = normalizarTexto(baseName);
@@ -1005,7 +1100,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 tr.remove();
                 recalc();
                 actualizarPanelFlotante();
-                // Actualizar contador después de eliminar
                 filtrarConductores();
             });
         }
@@ -1028,14 +1122,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                     aplicarEstadoFila(tr, estadoPagoMap[newBaseName]);
                 }
                 
-                // Reasignar préstamos cuando cambia el conductor
                 asignarPrestamosAFilas();
                 recalc();
                 actualizarPanelFlotante();
             });
         }
 
-        // Asignar préstamos existentes
         asignarPrestamosAFilas();
     }
 
@@ -1049,7 +1141,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             return;
         }
         
-        // Mostrar panel si hay seleccionados
         floatingPanel.classList.remove('hidden');
         
         let totalPagar = 0;
@@ -1065,7 +1156,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             const tr = checkbox.closest('tr');
             if (!tr) return;
             
-            // Obtener valores de la fila
             const pagar = toInt(tr.querySelector('.pagar').textContent || '0');
             const llego = toInt(tr.querySelector('.llego').textContent || '0');
             const ret = toInt(tr.querySelector('.ret').textContent || '0');
@@ -1073,10 +1163,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             const apor = toInt(tr.querySelector('.apor').textContent || '0');
             const prest = toInt(tr.querySelector('.prest').textContent || '0');
             
-            // Obtener nombre del conductor
             let nombreConductor = obtenerNombreConductorDeFila(tr);
             
-            // Sumar totales
             totalPagar += pagar;
             totalLlego += llego;
             totalRetencion += ret;
@@ -1085,14 +1173,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             totalPrestamos += prest;
             nombresConductores.push(nombreConductor);
             
-            // Obtener seguridad social si hay input
             const ssInput = tr.querySelector('input.ss');
             if (ssInput) {
                 totalSS += toInt(ssInput.value);
             }
         });
         
-        // Actualizar panel
         document.getElementById('selectedCount').textContent = count;
         document.getElementById('panelConductoresCount').textContent = count;
         document.getElementById('panelTotalPagar').textContent = fmt(totalPagar);
@@ -1103,11 +1189,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         document.getElementById('panelTotalSS').textContent = fmt(totalSS);
         document.getElementById('panelTotalPrestamos').textContent = fmt(totalPrestamos);
         
-        // Calcular promedio
         const promedio = count > 0 ? Math.round(totalPagar / count) : 0;
         document.getElementById('panelPromedio').textContent = fmt(promedio);
         
-        // Actualizar lista de nombres
         const nombresContainer = document.getElementById('panelNombresConductores');
         nombresContainer.innerHTML = '';
         
@@ -1219,7 +1303,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 restaurarSeleccionCheckbox(tr);
             }
         });
-        // Asignar préstamos a todas las filas
         asignarPrestamosAFilas();
     }
 
@@ -1324,7 +1407,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         currentRow = tr;
         selectedIds = new Set();
         
-        // Obtener el nombre del conductor
         let baseName = obtenerNombreConductorDeFila(tr);
         
         if (!baseName) {
@@ -1332,7 +1414,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             return;
         }
 
-        // Cargar préstamos ya seleccionados para este conductor
         const prestamosGuardados = prestSel[baseName] || [];
         
         prestamosGuardados.forEach(prestamo => {
@@ -1344,7 +1425,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         prestSearch.value = '';
         delete selTotalManual.dataset.touched;
         
-        // Establecer el valor inicial en el modal
         const currentPrestVal = toInt(tr.querySelector('.prest').textContent || '0');
         selTotalManual.value = fmt(currentPrestVal);
         
@@ -1402,24 +1482,20 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             return;
         }
 
-        // 1. DETERMINAR SI EL VALOR FUE EDITADO MANUALMENTE
         const fueEditadoManual = selTotalManual.dataset.touched === '1';
         let valorManual = fueEditadoManual ? toInt(selTotalManual.value) : 0;
         
-        // 2. OBTENER LOS PRÉSTAMOS SELECCIONADOS
         const prestamosSeleccionados = PRESTAMOS_LIST.filter(it => selectedIds.has(it.id));
         
-        // 3. CREAR ESTRUCTURA PARA GUARDAR EN LOCALSTORAGE
         const prestamosAGuardar = prestamosSeleccionados.map(it => {
             const prestamoGuardado = {
                 id: it.id,
                 name: it.name,
-                totalActual: it.total, // Valor actual automático
-                esManual: false, // Por defecto no es manual
-                valorManual: null // No hay valor manual por defecto
+                totalActual: it.total,
+                esManual: false,
+                valorManual: null
             };
             
-            // 4. SI FUE EDITADO MANUALMENTE Y ES UN SOLO PRÉSTAMO, marcarlo como manual
             if (fueEditadoManual && selectedIds.size === 1) {
                 prestamoGuardado.esManual = true;
                 prestamoGuardado.valorManual = valorManual;
@@ -1428,14 +1504,10 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             return prestamoGuardado;
         });
 
-        // 5. GUARDAR EN LOCALSTORAGE (con la nueva estructura)
         prestSel[baseName] = prestamosAGuardar;
         setLS(PREST_SEL_KEY, prestSel);
 
-        // 6. ASIGNAR PRÉSTAMOS A TODAS LAS FILAS (esto asegura que se muestren en la fila correcta)
         asignarPrestamosAFilas();
-        
-        // 7. RECALCULAR
         recalc();
         actualizarPanelFlotante();
         closePrest();
@@ -1574,31 +1646,26 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         const porcentaje = parseFloat(document.getElementById('inp_porcentaje_ajuste').value) || 0;
         const rows = [...tbody.querySelectorAll('tr')];
         
-        // 1. CALCULAR TOTALES PARA EL PANEL SUPERIOR
-        let totalAutomaticos = <?= $total_facturado ?>;  // Viajes PHP iniciales
-        let totalManuales = 0;  // Suma de viajes manuales
+        let totalAutomaticos = <?= $total_facturado ?>;
+        let totalManuales = 0;
         
-        // 2. CALCULOS INDIVIDUALES DE CADA FILA
         let sumLleg = 0, sumRet = 0, sumMil4 = 0, sumAp = 0, sumSS = 0, sumPrest = 0, sumPagar = 0;
         
         rows.forEach((tr) => {
-            if (tr.style.display === 'none') return; // Saltar filas ocultas por filtro
+            if (tr.style.display === 'none') return;
             
             let base;
             
             if (tr.classList.contains('fila-manual')) {
-                // FILA MANUAL: usa el valor del input
                 const baseInput = tr.querySelector('.base-manual');
                 base = baseInput ? toInt(baseInput.value) : 0;
-                totalManuales += base;  // Sumar a manuales
+                totalManuales += base;
             } else {
-                // FILA AUTOMÁTICA: usa el texto de la celda
                 const baseEl = tr.querySelector('.base');
                 if (!baseEl) return;
                 base = toInt(baseEl.textContent);
             }
             
-            // CALCULO INDIVIDUAL (igual para automáticos y manuales)
             const ajuste = Math.round(base * (porcentaje / 100));
             const llego = base - ajuste;
             const prest = toInt(tr.querySelector('.prest').textContent || '0');
@@ -1609,7 +1676,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             const ssVal = ssInput ? toInt(ssInput.value) : 0;
             const pagar = llego - ret - mil4 - ap - ssVal - prest;
             
-            // Actualizar celdas (igual para todos)
             tr.querySelector('.ajuste').textContent = fmt(ajuste);
             tr.querySelector('.llego').textContent = fmt(llego);
             tr.querySelector('.ret').textContent = fmt(ret);
@@ -1617,7 +1683,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             tr.querySelector('.apor').textContent = fmt(ap);
             tr.querySelector('.pagar').textContent = fmt(pagar);
             
-            // Sumar totales para la tabla
             sumLleg += llego;
             sumRet += ret;
             sumMil4 += mil4;
@@ -1627,16 +1692,13 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             sumPagar += pagar;
         });
         
-        // 3. ACTUALIZAR PANEL SUPERIOR
         const totalFacturado = totalAutomaticos + totalManuales;
         document.getElementById('inp_facturado').value = fmt(totalFacturado);
         document.getElementById('inp_viajes_manuales').value = fmt(totalManuales);
         
-        // Calcular ajuste total (5% del total facturado)
         const ajusteTotal = Math.round(totalFacturado * (porcentaje / 100));
         document.getElementById('lbl_total_ajuste').textContent = fmt(ajusteTotal);
         
-        // 4. ACTUALIZAR TOTALES TABLA
         document.getElementById('tot_valor_llego').textContent = fmt(sumLleg);
         document.getElementById('tot_retencion').textContent = fmt(sumRet);
         document.getElementById('tot_4x1000').textContent = fmt(sumMil4);
@@ -1645,7 +1707,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         document.getElementById('tot_prestamos').textContent = fmt(sumPrest);
         document.getElementById('tot_pagar').textContent = fmt(sumPagar);
         
-        // 5. ACTUALIZAR PANEL FLOTANTE
         actualizarPanelFlotante();
     }
 
@@ -1658,7 +1719,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         return texto
             .toLowerCase()
             .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '') // Eliminar acentos
+            .replace(/[\u0300-\u036f]/g, '')
             .trim();
     }
 
@@ -1668,14 +1729,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         let filasVisibles = 0;
         
         if (textoBusqueda === '') {
-            // Mostrar todas las filas
             filas.forEach(fila => {
                 fila.style.display = '';
                 filasVisibles++;
             });
             clearBuscar.style.display = 'none';
         } else {
-            // Filtrar por nombre
             filas.forEach(fila => {
                 let nombreConductor = obtenerNombreConductorDeFila(fila);
                 const nombreNormalizado = normalizarTexto(nombreConductor);
@@ -1690,14 +1749,10 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             clearBuscar.style.display = 'block';
         }
         
-        // Actualizar contador
         const totalConductores = filas.length;
         contadorConductores.textContent = `Mostrando ${filasVisibles} de ${totalConductores} conductores`;
         
-        // Resaltar texto coincidente
         resaltarTextoCoincidente(textoBusqueda);
-        
-        // Actualizar panel flotante después de filtrar
         actualizarPanelFlotante();
     }
 
@@ -1710,7 +1765,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             const indice = textoNormalizado.indexOf(textoBusqueda);
             
             if (textoBusqueda && indice !== -1) {
-                // Crear HTML con resaltado
                 const antes = textoOriginal.substring(0, indice);
                 const coincidencia = textoOriginal.substring(indice, indice + textoBusqueda.length);
                 const despues = textoOriginal.substring(indice + textoBusqueda.length);
@@ -1722,7 +1776,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         });
     }
 
-    // Event listeners para el buscador
     buscadorConductores.addEventListener('input', filtrarConductores);
 
     clearBuscar.addEventListener('click', () => {
@@ -1731,7 +1784,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         buscadorConductores.focus();
     });
 
-    // Limpiar búsqueda al presionar Escape
     buscadorConductores.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             buscadorConductores.value = '';
@@ -1744,10 +1796,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         initializeExistingRows();
         cargarFilasManuales();
         hacerPanelArrastrable();
-        // Asignar préstamos a todas las filas
         asignarPrestamosAFilas();
         recalc();
-        // Mostrar panel si hay conductores seleccionados guardados
         if (selectedConductors.length > 0) {
             actualizarPanelFlotante();
         }
