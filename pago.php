@@ -19,15 +19,65 @@ function norm_person($s){
   return $s;
 }
 
+/* ================= OBTENER TODAS LAS CLASIFICACIONES DINÁMICAMENTE ================= */
+$todas_clasificaciones = [];
+$resClasifAll = $conn->query("SELECT DISTINCT clasificacion FROM ruta_clasificacion");
+if ($resClasifAll) {
+    while ($r = $resClasifAll->fetch_assoc()) {
+        $todas_clasificaciones[] = $r['clasificacion'];
+    }
+}
+
 /* ================= Cargar clasificaciones desde BD ================= */
 $clasificaciones = [];
 $resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
 if ($resClasif) {
     while ($r = $resClasif->fetch_assoc()) {
         $key = mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo']), 'UTF-8');
-        $clasificaciones[$key] = $r['clasificacion']; // completo|medio|extra|siapana|carrotanque
+        $clasificaciones[$key] = $r['clasificacion'];
     }
 }
+
+/* ================= LEYENDA DINÁMICA DE CLASIFICACIONES ================= */
+// Colores predefinidos para las clasificaciones originales + genéricos para nuevas
+$colores_base = [
+    'completo'         => ['badge'=>'bg-emerald-100 text-emerald-700 border border-emerald-200', 'row'=>'bg-emerald-50/40'],
+    'medio'            => ['badge'=>'bg-amber-100 text-amber-800 border border-amber-200',       'row'=>'bg-amber-50/40'],
+    'extra'            => ['badge'=>'bg-slate-200 text-slate-800 border border-slate-300',       'row'=>'bg-slate-50'],
+    'siapana'          => ['badge'=>'bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-200', 'row'=>'bg-fuchsia-50/40'],
+    'carrotanque'      => ['badge'=>'bg-cyan-100 text-cyan-800 border border-cyan-200',          'row'=>'bg-cyan-50/40'],
+    'riohacha medio'   => ['badge'=>'bg-blue-100 text-blue-700 border border-blue-200',          'row'=>'bg-blue-50/40'],
+    'riohacha_completo'=> ['badge'=>'bg-indigo-100 text-indigo-700 border border-indigo-200',    'row'=>'bg-indigo-50/40'],
+];
+
+// Generar leyenda dinámica
+$legend = [];
+foreach ($todas_clasificaciones as $clas) {
+    if (isset($colores_base[$clas])) {
+        $legend[$clas] = [
+            'label' => ucwords(str_replace(['_', ' medio', ' completo'], [' ', ' Medio', ' Completo'], $clas)),
+            'badge' => $colores_base[$clas]['badge'],
+            'row'   => $colores_base[$clas]['row']
+        ];
+    } else {
+        // Generar color aleatorio para clasificaciones nuevas
+        $colors = [
+            ['badge'=>'bg-red-100 text-red-700 border border-red-200', 'row'=>'bg-red-50/40'],
+            ['badge'=>'bg-green-100 text-green-700 border border-green-200', 'row'=>'bg-green-50/40'],
+            ['badge'=>'bg-purple-100 text-purple-700 border border-purple-200', 'row'=>'bg-purple-50/40'],
+            ['badge'=>'bg-pink-100 text-pink-700 border border-pink-200', 'row'=>'bg-pink-50/40'],
+            ['badge'=>'bg-yellow-100 text-yellow-700 border border-yellow-200', 'row'=>'bg-yellow-50/40'],
+        ];
+        $color_idx = crc32($clas) % count($colors);
+        $legend[$clas] = [
+            'label' => ucwords(str_replace('_', ' ', $clas)),
+            'badge' => $colors[$color_idx]['badge'],
+            'row'   => $colors[$color_idx]['row']
+        ];
+    }
+}
+// Agregar "otro" para clasificaciones no encontradas
+$legend['otro'] = ['label'=>'Sin clasificar','badge'=>'bg-gray-100 text-gray-700 border border-gray-200','row'=>'bg-gray-50/20'];
 
 /* ================= AJAX: Viajes por conductor (usando clasificación de BD) ================= */
 if (isset($_GET['viajes_conductor'])) {
@@ -45,26 +95,14 @@ if (isset($_GET['viajes_conductor'])) {
     }
     $sql .= " ORDER BY fecha ASC";
 
-    $legend = [
-        'completo'     => ['label'=>'Completo',     'badge'=>'bg-emerald-100 text-emerald-700 border border-emerald-200', 'row'=>'bg-emerald-50/40'],
-        'medio'        => ['label'=>'Medio',        'badge'=>'bg-amber-100 text-amber-800 border border-amber-200',       'row'=>'bg-amber-50/40'],
-        'extra'        => ['label'=>'Extra',        'badge'=>'bg-slate-200 text-slate-800 border border-slate-300',       'row'=>'bg-slate-50'],
-        'siapana'      => ['label'=>'Siapana',      'badge'=>'bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-200', 'row'=>'bg-fuchsia-50/40'],
-        'carrotanque'  => ['label'=>'Carrotanque',  'badge'=>'bg-cyan-100 text-cyan-800 border border-cyan-200',          'row'=>'bg-cyan-50/40'],
-        'otro'         => ['label'=>'Sin clasificar','badge'=>'bg-gray-100 text-gray-700 border border-gray-200',         'row'=>'bg-gray-50/20']
-    ];
-
     $res = $conn->query($sql);
 
     $rowsHTML = "";
-    $counts = [
-        'completo'=>0,
-        'medio'=>0,
-        'extra'=>0,
-        'siapana'=>0,
-        'carrotanque'=>0,
-        'otro'=>0
-    ];
+    // Inicializar contadores dinámicamente
+    $counts = ['otro' => 0];
+    foreach ($todas_clasificaciones as $clas) {
+        $counts[$clas] = 0;
+    }
 
     if ($res && $res->num_rows > 0) {
         while ($r = $res->fetch_assoc()) {
@@ -75,7 +113,8 @@ if (isset($_GET['viajes_conductor'])) {
             $key = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
             $cat = $clasificaciones[$key] ?? 'otro';
             
-            if (!in_array($cat, ['completo','medio','extra','siapana','carrotanque'])) {
+            // Si la clasificación no está en nuestras clasificaciones conocidas, usar 'otro'
+            if (!in_array($cat, $todas_clasificaciones)) {
                 $cat = 'otro';
             }
 
@@ -85,7 +124,7 @@ if (isset($_GET['viajes_conductor'])) {
                 $counts[$cat] = 1;
             }
 
-            $l = $legend[$cat];
+            $l = $legend[$cat] ?? $legend['otro'];
             $badge = "<span class='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold {$l['badge']}'>".$l['label']."</span>";
             $rowCls = trim("row-viaje hover:bg-blue-50 transition-colors {$l['row']} cat-$cat");
 
@@ -110,8 +149,8 @@ if (isset($_GET['viajes_conductor'])) {
         <!-- Leyenda con contadores y filtro -->
         <div class='flex flex-wrap gap-2 text-xs' id="legendFilterBar">
             <?php
-            foreach (['completo','medio','extra','siapana','carrotanque','otro'] as $k) {
-                $l = $legend[$k];
+            // Mostrar todas las clasificaciones dinámicamente
+            foreach ($legend as $k => $l) {
                 $countVal = $counts[$k] ?? 0;
                 echo "<button
                         class='legend-pill inline-flex items-center gap-2 px-3 py-2 rounded-full {$l['badge']} hover:opacity-90 transition ring-0 outline-none border cursor-pointer select-none'
@@ -207,43 +246,34 @@ if ($resV) {
         $vehiculo = $row['tipo_vehiculo'];
         
         if (!isset($contadores[$nombre])) {
-            $contadores[$nombre] = [
-                'vehiculo' => $vehiculo,
-                'completos'=>0, 'medios'=>0, 'extras'=>0, 'carrotanques'=>0, 'siapana'=>0
-            ];
+            // Inicializar con todas las clasificaciones posibles
+            $contadores[$nombre] = ['vehiculo' => $vehiculo];
+            foreach ($todas_clasificaciones as $clas) {
+                $contadores[$nombre][$clas] = 0;
+            }
         }
         
         // 🔹 Clasificación desde la tabla ruta_clasificacion
         $key = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
         $clasif = $clasificaciones[$key] ?? '';
         
-        // Solo contar si tiene clasificación válida
-        switch ($clasif) {
-            case 'completo':
-                $contadores[$nombre]['completos']++;
-                break;
-            case 'medio':
-                $contadores[$nombre]['medios']++;
-                break;
-            case 'extra':
-                $contadores[$nombre]['extras']++;
-                break;
-            case 'siapana':
-                $contadores[$nombre]['siapana']++;
-                break;
-            case 'carrotanque':
-                $contadores[$nombre]['carrotanques']++;
-                break;
-            // Si no tiene clasificación, no se cuenta en ninguna columna
+        // Solo contar si tiene clasificación válida (y está en nuestras clasificaciones)
+        if (in_array($clasif, $todas_clasificaciones) && isset($contadores[$nombre][$clasif])) {
+            $contadores[$nombre][$clasif]++;
         }
+        // Si no tiene clasificación válida, no se cuenta en ninguna columna
     }
 }
 
-/* ================= Tarifas ================= */
+/* ================= Tarifas DINÁMICAS ================= */
 $tarifas = [];
 if ($empresaFiltro !== "") {
     $resT = $conn->query("SELECT * FROM tarifas WHERE empresa='".$empresaFiltroEsc."'");
-    if ($resT) while($r=$resT->fetch_assoc()) $tarifas[$r['tipo_vehiculo']] = $r;
+    if ($resT) {
+        while($r = $resT->fetch_assoc()) {
+            $tarifas[$r['tipo_vehiculo']] = $r;
+        }
+    }
 }
 
 /* ================= Préstamos: listado multiselección ================= */
@@ -280,17 +310,19 @@ if ($rP = $conn->query($qPrest)) {
     }
 }
 
-/* ================= Filas base (viajes) ================= */
+/* ================= Filas base (viajes) CON CÁLCULO DINÁMICO ================= */
 $filas = []; $total_facturado = 0;
 foreach ($contadores as $nombre => $v) {
     $veh = $v['vehiculo'];
-    $t = $tarifas[$veh] ?? ["completo"=>0,"medio"=>0,"extra"=>0,"carrotanque"=>0,"siapana"=>0];
-
-    $total = $v['completos']   * (int)($t['completo']    ?? 0)
-             + $v['medios']      * (int)($t['medio']       ?? 0)
-             + $v['extras']      * (int)($t['extra']       ?? 0)
-             + $v['carrotanques']* (int)($t['carrotanque'] ?? 0)
-             + $v['siapana']     * (int)($t['siapana']     ?? 0);
+    $t = $tarifas[$veh] ?? []; // Obtener tarifas para este tipo de vehículo
+    
+    // Cálculo DINÁMICO: sumar todas las clasificaciones
+    $total = 0;
+    foreach ($todas_clasificaciones as $clas) {
+        $cantidad = $v[$clas] ?? 0;
+        $precio = $t[$clas] ?? 0;
+        $total += $cantidad * (int)$precio;
+    }
 
     $filas[] = ['nombre'=>$nombre, 'total_bruto'=>(int)$total];
     $total_facturado += (int)$total;
