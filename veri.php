@@ -7,58 +7,66 @@ if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); 
 $conn->set_charset('utf8mb4');
 
 // ================= AJAX PARA MANEJAR CUENTAS =================
-// Esto debe estar AL INICIO del archivo
+// Esto debe estar AL INICIO del archivo, ANTES de cualquier salida HTML
 
-// Verificar si es una solicitud AJAX para cuentas
-if (isset($_GET['ajax'])) {
-    // Obtener cuentas (GET)
-    if (isset($_GET['obtener_cuentas'])) {
-        $empresa = $_GET['empresa'] ?? '';
-        header('Content-Type: application/json');
-        
-        // Crear tabla si no existe primero
-        $conn->query("
-        CREATE TABLE IF NOT EXISTS cuentas_guardadas (
-            id INT PRIMARY KEY AUTO_INCREMENT,
-            nombre VARCHAR(255) NOT NULL,
-            empresa VARCHAR(100) NOT NULL,
-            desde DATE NOT NULL,
-            hasta DATE NOT NULL,
-            facturado DECIMAL(15,2) NOT NULL,
-            porcentaje_ajuste DECIMAL(5,2) NOT NULL,
-            datos_json LONGTEXT NOT NULL,
-            fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            usuario VARCHAR(100),
-            INDEX idx_empresa (empresa),
-            INDEX idx_fecha (fecha_creacion)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-        ");
-        
-        // Obtener cuentas
+// Verificar si es una solicitud AJAX específica para cuentas
+if (isset($_GET['ajax_cuentas']) || (isset($_GET['obtener_cuentas']) && $_GET['obtener_cuentas'] == '1')) {
+    header('Content-Type: application/json');
+    
+    // Crear tabla si no existe primero
+    $conn->query("
+    CREATE TABLE IF NOT EXISTS cuentas_guardadas (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        nombre VARCHAR(255) NOT NULL,
+        empresa VARCHAR(100) NOT NULL,
+        desde DATE NOT NULL,
+        hasta DATE NOT NULL,
+        facturado DECIMAL(15,2) NOT NULL,
+        porcentaje_ajuste DECIMAL(5,2) NOT NULL,
+        datos_json LONGTEXT NOT NULL,
+        fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        usuario VARCHAR(100),
+        INDEX idx_empresa (empresa),
+        INDEX idx_fecha (fecha_creacion)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    ");
+    
+    // Obtener empresa del parámetro
+    $empresa = $_GET['empresa'] ?? '';
+    
+    // Preparar consulta
+    $sql = "SELECT id, nombre, empresa, desde, hasta, facturado, porcentaje_ajuste, 
+                   datos_json, fecha_creacion, usuario 
+            FROM cuentas_guardadas";
+    
+    if (!empty($empresa)) {
         $empresa_esc = $conn->real_escape_string($empresa);
-        $sql = "SELECT id, nombre, empresa, desde, hasta, facturado, porcentaje_ajuste, datos_json, fecha_creacion, usuario 
-                FROM cuentas_guardadas";
-        
-        if ($empresa !== '') {
-            $sql .= " WHERE empresa = '$empresa_esc'";
-        }
-        
-        $sql .= " ORDER BY fecha_creacion DESC";
-        
-        $result = $conn->query($sql);
-        $cuentas = [];
-        
-        if ($result && $result->num_rows > 0) {
-            while ($row = $result->fetch_assoc()) {
-                // Decodificar JSON
-                $row['datos_json'] = json_decode($row['datos_json'], true);
-                $cuentas[] = $row;
-            }
-        }
-        
-        echo json_encode($cuentas);
-        exit;
+        $sql .= " WHERE empresa = '$empresa_esc'";
+    } else {
+        // Si no se especifica empresa, mostrar todas las cuentas
+        $sql .= " WHERE 1=1";
     }
+    
+    $sql .= " ORDER BY fecha_creacion DESC";
+    
+    $result = $conn->query($sql);
+    $cuentas = [];
+    
+    if ($result && $result->num_rows > 0) {
+        while ($row = $result->fetch_assoc()) {
+            // Decodificar JSON
+            $datos_json = json_decode($row['datos_json'], true);
+            if ($datos_json === null) {
+                $row['datos_json'] = [];
+            } else {
+                $row['datos_json'] = $datos_json;
+            }
+            $cuentas[] = $row;
+        }
+    }
+    
+    echo json_encode($cuentas, JSON_UNESCAPED_UNICODE);
+    exit;
 }
 
 // Procesar acciones POST (para AJAX)
@@ -66,6 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion'])) {
     $accion = $_POST['accion'];
     
     if ($accion === 'guardar_cuenta') {
+        header('Content-Type: application/json');
         $datos = json_decode($_POST['datos'], true);
         
         $cuenta_completa = [
@@ -120,6 +129,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion'])) {
     }
     
     if ($accion === 'eliminar_cuenta') {
+        header('Content-Type: application/json');
         $id = intval($_POST['id']);
         
         $sql = "DELETE FROM cuentas_guardadas WHERE id = $id";
@@ -130,13 +140,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion'])) {
     }
     
     if ($accion === 'cargar_cuenta') {
+        header('Content-Type: application/json');
         $id = intval($_POST['id']);
         $sql = "SELECT * FROM cuentas_guardadas WHERE id = $id";
         $result = $conn->query($sql);
         
         if ($result && $result->num_rows > 0) {
             $row = $result->fetch_assoc();
-            $row['datos_json'] = json_decode($row['datos_json'], true);
+            $datos_json = json_decode($row['datos_json'], true);
+            if ($datos_json === null) {
+                $row['datos_json'] = [];
+            } else {
+                $row['datos_json'] = $datos_json;
+            }
             echo json_encode(['success' => true, 'cuenta' => $row]);
         } else {
             echo json_encode(['success' => false, 'message' => 'Cuenta no encontrada']);
@@ -162,108 +178,6 @@ CREATE TABLE IF NOT EXISTS cuentas_guardadas (
     INDEX idx_fecha (fecha_creacion)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 ");
-
-// ================= FUNCIONES PARA BASE DE DATOS =================
-
-/**
- * Guardar una cuenta en la base de datos
- */
-function guardarCuentaBD($conn, $datos) {
-    $nombre = $conn->real_escape_string($datos['nombre']);
-    $empresa = $conn->real_escape_string($datos['empresa']);
-    $desde = $conn->real_escape_string($datos['desde']);
-    $hasta = $conn->real_escape_string($datos['hasta']);
-    $facturado = floatval($datos['facturado']);
-    $porcentaje = floatval($datos['porcentaje']);
-    $datos_json = $conn->real_escape_string(json_encode($datos['datos_json'], JSON_UNESCAPED_UNICODE));
-    
-    // Puedes agregar usuario si tienes sistema de login
-    $usuario = isset($_SESSION['usuario']) ? $conn->real_escape_string($_SESSION['usuario']) : 'anonimo';
-    
-    $sql = "INSERT INTO cuentas_guardadas (nombre, empresa, desde, hasta, facturado, porcentaje_ajuste, datos_json, usuario) 
-            VALUES ('$nombre', '$empresa', '$desde', '$hasta', $facturado, $porcentaje, '$datos_json', '$usuario')";
-    
-    if ($conn->query($sql)) {
-        return $conn->insert_id; // Retorna el ID generado
-    }
-    
-    return false;
-}
-
-/**
- * Obtener todas las cuentas de una empresa
- */
-function obtenerCuentasBD($conn, $empresa) {
-    $empresa = $conn->real_escape_string($empresa);
-    $sql = "SELECT id, nombre, empresa, desde, hasta, facturado, porcentaje_ajuste, datos_json, fecha_creacion, usuario 
-            FROM cuentas_guardadas 
-            WHERE empresa = '$empresa' 
-            ORDER BY fecha_creacion DESC";
-    
-    $result = $conn->query($sql);
-    $cuentas = [];
-    
-    if ($result && $result->num_rows > 0) {
-        while ($row = $result->fetch_assoc()) {
-            $row['datos_json'] = json_decode($row['datos_json'], true);
-            $cuentas[] = $row;
-        }
-    }
-    
-    return $cuentas;
-}
-
-/**
- * Obtener una cuenta específica por ID
- */
-function obtenerCuentaPorIdBD($conn, $id) {
-    $id = intval($id);
-    $sql = "SELECT * FROM cuentas_guardadas WHERE id = $id";
-    $result = $conn->query($sql);
-    
-    if ($result && $result->num_rows > 0) {
-        $row = $result->fetch_assoc();
-        $row['datos_json'] = json_decode($row['datos_json'], true);
-        return $row;
-    }
-    
-    return null;
-}
-
-/**
- * Eliminar una cuenta de la BD
- */
-function eliminarCuentaBD($conn, $id) {
-    $id = intval($id);
-    $sql = "DELETE FROM cuentas_guardadas WHERE id = $id";
-    return $conn->query($sql);
-}
-
-/**
- * Actualizar una cuenta existente
- */
-function actualizarCuentaBD($conn, $id, $datos) {
-    $id = intval($id);
-    $nombre = $conn->real_escape_string($datos['nombre']);
-    $empresa = $conn->real_escape_string($datos['empresa']);
-    $desde = $conn->real_escape_string($datos['desde']);
-    $hasta = $conn->real_escape_string($datos['hasta']);
-    $facturado = floatval($datos['facturado']);
-    $porcentaje = floatval($datos['porcentaje']);
-    $datos_json = $conn->real_escape_string(json_encode($datos['datos_json'], JSON_UNESCAPED_UNICODE));
-    
-    $sql = "UPDATE cuentas_guardadas 
-            SET nombre = '$nombre',
-                empresa = '$empresa',
-                desde = '$desde',
-                hasta = '$hasta',
-                facturado = $facturado,
-                porcentaje_ajuste = $porcentaje,
-                datos_json = '$datos_json'
-            WHERE id = $id";
-    
-    return $conn->query($sql);
-}
 
 /* ================= Helpers ================= */
 function strip_accents($s){
@@ -1069,10 +983,16 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         const empresa = document.getElementById('sel_empresa').value;
         
         try {
-            // Usar un endpoint específico para AJAX
-            const response = await fetch(`?ajax=1&obtener_cuentas=1&empresa=${encodeURIComponent(empresa)}`);
+            // Usar el endpoint correcto para AJAX
+            const response = await fetch(`?ajax_cuentas=1&obtener_cuentas=1&empresa=${encodeURIComponent(empresa)}`);
+            
+            if (!response.ok) {
+                throw new Error(`Error HTTP: ${response.status}`);
+            }
+            
             const cuentas = await response.json();
             cuentasBD = cuentas;
+            console.log('Cuentas obtenidas desde BD:', cuentas); // Para depuración
             return cuentas;
         } catch (error) {
             console.error('Error al obtener cuentas desde BD:', error);
