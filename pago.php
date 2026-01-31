@@ -1880,7 +1880,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             // Recalcular todo
             recalc();
             
-            // Cerrar modal
+            // Cerrar mo
             closeGestor();
             
             alert(`✅ Cuenta "${cuenta.nombre}" cargada exitosamente.\nSe restauraron ${Object.keys(cuenta.prestamos || {}).length} conductores con préstamos asignados.`);
