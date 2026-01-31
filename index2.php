@@ -488,6 +488,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
     <meta charset="UTF-8">
     <title>Gestión de Viajes</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/css/select2.min.css" rel="stylesheet">
     <style>
         .table-hover tbody tr:hover { background-color: rgba(0,0,0,.025); }
         .img-thumb { max-width: 70px; height: auto; }
@@ -497,6 +498,10 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         .sticky-actions { position: sticky; top: 0; z-index: 1000; background: white; padding: 15px; margin: -15px -15px 15px -15px; border-bottom: 1px solid #dee2e6; box-shadow: 0 2px 4px rgba(0,0,0,.1); }
         .table-container { max-height: 600px; overflow-y: auto; }
         .form-control-sm { padding: 0.25rem 0.5rem; font-size: 0.875rem; }
+        .select2-container--default .select2-selection--multiple { min-height: 38px; }
+        .select2-container .select2-selection--single { height: 38px; }
+        .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 38px; }
+        .select2-container--default .select2-selection--single .select2-selection__arrow { height: 36px; }
     </style>
 </head>
 <body class="bg-light">
@@ -634,7 +639,7 @@ include("nav.php");
                             <!-- Ruta -->
                             <div class="mb-3">
                                 <label class="form-label required">Ruta</label>
-                                <select name="ruta" class="form-select" required>
+                                <select name="ruta" class="form-select select2-single" required>
                                     <option value="">-- Seleccionar --</option>
                                     <?php foreach($listas['rutas'] as $rutaItem): ?>
                                         <option value="<?= htmlspecialchars($rutaItem) ?>"
@@ -648,7 +653,7 @@ include("nav.php");
                             <!-- Tipo de Vehículo -->
                             <div class="mb-3">
                                 <label class="form-label required">Tipo de Vehículo</label>
-                                <select name="tipo_vehiculo" class="form-select" required>
+                                <select name="tipo_vehiculo" class="form-select select2-single" required>
                                     <option value="">-- Seleccionar --</option>
                                     <?php foreach($listas['vehiculos'] as $vehItem): ?>
                                         <option value="<?= htmlspecialchars($vehItem) ?>"
@@ -662,7 +667,7 @@ include("nav.php");
                             <!-- Empresa -->
                             <div class="mb-3">
                                 <label class="form-label">Empresa</label>
-                                <select name="empresa" class="form-select">
+                                <select name="empresa" class="form-select select2-single">
                                     <option value="">-- Ninguna --</option>
                                     <?php foreach($listas['empresas'] as $empItem): ?>
                                         <option value="<?= htmlspecialchars($empItem) ?>"
@@ -770,7 +775,7 @@ include("nav.php");
 
                                         <div class="col-md-4">
                                             <label class="form-label">Ruta (general)</label>
-                                            <select name="ruta_general" class="form-select form-select-sm">
+                                            <select name="ruta_general" class="form-select form-select-sm select2-single">
                                                 <option value="">-- No cambiar --</option>
                                                 <?php foreach($listas['rutas'] as $rutaItem): ?>
                                                     <option value="<?= htmlspecialchars($rutaItem) ?>">
@@ -781,7 +786,7 @@ include("nav.php");
                                         </div>
                                         <div class="col-md-4">
                                             <label class="form-label">Vehículo (general)</label>
-                                            <select name="tipo_vehiculo_general" class="form-select form-select-sm">
+                                            <select name="tipo_vehiculo_general" class="form-select form-select-sm select2-single">
                                                 <option value="">-- No cambiar --</option>
                                                 <?php foreach($listas['vehiculos'] as $vehItem): ?>
                                                     <option value="<?= htmlspecialchars($vehItem) ?>">
@@ -792,7 +797,7 @@ include("nav.php");
                                         </div>
                                         <div class="col-md-4">
                                             <label class="form-label">Empresa (general)</label>
-                                            <select name="empresa_general" class="form-select form-select-sm">
+                                            <select name="empresa_general" class="form-select form-select-sm select2-single">
                                                 <option value="">-- No cambiar --</option>
                                                 <?php foreach($listas['empresas'] as $empItem): ?>
                                                     <option value="<?= htmlspecialchars($empItem) ?>">
@@ -843,7 +848,7 @@ include("nav.php");
                                                            value="<?= htmlspecialchars($viaje_multi['fecha']) ?>">
                                                 </td>
                                                 <td>
-                                                    <select name="ruta_<?= $id_multi ?>" class="form-select form-select-sm">
+                                                    <select name="ruta_<?= $id_multi ?>" class="form-select form-select-sm select2-single">
                                                         <option value="">-- Seleccionar --</option>
                                                         <?php foreach($listas['rutas'] as $rutaItem): ?>
                                                             <option value="<?= htmlspecialchars($rutaItem) ?>"
@@ -854,7 +859,7 @@ include("nav.php");
                                                     </select>
                                                 </td>
                                                 <td>
-                                                    <select name="tipo_vehiculo_<?= $id_multi ?>" class="form-select form-select-sm">
+                                                    <select name="tipo_vehiculo_<?= $id_multi ?>" class="form-select form-select-sm select2-single">
                                                         <option value="">-- Seleccionar --</option>
                                                         <?php foreach($listas['vehiculos'] as $vehItem): ?>
                                                             <option value="<?= htmlspecialchars($vehItem) ?>"
@@ -865,7 +870,7 @@ include("nav.php");
                                                     </select>
                                                 </td>
                                                 <td>
-                                                    <select name="empresa_<?= $id_multi ?>" class="form-select form-select-sm">
+                                                    <select name="empresa_<?= $id_multi ?>" class="form-select form-select-sm select2-single">
                                                         <option value="">-- Ninguna --</option>
                                                         <?php foreach($listas['empresas'] as $empItem): ?>
                                                             <option value="<?= htmlspecialchars($empItem) ?>"
@@ -934,22 +939,25 @@ include("nav.php");
             </div>
         <?php endif; ?>
 
-        <!-- FILTROS -->
+        <!-- FILTROS (MULTISELECT) -->
         <div class="card shadow mb-4">
             <div class="card-header bg-primary text-white">
-                <h3 class="mb-0">🔍 Filtros de búsqueda</h3>
+                <h3 class="mb-0">🔍 Filtros de búsqueda (multiselect)</h3>
+                <small class="text-light">Presiona Ctrl+Click o arrastra para seleccionar múltiples opciones</small>
             </div>
             <div class="card-body">
                 <form method="GET" class="row g-3" id="filtrosForm">
-                    <!-- NOMBRE -->
-                    <div class="col-md-2">
+                    <!-- NOMBRE (multiselect) -->
+                    <div class="col-md-3">
                         <label class="form-label">Nombre</label>
-                        <select name="nombre" class="form-select">
-                            <option value="">-- Todos --</option>
+                        <select name="nombre[]" class="form-select select2-multiple" multiple data-placeholder="Todos los nombres">
                             <?php
-                            $nombreSel = $_GET['nombre'] ?? '';
+                            $nombresSeleccionados = $_GET['nombre'] ?? [];
+                            if (!is_array($nombresSeleccionados)) {
+                                $nombresSeleccionados = [];
+                            }
                             foreach($listas['nombres'] as $nom):
-                                $sel = ($nombreSel === $nom) ? 'selected' : '';
+                                $sel = in_array($nom, $nombresSeleccionados) ? 'selected' : '';
                             ?>
                                 <option value="<?= htmlspecialchars($nom) ?>" <?= $sel ?>>
                                     <?= htmlspecialchars($nom) ?>
@@ -958,15 +966,17 @@ include("nav.php");
                         </select>
                     </div>
 
-                    <!-- CÉDULA -->
-                    <div class="col-md-2">
+                    <!-- CÉDULA (multiselect) -->
+                    <div class="col-md-3">
                         <label class="form-label">Cédula</label>
-                        <select name="cedula" class="form-select">
-                            <option value="">-- Todas --</option>
+                        <select name="cedula[]" class="form-select select2-multiple" multiple data-placeholder="Todas las cédulas">
                             <?php
-                            $cedSel = $_GET['cedula'] ?? '';
+                            $cedulasSeleccionadas = $_GET['cedula'] ?? [];
+                            if (!is_array($cedulasSeleccionadas)) {
+                                $cedulasSeleccionadas = [];
+                            }
                             foreach($listas['cedulas'] as $ced):
-                                $sel = ($cedSel === $ced) ? 'selected' : '';
+                                $sel = in_array($ced, $cedulasSeleccionadas) ? 'selected' : '';
                             ?>
                                 <option value="<?= htmlspecialchars($ced) ?>" <?= $sel ?>>
                                     <?= htmlspecialchars($ced) ?>
@@ -985,15 +995,17 @@ include("nav.php");
                         <input type="date" name="hasta" value="<?= htmlspecialchars($_GET['hasta'] ?? '') ?>" class="form-control">
                     </div>
 
-                    <!-- RUTA -->
-                    <div class="col-md-2">
+                    <!-- RUTA (multiselect) -->
+                    <div class="col-md-3">
                         <label class="form-label">Ruta</label>
-                        <select name="ruta" class="form-select">
-                            <option value="">-- Todas --</option>
+                        <select name="ruta[]" class="form-select select2-multiple" multiple data-placeholder="Todas las rutas">
                             <?php
-                            $rutaSel = $_GET['ruta'] ?? '';
+                            $rutasSeleccionadas = $_GET['ruta'] ?? [];
+                            if (!is_array($rutasSeleccionadas)) {
+                                $rutasSeleccionadas = [];
+                            }
                             foreach($listas['rutas'] as $ruta):
-                                $sel = ($rutaSel === $ruta) ? 'selected' : '';
+                                $sel = in_array($ruta, $rutasSeleccionadas) ? 'selected' : '';
                             ?>
                                 <option value="<?= htmlspecialchars($ruta) ?>" <?= $sel ?>>
                                     <?= htmlspecialchars($ruta) ?>
@@ -1002,15 +1014,17 @@ include("nav.php");
                         </select>
                     </div>
 
-                    <!-- VEHÍCULO -->
-                    <div class="col-md-2">
+                    <!-- VEHÍCULO (multiselect) -->
+                    <div class="col-md-3">
                         <label class="form-label">Vehículo</label>
-                        <select name="vehiculo" class="form-select">
-                            <option value="">-- Todos --</option>
+                        <select name="vehiculo[]" class="form-select select2-multiple" multiple data-placeholder="Todos los vehículos">
                             <?php
-                            $vehSel = $_GET['vehiculo'] ?? '';
+                            $vehiculosSeleccionados = $_GET['vehiculo'] ?? [];
+                            if (!is_array($vehiculosSeleccionados)) {
+                                $vehiculosSeleccionados = [];
+                            }
                             foreach($listas['vehiculos'] as $veh):
-                                $sel = ($vehSel === $veh) ? 'selected' : '';
+                                $sel = in_array($veh, $vehiculosSeleccionados) ? 'selected' : '';
                             ?>
                                 <option value="<?= htmlspecialchars($veh) ?>" <?= $sel ?>>
                                     <?= htmlspecialchars($veh) ?>
@@ -1019,15 +1033,17 @@ include("nav.php");
                         </select>
                     </div>
 
-                    <!-- EMPRESA -->
-                    <div class="col-md-2">
+                    <!-- EMPRESA (multiselect) -->
+                    <div class="col-md-3">
                         <label class="form-label">Empresa</label>
-                        <select name="empresa" class="form-select">
-                            <option value="">-- Todas --</option>
+                        <select name="empresa[]" class="form-select select2-multiple" multiple data-placeholder="Todas las empresas">
                             <?php
-                            $empSel = $_GET['empresa'] ?? '';
+                            $empresasSeleccionadas = $_GET['empresa'] ?? [];
+                            if (!is_array($empresasSeleccionadas)) {
+                                $empresasSeleccionadas = [];
+                            }
                             foreach($listas['empresas'] as $emp):
-                                $sel = ($empSel === $emp) ? 'selected' : '';
+                                $sel = in_array($emp, $empresasSeleccionadas) ? 'selected' : '';
                             ?>
                                 <option value="<?= htmlspecialchars($emp) ?>" <?= $sel ?>>
                                     <?= htmlspecialchars($emp) ?>
@@ -1048,18 +1064,29 @@ include("nav.php");
         </div>
 
         <?php
-        // ================== CONSTRUIR CONSULTA CON FILTROS ==================
+        // ================== CONSTRUIR CONSULTA CON FILTROS (MULTISELECT) ==================
         $where        = [];
         $ids_visibles = []; // Para guardar los IDs visibles actualmente
 
-        if (!empty($_GET['nombre'])) {
-            $nombre = $conexion->real_escape_string($_GET['nombre']);
-            $where[] = "nombre = '$nombre'";
+        // Nombre (array)
+        if (!empty($_GET['nombre']) && is_array($_GET['nombre'])) {
+            $nombres = array_map([$conexion, 'real_escape_string'], $_GET['nombre']);
+            $nombres = array_filter($nombres, function($val) { return trim($val) !== ''; });
+            if (!empty($nombres)) {
+                $where[] = "nombre IN ('" . implode("','", $nombres) . "')";
+            }
         }
-        if (!empty($_GET['cedula'])) {
-            $cedula = $conexion->real_escape_string($_GET['cedula']);
-            $where[] = "cedula = '$cedula'";
+
+        // Cédula (array)
+        if (!empty($_GET['cedula']) && is_array($_GET['cedula'])) {
+            $cedulas = array_map([$conexion, 'real_escape_string'], $_GET['cedula']);
+            $cedulas = array_filter($cedulas, function($val) { return trim($val) !== ''; });
+            if (!empty($cedulas)) {
+                $where[] = "cedula IN ('" . implode("','", $cedulas) . "')";
+            }
         }
+
+        // Fechas
         if (!empty($_GET['desde']) && !empty($_GET['hasta'])) {
             $desde = $conexion->real_escape_string($_GET['desde']);
             $hasta = $conexion->real_escape_string($_GET['hasta']);
@@ -1071,17 +1098,32 @@ include("nav.php");
             $hasta = $conexion->real_escape_string($_GET['hasta']);
             $where[] = "fecha <= '$hasta'";
         }
-        if (!empty($_GET['ruta'])) {
-            $ruta = $conexion->real_escape_string($_GET['ruta']);
-            $where[] = "ruta = '$ruta'";
+
+        // Ruta (array)
+        if (!empty($_GET['ruta']) && is_array($_GET['ruta'])) {
+            $rutas = array_map([$conexion, 'real_escape_string'], $_GET['ruta']);
+            $rutas = array_filter($rutas, function($val) { return trim($val) !== ''; });
+            if (!empty($rutas)) {
+                $where[] = "ruta IN ('" . implode("','", $rutas) . "')";
+            }
         }
-        if (!empty($_GET['vehiculo'])) {
-            $vehiculo = $conexion->real_escape_string($_GET['vehiculo']);
-            $where[] = "tipo_vehiculo = '$vehiculo'";
+
+        // Vehículo (array)
+        if (!empty($_GET['vehiculo']) && is_array($_GET['vehiculo'])) {
+            $vehiculos = array_map([$conexion, 'real_escape_string'], $_GET['vehiculo']);
+            $vehiculos = array_filter($vehiculos, function($val) { return trim($val) !== ''; });
+            if (!empty($vehiculos)) {
+                $where[] = "tipo_vehiculo IN ('" . implode("','", $vehiculos) . "')";
+            }
         }
-        if (!empty($_GET['empresa'])) {
-            $empresa = $conexion->real_escape_string($_GET['empresa']);
-            $where[] = "empresa = '$empresa'";
+
+        // Empresa (array)
+        if (!empty($_GET['empresa']) && is_array($_GET['empresa'])) {
+            $empresas = array_map([$conexion, 'real_escape_string'], $_GET['empresa']);
+            $empresas = array_filter($empresas, function($val) { return trim($val) !== ''; });
+            if (!empty($empresas)) {
+                $where[] = "empresa IN ('" . implode("','", $empresas) . "')";
+            }
         }
 
         $sql = "SELECT * FROM viajes";
@@ -1092,15 +1134,23 @@ include("nav.php");
         
         $resultado = $conexion->query($sql);
 
-        // Contar viajes por nombre si hay filtro
-        if (!empty($_GET['nombre'])):
-            $nombreFiltro = $conexion->real_escape_string($_GET['nombre']);
-            $sqlContar = "SELECT COUNT(*) AS total FROM viajes WHERE nombre = '$nombreFiltro'";
-            $resContar = $conexion->query($sqlContar);
-            $totalViajes = $resContar ? (int)$resContar->fetch_assoc()['total'] : 0;
-        ?>
+        // Mostrar conteo si hay filtro de nombres
+        if (!empty($_GET['nombre']) && is_array($_GET['nombre']) && count($_GET['nombre']) > 0):
+            $nombresFiltro = array_map([$conexion, 'real_escape_string'], $_GET['nombre']);
+            $totalViajes = 0;
+            ?>
             <div class="alert alert-info">
-                <strong><?= htmlspecialchars($_GET['nombre']) ?></strong> ha hecho <b><?= $totalViajes ?></b> viajes.
+                <strong>Filtro activo:</strong> 
+                <?php 
+                foreach($nombresFiltro as $nombreFiltro):
+                    $sqlContar = "SELECT COUNT(*) AS total FROM viajes WHERE nombre = '$nombreFiltro'";
+                    $resContar = $conexion->query($sqlContar);
+                    $count = $resContar ? (int)$resContar->fetch_assoc()['total'] : 0;
+                    $totalViajes += $count;
+                ?>
+                    <span class="badge bg-primary me-2"><?= htmlspecialchars($nombreFiltro) ?> (<?= $count ?>)</span>
+                <?php endforeach; ?>
+                <br><strong>Total viajes:</strong> <?= $totalViajes ?>
             </div>
         <?php endif; ?>
 
@@ -1263,6 +1313,9 @@ include("nav.php");
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/select2.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/i18n/es.min.js"></script>
 <script>
 // Pasar los IDs visibles a los formularios de selección
 document.addEventListener('DOMContentLoaded', function() {
@@ -1277,6 +1330,24 @@ document.addEventListener('DOMContentLoaded', function() {
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
     var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
         return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
+    
+    // Inicializar Select2 para multiselect
+    $('.select2-multiple').select2({
+        width: '100%',
+        placeholder: function() {
+            return $(this).data('placeholder');
+        },
+        allowClear: true,
+        language: 'es'
+    });
+    
+    // Inicializar Select2 para select simples
+    $('.select2-single').select2({
+        width: '100%',
+        placeholder: '-- Seleccionar --',
+        allowClear: true,
+        language: 'es'
     });
 });
 
