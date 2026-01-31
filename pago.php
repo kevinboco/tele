@@ -1,188 +1,8 @@
 <?php
 include("nav.php");
-session_start();
-
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
 if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); }
 $conn->set_charset('utf8mb4');
-
-// ================= CREAR TABLA SI NO EXISTE =================
-$conn->query("
-CREATE TABLE IF NOT EXISTS cuentas_guardadas (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    nombre VARCHAR(255) NOT NULL,
-    empresa VARCHAR(100) NOT NULL,
-    desde DATE NOT NULL,
-    hasta DATE NOT NULL,
-    facturado DECIMAL(15,2) NOT NULL,
-    porcentaje_ajuste DECIMAL(5,2) NOT NULL,
-    datos_json LONGTEXT NOT NULL,
-    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    usuario VARCHAR(100),
-    INDEX idx_empresa (empresa),
-    INDEX idx_fecha (fecha_creacion)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-");
-
-// ================= FUNCIONES PARA BASE DE DATOS =================
-
-/**
- * Guardar una cuenta en la base de datos
- */
-function guardarCuentaBD($conn, $datos) {
-    $nombre = $conn->real_escape_string($datos['nombre']);
-    $empresa = $conn->real_escape_string($datos['empresa']);
-    $desde = $conn->real_escape_string($datos['desde']);
-    $hasta = $conn->real_escape_string($datos['hasta']);
-    $facturado = floatval($datos['facturado']);
-    $porcentaje = floatval($datos['porcentaje']);
-    $datos_json = $conn->real_escape_string(json_encode($datos['datos_json'], JSON_UNESCAPED_UNICODE));
-    
-    // Puedes agregar usuario si tienes sistema de login
-    $usuario = isset($_SESSION['usuario']) ? $conn->real_escape_string($_SESSION['usuario']) : 'anonimo';
-    
-    $sql = "INSERT INTO cuentas_guardadas (nombre, empresa, desde, hasta, facturado, porcentaje_ajuste, datos_json, usuario) 
-            VALUES ('$nombre', '$empresa', '$desde', '$hasta', $facturado, $porcentaje, '$datos_json', '$usuario')";
-    
-    if ($conn->query($sql)) {
-        return $conn->insert_id; // Retorna el ID generado
-    }
-    
-    return false;
-}
-
-/**
- * Obtener todas las cuentas de una empresa
- */
-function obtenerCuentasBD($conn, $empresa) {
-    $empresa = $conn->real_escape_string($empresa);
-    $sql = "SELECT id, nombre, empresa, desde, hasta, facturado, porcentaje_ajuste, datos_json, fecha_creacion, usuario 
-            FROM cuentas_guardadas 
-            WHERE empresa = '$empresa' 
-            ORDER BY fecha_creacion DESC";
-    
-    $result = $conn->query($sql);
-    $cuentas = [];
-    
-    if ($result && $result->num_rows > 0) {
-        while ($row = $result->fetch_assoc()) {
-            $row['datos_json'] = json_decode($row['datos_json'], true);
-            $cuentas[] = $row;
-        }
-    }
-    
-    return $cuentas;
-}
-
-/**
- * Obtener una cuenta específica por ID
- */
-function obtenerCuentaPorIdBD($conn, $id) {
-    $id = intval($id);
-    $sql = "SELECT * FROM cuentas_guardadas WHERE id = $id";
-    $result = $conn->query($sql);
-    
-    if ($result && $result->num_rows > 0) {
-        $row = $result->fetch_assoc();
-        $row['datos_json'] = json_decode($row['datos_json'], true);
-        return $row;
-    }
-    
-    return null;
-}
-
-/**
- * Eliminar una cuenta de la BD
- */
-function eliminarCuentaBD($conn, $id) {
-    $id = intval($id);
-    $sql = "DELETE FROM cuentas_guardadas WHERE id = $id";
-    return $conn->query($sql);
-}
-
-/**
- * Actualizar una cuenta existente
- */
-function actualizarCuentaBD($conn, $id, $datos) {
-    $id = intval($id);
-    $nombre = $conn->real_escape_string($datos['nombre']);
-    $empresa = $conn->real_escape_string($datos['empresa']);
-    $desde = $conn->real_escape_string($datos['desde']);
-    $hasta = $conn->real_escape_string($datos['hasta']);
-    $facturado = floatval($datos['facturado']);
-    $porcentaje = floatval($datos['porcentaje']);
-    $datos_json = $conn->real_escape_string(json_encode($datos['datos_json'], JSON_UNESCAPED_UNICODE));
-    
-    $sql = "UPDATE cuentas_guardadas 
-            SET nombre = '$nombre',
-                empresa = '$empresa',
-                desde = '$desde',
-                hasta = '$hasta',
-                facturado = $facturado,
-                porcentaje_ajuste = $porcentaje,
-                datos_json = '$datos_json'
-            WHERE id = $id";
-    
-    return $conn->query($sql);
-}
-
-// ================= AJAX PARA MANEJAR CUENTAS =================
-
-// Guardar cuenta (POST)
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion'])) {
-    $accion = $_POST['accion'];
-    
-    if ($accion === 'guardar_cuenta') {
-        $datos = json_decode($_POST['datos'], true);
-        
-        $cuenta_completa = [
-            'nombre' => $datos['nombre'],
-            'empresa' => $datos['empresa'],
-            'desde' => $datos['desde'],
-            'hasta' => $datos['hasta'],
-            'facturado' => $datos['facturado'],
-            'porcentaje' => $datos['porcentaje'],
-            'datos_json' => $datos['datos_json']
-        ];
-        
-        $id = guardarCuentaBD($conn, $cuenta_completa);
-        
-        if ($id) {
-            echo json_encode(['success' => true, 'id' => $id, 'message' => 'Cuenta guardada en base de datos']);
-        } else {
-            echo json_encode(['success' => false, 'message' => 'Error al guardar en base de datos']);
-        }
-        exit;
-    }
-    
-    if ($accion === 'eliminar_cuenta') {
-        $id = intval($_POST['id']);
-        $resultado = eliminarCuentaBD($conn, $id);
-        
-        echo json_encode(['success' => $resultado, 'message' => $resultado ? 'Cuenta eliminada' : 'Error al eliminar']);
-        exit;
-    }
-    
-    if ($accion === 'cargar_cuenta') {
-        $id = intval($_POST['id']);
-        $cuenta = obtenerCuentaPorIdBD($conn, $id);
-        
-        if ($cuenta) {
-            echo json_encode(['success' => true, 'cuenta' => $cuenta]);
-        } else {
-            echo json_encode(['success' => false, 'message' => 'Cuenta no encontrada']);
-        }
-        exit;
-    }
-}
-
-// Obtener cuentas (GET)
-if (isset($_GET['obtener_cuentas'])) {
-    $empresa = $_GET['empresa'] ?? '';
-    $cuentas = obtenerCuentasBD($conn, $empresa);
-    echo json_encode($cuentas);
-    exit;
-}
 
 /* ================= Helpers ================= */
 function strip_accents($s){
@@ -471,7 +291,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>Ajuste de Pago (Base de Datos)</title>
+    <title>Ajuste de Pago (con gestor de cuentas de cobro)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         .num { font-variant-numeric: tabular-nums; }
@@ -515,16 +335,13 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         /* Leyenda */
         .legend-pill { transition: all 0.2s; }
         .legend-pill.active { box-shadow: 0 0 0 2px #3b82f6, 0 0 0 4px rgba(59, 130, 246, 0.2); }
-        
-        /* Badge BD */
-        .bd-badge { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
     </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
 <header class="max-w-[1600px] mx-auto px-3 md:px-4 pt-6">
     <div class="bg-white border border-slate-200 rounded-2xl shadow-sm px-5 py-4">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <h2 class="text-xl md:text-2xl font-bold">🧾 Ajuste de Pago <span class="bd-badge text-xs px-2 py-1 rounded-full ml-2">Base de Datos</span></h2>
+            <h2 class="text-xl md:text-2xl font-bold">🧾 Ajuste de Pago</h2>
             <div class="flex items-center gap-2">
                 <button id="btnShowSaveCuenta" class="rounded-lg border border-amber-300 px-3 py-2 text-sm bg-amber-50 hover:bg-amber-100">⭐ Guardar como cuenta</button>
                 <button id="btnShowGestorCuentas" class="rounded-lg border border-blue-300 px-3 py-2 text-sm bg-blue-50 hover:bg-blue-100">📚 Cuentas guardadas</button>
@@ -840,13 +657,13 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-10 w-full max-w-lg bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
         <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-            <h3 class="text-lg font-semibold">⭐ Guardar cuenta de cobro en Base de Datos</h3>
+            <h3 class="text-lg font-semibold">⭐ Guardar cuenta de cobro</h3>
             <button id="btnCloseSaveCuenta" class="p-2 rounded hover:bg-slate-100" title="Cerrar">✕</button>
         </div>
         <div class="p-5 space-y-3">
             <label class="block">
-                <span class="block text-xs font-medium mb-1">Nombre de la cuenta *</span>
-                <input id="cuenta_nombre" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" placeholder="Ej: Hospital Sep 2025" required>
+                <span class="block text-xs font-medium mb-1">Nombre</span>
+                <input id="cuenta_nombre" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" placeholder="Ej: Hospital Sep 2025">
             </label>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <label class="block">
@@ -861,30 +678,20 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <label class="block">
                     <span class="block text-xs font-medium mb-1">Facturado</span>
-                    <input id="cuenta_facturado" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num" required>
+                    <input id="cuenta_facturado" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
                 </label>
                 <label class="block">
                     <span class="block text-xs font-medium mb-1">Porcentaje ajuste</span>
-                    <input id="cuenta_porcentaje" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num" required>
+                    <input id="cuenta_porcentaje" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
                 </label>
             </div>
-            <div class="text-xs text-slate-500 p-3 bg-blue-50 rounded-lg border border-blue-100">
-                <strong>💾 Se guardará en Base de Datos:</strong>
-                <ul class="mt-1 space-y-1">
-                    <li>✓ Préstamos asignados a cada conductor</li>
-                    <li>✓ Seguridad social de cada conductor</li>
-                    <li>✓ Cuentas bancarias</li>
-                    <li>✓ Estados de pago</li>
-                    <li>✓ Filas manuales agregadas</li>
-                </ul>
-                <div class="mt-2 text-blue-600">
-                    <i class="mr-1">📡</i> Accesible desde cualquier dispositivo
-                </div>
+            <div class="text-xs text-slate-500 mt-2">
+                <strong>⚠️ NOTA:</strong> También se guardarán los préstamos asignados, seguridad social, cuentas bancarias y estados de pago.
             </div>
         </div>
         <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
             <button id="btnCancelSaveCuenta" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
-            <button id="btnDoSaveCuenta" class="rounded-lg border border-amber-500 text-white px-4 py-2 bg-amber-500 hover:bg-amber-600">💾 Guardar en BD</button>
+            <button id="btnDoSaveCuenta" class="rounded-lg border border-amber-500 text-white px-4 py-2 bg-amber-500 hover:bg-amber-600">Guardar</button>
         </div>
     </div>
 </div>
@@ -892,20 +699,15 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 <!-- ===== Modal GESTOR DE CUENTAS ===== -->
 <div id="gestorCuentasModal" class="hidden fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
-    <div class="relative mx-auto my-10 w-full max-w-4xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+    <div class="relative mx-auto my-10 w-full max-w-3xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
         <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-            <h3 class="text-lg font-semibold">📚 Cuentas guardadas en Base de Datos</h3>
+            <h3 class="text-lg font-semibold">📚 Cuentas guardadas</h3>
             <button id="btnCloseGestor" class="p-2 rounded hover:bg-slate-100" title="Cerrar">✕</button>
         </div>
         <div class="p-4 space-y-3">
-            <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                <div class="text-sm">Empresa actual: <strong id="lblEmpresaActual" class="text-blue-600"></strong></div>
-                <div class="flex gap-2">
-                    <input id="buscaCuenta" type="text" placeholder="Buscar por nombre…" class="w-full md:w-64 rounded-xl border border-slate-300 px-3 py-2">
-                    <button id="btnRecargarCuentas" class="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 hover:bg-slate-100" title="Recargar">
-                        🔄
-                    </button>
-                </div>
+            <div class="flex flex-col md:flex-row md:items-center gap-3">
+                <div class="text-sm">Empresa actual: <strong id="lblEmpresaActual"></strong></div>
+                <input id="buscaCuenta" type="text" placeholder="Buscar por nombre…" class="w-full rounded-xl border border-slate-300 px-3 py-2">
             </div>
             <div class="overflow-auto max-h-[60vh] rounded-xl border border-slate-200">
                 <table class="min-w-full text-sm">
@@ -915,18 +717,11 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                         <th class="px-3 py-2 text-left">Rango</th>
                         <th class="px-3 py-2 text-right">Facturado</th>
                         <th class="px-3 py-2 text-right">% Ajuste</th>
-                        <th class="px-3 py-2 text-center">Datos</th>
-                        <th class="px-3 py-2 text-center">Fecha</th>
+                        <th class="px-3 py-2 text-right">Préstamos</th>
                         <th class="px-3 py-2 text-right">Acciones</th>
                     </tr>
                     </thead>
-                    <tbody id="tbodyCuentas" class="divide-y divide-slate-100 bg-white">
-                        <tr>
-                            <td colspan="7" class="px-3 py-4 text-center text-slate-500">
-                                <div class="animate-pulse">Cargando cuentas desde Base de Datos...</div>
-                            </td>
-                        </tr>
-                    </tbody>
+                    <tbody id="tbodyCuentas" class="divide-y divide-slate-100 bg-white"></tbody>
                 </table>
             </div>
         </div>
@@ -937,18 +732,18 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 </div>
 
 <script>
-    // ===== Variables globales =====
-    const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
-    const CONDUCTORES_LIST = <?= json_encode(array_map(fn($f)=>$f['nombre'],$filas), JSON_UNESCAPED_UNICODE); ?>;
-    
-    // Claves de persistencia local (para datos temporales durante la sesión)
+    // ===== Claves de persistencia =====
     const COMPANY_SCOPE = <?= json_encode(($empresaFiltro ?: '__todas__')) ?>;
     const ACC_KEY   = 'cuentas:'+COMPANY_SCOPE;
     const SS_KEY    = 'seg_social:'+COMPANY_SCOPE;
     const PREST_SEL_KEY = 'prestamo_sel_multi:v4:'+COMPANY_SCOPE;
     const ESTADO_PAGO_KEY = 'estado_pago:'+COMPANY_SCOPE;
+    const CUENTAS_GUARDADAS_KEY = 'cuentas_guardadas_completas:v2:'+COMPANY_SCOPE;
     const MANUAL_ROWS_KEY = 'filas_manuales:'+COMPANY_SCOPE;
     const SELECTED_CONDUCTORS_KEY = 'conductores_seleccionados:'+COMPANY_SCOPE;
+
+    const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
+    const CONDUCTORES_LIST = <?= json_encode(array_map(fn($f)=>$f['nombre'],$filas), JSON_UNESCAPED_UNICODE); ?>;
 
     const toInt = (s)=>{ 
         if(typeof s==='number') return Math.round(s); 
@@ -960,7 +755,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const getLS=(k)=>{try{return JSON.parse(localStorage.getItem(k)||'{}')}catch{return{}}};
     const setLS=(k,v)=> localStorage.setItem(k, JSON.stringify(v));
 
-    // ===== Variables de estado =====
+    // ===== Variables globales =====
     let accMap = getLS(ACC_KEY);
     let ssMap  = getLS(SS_KEY);
     let prestSel = getLS(PREST_SEL_KEY); 
@@ -969,7 +764,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     let estadoPagoMap = getLS(ESTADO_PAGO_KEY) || {};
     let manualRows = JSON.parse(localStorage.getItem(MANUAL_ROWS_KEY) || '[]');
     let selectedConductors = JSON.parse(localStorage.getItem(SELECTED_CONDUCTORS_KEY) || '[]');
-    let cuentasBD = []; // Para almacenar cuentas cargadas desde BD
+    let cuentasGuardadas = JSON.parse(localStorage.getItem(CUENTAS_GUARDADAS_KEY) || '[]');
 
     // ===== Elementos DOM =====
     const tbody = document.getElementById('tbody');
@@ -978,91 +773,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const panelDragHandle = document.getElementById('panelDragHandle');
     const closePanel = document.getElementById('closePanel');
     const selectAllCheckbox = document.getElementById('selectAllCheckbox');
-
-    // ===== FUNCIONES PARA INTERACCIÓN CON BASE DE DATOS =====
-
-    /**
-     * Obtener cuentas desde la base de datos
-     */
-    async function obtenerCuentasDesdeBD() {
-        const empresa = document.getElementById('sel_empresa').value;
-        
-        try {
-            const response = await fetch(`?obtener_cuentas=1&empresa=${encodeURIComponent(empresa)}`);
-            const cuentas = await response.json();
-            cuentasBD = cuentas;
-            return cuentas;
-        } catch (error) {
-            console.error('Error al obtener cuentas desde BD:', error);
-            return [];
-        }
-    }
-
-    /**
-     * Guardar cuenta en base de datos
-     */
-    async function guardarCuentaEnBD(datosCuenta) {
-        try {
-            const formData = new FormData();
-            formData.append('accion', 'guardar_cuenta');
-            formData.append('datos', JSON.stringify(datosCuenta));
-            
-            const response = await fetch('', {
-                method: 'POST',
-                body: formData
-            });
-            
-            const resultado = await response.json();
-            return resultado;
-        } catch (error) {
-            console.error('Error al guardar cuenta en BD:', error);
-            return { success: false, message: 'Error de conexión' };
-        }
-    }
-
-    /**
-     * Cargar cuenta específica desde BD
-     */
-    async function cargarCuentaDesdeBD(id) {
-        try {
-            const formData = new FormData();
-            formData.append('accion', 'cargar_cuenta');
-            formData.append('id', id);
-            
-            const response = await fetch('', {
-                method: 'POST',
-                body: formData
-            });
-            
-            const resultado = await response.json();
-            return resultado;
-        } catch (error) {
-            console.error('Error al cargar cuenta desde BD:', error);
-            return { success: false, message: 'Error de conexión' };
-        }
-    }
-
-    /**
-     * Eliminar cuenta de la BD
-     */
-    async function eliminarCuentaDeBD(id) {
-        try {
-            const formData = new FormData();
-            formData.append('accion', 'eliminar_cuenta');
-            formData.append('id', id);
-            
-            const response = await fetch('', {
-                method: 'POST',
-                body: formData
-            });
-            
-            const resultado = await response.json();
-            return resultado;
-        } catch (error) {
-            console.error('Error al eliminar cuenta de BD:', error);
-            return { success: false, message: 'Error de conexión' };
-        }
-    }
 
     // ===== FUNCIÓN PARA OBTENER EL NOMBRE DEL CONDUCTOR =====
     function obtenerNombreConductorDeFila(tr) {
@@ -1890,7 +1600,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         actualizarPanelFlotante();
     }
 
-    // ===== GESTIÓN DE CUENTAS GUARDADAS EN BASE DE DATOS =====
+    // ===== GESTIÓN DE CUENTAS GUARDADAS =====
     const formFiltros = document.getElementById('formFiltros');
     const inpDesde = document.getElementById('inp_desde');
     const inpHasta = document.getElementById('inp_hasta');
@@ -1910,396 +1620,11 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const iCFact = document.getElementById('cuenta_facturado');
     const iCPorcentaje  = document.getElementById('cuenta_porcentaje');
 
-    const gestorModal = document.getElementById('gestorCuentasModal');
-    const btnShowGestor = document.getElementById('btnShowGestorCuentas');
-    const btnCloseGestor = document.getElementById('btnCloseGestor');
-    const btnAddDesdeFiltro = document.getElementById('btnAddDesdeFiltro');
-    const btnRecargarCuentas = document.getElementById('btnRecargarCuentas');
-    const lblEmpresaActual = document.getElementById('lblEmpresaActual');
-    const buscaCuenta = document.getElementById('buscaCuenta');
-    const tbodyCuentas = document.getElementById('tbodyCuentas');
-
-    // ===== FUNCIONES PARA CUENTAS =====
-
-    /**
-     * Contar préstamos en una cuenta
-     */
-    function contarPrestamosEnCuenta(cuenta) {
-        if (!cuenta.datos_json || !cuenta.datos_json.prestamos) return 0;
-        let total = 0;
-        Object.values(cuenta.datos_json.prestamos).forEach(prestamosArray => {
-            total += prestamosArray.length;
-        });
-        return total;
-    }
-
-    /**
-     * Contar filas manuales en una cuenta
-     */
-    function contarFilasManuales(cuenta) {
-        if (!cuenta.datos_json || !cuenta.datos_json.filasManuales) return 0;
-        return cuenta.datos_json.filasManuales.length;
-    }
-
-    /**
-     * Formatear fecha para mostrar
-     */
-    function formatFecha(fechaStr) {
-        if (!fechaStr) return '';
-        const fecha = new Date(fechaStr);
-        return fecha.toLocaleDateString('es-CO', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-    }
-
-    /**
-     * Renderizar lista de cuentas
-     */
-    async function renderCuentas(){
-        const empresa = selEmpresa.value.trim();
-        const filtro = (buscaCuenta.value||'').toLowerCase();
-        lblEmpresaActual.textContent = empresa || '(todas)';
-
-        // Obtener cuentas desde BD
-        cuentasBD = await obtenerCuentasDesdeBD();
-        
-        tbodyCuentas.innerHTML = '';
-        
-        if(cuentasBD.length === 0){
-            tbodyCuentas.innerHTML = `
-                <tr>
-                    <td colspan="7" class="px-3 py-8 text-center text-slate-500">
-                        <div class="flex flex-col items-center gap-2">
-                            <div class="text-3xl">📭</div>
-                            <div>No hay cuentas guardadas para esta empresa.</div>
-                            <div class="text-xs text-slate-400">Guarda tu primera cuenta usando el botón "⭐ Guardar como cuenta"</div>
-                        </div>
-                    </td>
-                </tr>`;
-            return;
-        }
-        
-        // Filtrar por búsqueda
-        const cuentasFiltradas = cuentasBD.filter(cuenta => 
-            !filtro || 
-            cuenta.nombre.toLowerCase().includes(filtro) ||
-            cuenta.usuario?.toLowerCase().includes(filtro)
-        );
-        
-        if (cuentasFiltradas.length === 0) {
-            tbodyCuentas.innerHTML = `
-                <tr>
-                    <td colspan="7" class="px-3 py-4 text-center text-slate-500">
-                        No se encontraron cuentas con ese filtro.
-                    </td>
-                </tr>`;
-            return;
-        }
-        
-        const frag = document.createDocumentFragment();
-        
-        cuentasFiltradas.forEach(cuenta => {
-            const totalPrestamos = contarPrestamosEnCuenta(cuenta);
-            const totalFilasManuales = contarFilasManuales(cuenta);
-            
-            const tr = document.createElement('tr');
-            tr.className = 'hover:bg-slate-50';
-            tr.innerHTML = `
-        <td class="px-3 py-3">
-          <div class="font-medium">${cuenta.nombre}</div>
-          <div class="text-xs text-slate-500">${cuenta.usuario || 'Sistema'}</div>
-        </td>
-        <td class="px-3 py-3">
-          <div class="text-sm">${cuenta.desde} → ${cuenta.hasta}</div>
-        </td>
-        <td class="px-3 py-3 text-right num font-semibold">${fmt(cuenta.facturado||0)}</td>
-        <td class="px-3 py-3 text-right num">${cuenta.porcentaje_ajuste||0}%</td>
-        <td class="px-3 py-3 text-center">
-          <div class="flex flex-col gap-1 items-center">
-            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs ${totalPrestamos > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">
-              ${totalPrestamos} préstamos
-            </span>
-            ${totalFilasManuales > 0 ? 
-              `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-blue-100 text-blue-700">
-                ${totalFilasManuales} manuales
-              </span>` : ''}
-          </div>
-        </td>
-        <td class="px-3 py-3 text-center text-xs text-slate-500">
-          ${formatFecha(cuenta.fecha_creacion)}
-        </td>
-        <td class="px-3 py-3 text-right">
-          <div class="inline-flex gap-2">
-            <button class="btnCargarCuenta border px-3 py-2 rounded bg-blue-50 hover:bg-blue-100 text-xs text-blue-700" 
-                    title="Cargar esta cuenta">
-              📂 Cargar
-            </button>
-            <button class="btnEliminarCuenta border px-3 py-2 rounded bg-rose-50 hover:bg-rose-100 text-xs text-rose-700" 
-                    title="Eliminar esta cuenta">
-              🗑️
-            </button>
-          </div>
-        </td>`;
-            
-            // Evento para cargar cuenta
-            tr.querySelector('.btnCargarCuenta').addEventListener('click', async () => {
-                await cargarCuentaCompleta(cuenta);
-            });
-            
-            // Evento para eliminar cuenta
-            tr.querySelector('.btnEliminarCuenta').addEventListener('click', async () => {
-                await eliminarCuenta(cuenta);
-            });
-            
-            frag.appendChild(tr);
-        });
-        
-        tbodyCuentas.appendChild(frag);
-    }
-
-    /**
-     * Cargar cuenta completa desde BD
-     */
-    async function cargarCuentaCompleta(cuenta) {
-        // Confirmación
-        const confirmacion = await Swal.fire({
-            title: `¿Cargar cuenta "${cuenta.nombre}"?`,
-            html: `
-                <div class="text-left text-sm text-slate-600">
-                    <p class="mb-2">Se restaurarán todos los datos:</p>
-                    <ul class="list-disc pl-4 mb-3 space-y-1">
-                        <li>Préstamos asignados a cada conductor</li>
-                        <li>Seguridad social de cada conductor</li>
-                        <li>Cuentas bancarias</li>
-                        <li>Estados de pago</li>
-                        <li>Filas manuales agregadas</li>
-                    </ul>
-                    <p class="text-xs text-amber-600">⚠️ Se perderán los datos actuales no guardados</p>
-                </div>
-            `,
-            icon: 'question',
-            showCancelButton: true,
-            confirmButtonText: 'Sí, cargar',
-            cancelButtonText: 'Cancelar',
-            confirmButtonColor: '#3b82f6',
-            cancelButtonColor: '#6b7280'
-        });
-        
-        if (!confirmacion.isConfirmed) return;
-        
-        try {
-            // Mostrar loading
-            Swal.fire({
-                title: 'Cargando cuenta...',
-                text: 'Restaurando datos desde base de datos',
-                allowOutsideClick: false,
-                didOpen: () => {
-                    Swal.showLoading();
-                }
-            });
-            
-            // Cargar datos desde BD
-            const resultado = await cargarCuentaDesdeBD(cuenta.id);
-            
-            if (!resultado.success) {
-                throw new Error(resultado.message || 'Error al cargar cuenta');
-            }
-            
-            const cuentaCompleta = resultado.cuenta;
-            const datos = cuentaCompleta.datos_json;
-            
-            // Cargar datos básicos
-            selEmpresa.value = cuentaCompleta.empresa;
-            inpDesde.value = cuentaCompleta.desde;
-            inpHasta.value = cuentaCompleta.hasta;
-            inpFact.value = fmt(cuentaCompleta.facturado || 0);
-            inpPorcentaje.value = cuentaCompleta.porcentaje_ajuste || 0;
-            
-            // Cargar datos asociados a conductores
-            if (datos.prestamos) {
-                prestSel = datos.prestamos;
-                setLS(PREST_SEL_KEY, prestSel);
-            }
-            
-            if (datos.segSocial) {
-                ssMap = datos.segSocial;
-                setLS(SS_KEY, ssMap);
-            }
-            
-            if (datos.cuentasBancarias) {
-                accMap = datos.cuentasBancarias;
-                setLS(ACC_KEY, accMap);
-            }
-            
-            if (datos.estadosPago) {
-                estadoPagoMap = datos.estadosPago;
-                setLS(ESTADO_PAGO_KEY, estadoPagoMap);
-            }
-            
-            if (datos.conductoresSeleccionados) {
-                selectedConductors = datos.conductoresSeleccionados;
-                setLS(SELECTED_CONDUCTORS_KEY, selectedConductors);
-            }
-            
-            // Limpiar filas manuales existentes
-            document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => tr.remove());
-            manualRows = [];
-            
-            // Cargar filas manuales
-            if (datos.filasManuales && datos.filasManuales.length > 0) {
-                datos.filasManuales.forEach(filaManual => {
-                    agregarFilaManual();
-                    
-                    // Obtener la última fila agregada
-                    const ultimaFila = tbody.querySelector('tr.fila-manual:last-child');
-                    if (ultimaFila) {
-                        const select = ultimaFila.querySelector('.conductor-select');
-                        const baseInput = ultimaFila.querySelector('.base-manual');
-                        const ctaInput = ultimaFila.querySelector('input.cta');
-                        const ssInput = ultimaFila.querySelector('input.ss');
-                        const estadoSelect = ultimaFila.querySelector('select.estado-pago');
-                        
-                        if (select) select.value = filaManual.conductor;
-                        if (baseInput) baseInput.value = fmt(filaManual.base);
-                        if (ctaInput) ctaInput.value = filaManual.cuenta;
-                        if (ssInput) ssInput.value = fmt(filaManual.segSocial);
-                        if (estadoSelect) estadoSelect.value = filaManual.estado;
-                        
-                        // Actualizar datos del conductor
-                        const nombreConductor = filaManual.conductor;
-                        if (nombreConductor) {
-                            if (filaManual.cuenta) accMap[nombreConductor] = filaManual.cuenta;
-                            if (filaManual.segSocial) ssMap[nombreConductor] = filaManual.segSocial;
-                            if (filaManual.estado) estadoPagoMap[nombreConductor] = filaManual.estado;
-                        }
-                    }
-                });
-                
-                localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
-            }
-            
-            // Aplicar cambios a todas las filas existentes
-            setTimeout(() => {
-                // Aplicar cuentas bancarias
-                document.querySelectorAll('#tbody tr').forEach(tr => {
-                    const nombre = obtenerNombreConductorDeFila(tr);
-                    if (nombre && accMap[nombre]) {
-                        const ctaInput = tr.querySelector('input.cta');
-                        if (ctaInput) ctaInput.value = accMap[nombre];
-                    }
-                    
-                    // Aplicar seguridad social
-                    if (nombre && ssMap[nombre]) {
-                        const ssInput = tr.querySelector('input.ss');
-                        if (ssInput) ssInput.value = fmt(ssMap[nombre]);
-                    }
-                    
-                    // Aplicar estado de pago
-                    if (nombre && estadoPagoMap[nombre]) {
-                        const estadoSelect = tr.querySelector('select.estado-pago');
-                        if (estadoSelect) {
-                            estadoSelect.value = estadoPagoMap[nombre];
-                            aplicarEstadoFila(tr, estadoPagoMap[nombre]);
-                        }
-                    }
-                });
-                
-                // Asignar préstamos
-                asignarPrestamosAFilas();
-                
-                // Recalcular todo
-                recalc();
-                
-                // Cerrar modal
-                closeGestor();
-                
-                // Mostrar éxito
-                Swal.fire({
-                    title: '✅ Cuenta cargada',
-                    html: `
-                        <div class="text-sm text-slate-600">
-                            <p>Cuenta "<strong>${cuentaCompleta.nombre}</strong>" cargada exitosamente.</p>
-                            <p class="mt-2 text-xs">Se restauraron datos para <strong>${Object.keys(datos.prestamos || {}).length}</strong> conductores.</p>
-                        </div>
-                    `,
-                    icon: 'success',
-                    timer: 3000,
-                    showConfirmButton: false
-                });
-            }, 100);
-            
-        } catch (error) {
-            console.error('Error al cargar cuenta:', error);
-            Swal.fire({
-                title: '❌ Error',
-                text: error.message || 'Error al cargar la cuenta desde base de datos',
-                icon: 'error'
-            });
-        }
-    }
-
-    /**
-     * Eliminar cuenta de BD
-     */
-    async function eliminarCuenta(cuenta) {
-        const confirmacion = await Swal.fire({
-            title: `¿Eliminar cuenta "${cuenta.nombre}"?`,
-            text: 'Esta acción no se puede deshacer. La cuenta se eliminará permanentemente de la base de datos.',
-            icon: 'warning',
-            showCancelButton: true,
-            confirmButtonText: 'Sí, eliminar',
-            cancelButtonText: 'Cancelar',
-            confirmButtonColor: '#ef4444',
-            cancelButtonColor: '#6b7280'
-        });
-        
-        if (!confirmacion.isConfirmed) return;
-        
-        try {
-            const resultado = await eliminarCuentaDeBD(cuenta.id);
-            
-            if (resultado.success) {
-                // Actualizar lista
-                await renderCuentas();
-                
-                Swal.fire({
-                    title: '✅ Eliminada',
-                    text: 'Cuenta eliminada de la base de datos',
-                    icon: 'success',
-                    timer: 2000,
-                    showConfirmButton: false
-                });
-            } else {
-                throw new Error(resultado.message || 'Error al eliminar');
-            }
-        } catch (error) {
-            console.error('Error al eliminar cuenta:', error);
-            Swal.fire({
-                title: '❌ Error',
-                text: error.message || 'Error al eliminar la cuenta',
-                icon: 'error'
-            });
-        }
-    }
-
-    // ===== GUARDAR CUENTA EN BASE DE DATOS =====
-    async function openSaveCuenta(){
+    // ===== GUARDAR CUENTA COMPLETA =====
+    function openSaveCuenta(){
         const emp = selEmpresa.value.trim();
-        if(!emp){ 
-            Swal.fire({
-                title: '⚠️ Empresa requerida',
-                text: 'Selecciona una EMPRESA antes de guardar la cuenta.',
-                icon: 'warning'
-            });
-            return; 
-        }
-        
-        const d = inpDesde.value; 
-        const h = inpHasta.value;
+        if(!emp){ alert('Selecciona una EMPRESA antes de guardar la cuenta.'); return; }
+        const d = inpDesde.value; const h = inpHasta.value;
 
         iEmpresa.value = emp;
         iRango.value = `${d} → ${h}`;
@@ -2311,16 +1636,13 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         setTimeout(()=> iNombre.focus(), 0);
     }
     
-    function closeSaveCuenta(){ 
-        saveCuentaModal.classList.add('hidden'); 
-        iNombre.value = '';
-    }
+    function closeSaveCuenta(){ saveCuentaModal.classList.add('hidden'); }
 
     btnShowSaveCuenta.addEventListener('click', openSaveCuenta);
     btnCloseSaveCuenta.addEventListener('click', closeSaveCuenta);
     btnCancelSaveCuenta.addEventListener('click', closeSaveCuenta);
 
-    btnDoSaveCuenta.addEventListener('click', async ()=>{
+    btnDoSaveCuenta.addEventListener('click', ()=>{
         const emp = iEmpresa.value.trim();
         const [d1, d2raw] = iRango.value.split('→');
         const desde = (d1||'').trim();
@@ -2329,32 +1651,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         const facturado = toInt(iCFact.value);
         const porcentaje  = parseFloat(iCPorcentaje.value) || 0;
 
-        // Validaciones
-        if (!nombre) {
-            Swal.fire({
-                title: '⚠️ Nombre requerido',
-                text: 'Ingresa un nombre para la cuenta.',
-                icon: 'warning'
-            });
-            iNombre.focus();
-            return;
-        }
-
-        if (facturado <= 0) {
-            Swal.fire({
-                title: '⚠️ Facturado inválido',
-                text: 'El valor facturado debe ser mayor a 0.',
-                icon: 'warning'
-            });
-            return;
-        }
-
         // OBTENER TODOS LOS DATOS ACTUALES
         const prestamosActuales = { ...prestSel };
         const segSocialActual = { ...ssMap };
         const cuentasActual = { ...accMap };
         const estadosActual = { ...estadoPagoMap };
-        const conductoresSeleccionadosActual = [...selectedConductors];
+        const filasManualesActual = [...manualRows];
         
         // Guardar también los valores de las filas manuales
         const filasManualesData = [];
@@ -2376,94 +1678,227 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             }
         });
 
-        // Crear objeto de datos JSON para BD
-        const datosJSON = {
-            prestamos: prestamosActuales,
-            segSocial: segSocialActual,
-            cuentasBancarias: cuentasActual,
-            estadosPago: estadosActual,
-            filasManuales: filasManualesData,
-            conductoresSeleccionados: conductoresSeleccionadosActual
-        };
-
-        // Crear objeto de cuenta completa para BD
+        // Crear objeto de cuenta completa
         const cuentaCompleta = {
+            id: Date.now(),
             nombre,
             empresa: emp,
             desde,
             hasta,
             facturado,
             porcentaje,
-            datos_json: datosJSON
+            prestamos: prestamosActuales,
+            segSocial: segSocialActual,
+            cuentasBancarias: cuentasActual,
+            estadosPago: estadosActual,
+            filasManuales: filasManualesData,
+            fechaGuardado: new Date().toISOString()
         };
 
-        try {
-            // Mostrar loading
-            Swal.fire({
-                title: 'Guardando en Base de Datos...',
-                text: 'Por favor espera',
-                allowOutsideClick: false,
-                didOpen: () => {
-                    Swal.showLoading();
-                }
-            });
-
-            // Guardar en BD
-            const resultado = await guardarCuentaEnBD(cuentaCompleta);
-            
-            if (resultado.success) {
-                // Cerrar modal
-                closeSaveCuenta();
-                
-                // Mostrar éxito
-                Swal.fire({
-                    title: '✅ Guardado exitoso',
-                    html: `
-                        <div class="text-sm text-slate-600">
-                            <p>Cuenta "<strong>${nombre}</strong>" guardada en Base de Datos.</p>
-                            <p class="mt-2 text-xs">ID: <strong>${resultado.id}</strong></p>
-                            <div class="mt-3 text-left text-xs border-t pt-2">
-                                <p class="font-semibold">Datos guardados:</p>
-                                <ul class="list-disc pl-4 mt-1 space-y-1">
-                                    <li>Préstamos: ${Object.keys(prestamosActuales).length} conductores</li>
-                                    <li>Cuentas bancarias: ${Object.keys(cuentasActual).length}</li>
-                                    <li>Filas manuales: ${filasManualesData.length}</li>
-                                </ul>
-                            </div>
-                        </div>
-                    `,
-                    icon: 'success',
-                    confirmButtonText: 'Aceptar'
-                });
-                
-                // Actualizar lista en gestor si está abierto
-                if (!gestorModal.classList.contains('hidden')) {
-                    await renderCuentas();
-                }
-            } else {
-                throw new Error(resultado.message || 'Error al guardar');
-            }
-        } catch (error) {
-            console.error('Error al guardar cuenta:', error);
-            Swal.fire({
-                title: '❌ Error al guardar',
-                text: error.message || 'Error al guardar en base de datos. Verifica tu conexión.',
-                icon: 'error'
-            });
-        }
+        // Agregar a la lista de cuentas guardadas
+        cuentasGuardadas.push(cuentaCompleta);
+        localStorage.setItem(CUENTAS_GUARDADAS_KEY, JSON.stringify(cuentasGuardadas));
+        
+        closeSaveCuenta();
+        alert('✅ Cuenta guardada exitosamente\nSe guardaron préstamos, seguridad social, cuentas bancarias y estados de pago.');
+        
+        // Actualizar lista en el gestor
+        renderCuentas();
     });
 
     // ===== GESTOR DE CUENTAS =====
-    async function openGestor(){
-        // Actualizar etiqueta de empresa
-        lblEmpresaActual.textContent = selEmpresa.value.trim() || '(todas)';
+    const gestorModal = document.getElementById('gestorCuentasModal');
+    const btnShowGestor = document.getElementById('btnShowGestorCuentas');
+    const btnCloseGestor = document.getElementById('btnCloseGestor');
+    const btnAddDesdeFiltro = document.getElementById('btnAddDesdeFiltro');
+    const lblEmpresaActual = document.getElementById('lblEmpresaActual');
+    const buscaCuenta = document.getElementById('buscaCuenta');
+    const tbodyCuentas = document.getElementById('tbodyCuentas');
+
+    function contarPrestamosEnCuenta(cuenta) {
+        if (!cuenta.prestamos) return 0;
+        let total = 0;
+        Object.values(cuenta.prestamos).forEach(prestamosArray => {
+            total += prestamosArray.length;
+        });
+        return total;
+    }
+
+    function renderCuentas(){
+        const emp = selEmpresa.value.trim();
+        const filtro = (buscaCuenta.value||'').toLowerCase();
+        lblEmpresaActual.textContent = emp || '(todas)';
+
+        // Filtrar cuentas por empresa
+        const arr = cuentasGuardadas
+            .filter(c => c.empresa === emp)
+            .sort((a,b) => new Date(b.fechaGuardado) - new Date(a.fechaGuardado));
         
-        // Mostrar modal
+        tbodyCuentas.innerHTML = '';
+        
+        if(arr.length===0){
+            tbodyCuentas.innerHTML = "<tr><td colspan='6' class='px-3 py-4 text-center text-slate-500'>No hay cuentas guardadas para esta empresa.</td></tr>";
+            return;
+        }
+        
+        const frag = document.createDocumentFragment();
+        arr.forEach(cuenta=>{
+            if(filtro && !cuenta.nombre.toLowerCase().includes(filtro)) return;
+            
+            const totalPrestamos = contarPrestamosEnCuenta(cuenta);
+            
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+        <td class="px-3 py-2">${cuenta.nombre}</td>
+        <td class="px-3 py-2">${cuenta.desde} &rarr; ${cuenta.hasta}</td>
+        <td class="px-3 py-2 text-right num">${fmt(cuenta.facturado||0)}</td>
+        <td class="px-3 py-2 text-right num">${cuenta.porcentaje||0}%</td>
+        <td class="px-3 py-2 text-center">
+          <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs ${totalPrestamos > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">
+            ${totalPrestamos} préstamos
+          </span>
+        </td>
+        <td class="px-3 py-2 text-right">
+          <div class="inline-flex gap-2">
+            <button class="btnUsar border px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 text-xs text-blue-700" title="Cargar datos">
+              📂 Cargar
+            </button>
+            <button class="btnEliminar border px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-xs text-rose-700" title="Eliminar cuenta">
+              🗑️ Eliminar
+            </button>
+          </div>
+        </td>`;
+            
+            tr.querySelector('.btnUsar').addEventListener('click', ()=> cargarCuentaCompleta(cuenta));
+            tr.querySelector('.btnEliminar').addEventListener('click', ()=> eliminarCuenta(cuenta));
+            
+            frag.appendChild(tr);
+        });
+        tbodyCuentas.appendChild(frag);
+    }
+
+    // ===== CARGAR CUENTA COMPLETA =====
+    function cargarCuentaCompleta(cuenta) {
+        if (!confirm(`¿Cargar la cuenta "${cuenta.nombre}"?\n\nSe restaurarán todos los datos:\n- Préstamos asignados\n- Seguridad social\n- Cuentas bancarias\n- Estados de pago\n- Filas manuales`)) {
+            return;
+        }
+        
+        // Cargar datos básicos
+        selEmpresa.value = cuenta.empresa;
+        inpDesde.value = cuenta.desde;
+        inpHasta.value = cuenta.hasta;
+        inpFact.value = fmt(cuenta.facturado || 0);
+        inpPorcentaje.value = cuenta.porcentaje || 0;
+        
+        // Cargar datos asociados a conductores
+        if (cuenta.prestamos) {
+            prestSel = cuenta.prestamos;
+            setLS(PREST_SEL_KEY, prestSel);
+        }
+        
+        if (cuenta.segSocial) {
+            ssMap = cuenta.segSocial;
+            setLS(SS_KEY, ssMap);
+        }
+        
+        if (cuenta.cuentasBancarias) {
+            accMap = cuenta.cuentasBancarias;
+            setLS(ACC_KEY, accMap);
+        }
+        
+        if (cuenta.estadosPago) {
+            estadoPagoMap = cuenta.estadosPago;
+            setLS(ESTADO_PAGO_KEY, estadoPagoMap);
+        }
+        
+        // Limpiar filas manuales existentes
+        document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => tr.remove());
+        manualRows = [];
+        
+        // Cargar filas manuales
+        if (cuenta.filasManuales && cuenta.filasManuales.length > 0) {
+            cuenta.filasManuales.forEach(filaManual => {
+                agregarFilaManual();
+                
+                // Obtener la última fila agregada
+                const ultimaFila = tbody.querySelector('tr.fila-manual:last-child');
+                if (ultimaFila) {
+                    const select = ultimaFila.querySelector('.conductor-select');
+                    const baseInput = ultimaFila.querySelector('.base-manual');
+                    const ctaInput = ultimaFila.querySelector('input.cta');
+                    const ssInput = ultimaFila.querySelector('input.ss');
+                    const estadoSelect = ultimaFila.querySelector('select.estado-pago');
+                    
+                    if (select) select.value = filaManual.conductor;
+                    if (baseInput) baseInput.value = fmt(filaManual.base);
+                    if (ctaInput) ctaInput.value = filaManual.cuenta;
+                    if (ssInput) ssInput.value = fmt(filaManual.segSocial);
+                    if (estadoSelect) estadoSelect.value = filaManual.estado;
+                    
+                    // Actualizar datos del conductor
+                    const nombreConductor = filaManual.conductor;
+                    if (nombreConductor) {
+                        if (filaManual.cuenta) accMap[nombreConductor] = filaManual.cuenta;
+                        if (filaManual.segSocial) ssMap[nombreConductor] = filaManual.segSocial;
+                        if (filaManual.estado) estadoPagoMap[nombreConductor] = filaManual.estado;
+                    }
+                }
+            });
+            
+            localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
+        }
+        
+        // Aplicar cambios a todas las filas
+        setTimeout(() => {
+            // Aplicar cuentas bancarias
+            document.querySelectorAll('#tbody tr').forEach(tr => {
+                const nombre = obtenerNombreConductorDeFila(tr);
+                if (nombre && accMap[nombre]) {
+                    const ctaInput = tr.querySelector('input.cta');
+                    if (ctaInput) ctaInput.value = accMap[nombre];
+                }
+                
+                // Aplicar seguridad social
+                if (nombre && ssMap[nombre]) {
+                    const ssInput = tr.querySelector('input.ss');
+                    if (ssInput) ssInput.value = fmt(ssMap[nombre]);
+                }
+                
+                // Aplicar estado de pago
+                if (nombre && estadoPagoMap[nombre]) {
+                    const estadoSelect = tr.querySelector('select.estado-pago');
+                    if (estadoSelect) {
+                        estadoSelect.value = estadoPagoMap[nombre];
+                        aplicarEstadoFila(tr, estadoPagoMap[nombre]);
+                    }
+                }
+            });
+            
+            // Asignar préstamos
+            asignarPrestamosAFilas();
+            
+            // Recalcular todo
+            recalc();
+            
+            // Cerrar modal
+            closeGestor();
+            
+            alert(`✅ Cuenta "${cuenta.nombre}" cargada exitosamente.\nSe restauraron ${Object.keys(cuenta.prestamos || {}).length} conductores con préstamos asignados.`);
+        }, 100);
+    }
+
+    function eliminarCuenta(cuenta){
+        if(!confirm('¿Eliminar permanentemente esta cuenta?\nEsta acción no se puede deshacer.')) return;
+        
+        cuentasGuardadas = cuentasGuardadas.filter(c => c.id !== cuenta.id);
+        localStorage.setItem(CUENTAS_GUARDADAS_KEY, JSON.stringify(cuentasGuardadas));
+        renderCuentas();
+        alert('Cuenta eliminada.');
+    }
+
+    function openGestor(){
+        renderCuentas();
         gestorModal.classList.remove('hidden');
-        
-        // Cargar cuentas
-        await renderCuentas();
-        
         setTimeout(()=> buscaCuenta.focus(), 0);
     }
     
@@ -2474,35 +1909,16 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     btnShowGestor.addEventListener('click', openGestor);
     btnCloseGestor.addEventListener('click', closeGestor);
-    btnRecargarCuentas.addEventListener('click', async () => {
-        await renderCuentas();
-        Swal.fire({
-            title: '🔄 Lista actualizada',
-            text: 'Cuentas recargadas desde Base de Datos',
-            icon: 'success',
-            timer: 1500,
-            showConfirmButton: false
-        });
-    });
-    
     buscaCuenta.addEventListener('input', renderCuentas);
     btnAddDesdeFiltro.addEventListener('click', ()=>{ closeGestor(); openSaveCuenta(); });
 
     // ===== INICIALIZACIÓN =====
-    document.addEventListener('DOMContentLoaded', async function() {
-        // Cargar SweetAlert si no está cargado
-        if (typeof Swal === 'undefined') {
-            const script = document.createElement('script');
-            script.src = 'https://cdn.jsdelivr.net/npm/sweetalert2@11';
-            document.head.appendChild(script);
-        }
-
+    document.addEventListener('DOMContentLoaded', function() {
         initializeExistingRows();
         cargarFilasManuales();
         hacerPanelArrastrable();
         asignarPrestamosAFilas();
         recalc();
-        
         if (selectedConductors.length > 0) {
             actualizarPanelFlotante();
         }
@@ -2510,24 +1926,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         // Configurar eventos de entrada para recalcular
         document.getElementById('inp_porcentaje_ajuste').addEventListener('input', recalc);
         document.getElementById('inp_facturado').addEventListener('input', recalc);
-        
-        // Verificar si hay mensaje de éxito en URL
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.has('guardado')) {
-            Swal.fire({
-                title: '✅ Guardado exitoso',
-                text: 'Cuenta guardada en Base de Datos',
-                icon: 'success',
-                timer: 3000,
-                showConfirmButton: false
-            });
-        }
     });
 </script>
-
-<!-- SweetAlert2 -->
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-
 </body>
 </html>
 <?php
