@@ -176,7 +176,7 @@ if (isset($_POST['guardar_clasificacion'])) {
 }
 
 /* =======================================================
-   🔹 Endpoint AJAX: viajes por conductor
+   🔹 Endpoint AJAX: viajes por conductor - ACTUALIZADO
 ======================================================= */
 if (isset($_GET['viajes_conductor'])) {
     $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
@@ -225,6 +225,10 @@ if (isset($_GET['viajes_conductor'])) {
     if ($res && $res->num_rows > 0) {
         // Contadores dinámicos
         $counts = array_fill_keys(array_keys($legend), 0);
+        
+        // NUEVO: Contador de rutas sin clasificar para este conductor
+        $rutas_sin_clasificar = [];
+        $total_sin_clasificar = 0;
 
         $rowsHTML = "";
         
@@ -238,6 +242,16 @@ if (isset($_GET['viajes_conductor'])) {
             
             // Normalizar a minúsculas
             $cat = strtolower($cat);
+            
+            // NUEVO: Contar rutas sin clasificar
+            if ($cat === 'otro' || $cat === '') {
+                $total_sin_clasificar++;
+                $rutas_sin_clasificar[] = [
+                    'ruta' => $ruta,
+                    'vehiculo' => $vehiculo,
+                    'fecha' => $r['fecha']
+                ];
+            }
             
             // Si es nueva clasificación, agregar a legend
             if ($cat !== 'otro' && !isset($legend[$cat])) {
@@ -275,6 +289,32 @@ if (isset($_GET['viajes_conductor'])) {
 
         // Generar HTML
         echo "<div class='space-y-3'>";
+        
+        // NUEVO: Mostrar alerta de rutas sin clasificar para este conductor
+        if ($total_sin_clasificar > 0) {
+            echo "<div class='bg-amber-50 border border-amber-200 rounded-xl p-4 mb-3'>
+                    <div class='flex items-center gap-2 mb-2'>
+                        <span class='text-amber-600 font-bold text-lg'>⚠️</span>
+                        <span class='font-semibold text-amber-800'>Este conductor tiene $total_sin_clasificar viaje(s) sin clasificar</span>
+                    </div>
+                    <div class='text-sm text-amber-700'>
+                        <p class='mb-2'>Rutas sin clasificación:</p>";
+            
+            foreach (array_slice($rutas_sin_clasificar, 0, 5) as $rsc) {
+                echo "<div class='flex items-center gap-2 mb-1'>
+                        <span class='text-xs'>•</span>
+                        <span>".htmlspecialchars($rsc['ruta'])." (".htmlspecialchars($rsc['vehiculo']).")</span>
+                        <span class='text-xs text-amber-500'>".$rsc['fecha']."</span>
+                      </div>";
+            }
+            
+            if ($total_sin_clasificar > 5) {
+                echo "<p class='text-xs text-amber-600 mt-1'>... y ".($total_sin_clasificar - 5)." más</p>";
+            }
+            
+            echo "</div>
+                  </div>";
+        }
         
         // Leyenda dinámica con filtro
         echo "<div class='flex flex-wrap gap-2 text-xs' id='legendFilterBar'>";
@@ -425,7 +465,7 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
 }
 
 /* =======================================================
-   🔹 Cálculo y armado de tablas DINÁMICO
+   🔹 Cálculo y armado de tablas DINÁMICO - MODIFICADO
 ======================================================= */
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
@@ -460,6 +500,9 @@ $vehiculos = [];
 $rutasUnicas = [];
 $pagosConductor = [];
 
+// NUEVO: Contador global de rutas sin clasificar por conductor
+$rutas_sin_clasificar_por_conductor = [];
+
 if ($res) {
     while ($row = $res->fetch_assoc()) {
         $nombre   = $row['nombre'];
@@ -485,6 +528,19 @@ if ($res) {
         // Lista de tipos de vehículo
         if (!in_array($vehiculo, $vehiculos, true)) {
             $vehiculos[] = $vehiculo;
+        }
+
+        // NUEVO: Verificar si la ruta tiene clasificación
+        $clasificacion_ruta = $clasif_rutas[$keyRuta] ?? '';
+        if ($clasificacion_ruta === '' || $clasificacion_ruta === 'otro') {
+            if (!isset($rutas_sin_clasificar_por_conductor[$nombre])) {
+                $rutas_sin_clasificar_por_conductor[$nombre] = [];
+            }
+            // Evitar duplicados
+            $ruta_key = $ruta . '|' . $vehiculo;
+            if (!in_array($ruta_key, $rutas_sin_clasificar_por_conductor[$nombre])) {
+                $rutas_sin_clasificar_por_conductor[$nombre][] = $ruta_key;
+            }
         }
 
         // Inicializar datos del conductor (dinámicamente)
@@ -515,6 +571,8 @@ if ($res) {
 // Inyectar pago acumulado
 foreach ($datos as $conductor => $info) {
     $datos[$conductor]["pagado"] = (int)($pagosConductor[$conductor] ?? 0);
+    // NUEVO: Inyectar contador de rutas sin clasificar
+    $datos[$conductor]["rutas_sin_clasificar"] = count($rutas_sin_clasificar_por_conductor[$conductor] ?? []);
 }
 
 // Empresas y tarifas
@@ -563,6 +621,16 @@ if ($empresaFiltro !== "") {
     border: 1px solid #f59e0b !important;
     color: #92400e !important;
     font-weight: 600;
+  }
+  
+  /* Estilos para alertas visuales */
+  .alerta-sin-clasificar {
+    animation: pulse-alerta 2s infinite;
+  }
+  
+  @keyframes pulse-alerta {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
   }
   
   /* ===== SISTEMA DE PANELES EXPANDIBLES ===== */
@@ -1298,6 +1366,11 @@ if ($empresaFiltro !== "") {
               </div>
             </div>
             <div class="flex items-center gap-2">
+              <!-- NUEVO: Botón para mostrar resumen de rutas sin clasificar -->
+              <button onclick="mostrarResumenRutasSinClasificar()" 
+                      class="text-xs px-3 py-1.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600 transition flex items-center gap-1 shadow-md hover:shadow-lg">
+                ⚠️ Ver rutas sin clasificar
+              </button>
               <button onclick="toggleMinimize('resumen')" 
                       class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
                 ⬇️ Minimizar
@@ -1334,20 +1407,50 @@ if ($empresaFiltro !== "") {
             </div>
           </div>
 
+          <!-- NUEVO: Resumen de rutas sin clasificar -->
+          <div id="resumenRutasSinClasificar" class="hidden mb-4">
+            <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+              <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                  <span class="text-amber-600 font-bold text-lg">⚠️</span>
+                  <h4 class="font-semibold text-amber-800">Rutas sin clasificar encontradas</h4>
+                </div>
+                <span id="contadorRutasSinClasificarGlobal" class="px-2 py-1 bg-amber-500 text-white text-xs font-bold rounded-full">0</span>
+              </div>
+              
+              <div id="listaRutasSinClasificarGlobal" class="space-y-2 max-h-60 overflow-y-auto">
+                <!-- Aquí se cargarán las rutas dinámicamente -->
+              </div>
+              
+              <div class="mt-3 pt-3 border-t border-amber-100">
+                <button onclick="irAClasificacionRutas()" 
+                        class="w-full py-2 bg-amber-100 text-amber-700 hover:bg-amber-200 rounded-lg text-sm font-medium transition">
+                  📋 Ir a clasificar rutas
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- CONTENEDOR DE TABLA EXPANSIBLE -->
           <div id="tableContainer" class="table-container resizable" style="width: 1100px;">
             <div class="table-wrapper">
               <table id="tabla_conductores" class="dynamic-table w-full text-sm">
                 <thead class="bg-blue-600 text-white">
                   <tr>
+                    <!-- NUEVA COLUMNA PARA ALERTAS VISUALES -->
+                    <th class="px-3 py-2 text-center col-resizable" style="min-width: 60px; width: 5%;">
+                      Estado
+                      <div class="col-resize-handle" data-col="0"></div>
+                    </th>
                     <th class="px-3 py-2 text-left col-resizable" style="min-width: 200px; width: 25%;">
                       Conductor
-                      <div class="col-resize-handle" data-col="0"></div>
+                      <div class="col-resize-handle" data-col="1"></div>
                     </th>
                     <th class="px-3 py-2 text-center col-resizable" style="min-width: 100px; width: 12%;">
                       Tipo
-                      <div class="col-resize-handle" data-col="1"></div>
+                      <div class="col-resize-handle" data-col="2"></div>
                     </th>
+                    
                     <?php foreach ($clasificaciones_disponibles as $index => $clasif): 
                       $estilo = obtenerEstiloClasificacion($clasif);
                       // Definir abreviaturas
@@ -1390,20 +1493,20 @@ if ($empresaFiltro !== "") {
                         title="<?= htmlspecialchars($clasif) ?>"
                         style="min-width: 70px; width: 7%; background-color: <?= $bg_color ?>; color: <?= $text_color ?>; border-bottom: 2px solid <?= $colorMap[$estilo['border']] ?? '#cbd5e1' ?>;">
                       <?= htmlspecialchars($abreviatura) ?>
-                      <div class="col-resize-handle" data-col="<?= $index + 2 ?>"></div>
+                      <div class="col-resize-handle" data-col="<?= $index + 3 ?>"></div>
                     </th>
                     <?php endforeach; ?>
                     <th class="px-3 py-2 text-center col-resizable" style="min-width: 120px; width: 15%;">
                       Total
-                      <div class="col-resize-handle" data-col="<?= count($clasificaciones_disponibles) + 2 ?>"></div>
+                      <div class="col-resize-handle" data-col="<?= count($clasificaciones_disponibles) + 3 ?>"></div>
                     </th>
                     <th class="px-3 py-2 text-center col-resizable" style="min-width: 100px; width: 12%;">
                       Pagado
-                      <div class="col-resize-handle" data-col="<?= count($clasificaciones_disponibles) + 3 ?>"></div>
+                      <div class="col-resize-handle" data-col="<?= count($clasificaciones_disponibles) + 4 ?>"></div>
                     </th>
                     <th class="px-3 py-2 text-center col-resizable" style="min-width: 80px; width: 10%;">
                       Faltante
-                      <div class="col-resize-handle" data-col="<?= count($clasificaciones_disponibles) + 4 ?>"></div>
+                      <div class="col-resize-handle" data-col="<?= count($clasificaciones_disponibles) + 5 ?>"></div>
                     </th>
                   </tr>
                 </thead>
@@ -1411,16 +1514,40 @@ if ($empresaFiltro !== "") {
                 <?php foreach ($datos as $conductor => $info): 
                   $esMensual = (stripos($info['vehiculo'], 'mensual') !== false);
                   $claseVehiculo = $esMensual ? 'vehiculo-mensual' : '';
+                  $rutasSinClasificar = $info['rutas_sin_clasificar'] ?? 0;
                 ?>
                   <tr data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>" 
                       data-conductor="<?= htmlspecialchars($conductor) ?>" 
                       data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
                       data-pagado="<?= (int)($info['pagado'] ?? 0) ?>"
-                      class="hover:bg-blue-50/40 transition-colors">
+                      data-sin-clasificar="<?= $rutasSinClasificar ?>"
+                      class="hover:bg-blue-50/40 transition-colors <?php echo $rutasSinClasificar > 0 ? 'alerta-sin-clasificar' : ''; ?>">
+                    <!-- NUEVA CELDA: Indicador visual de rutas sin clasificar -->
+                    <td class="px-3 py-2 text-center" style="min-width: 60px;">
+                      <?php if ($rutasSinClasificar > 0): ?>
+                        <div class="flex flex-col items-center justify-center gap-1" title="<?= $rutasSinClasificar ?> ruta(s) sin clasificar">
+                          <span class="text-amber-600 font-bold animate-pulse">⚠️</span>
+                          <span class="text-xs bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full font-bold">
+                            <?= $rutasSinClasificar ?>
+                          </span>
+                        </div>
+                      <?php else: ?>
+                        <div class="flex flex-col items-center justify-center gap-1" title="Todas las rutas están clasificadas">
+                          <span class="text-emerald-600">✅</span>
+                          <span class="text-xs bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-full font-bold">
+                            0
+                          </span>
+                        </div>
+                      <?php endif; ?>
+                    </td>
+                    
                     <td class="px-3 py-2" style="min-width: 200px;">
                       <button type="button"
-                              class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition"
+                              class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition flex items-center gap-2"
                               title="Ver viajes">
+                        <?php if ($rutasSinClasificar > 0): ?>
+                          <span class="text-amber-600">⚠️</span>
+                        <?php endif; ?>
                         <?= htmlspecialchars($conductor) ?>
                       </button>
                     </td>
@@ -1551,6 +1678,83 @@ if ($empresaFiltro !== "") {
   </div>
 
   <script>
+    // ===== NUEVO: Funcionalidad para rutas sin clasificar =====
+    
+    // Mostrar resumen de rutas sin clasificar
+    function mostrarResumenRutasSinClasificar() {
+      const resumenDiv = document.getElementById('resumenRutasSinClasificar');
+      const listaDiv = document.getElementById('listaRutasSinClasificarGlobal');
+      const contadorSpan = document.getElementById('contadorRutasSinClasificarGlobal');
+      
+      // Obtener conductores con rutas sin clasificar
+      const filas = document.querySelectorAll('#tabla_conductores_body tr');
+      let totalRutasSinClasificar = 0;
+      let contenidoHTML = '';
+      
+      filas.forEach(fila => {
+        const sinClasificar = parseInt(fila.dataset.sinClasificar || '0');
+        if (sinClasificar > 0) {
+          totalRutasSinClasificar += sinClasificar;
+          const conductor = fila.querySelector('.conductor-link').textContent;
+          contenidoHTML += `
+            <div class="flex items-center justify-between p-2 bg-amber-50 rounded-lg border border-amber-100">
+              <div class="flex items-center gap-2">
+                <span class="text-amber-600">⚠️</span>
+                <span class="font-medium text-amber-800">${conductor}</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs bg-amber-500 text-white px-2 py-0.5 rounded-full">${sinClasificar}</span>
+                <button onclick="verViajesConductor('${conductor}')" 
+                        class="text-xs text-amber-600 hover:text-amber-800 hover:underline">
+                  Ver viajes
+                </button>
+              </div>
+            </div>
+          `;
+        }
+      });
+      
+      if (totalRutasSinClasificar > 0) {
+        contadorSpan.textContent = totalRutasSinClasificar;
+        listaDiv.innerHTML = contenidoHTML;
+        resumenDiv.classList.remove('hidden');
+        
+        // Scroll al resumen
+        resumenDiv.scrollIntoView({ behavior: 'smooth' });
+      } else {
+        listaDiv.innerHTML = '<div class="text-center py-4 text-amber-600">🎉 ¡Excelente! Todas las rutas están clasificadas.</div>';
+        contadorSpan.textContent = '0';
+        resumenDiv.classList.remove('hidden');
+      }
+    }
+    
+    // Ver viajes de un conductor específico
+    function verViajesConductor(nombre) {
+      // Encontrar el botón del conductor y hacer clic
+      const botonesConductor = document.querySelectorAll('.conductor-link');
+      botonesConductor.forEach(boton => {
+        if (boton.textContent.trim() === nombre.trim()) {
+          boton.click();
+        }
+      });
+      
+      // Cerrar el resumen
+      document.getElementById('resumenRutasSinClasificar').classList.add('hidden');
+    }
+    
+    // Ir a la sección de clasificación de rutas
+    function irAClasificacionRutas() {
+      const clasifRutasSection = document.getElementById('container-clasif-rutas');
+      if (clasifRutasSection) {
+        clasifRutasSection.scrollIntoView({ behavior: 'smooth' });
+        // Resaltar la sección
+        clasifRutasSection.classList.add('ring-4', 'ring-amber-200');
+        setTimeout(() => {
+          clasifRutasSection.classList.remove('ring-4', 'ring-amber-200');
+        }, 3000);
+      }
+    }
+    
     // ===== FUNCIÓN CORREGIDA: Minimizar TODO el panel izquierdo =====
     function minimizarTodoPanelIzquierdo() {
       const leftPanel = document.getElementById('leftPanel');
@@ -2259,7 +2463,7 @@ if ($empresaFiltro !== "") {
         const tarifasVeh = tarifas[veh] || {};
 
         let totalFila = 0;
-        let columnaIndex = 2; // Empieza después de conductor y tipo
+        let columnaIndex = 3; // Empieza después de estado, conductor y tipo
         
         // Calcular por cada clasificación
         clasificaciones.forEach(clasif => {
@@ -2442,7 +2646,7 @@ if ($empresaFiltro !== "") {
       // Click en conductor → carga viajes
       document.querySelectorAll('.conductor-link').forEach(btn=>{
         btn.addEventListener('click', ()=>{
-          const nombre = btn.textContent.trim();
+          const nombre = btn.textContent.trim().replace('⚠️', '').trim();
           const desde  = "<?= htmlspecialchars($desde) ?>";
           const hasta  = "<?= htmlspecialchars($hasta) ?>";
           const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
@@ -2492,6 +2696,12 @@ if ($empresaFiltro !== "") {
 
       // Recalcular al cargar
       recalcular();
+      
+      // Mostrar automáticamente el resumen si hay rutas sin clasificar
+      const totalRutasSinClasificar = <?= array_sum(array_column($datos, 'rutas_sin_clasificar')) ?>;
+      if (totalRutasSinClasificar > 0) {
+        mostrarResumenRutasSinClasificar();
+      }
     });
   </script>
 </body>
