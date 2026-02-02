@@ -212,18 +212,78 @@ if (isset($_GET['viajes_conductor'])) {
                 $counts[$cat] = 1;
             }
 
-            $rowsHTML .= "<tr class='row-viaje hover:bg-blue-50 transition-colors cat-$cat'>
+            // Determinar color según categoría
+            $color_class = '';
+            switch($cat) {
+                case 'encargo': $color_class = 'bg-emerald-100 text-emerald-800 border-emerald-300'; break;
+                case 'encargo especial': $color_class = 'bg-purple-100 text-purple-800 border-purple-300'; break;
+                case 'pasajero': $color_class = 'bg-blue-100 text-blue-800 border-blue-300'; break;
+                case 'turismo': $color_class = 'bg-amber-100 text-amber-800 border-amber-300'; break;
+                case 'paqueteria': $color_class = 'bg-rose-100 text-rose-800 border-rose-300'; break;
+                case 'carga': $color_class = 'bg-indigo-100 text-indigo-800 border-indigo-300'; break;
+                default: $color_class = 'bg-slate-100 text-slate-800 border-slate-300';
+            }
+
+            $rowsHTML .= "<tr class='viaje-item cat-$cat'>
                     <td class='px-3 py-2'>".htmlspecialchars($r['fecha'])."</td>
-                    <td class='px-3 py-2'>".htmlspecialchars($ruta)."</td>
+                    <td class='px-3 py-2'>
+                        <span class='inline-block px-2 py-1 rounded text-xs font-medium border $color_class'>
+                            ".htmlspecialchars($ruta)."
+                        </span>
+                    </td>
                     <td class='px-3 py-2'>".htmlspecialchars($r['empresa'])."</td>
-                    <td class='px-3 py-2'>".htmlspecialchars($vehiculo)."</td>
+                    <td class='px-3 py-2'>
+                        <span class='inline-block px-2 py-1 rounded text-xs bg-slate-100 border border-slate-300'>
+                            ".htmlspecialchars($vehiculo)."
+                        </span>
+                    </td>
+                    <td class='px-3 py-2 text-center'>
+                        <span class='inline-block px-2 py-1 rounded text-xs font-medium $color_class'>
+                            ".htmlspecialchars(ucfirst($cat))."
+                        </span>
+                    </td>
                   </tr>";
         }
     } else {
-        $rowsHTML .= "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresa.</td></tr>";
+        $rowsHTML .= "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresa.</td></tr>";
     }
 
-    echo $rowsHTML;
+    // Agregar resumen al principio
+    $summaryHTML = "<div class='bg-slate-50 rounded-xl p-4 mb-4 border border-slate-200'>
+        <h4 class='font-semibold mb-2 text-slate-700'>📊 Resumen de viajes</h4>
+        <div class='grid grid-cols-2 md:grid-cols-4 gap-3'>";
+    
+    $totalViajes = 0;
+    foreach ($counts as $cat => $count) {
+        if ($count > 0) {
+            $totalViajes += $count;
+            $catLabel = ucfirst($cat);
+            $color_class = '';
+            switch($cat) {
+                case 'encargo': $color_class = 'bg-emerald-100 text-emerald-800 border-emerald-300'; break;
+                case 'encargo especial': $color_class = 'bg-purple-100 text-purple-800 border-purple-300'; break;
+                case 'pasajero': $color_class = 'bg-blue-100 text-blue-800 border-blue-300'; break;
+                case 'turismo': $color_class = 'bg-amber-100 text-amber-800 border-amber-300'; break;
+                case 'paqueteria': $color_class = 'bg-rose-100 text-rose-800 border-rose-300'; break;
+                case 'carga': $color_class = 'bg-indigo-100 text-indigo-800 border-indigo-300'; break;
+                default: $color_class = 'bg-slate-100 text-slate-800 border-slate-300';
+            }
+            
+            $summaryHTML .= "
+            <div class='flex flex-col items-center p-3 rounded-lg $color_class'>
+                <span class='text-2xl font-bold'>$count</span>
+                <span class='text-xs mt-1'>$catLabel</span>
+            </div>";
+        }
+    }
+    
+    $summaryHTML .= "</div>
+        <div class='mt-3 pt-3 border-t border-slate-300 text-center'>
+            <span class='font-semibold text-slate-700'>Total viajes: $totalViajes</span>
+        </div>
+    </div>";
+    
+    echo $summaryHTML . $rowsHTML;
     exit;
 }
 
@@ -411,17 +471,18 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         .table-sticky thead th { position: sticky; top: 0; z-index: 31; background-color: #2563eb !important; color: #fff !important; }
         .table-sticky thead { box-shadow: 0 2px 0 rgba(0,0,0,0.06); }
 
-        /* Modal Viajes */
+        /* Modal Viajes - Mejorado */
         .viajes-backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:10000; }
         .viajes-backdrop.show{ display:flex; }
-        .viajes-card{ width:min(720px,94vw); max-height:90vh; overflow:hidden; border-radius:16px; background:#fff;
+        .viajes-card{ width:min(920px,94vw); max-height:90vh; overflow:hidden; border-radius:16px; background:#fff;
             box-shadow:0 20px 60px rgba(0,0,0,.25); border:1px solid #e5e7eb; }
-        .viajes-header{padding:14px 16px;border-bottom:1px solid #eef2f7}
-        .viajes-body{padding:14px 16px;overflow:auto; max-height:70vh}
-        .viajes-close{padding:6px 10px; border-radius:10px; cursor:pointer;}
-        .viajes-close:hover{background:#f3f4f6}
+        .viajes-header{padding:16px 20px;border-bottom:1px solid #eef2f7; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;}
+        .viajes-body{padding:16px 20px;overflow:auto; max-height:70vh}
+        .viajes-close{padding:8px 12px; border-radius:10px; cursor:pointer; background: rgba(255,255,255,0.2);}
+        .viajes-close:hover{background:rgba(255,255,255,0.3)}
 
-        .conductor-link{cursor:pointer; color:#0d6efd; text-decoration:underline;}
+        .conductor-link{cursor:pointer; color:#0d6efd; text-decoration:underline; transition: all 0.2s;}
+        .conductor-link:hover{color:#0a58ca; text-decoration:none;}
 
         /* Estados de pago */
         .estado-pagado { background-color: #f0fdf4 !important; border-left: 4px solid #22c55e; }
@@ -450,6 +511,16 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         
         /* Badge base datos */
         .bd-badge { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        
+        /* Colores para viajes */
+        .viaje-item:hover { background-color: #f8fafc; }
+        .cat-encargo { border-left: 4px solid #10b981; }
+        .cat-encargo_especial { border-left: 4px solid #8b5cf6; }
+        .cat-pasajero { border-left: 4px solid #3b82f6; }
+        .cat-turismo { border-left: 4px solid #f59e0b; }
+        .cat-paqueteria { border-left: 4px solid #f43f5e; }
+        .cat-carga { border-left: 4px solid #6366f1; }
+        .cat-otro { border-left: 4px solid #64748b; }
     </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
@@ -736,34 +807,77 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- ===== Modal VIAJES ===== -->
+<!-- ===== Modal VIAJES CON COLORES ===== -->
 <div id="viajesModal" class="viajes-backdrop">
     <div class="viajes-card">
         <div class="viajes-header">
             <div class="flex flex-col gap-2 w-full md:flex-row md:items-center md:justify-between">
                 <div class="flex flex-col gap-1">
                     <h3 class="text-lg font-semibold flex items-center gap-2">
-                        🧳 Viajes — <span id="viajesTitle" class="font-normal"></span>
+                        🧳 Viajes por Conductor
                     </h3>
-                    <div class="text-[11px] text-slate-500 leading-tight">
+                    <div class="text-sm opacity-90">
+                        <span id="viajesTitle" class="font-normal"></span>
+                    </div>
+                    <div class="text-xs opacity-80 leading-tight">
                         <span id="viajesRango"></span>
                         <span class="mx-1">•</span>
                         <span id="viajesEmpresa"></span>
                     </div>
                 </div>
                 <div class="flex items-center gap-2">
-                    <label class="text-xs text-slate-600 whitespace-nowrap">Conductor:</label>
+                    <label class="text-xs text-white/90 whitespace-nowrap">Cambiar conductor:</label>
                     <select id="viajesSelectConductor"
-                            class="rounded-lg border border-slate-300 px-2 py-1 text-sm min-w-[200px] focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500">
+                            class="rounded-lg border border-white/30 bg-white/20 text-white px-3 py-1.5 text-sm min-w-[200px] focus:outline-none focus:ring-2 focus:ring-white/40 focus:border-white">
+                        <option value="">-- Seleccionar --</option>
                     </select>
-                    <button class="viajes-close text-slate-600 hover:bg-slate-100 border border-slate-300 px-2 py-1 rounded-lg text-sm" id="viajesCloseBtn" title="Cerrar">
-                        ✕
+                    <button class="viajes-close text-white hover:bg-white/20 px-3 py-1.5 rounded-lg text-sm" id="viajesCloseBtn" title="Cerrar">
+                        ✕ Cerrar
                     </button>
+                </div>
+            </div>
+            
+            <!-- Leyenda de colores -->
+            <div class="mt-3 flex flex-wrap gap-2">
+                <div class="flex items-center gap-1 text-xs">
+                    <span class="w-3 h-3 rounded-full bg-emerald-500"></span>
+                    <span>Encargo</span>
+                </div>
+                <div class="flex items-center gap-1 text-xs">
+                    <span class="w-3 h-3 rounded-full bg-purple-500"></span>
+                    <span>Encargo Especial</span>
+                </div>
+                <div class="flex items-center gap-1 text-xs">
+                    <span class="w-3 h-3 rounded-full bg-blue-500"></span>
+                    <span>Pasajero</span>
+                </div>
+                <div class="flex items-center gap-1 text-xs">
+                    <span class="w-3 h-3 rounded-full bg-amber-500"></span>
+                    <span>Turismo</span>
+                </div>
+                <div class="flex items-center gap-1 text-xs">
+                    <span class="w-3 h-3 rounded-full bg-rose-500"></span>
+                    <span>Paquetería</span>
+                </div>
+                <div class="flex items-center gap-1 text-xs">
+                    <span class="w-3 h-3 rounded-full bg-indigo-500"></span>
+                    <span>Carga</span>
+                </div>
+                <div class="flex items-center gap-1 text-xs">
+                    <span class="w-3 h-3 rounded-full bg-slate-500"></span>
+                    <span>Otro</span>
                 </div>
             </div>
         </div>
 
-        <div class="viajes-body" id="viajesContent"></div>
+        <div class="viajes-body" id="viajesContent">
+            <!-- Aquí se cargarán los viajes dinámicamente -->
+            <div class="text-center py-8">
+                <div class="animate-pulse">
+                    <div class="text-slate-400">Cargando viajes...</div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -1636,7 +1750,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     }
 
     function loadViajes(nombre) {
-        viajesContent.innerHTML = '<p class="text-center m-0 animate-pulse">Cargando…</p>';
+        viajesContent.innerHTML = '<div class="text-center py-8"><div class="animate-pulse"><div class="text-slate-400">Cargando viajes...</div></div></div>';
         viajesConductorActual = nombre;
         viajesTitle.textContent = nombre;
 
@@ -1651,9 +1765,31 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             .then(r => r.text())
             .then(html => {
                 viajesContent.innerHTML = html;
+                
+                // Agregar tabla con estilos
+                if (!viajesContent.querySelector('table')) {
+                    const viajesHTML = viajesContent.innerHTML;
+                    viajesContent.innerHTML = `
+                    <div class="overflow-auto rounded-xl border border-slate-200">
+                        <table class="min-w-full text-sm">
+                            <thead class="bg-slate-800 text-white">
+                                <tr>
+                                    <th class="px-3 py-2 text-left">Fecha</th>
+                                    <th class="px-3 py-2 text-left">Ruta</th>
+                                    <th class="px-3 py-2 text-left">Empresa</th>
+                                    <th class="px-3 py-2 text-left">Vehículo</th>
+                                    <th class="px-3 py-2 text-left">Clasificación</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                ${viajesHTML}
+                            </tbody>
+                        </table>
+                    </div>`;
+                }
             })
             .catch(() => {
-                viajesContent.innerHTML = '<p class="text-center text-rose-600">Error cargando viajes.</p>';
+                viajesContent.innerHTML = '<p class="text-center text-rose-600 p-4">Error cargando viajes.</p>';
             });
     }
 
@@ -1667,10 +1803,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         loadViajes(nuevo);
     });
 
-    document.querySelectorAll('#tbody .conductor-link').forEach(btn=>{
-        btn.addEventListener('click', ()=>{
-            abrirModalViajes(btn.textContent.trim());
-        });
+    // Conectar botones de conductor al modal
+    document.addEventListener('click', (e) => {
+        if (e.target.classList.contains('conductor-link')) {
+            const nombre = e.target.getAttribute('data-nombre') || e.target.textContent.trim();
+            abrirModalViajes(nombre);
+        }
     });
 
     // ===== CÁLCULOS PRINCIPALES =====
