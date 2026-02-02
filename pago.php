@@ -19,29 +19,33 @@ function norm_person($s){
   return $s;
 }
 
-/* ================= TARIFAS DINÁMICAS ================= */
-$columnas_tarifas = [];
+/* ================= TARIFAS DINÁMICAS - EXTRACCIÓN CORRECTA ================= */
+$columnas_tarifas = []; // Para almacenar TODAS las columnas de precio
 $tarifas = [];
 
+// PRIMERO: Obtener todas las columnas de la tabla tarifas
 $resColumns = $conn->query("SHOW COLUMNS FROM tarifas");
 if ($resColumns) {
     while ($col = $resColumns->fetch_assoc()) {
         $field = $col['Field'];
+        // Excluir columnas que no son tarifas
         if (!in_array($field, ['id', 'empresa', 'tipo_vehiculo', 'created_at', 'updated_at'])) {
             $columnas_tarifas[] = $field;
         }
     }
 }
 
-/* ================= OBTENER CLASIFICACIONES ================= */
+/* ================= OBTENER TODAS LAS CLASIFICACIONES DINÁMICAMENTE ================= */
 $todas_clasificaciones = [];
 $resClasifAll = $conn->query("SELECT DISTINCT clasificacion FROM ruta_clasificacion");
 if ($resClasifAll) {
     while ($r = $resClasifAll->fetch_assoc()) {
+        // 🔹 IMPORTANTE: Normalizar a minúsculas
         $todas_clasificaciones[] = strtolower($r['clasificacion']);
     }
 }
 
+// 🔹 AGREGAR las columnas de tarifas como clasificaciones válidas (normalizadas a minúsculas)
 foreach ($columnas_tarifas as $columna) {
     $columna_normalizada = strtolower($columna);
     if (!in_array($columna_normalizada, $todas_clasificaciones)) {
@@ -49,7 +53,7 @@ foreach ($columnas_tarifas as $columna) {
     }
 }
 
-/* ================= Cargar clasificaciones ================= */
+/* ================= Cargar clasificaciones desde BD ================= */
 $clasificaciones = [];
 $resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
 if ($resClasif) {
@@ -58,6 +62,48 @@ if ($resClasif) {
         $clasificaciones[$key] = strtolower($r['clasificacion']);
     }
 }
+
+/* ================= LEYENDA DINÁMICA DE CLASIFICACIONES ================= */
+$colores_base = [
+    'completo'         => ['badge'=>'bg-emerald-100 text-emerald-700 border border-emerald-200', 'row'=>'bg-emerald-50/40'],
+    'medio'            => ['badge'=>'bg-amber-100 text-amber-800 border border-amber-200', 'row'=>'bg-amber-50/40'],
+    'extra'            => ['badge'=>'bg-slate-200 text-slate-800 border border-slate-300', 'row'=>'bg-slate-50'],
+    'siapana'          => ['badge'=>'bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-200', 'row'=>'bg-fuchsia-50/40'],
+    'carrotanque'      => ['badge'=>'bg-cyan-100 text-cyan-800 border border-cyan-200', 'row'=>'bg-cyan-50/40'],
+];
+
+// Generar leyenda dinámica
+$legend = [];
+foreach ($todas_clasificaciones as $clas) {
+    $clas_normalizada = strtolower($clas);
+    
+    if (isset($colores_base[$clas_normalizada])) {
+        $legend[$clas_normalizada] = [
+            'label' => ucwords(str_replace(['_', ' medio', ' completo'], [' ', ' Medio', ' Completo'], $clas)),
+            'badge' => $colores_base[$clas_normalizada]['badge'],
+            'row'   => $colores_base[$clas_normalizada]['row']
+        ];
+    } else {
+        // Generar color aleatorio para clasificaciones nuevas
+        $colors = [
+            ['badge'=>'bg-red-100 text-red-700 border border-red-200', 'row'=>'bg-red-50/40'],
+            ['badge'=>'bg-green-100 text-green-700 border border-green-200', 'row'=>'bg-green-50/40'],
+            ['badge'=>'bg-purple-100 text-purple-700 border border-purple-200', 'row'=>'bg-purple-50/40'],
+            ['badge'=>'bg-pink-100 text-pink-700 border border-pink-200', 'row'=>'bg-pink-50/40'],
+            ['badge'=>'bg-yellow-100 text-yellow-700 border border-yellow-200', 'row'=>'bg-yellow-50/40'],
+            ['badge'=>'bg-blue-100 text-blue-700 border border-blue-200', 'row'=>'bg-blue-50/40'],
+            ['badge'=>'bg-indigo-100 text-indigo-700 border border-indigo-200', 'row'=>'bg-indigo-50/40'],
+        ];
+        $color_idx = crc32($clas_normalizada) % count($colors);
+        $legend[$clas_normalizada] = [
+            'label' => ucwords(str_replace('_', ' ', $clas)),
+            'badge' => $colors[$color_idx]['badge'],
+            'row'   => $colors[$color_idx]['row']
+        ];
+    }
+}
+// Agregar "otro" para clasificaciones no encontradas
+$legend['otro'] = ['label'=>'Sin clasificar','badge'=>'bg-gray-100 text-gray-700 border border-gray-200','row'=>'bg-gray-50/20'];
 
 /* ================= AJAX: Viajes por conductor ================= */
 if (isset($_GET['viajes_conductor'])) {
@@ -78,6 +124,7 @@ if (isset($_GET['viajes_conductor'])) {
     $res = $conn->query($sql);
 
     $rowsHTML = "";
+    // Inicializar contadores dinámicamente
     $counts = ['otro' => 0];
     foreach ($todas_clasificaciones as $clas) {
         $counts[strtolower($clas)] = 0;
@@ -88,9 +135,11 @@ if (isset($_GET['viajes_conductor'])) {
             $ruta = (string)$r['ruta'];
             $vehiculo = $r['tipo_vehiculo'];
             
+            // Clasificación desde la tabla ruta_clasificacion
             $key = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
             $cat = isset($clasificaciones[$key]) ? strtolower($clasificaciones[$key]) : 'otro';
             
+            // Si la clasificación no está en nuestras clasificaciones conocidas, usar 'otro'
             if (!in_array($cat, $todas_clasificaciones)) {
                 $cat = 'otro';
             }
@@ -101,9 +150,18 @@ if (isset($_GET['viajes_conductor'])) {
                 $counts[$cat] = 1;
             }
 
-            $rowsHTML .= "<tr class='row-viaje hover:bg-blue-50 transition-colors cat-$cat'>
+            $l = $legend[$cat] ?? $legend['otro'];
+            $badge = "<span class='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold {$l['badge']}'>".$l['label']."</span>";
+            $rowCls = trim("row-viaje hover:bg-blue-50 transition-colors {$l['row']} cat-$cat");
+
+            $rowsHTML .= "<tr class='{$rowCls}'>
                     <td class='px-3 py-2'>".htmlspecialchars($r['fecha'])."</td>
-                    <td class='px-3 py-2'>".htmlspecialchars($ruta)."</td>
+                    <td class='px-3 py-2'>
+                      <div class='flex items-center gap-2'>
+                        {$badge}
+                        <span>".htmlspecialchars($ruta)."</span>
+                      </div>
+                    </td>
                     <td class='px-3 py-2'>".htmlspecialchars($r['empresa'])."</td>
                     <td class='px-3 py-2'>".htmlspecialchars($vehiculo)."</td>
                   </tr>";
@@ -112,7 +170,46 @@ if (isset($_GET['viajes_conductor'])) {
         $rowsHTML .= "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresa.</td></tr>";
     }
 
-    echo $rowsHTML;
+    ?>
+    <div class='space-y-3'>
+        <!-- Leyenda con contadores y filtro -->
+        <div class='flex flex-wrap gap-2 text-xs' id="legendFilterBar">
+            <?php
+            // Mostrar todas las clasificaciones dinámicamente
+            foreach ($legend as $k => $l) {
+                $countVal = $counts[$k] ?? 0;
+                if ($countVal > 0) {
+                    echo "<button
+                            class='legend-pill inline-flex items-center gap-2 px-3 py-2 rounded-full {$l['badge']} hover:opacity-90 transition ring-0 outline-none border cursor-pointer select-none'
+                            data-tipo='{$k}'
+                          >
+                            <span class='w-2.5 h-2.5 rounded-full ".str_replace(['bg-','/40'], ['bg-',''], $l['row'])." bg-opacity-100 border border-white/30 shadow-inner'></span>
+                            <span class='font-semibold text-[13px]'>{$l['label']}</span>
+                            <span class='text-[11px] font-semibold opacity-80'>({$countVal})</span>
+                          </button>";
+                }
+            }
+            ?>
+        </div>
+
+        <!-- Tabla -->
+        <div class='overflow-x-auto'>
+            <table class='min-w-full text-sm text-left'>
+                <thead class='bg-blue-600 text-white'>
+                <tr>
+                    <th class='px-3 py-2'>Fecha</th>
+                    <th class='px-3 py-2'>Ruta</th>
+                    <th class='px-3 py-2'>Empresa</th>
+                    <th class='px-3 py-2'>Vehículo</th>
+                </tr>
+                </thead>
+                <tbody class='divide-y divide-gray-100 bg-white' id="viajesTableBody">
+                <?= $rowsHTML ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <?php
     exit;
 }
 
@@ -160,12 +257,14 @@ $hasta = $_GET['hasta'];
 $empresaFiltro = $_GET['empresa'] ?? "";
 $empresaFiltroEsc = $conn->real_escape_string($empresaFiltro);
 
-/* ================= CARGAR TARIFAS ================= */
+/* ================= CARGAR TARIFAS PARA LA EMPRESA ================= */
 $tarifas = [];
 if ($empresaFiltro !== "") {
+    // Obtener tarifas específicas para esta empresa
     $resT = $conn->query("SELECT * FROM tarifas WHERE empresa='".$empresaFiltroEsc."'");
     if ($resT) {
         while($r = $resT->fetch_assoc()) {
+            // Normalizar todas las claves del array a minúsculas
             $tarifa_normalizada = [];
             foreach ($r as $key => $value) {
                 $tarifa_normalizada[strtolower($key)] = $value;
@@ -192,6 +291,7 @@ if ($resV) {
         $vehiculo = $row['tipo_vehiculo'];
         
         if (!isset($contadores[$nombre])) {
+            // Inicializar con todas las clasificaciones posibles
             $contadores[$nombre] = ['vehiculo' => $vehiculo];
             foreach ($todas_clasificaciones as $clas) {
                 $clas_normalizada = strtolower($clas);
@@ -199,9 +299,11 @@ if ($resV) {
             }
         }
         
+        // Clasificación desde la tabla ruta_clasificacion
         $key = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
         $clasif = isset($clasificaciones[$key]) ? strtolower($clasificaciones[$key]) : '';
         
+        // Solo contar si tiene clasificación válida (y está en nuestras clasificaciones)
         if ($clasif !== '' && in_array($clasif, $todas_clasificaciones)) {
             if (isset($contadores[$nombre][$clasif])) {
                 $contadores[$nombre][$clasif]++;
@@ -210,7 +312,7 @@ if ($resV) {
     }
 }
 
-/* ================= Préstamos ================= */
+/* ================= Préstamos: listado multiselección ================= */
 $prestamosList = [];
 $i = 0;
 
@@ -244,7 +346,7 @@ if ($rP = $conn->query($qPrest)) {
     }
 }
 
-/* ================= Filas base ================= */
+/* ================= Filas base (viajes) - CÁLCULO CORREGIDO ================= */
 $filas = []; 
 $total_facturado = 0;
 
@@ -252,6 +354,7 @@ foreach ($contadores as $nombre => $v) {
     $veh = $v['vehiculo'];
     $t = $tarifas[$veh] ?? [];
     
+    // Cálculo CORRECTO: Sumar TODAS las clasificaciones
     $total = 0;
     
     foreach ($todas_clasificaciones as $clas) {
@@ -259,15 +362,21 @@ foreach ($contadores as $nombre => $v) {
         $cantidad = $v[$clas_normalizada] ?? 0;
         
         if ($cantidad > 0) {
+            // Buscar precio - probar diferentes formatos
             $precio = 0;
             
+            // 1. Buscar con el nombre exacto
             if (isset($t[$clas_normalizada])) {
                 $precio = (float)$t[$clas_normalizada];
-            } else {
+            }
+            // 2. Si no, buscar reemplazando espacios por guiones bajos
+            else {
                 $clas_con_guion = str_replace(' ', '_', $clas_normalizada);
                 if (isset($t[$clas_con_guion])) {
                     $precio = (float)$t[$clas_con_guion];
-                } else {
+                }
+                // 3. Si no, buscar reemplazando guiones bajos por espacios
+                else {
                     $clas_con_espacio = str_replace('_', ' ', $clas_normalizada);
                     if (isset($t[$clas_con_espacio])) {
                         $precio = (float)$t[$clas_con_espacio];
@@ -285,12 +394,16 @@ foreach ($contadores as $nombre => $v) {
 }
 
 usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
+
+// DEBUG: Mostrar qué está sumando
+// echo "<!-- DEBUG: Total facturado: $total_facturado -->";
+// echo "<!-- DEBUG: Columnas tarifas: " . implode(', ', $columnas_tarifas) . " -->";
+// echo "<!-- DEBUG: Clasificaciones: " . implode(', ', $todas_clasificaciones) . " -->";
 ?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>Ajuste de Pago (con gestor de cuentas de cobro)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -331,10 +444,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         #panelDragHandle { user-select: none; }
         .checkbox-conductor { width: 18px; height: 18px; cursor: pointer; }
         .fila-seleccionada { background-color: #f0f9ff !important; }
-        
-        /* Leyenda */
-        .legend-pill { transition: all 0.2s; }
-        .legend-pill.active { box-shadow: 0 0 0 2px #3b82f6, 0 0 0 4px rgba(59, 130, 246, 0.2); }
     </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
@@ -519,6 +628,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
 <!-- ===== PANEL FLOTANTE DE SELECCIÓN ===== -->
 <div id="floatingPanel" class="hidden fixed z-50 bg-white border border-blue-300 rounded-xl shadow-lg" style="top: 100px; left: 100px; min-width: 300px;">
+    <!-- Barra de título (arrastrable) -->
     <div id="panelDragHandle" class="cursor-move bg-blue-600 text-white px-4 py-3 rounded-t-xl flex items-center justify-between">
         <div class="font-semibold flex items-center gap-2">
             <span>📊 Sumatoria Seleccionados</span>
@@ -527,11 +637,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         <button id="closePanel" class="text-white hover:bg-blue-700 p-1 rounded">✕</button>
     </div>
     
+    <!-- Contenido del panel -->
     <div class="p-4">
         <div class="space-y-3">
             <div class="flex justify-between items-center border-b pb-2">
                 <span class="text-sm text-slate-600">Conductores seleccionados:</span>
-                <span id="panelConductoresCount" class="font-semibold">0</span>
+                                <span id="panelConductoresCount" class="font-semibold">0</span>
             </div>
             
             <div class="grid grid-cols-2 gap-3">
@@ -582,7 +693,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- ===== Modal PRÉSTAMOS ===== -->
+<!-- ===== Modal PRÉSTAMOS (multi) ===== -->
 <div id="prestModal" class="hidden fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-8 max-w-2xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
@@ -685,9 +796,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                     <input id="cuenta_porcentaje" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
                 </label>
             </div>
-            <div class="text-xs text-slate-500 mt-2">
-                <strong>⚠️ NOTA:</strong> También se guardarán los préstamos asignados, seguridad social, cuentas bancarias y estados de pago.
-            </div>
         </div>
         <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
             <button id="btnCancelSaveCuenta" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
@@ -717,7 +825,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                         <th class="px-3 py-2 text-left">Rango</th>
                         <th class="px-3 py-2 text-right">Facturado</th>
                         <th class="px-3 py-2 text-right">% Ajuste</th>
-                        <th class="px-3 py-2 text-right">Préstamos</th>
                         <th class="px-3 py-2 text-right">Acciones</th>
                     </tr>
                     </thead>
@@ -727,7 +834,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         </div>
         <div class="px-5 py-4 border-t border-slate-200 text-right">
             <button id="btnAddDesdeFiltro" class="rounded-lg border border-amber-300 px-3 py-2 text-sm bg-amber-50 hover:bg-amber-100">⭐ Guardar rango actual</button>
-        </div>
+</div>
     </div>
 </div>
 
@@ -738,62 +845,43 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const SS_KEY    = 'seg_social:'+COMPANY_SCOPE;
     const PREST_SEL_KEY = 'prestamo_sel_multi:v4:'+COMPANY_SCOPE;
     const ESTADO_PAGO_KEY = 'estado_pago:'+COMPANY_SCOPE;
-    const CUENTAS_GUARDADAS_KEY = 'cuentas_guardadas_completas:v2:'+COMPANY_SCOPE;
+    const PERIODOS_KEY  = 'cuentas_cobro_periodos:v1';
     const MANUAL_ROWS_KEY = 'filas_manuales:'+COMPANY_SCOPE;
     const SELECTED_CONDUCTORS_KEY = 'conductores_seleccionados:'+COMPANY_SCOPE;
 
     const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
     const CONDUCTORES_LIST = <?= json_encode(array_map(fn($f)=>$f['nombre'],$filas), JSON_UNESCAPED_UNICODE); ?>;
 
-    const toInt = (s)=>{ 
-        if(typeof s==='number') return Math.round(s); 
-        s=(s||'').toString().replace(/\./g,'').replace(/,/g,'').replace(/[^\d\-]/g,''); 
-        return parseInt(s||'0',10)||0; 
-    };
-    
+    const toInt = (s)=>{ if(typeof s==='number') return Math.round(s); s=(s||'').toString().replace(/\./g,'').replace(/,/g,'').replace(/[^\d\-]/g,''); return parseInt(s||'0',10)||0; };
     const fmt = (n)=> (n||0).toLocaleString('es-CO');
-    const getLS=(k)=>{try{return JSON.parse(localStorage.getItem(k)||'{}')}catch{return{}}};
+    const getLS=(k)=>{try{return JSON.parse(localStorage.getItem(k)||'{}')}catch{return{}}}
     const setLS=(k,v)=> localStorage.setItem(k, JSON.stringify(v));
 
-    // ===== Variables globales =====
     let accMap = getLS(ACC_KEY);
     let ssMap  = getLS(SS_KEY);
-    let prestSel = getLS(PREST_SEL_KEY); 
-    if(!prestSel || typeof prestSel!=='object') prestSel = {};
-    
+    let prestSel = getLS(PREST_SEL_KEY); if(!prestSel || typeof prestSel!=='object') prestSel = {};
     let estadoPagoMap = getLS(ESTADO_PAGO_KEY) || {};
     let manualRows = JSON.parse(localStorage.getItem(MANUAL_ROWS_KEY) || '[]');
     let selectedConductors = JSON.parse(localStorage.getItem(SELECTED_CONDUCTORS_KEY) || '[]');
-    let cuentasGuardadas = JSON.parse(localStorage.getItem(CUENTAS_GUARDADAS_KEY) || '[]');
 
-    // ===== Elementos DOM =====
-    const tbody = document.getElementById('tbody');
     const btnAddManual = document.getElementById('btnAddManual');
     const floatingPanel = document.getElementById('floatingPanel');
     const panelDragHandle = document.getElementById('panelDragHandle');
     const closePanel = document.getElementById('closePanel');
     const selectAllCheckbox = document.getElementById('selectAllCheckbox');
 
-    // ===== FUNCIÓN PARA OBTENER EL NOMBRE DEL CONDUCTOR =====
-    function obtenerNombreConductorDeFila(tr) {
-        if (tr.classList.contains('fila-manual')) {
-            const select = tr.querySelector('.conductor-select');
-            return select ? select.value.trim() : '';
-        } else {
-            const link = tr.querySelector('.conductor-link');
-            return link ? link.textContent.trim() : '';
-        }
-    }
-
-    // ===== FUNCIÓN PARA ASIGNAR PRÉSTAMOS A FILAS =====
+    // ===== FUNCIÓN PARA ASIGNAR PRÉSTAMOS A CADA FILA BASADA EN EL NOMBRE =====
     function asignarPrestamosAFilas() {
         document.querySelectorAll('#tbody tr').forEach(tr => {
+            // Obtener el nombre del conductor de la fila
             let nombreConductor = obtenerNombreConductorDeFila(tr);
             if (!nombreConductor) return;
             
+            // Buscar préstamos para este conductor
             const prestamosDeEsteConductor = prestSel[nombreConductor] || [];
             
             if (prestamosDeEsteConductor.length === 0) {
+                // No hay préstamos asignados
                 const prestSpan = tr.querySelector('.prest');
                 if (prestSpan) prestSpan.textContent = '0';
                 const selLabel = tr.querySelector('.selected-deudor');
@@ -801,16 +889,19 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 return;
             }
             
+            // Calcular total y mostrar nombres
             let totalMostrar = 0;
             let nombres = [];
             
             prestamosDeEsteConductor.forEach(prestamoGuardado => {
+                // Buscar en PRESTAMOS_LIST para valores actualizados
                 const prestamoActual = PRESTAMOS_LIST.find(p => 
                     p.id === prestamoGuardado.id || 
                     p.name === prestamoGuardado.name
                 );
                 
                 if (prestamoActual) {
+                    // Usar valor manual si existe, de lo contrario usar el actual
                     if (prestamoGuardado.esManual === true && prestamoGuardado.valorManual !== undefined) {
                         totalMostrar += prestamoGuardado.valorManual;
                     } else {
@@ -821,6 +912,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 }
             });
             
+            // Actualizar la fila
             const prestSpan = tr.querySelector('.prest');
             const selLabel = tr.querySelector('.selected-deudor');
             
@@ -829,6 +921,17 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 ? nombres.join(', ') 
                 : nombres.slice(0,2).join(', ') + ' +' + (nombres.length-2) + ' más';
         });
+    }
+
+    // ===== FUNCIÓN PARA OBTENER EL NOMBRE DEL CONDUCTOR DE UNA FILA =====
+    function obtenerNombreConductorDeFila(tr) {
+        if (tr.classList.contains('fila-manual')) {
+            const select = tr.querySelector('.conductor-select');
+            return select ? select.value.trim() : '';
+        } else {
+            const link = tr.querySelector('.conductor-link');
+            return link ? link.textContent.trim() : '';
+        }
     }
 
     // ===== FUNCIÓN PARA AGREGAR FILA MANUAL =====
@@ -1028,13 +1131,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         asignarPrestamosAFilas();
     }
 
-    // ===== FUNCIÓN PARA APLICAR ESTADO DE FILA =====
-    function aplicarEstadoFila(tr, estado) {
-        tr.classList.remove('estado-pagado', 'estado-pendiente', 'estado-procesando', 'estado-parcial');
-        if (estado) tr.classList.add(`estado-${estado}`);
-    }
-
-    // ===== PANEL FLOTANTE =====
+    // ===== FUNCIONES PARA EL PANEL FLOTANTE =====
     function actualizarPanelFlotante() {
         const checkboxes = document.querySelectorAll('#tbody .selector-conductor:checked');
         const count = checkboxes.length;
@@ -1144,7 +1241,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         }
     }
 
-    // ===== PANEL ARRASTRABLE =====
+    // ===== FUNCIÓN PARA HACER EL PANEL ARRASTRABLE =====
     function hacerPanelArrastrable() {
         let isDragging = false;
         let currentX;
@@ -1191,7 +1288,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         }
     }
 
-    // ===== CARGAR FILAS MANUALES =====
+    // ===== CARGAR FILAS MANUALES EXISTENTES =====
     function cargarFilasManuales() {
         manualRows.forEach(manualId => {
             agregarFilaManual(manualId);
@@ -1209,63 +1306,31 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         asignarPrestamosAFilas();
     }
 
-    // ===== NORMALIZAR TEXTO =====
-    function normalizarTexto(texto) {
-        return texto
-            .toLowerCase()
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .trim();
+    // ===== FUNCIONES AUXILIARES =====
+    function summarizeNames(arr){ 
+        if(!arr||arr.length===0) return ''; 
+        const n=arr.map(x=>x.name); 
+        return n.length<=2 ? n.join(', ') : n.slice(0,2).join(', ')+' +'+(n.length-2)+' más'; 
     }
 
-    // ===== BUSCADOR DE CONDUCTORES =====
-    const buscadorConductores = document.getElementById('buscadorConductores');
-    const clearBuscar = document.getElementById('clearBuscar');
-    const contadorConductores = document.getElementById('contador-conductores');
-
-    function filtrarConductores() {
-        const textoBusqueda = normalizarTexto(buscadorConductores.value);
-        const filas = tbody.querySelectorAll('tr');
-        let filasVisibles = 0;
-        
-        if (textoBusqueda === '') {
-            filas.forEach(fila => {
-                fila.style.display = '';
-                filasVisibles++;
-            });
-            clearBuscar.style.display = 'none';
-        } else {
-            filas.forEach(fila => {
-                let nombreConductor = obtenerNombreConductorDeFila(fila);
-                const nombreNormalizado = normalizarTexto(nombreConductor);
-                
-                if (nombreNormalizado.includes(textoBusqueda)) {
-                    fila.style.display = '';
-                    filasVisibles++;
-                } else {
-                    fila.style.display = 'none';
-                }
-            });
-            clearBuscar.style.display = 'block';
-        }
-        
-        const totalConductores = filas.length;
-        contadorConductores.textContent = `Mostrando ${filasVisibles} de ${totalConductores} conductores`;
-        
-        actualizarPanelFlotante();
+    function sumTotals(arr){ 
+        return (arr||[]).reduce((a,b)=> a+(toInt(b.total)||0),0); 
     }
 
-    buscadorConductores.addEventListener('input', filtrarConductores);
-    clearBuscar.addEventListener('click', () => {
-        buscadorConductores.value = '';
-        filtrarConductores();
-        buscadorConductores.focus();
+    function aplicarEstadoFila(tr, estado) {
+        tr.classList.remove('estado-pagado', 'estado-pendiente', 'estado-procesando', 'estado-parcial');
+        if (estado) tr.classList.add(`estado-${estado}`);
+    }
+
+    // ===== EVENTO BOTÓN AGREGAR MANUAL =====
+    btnAddManual.addEventListener('click', ()=> agregarFilaManual());
+
+    // ===== EVENTOS PARA EL PANEL FLOTANTE =====
+    closePanel.addEventListener('click', () => {
+        floatingPanel.classList.add('hidden');
     });
 
-    // ===== EVENTOS =====
-    btnAddManual.addEventListener('click', ()=> agregarFilaManual());
-    closePanel.addEventListener('click', () => floatingPanel.classList.add('hidden'));
-
+    // ===== EVENTO PARA SELECCIONAR TODOS LOS CHECKBOXES =====
     if (selectAllCheckbox) {
         selectAllCheckbox.addEventListener('change', () => {
             const checkboxes = document.querySelectorAll('#tbody .selector-conductor');
@@ -1285,7 +1350,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         });
     }
 
-    // ===== Modal PRÉSTAMOS =====
+    // ===== Modal préstamos =====
     const prestModal   = document.getElementById('prestModal');
     const btnAssign    = document.getElementById('btnAssign');
     const btnCancel    = document.getElementById('btnCancel');
@@ -1476,21 +1541,48 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         });
     }
 
-    function abrirModalViajes(nombreInicial){
-        viajesRango.textContent   = RANGO_DESDE + " → " + RANGO_HASTA;
-        viajesEmpresa.textContent = (RANGO_EMP && RANGO_EMP !== "") ? RANGO_EMP : "Todas las empresas";
+    function attachFiltroViajes(){
+        const pills = viajesContent.querySelectorAll('#legendFilterBar .legend-pill');
+        const rows  = viajesContent.querySelectorAll('#viajesTableBody .row-viaje');
+        if (!pills.length || !rows.length) return;
 
-        initViajesSelect(nombreInicial);
+        let activeCat = null;
 
-        viajesModal.classList.add('show');
+        function applyFilter(cat){
+            if (cat === activeCat) {
+                activeCat = null;
+            } else {
+                activeCat = cat;
+            }
 
-        loadViajes(nombreInicial);
-    }
+            pills.forEach(p => {
+                const pcat = p.getAttribute('data-tipo');
+                if (activeCat && pcat === activeCat) {
+                    p.classList.add('ring-2','ring-blue-500','ring-offset-1','ring-offset-white');
+                } else {
+                    p.classList.remove('ring-2','ring-blue-500','ring-offset-1','ring-offset-white');
+                }
+            });
 
-    function cerrarModalViajes(){
-        viajesModal.classList.remove('show');
-        viajesContent.innerHTML = '';
-        viajesConductorActual = null;
+            rows.forEach(r => {
+                if (!activeCat) {
+                    r.style.display = '';
+                } else {
+                    if (r.classList.contains('cat-' + activeCat)) {
+                        r.style.display = '';
+                    } else {
+                        r.style.display = 'none';
+                    }
+                }
+            });
+        }
+
+        pills.forEach(p => {
+            p.addEventListener('click', ()=>{
+                const cat = p.getAttribute('data-tipo');
+                applyFilter(cat);
+            });
+        });
     }
 
     function loadViajes(nombre) {
@@ -1509,10 +1601,28 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             .then(r => r.text())
             .then(html => {
                 viajesContent.innerHTML = html;
+                attachFiltroViajes();
             })
             .catch(() => {
                 viajesContent.innerHTML = '<p class="text-center text-rose-600">Error cargando viajes.</p>';
             });
+    }
+
+    function abrirModalViajes(nombreInicial){
+        viajesRango.textContent   = RANGO_DESDE + " → " + RANGO_HASTA;
+        viajesEmpresa.textContent = (RANGO_EMP && RANGO_EMP !== "") ? RANGO_EMP : "Todas las empresas";
+
+        initViajesSelect(nombreInicial);
+
+        viajesModal.classList.add('show');
+
+        loadViajes(nombreInicial);
+    }
+
+    function cerrarModalViajes(){
+        viajesModal.classList.remove('show');
+        viajesContent.innerHTML = '';
+        viajesConductorActual = null;
     }
 
     viajesClose.addEventListener('click', cerrarModalViajes);
@@ -1600,7 +1710,100 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         actualizarPanelFlotante();
     }
 
-    // ===== GESTIÓN DE CUENTAS GUARDADAS =====
+    // ===== BUSCADOR DE CONDUCTORES =====
+    const buscadorConductores = document.getElementById('buscadorConductores');
+    const clearBuscar = document.getElementById('clearBuscar');
+    const contadorConductores = document.getElementById('contador-conductores');
+
+    function normalizarTexto(texto) {
+        return texto
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .trim();
+    }
+
+    function filtrarConductores() {
+        const textoBusqueda = normalizarTexto(buscadorConductores.value);
+        const filas = tbody.querySelectorAll('tr');
+        let filasVisibles = 0;
+        
+        if (textoBusqueda === '') {
+            filas.forEach(fila => {
+                fila.style.display = '';
+                filasVisibles++;
+            });
+            clearBuscar.style.display = 'none';
+        } else {
+            filas.forEach(fila => {
+                let nombreConductor = obtenerNombreConductorDeFila(fila);
+                const nombreNormalizado = normalizarTexto(nombreConductor);
+                
+                if (nombreNormalizado.includes(textoBusqueda)) {
+                    fila.style.display = '';
+                    filasVisibles++;
+                } else {
+                    fila.style.display = 'none';
+                }
+            });
+            clearBuscar.style.display = 'block';
+        }
+        
+        const totalConductores = filas.length;
+        contadorConductores.textContent = `Mostrando ${filasVisibles} de ${totalConductores} conductores`;
+        
+        resaltarTextoCoincidente(textoBusqueda);
+        actualizarPanelFlotante();
+    }
+
+    function resaltarTextoCoincidente(textoBusqueda) {
+        const enlaces = tbody.querySelectorAll('.conductor-link');
+        
+        enlaces.forEach(enlace => {
+            const textoOriginal = enlace.textContent;
+            const textoNormalizado = normalizarTexto(textoOriginal);
+            const indice = textoNormalizado.indexOf(textoBusqueda);
+            
+            if (textoBusqueda && indice !== -1) {
+                const antes = textoOriginal.substring(0, indice);
+                const coincidencia = textoOriginal.substring(indice, indice + textoBusqueda.length);
+                const despues = textoOriginal.substring(indice + textoBusqueda.length);
+                
+                enlace.innerHTML = `${antes}<span class="bg-yellow-200 px-0.5 rounded">${coincidencia}</span>${despues}`;
+            } else {
+                enlace.innerHTML = textoOriginal;
+            }
+        });
+    }
+
+    buscadorConductores.addEventListener('input', filtrarConductores);
+
+    clearBuscar.addEventListener('click', () => {
+        buscadorConductores.value = '';
+        filtrarConductores();
+        buscadorConductores.focus();
+    });
+
+    buscadorConductores.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            buscadorConductores.value = '';
+            filtrarConductores();
+        }
+    });
+
+    // ===== INICIALIZACIÓN =====
+    document.addEventListener('DOMContentLoaded', function() {
+        initializeExistingRows();
+        cargarFilasManuales();
+        hacerPanelArrastrable();
+        asignarPrestamosAFilas();
+        recalc();
+        if (selectedConductors.length > 0) {
+            actualizarPanelFlotante();
+        }
+    });
+
+    // ===== Gestor de cuentas =====
     const formFiltros = document.getElementById('formFiltros');
     const inpDesde = document.getElementById('inp_desde');
     const inpHasta = document.getElementById('inp_hasta');
@@ -1620,7 +1823,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const iCFact = document.getElementById('cuenta_facturado');
     const iCPorcentaje  = document.getElementById('cuenta_porcentaje');
 
-    // ===== GUARDAR CUENTA COMPLETA =====
+    const PERIODOS = getLS(PERIODOS_KEY);
+
     function openSaveCuenta(){
         const emp = selEmpresa.value.trim();
         if(!emp){ alert('Selecciona una EMPRESA antes de guardar la cuenta.'); return; }
@@ -1635,7 +1839,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         saveCuentaModal.classList.remove('hidden');
         setTimeout(()=> iNombre.focus(), 0);
     }
-    
     function closeSaveCuenta(){ saveCuentaModal.classList.add('hidden'); }
 
     btnShowSaveCuenta.addEventListener('click', openSaveCuenta);
@@ -1651,62 +1854,14 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         const facturado = toInt(iCFact.value);
         const porcentaje  = parseFloat(iCPorcentaje.value) || 0;
 
-        // OBTENER TODOS LOS DATOS ACTUALES
-        const prestamosActuales = { ...prestSel };
-        const segSocialActual = { ...ssMap };
-        const cuentasActual = { ...accMap };
-        const estadosActual = { ...estadoPagoMap };
-        const filasManualesActual = [...manualRows];
-        
-        // Guardar también los valores de las filas manuales
-        const filasManualesData = [];
-        document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => {
-            const conductor = tr.querySelector('.conductor-select')?.value || '';
-            const base = toInt(tr.querySelector('.base-manual')?.value || '0');
-            const cuenta = tr.querySelector('input.cta')?.value || '';
-            const segSocial = toInt(tr.querySelector('input.ss')?.value || '0');
-            const estado = tr.querySelector('select.estado-pago')?.value || '';
-            
-            if (conductor) {
-                filasManualesData.push({
-                    conductor,
-                    base,
-                    cuenta,
-                    segSocial,
-                    estado
-                });
-            }
-        });
-
-        // Crear objeto de cuenta completa
-        const cuentaCompleta = {
-            id: Date.now(),
-            nombre,
-            empresa: emp,
-            desde,
-            hasta,
-            facturado,
-            porcentaje,
-            prestamos: prestamosActuales,
-            segSocial: segSocialActual,
-            cuentasBancarias: cuentasActual,
-            estadosPago: estadosActual,
-            filasManuales: filasManualesData,
-            fechaGuardado: new Date().toISOString()
-        };
-
-        // Agregar a la lista de cuentas guardadas
-        cuentasGuardadas.push(cuentaCompleta);
-        localStorage.setItem(CUENTAS_GUARDADAS_KEY, JSON.stringify(cuentasGuardadas));
-        
+        const item = { id: Date.now(), nombre, desde, hasta, facturado, porcentaje };
+        if(!PERIODOS[emp]) PERIODOS[emp] = [];
+        PERIODOS[emp].push(item);
+        setLS(PERIODOS_KEY, PERIODOS);
         closeSaveCuenta();
-        alert('✅ Cuenta guardada exitosamente\nSe guardaron préstamos, seguridad social, cuentas bancarias y estados de pago.');
-        
-        // Actualizar lista en el gestor
-        renderCuentas();
+        alert('Cuenta guardada ✔');
     });
 
-    // ===== GESTOR DE CUENTAS =====
     const gestorModal = document.getElementById('gestorCuentasModal');
     const btnShowGestor = document.getElementById('btnShowGestorCuentas');
     const btnCloseGestor = document.getElementById('btnCloseGestor');
@@ -1715,185 +1870,78 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const buscaCuenta = document.getElementById('buscaCuenta');
     const tbodyCuentas = document.getElementById('tbodyCuentas');
 
-    function contarPrestamosEnCuenta(cuenta) {
-        if (!cuenta.prestamos) return 0;
-        let total = 0;
-        Object.values(cuenta.prestamos).forEach(prestamosArray => {
-            total += prestamosArray.length;
-        });
-        return total;
-    }
-
     function renderCuentas(){
         const emp = selEmpresa.value.trim();
         const filtro = (buscaCuenta.value||'').toLowerCase();
         lblEmpresaActual.textContent = emp || '(todas)';
 
-        // Filtrar cuentas por empresa
-        const arr = cuentasGuardadas
-            .filter(c => c.empresa === emp)
-            .sort((a,b) => new Date(b.fechaGuardado) - new Date(a.fechaGuardado));
-        
+        const arr = (PERIODOS[emp]||[]).slice().sort((a,b)=> (a.desde>b.desde? -1:1));
         tbodyCuentas.innerHTML = '';
-        
         if(arr.length===0){
-            tbodyCuentas.innerHTML = "<tr><td colspan='6' class='px-3 py-4 text-center text-slate-500'>No hay cuentas guardadas para esta empresa.</td></tr>";
+            tbodyCuentas.innerHTML = "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>No hay cuentas guardadas para esta empresa.</td></tr>";
             return;
         }
-        
         const frag = document.createDocumentFragment();
-        arr.forEach(cuenta=>{
-            if(filtro && !cuenta.nombre.toLowerCase().includes(filtro)) return;
-            
-            const totalPrestamos = contarPrestamosEnCuenta(cuenta);
-            
+        arr.forEach(item=>{
+            if(filtro && !item.nombre.toLowerCase().includes(filtro)) return;
             const tr = document.createElement('tr');
             tr.innerHTML = `
-        <td class="px-3 py-2">${cuenta.nombre}</td>
-        <td class="px-3 py-2">${cuenta.desde} &rarr; ${cuenta.hasta}</td>
-        <td class="px-3 py-2 text-right num">${fmt(cuenta.facturado||0)}</td>
-        <td class="px-3 py-2 text-right num">${cuenta.porcentaje||0}%</td>
-        <td class="px-3 py-2 text-center">
-          <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs ${totalPrestamos > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">
-            ${totalPrestamos} préstamos
-          </span>
-        </td>
+        <td class="px-3 py-2">${item.nombre}</td>
+        <td class="px-3 py-2">${item.desde} &rarr; ${item.hasta}</td>
+        <td class="px-3 py-2 text-right num">${fmt(item.facturado||0)}</td>
+        <td class="px-3 py-2 text-right num">${item.porcentaje||0}%</td>
         <td class="px-3 py-2 text-right">
           <div class="inline-flex gap-2">
-            <button class="btnUsar border px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 text-xs text-blue-700" title="Cargar datos">
-              📂 Cargar
-            </button>
-            <button class="btnEliminar border px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-xs text-rose-700" title="Eliminar cuenta">
-              🗑️ Eliminar
-            </button>
+            <button class="btnUsar border px-2 py-1 rounded bg-slate-50 hover:bg-slate-100 text-xs">Usar</button>
+            <button class="btnUsarAplicar border px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 text-xs">Usar y aplicar</button>
+            <button class="btnEditar border px-2 py-1 rounded bg-amber-50 hover:bg-amber-100 text-xs">Editar</button>
+            <button class="btnEliminar border px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-xs text-rose-700">Eliminar</button>
           </div>
         </td>`;
-            
-            tr.querySelector('.btnUsar').addEventListener('click', ()=> cargarCuentaCompleta(cuenta));
-            tr.querySelector('.btnEliminar').addEventListener('click', ()=> eliminarCuenta(cuenta));
-            
+            tr.querySelector('.btnUsar').addEventListener('click', ()=> usarCuenta(item,false));
+            tr.querySelector('.btnUsarAplicar').addEventListener('click', ()=> usarCuenta(item,true));
+            tr.querySelector('.btnEditar').addEventListener('click', ()=> editarCuenta(item));
+            tr.querySelector('.btnEliminar').addEventListener('click', ()=> eliminarCuenta(item));
             frag.appendChild(tr);
         });
         tbodyCuentas.appendChild(frag);
     }
 
-    // ===== CARGAR CUENTA COMPLETA =====
-    function cargarCuentaCompleta(cuenta) {
-        if (!confirm(`¿Cargar la cuenta "${cuenta.nombre}"?\n\nSe restaurarán todos los datos:\n- Préstamos asignados\n- Seguridad social\n- Cuentas bancarias\n- Estados de pago\n- Filas manuales`)) {
-            return;
-        }
-        
-        // Cargar datos básicos
-        selEmpresa.value = cuenta.empresa;
-        inpDesde.value = cuenta.desde;
-        inpHasta.value = cuenta.hasta;
-        inpFact.value = fmt(cuenta.facturado || 0);
-        inpPorcentaje.value = cuenta.porcentaje || 0;
-        
-        // Cargar datos asociados a conductores
-        if (cuenta.prestamos) {
-            prestSel = cuenta.prestamos;
-            setLS(PREST_SEL_KEY, prestSel);
-        }
-        
-        if (cuenta.segSocial) {
-            ssMap = cuenta.segSocial;
-            setLS(SS_KEY, ssMap);
-        }
-        
-        if (cuenta.cuentasBancarias) {
-            accMap = cuenta.cuentasBancarias;
-            setLS(ACC_KEY, accMap);
-        }
-        
-        if (cuenta.estadosPago) {
-            estadoPagoMap = cuenta.estadosPago;
-            setLS(ESTADO_PAGO_KEY, estadoPagoMap);
-        }
-        
-        // Limpiar filas manuales existentes
-        document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => tr.remove());
-        manualRows = [];
-        
-        // Cargar filas manuales
-        if (cuenta.filasManuales && cuenta.filasManuales.length > 0) {
-            cuenta.filasManuales.forEach(filaManual => {
-                agregarFilaManual();
-                
-                // Obtener la última fila agregada
-                const ultimaFila = tbody.querySelector('tr.fila-manual:last-child');
-                if (ultimaFila) {
-                    const select = ultimaFila.querySelector('.conductor-select');
-                    const baseInput = ultimaFila.querySelector('.base-manual');
-                    const ctaInput = ultimaFila.querySelector('input.cta');
-                    const ssInput = ultimaFila.querySelector('input.ss');
-                    const estadoSelect = ultimaFila.querySelector('select.estado-pago');
-                    
-                    if (select) select.value = filaManual.conductor;
-                    if (baseInput) baseInput.value = fmt(filaManual.base);
-                    if (ctaInput) ctaInput.value = filaManual.cuenta;
-                    if (ssInput) ssInput.value = fmt(filaManual.segSocial);
-                    if (estadoSelect) estadoSelect.value = filaManual.estado;
-                    
-                    // Actualizar datos del conductor
-                    const nombreConductor = filaManual.conductor;
-                    if (nombreConductor) {
-                        if (filaManual.cuenta) accMap[nombreConductor] = filaManual.cuenta;
-                        if (filaManual.segSocial) ssMap[nombreConductor] = filaManual.segSocial;
-                        if (filaManual.estado) estadoPagoMap[nombreConductor] = filaManual.estado;
-                    }
-                }
-            });
-            
-            localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
-        }
-        
-        // Aplicar cambios a todas las filas
-        setTimeout(() => {
-            // Aplicar cuentas bancarias
-            document.querySelectorAll('#tbody tr').forEach(tr => {
-                const nombre = obtenerNombreConductorDeFila(tr);
-                if (nombre && accMap[nombre]) {
-                    const ctaInput = tr.querySelector('input.cta');
-                    if (ctaInput) ctaInput.value = accMap[nombre];
-                }
-                
-                // Aplicar seguridad social
-                if (nombre && ssMap[nombre]) {
-                    const ssInput = tr.querySelector('input.ss');
-                    if (ssInput) ssInput.value = fmt(ssMap[nombre]);
-                }
-                
-                // Aplicar estado de pago
-                if (nombre && estadoPagoMap[nombre]) {
-                    const estadoSelect = tr.querySelector('select.estado-pago');
-                    if (estadoSelect) {
-                        estadoSelect.value = estadoPagoMap[nombre];
-                        aplicarEstadoFila(tr, estadoPagoMap[nombre]);
-                    }
-                }
-            });
-            
-            // Asignar préstamos
-            asignarPrestamosAFilas();
-            
-            // Recalcular todo
-            recalc();
-            
-            // Cerrar modal
-            closeGestor();
-            
-            alert(`✅ Cuenta "${cuenta.nombre}" cargada exitosamente.\nSe restauraron ${Object.keys(cuenta.prestamos || {}).length} conductores con préstamos asignados.`);
-        }, 100);
+    function usarCuenta(item, aplicar){
+        selEmpresa.value = selEmpresa.value;
+        inpDesde.value = item.desde;
+        inpHasta.value = item.hasta;
+        if(item.facturado) document.getElementById('inp_facturado').value = fmt(item.facturado);
+        if(item.porcentaje)  document.getElementById('inp_porcentaje_ajuste').value  = item.porcentaje;
+        recalc();
+        if(aplicar) formFiltros.submit();
     }
 
-    function eliminarCuenta(cuenta){
-        if(!confirm('¿Eliminar permanentemente esta cuenta?\nEsta acción no se puede deshacer.')) return;
-        
-        cuentasGuardadas = cuentasGuardadas.filter(c => c.id !== cuenta.id);
-        localStorage.setItem(CUENTAS_GUARDADAS_KEY, JSON.stringify(cuentasGuardadas));
+    function editarCuenta(item){
+        saveCuentaModal.classList.remove('hidden');
+        iEmpresa.value = selEmpresa.value;
+        iRango.value = `${item.desde} → ${item.hasta}`;
+        iNombre.value = item.nombre;
+        iCFact.value = fmt(item.facturado||0);
+        iCPorcentaje.value  = item.porcentaje || 0;
+        btnDoSaveCuenta.onclick = ()=>{
+            const [d,h] = iRango.value.split('→').map(s=>s.trim());
+            item.nombre = iNombre.value.trim() || item.nombre;
+            item.desde  = d || item.desde;
+            item.hasta  = h || item.hasta;
+            item.facturado = toInt(iCFact.value);
+            item.porcentaje  = parseFloat(iCPorcentaje.value) || 0;
+            setLS(PERIODOS_KEY, PERIODOS);
+            closeSaveCuenta(); renderCuentas();
+        };
+    }
+
+    function eliminarCuenta(item){
+        const emp = selEmpresa.value.trim();
+        if(!confirm('¿Eliminar esta cuenta?')) return;
+        PERIODOS[emp] = (PERIODOS[emp]||[]).filter(x=> x.id!==item.id);
+        setLS(PERIODOS_KEY, PERIODOS);
         renderCuentas();
-        alert('Cuenta eliminada.');
     }
 
     function openGestor(){
@@ -1901,35 +1949,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         gestorModal.classList.remove('hidden');
         setTimeout(()=> buscaCuenta.focus(), 0);
     }
-    
-    function closeGestor(){ 
-        gestorModal.classList.add('hidden'); 
-        buscaCuenta.value = '';
-    }
+    function closeGestor(){ gestorModal.classList.add('hidden'); }
 
     btnShowGestor.addEventListener('click', openGestor);
     btnCloseGestor.addEventListener('click', closeGestor);
     buscaCuenta.addEventListener('input', renderCuentas);
     btnAddDesdeFiltro.addEventListener('click', ()=>{ closeGestor(); openSaveCuenta(); });
-
-    // ===== INICIALIZACIÓN =====
-    document.addEventListener('DOMContentLoaded', function() {
-        initializeExistingRows();
-        cargarFilasManuales();
-        hacerPanelArrastrable();
-        asignarPrestamosAFilas();
-        recalc();
-        if (selectedConductors.length > 0) {
-            actualizarPanelFlotante();
-        }
-        
-        // Configurar eventos de entrada para recalcular
-        document.getElementById('inp_porcentaje_ajuste').addEventListener('input', recalc);
-        document.getElementById('inp_facturado').addEventListener('input', recalc);
-    });
 </script>
 </body>
 </html>
-<?php
-$conn->close();
-?>
