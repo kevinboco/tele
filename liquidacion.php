@@ -8,7 +8,7 @@ $conn->set_charset("utf8mb4");
    🔹 FUNCIONES DINÁMICAS
 ======================================================= */
 
-// Obtener columnas de tarifas dinámicamente
+// Obtener columnas de tarifas dinámicament
 function obtenerColumnasTarifas($conn) {
     $columnas = [];
     $res = $conn->query("SHOW COLUMNS FROM tarifas");
