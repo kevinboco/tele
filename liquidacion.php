@@ -8,7 +8,7 @@ $conn->set_charset("utf8mb4");
    🔹 FUNCIONES DINÁMICAS
 ======================================================= */
 
-// Obtener columnas de tarifas dinámicament
+// Obtener columnas de tarifas dinámicamente
 function obtenerColumnasTarifas($conn) {
     $columnas = [];
     $res = $conn->query("SHOW COLUMNS FROM tarifas");
@@ -636,7 +636,7 @@ if ($empresaFiltro !== "") {
   /* ===== SISTEMA DE PANELES EXPANDIBLES ===== */
   .main-layout {
     display: grid;
-    grid-template-columns: 400px 1100px 350px;
+    grid-template-columns: 400px auto;
     gap: 1rem;
     transition: grid-template-columns 0.3s ease;
     position: relative;
@@ -660,18 +660,6 @@ if ($empresaFiltro !== "") {
     min-width: 0;
     overflow: visible !important;
     transition: all 0.3s ease;
-  }
-  
-  .right-panel {
-    position: relative;
-    transition: all 0.3s ease;
-    background: white;
-    border-radius: 1rem;
-    border: 1px solid #e2e8f0;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    min-width: 0;
-    resize: horizontal;
-    overflow: auto;
   }
   
   /* Resize handles para TODOS los paneles */
@@ -704,10 +692,6 @@ if ($empresaFiltro !== "") {
   
   .resize-handle.center-right {
     right: -12px;
-  }
-  
-  .resize-handle.right {
-    left: -12px;
   }
   
   .resize-dot {
@@ -751,10 +735,6 @@ if ($empresaFiltro !== "") {
   
   .panel-toggle-btn.center-right {
     right: -16px;
-  }
-  
-  .panel-toggle-btn.right {
-    left: -16px;
   }
   
   .panel-collapsed {
@@ -1040,16 +1020,12 @@ if ($empresaFiltro !== "") {
   
   /* Cuando el panel izquierdo está oculto, cambiamos el layout */
   .main-layout.left-panel-hidden {
-    grid-template-columns: 0px 1400px 450px !important;
+    grid-template-columns: 0px auto !important;
     gap: 0.5rem !important;
   }
   
   .main-layout.left-panel-hidden .center-panel {
     grid-column: 2 !important;
-  }
-  
-  .main-layout.left-panel-hidden .right-panel {
-    grid-column: 3 !important;
   }
   
   /* Bolita especial para panel completo */
@@ -1081,6 +1057,59 @@ if ($empresaFiltro !== "") {
   .animate-fade-in-down {
     animation: fadeInDown 0.3s ease-out;
   }
+
+  /* ===== MODAL VIAJES (EXACTAMENTE IGUAL AL PRIMER CÓDIGO) ===== */
+  .viajes-backdrop{ 
+    position:fixed; 
+    inset:0; 
+    background:rgba(0,0,0,.45); 
+    display:none; 
+    align-items:center; 
+    justify-content:center; 
+    z-index:10000; 
+  }
+  .viajes-backdrop.show{ display:flex; }
+  .viajes-card{ 
+    width:min(720px,94vw); 
+    max-height:90vh; 
+    overflow:hidden; 
+    border-radius:16px; 
+    background:#fff;
+    box-shadow:0 20px 60px rgba(0,0,0,.25); 
+    border:1px solid #e5e7eb; 
+  }
+  .viajes-header{
+    padding:14px 16px;
+    border-bottom:1px solid #eef2f7
+  }
+  .viajes-body{
+    padding:14px 16px;
+    overflow:auto; 
+    max-height:70vh
+  }
+  .viajes-close{
+    padding:6px 10px; 
+    border-radius:10px; 
+    cursor:pointer;
+  }
+  .viajes-close:hover{
+    background:#f3f4f6
+  }
+
+  .conductor-link{
+    cursor:pointer; 
+    color:#0d6efd; 
+    text-decoration:underline;
+  }
+
+  /* Colores para viajes - EXACTAMENTE IGUAL AL PRIMER CÓDIGO */
+  .row-viaje:hover { background-color: #f8fafc; }
+  .cat-completo { background-color: rgba(209, 250, 229, 0.1); }
+  .cat-medio { background-color: rgba(254, 243, 199, 0.1); }
+  .cat-extra { background-color: rgba(241, 245, 249, 0.1); }
+  .cat-siapana { background-color: rgba(250, 232, 255, 0.1); }
+  .cat-carrotanque { background-color: rgba(207, 250, 254, 0.1); }
+  .cat-otro { background-color: rgba(243, 244, 246, 0.1); }
 </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
@@ -1625,47 +1654,6 @@ if ($empresaFiltro !== "") {
         </div>
       </div>
 
-      <!-- PANEL DERECHO (Colapsable) -->
-      <div id="rightPanel" class="right-panel panel-expanded">
-        <div class="resize-handle right" data-panel="right">
-          <div class="resize-dot"></div>
-        </div>
-        
-        <button class="panel-toggle-btn right" onclick="togglePanel('right')">
-          <span class="collapse-icon">→</span>
-          <span class="expand-icon">←</span>
-        </button>
-        
-        <div class="panel-header">
-          <h3 class="text-lg font-semibold">Panel Derecho</h3>
-        </div>
-        
-        <div class="panel-body space-y-5">
-          <!-- Panel viajes -->
-          <div id="container-panel-viajes" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-            <div class="flex items-center justify-between mb-4">
-              <h4 class="text-base font-semibold">🧳 Viajes del Conductor</h4>
-              <button onclick="toggleMinimize('panel-viajes')" 
-                      class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
-                ⬇️ Minimizar
-              </button>
-            </div>
-            <div id="contenidoPanel"
-                 class="min-h-[220px] max-h-[400px] overflow-y-auto rounded-xl border border-slate-200 p-4 text-sm text-slate-600">
-              <div class="flex flex-col items-center justify-center h-full text-center">
-                <div class="text-slate-400 mb-2">
-                  <svg class="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
-                  </svg>
-                </div>
-                <p class="m-0 font-medium text-slate-500">Selecciona un conductor para ver sus viajes</p>
-                <p class="m-0 text-xs text-slate-400 mt-1">Clasificaciones dinámicas con colores</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
     </div>
   </main>
 
@@ -1675,6 +1663,37 @@ if ($empresaFiltro !== "") {
   <!-- Indicador visual de redimensionamiento -->
   <div id="resizeIndicator" class="resize-indicator">
     <div id="resizeLine" class="resize-line"></div>
+  </div>
+
+  <!-- ===== Modal VIAJES (EXACTAMENTE IGUAL AL PRIMER CÓDIGO) ===== -->
+  <div id="viajesModal" class="viajes-backdrop">
+    <div class="viajes-card">
+      <div class="viajes-header">
+        <div class="flex flex-col gap-2 w-full md:flex-row md:items-center md:justify-between">
+          <div class="flex flex-col gap-1">
+            <h3 class="text-lg font-semibold flex items-center gap-2">
+              🧳 Viajes — <span id="viajesTitle" class="font-normal"></span>
+            </h3>
+            <div class="text-[11px] text-slate-500 leading-tight">
+              <span id="viajesRango"></span>
+              <span class="mx-1">•</span>
+              <span id="viajesEmpresa"></span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="text-xs text-slate-600 whitespace-nowrap">Conductor:</label>
+            <select id="viajesSelectConductor"
+                    class="rounded-lg border border-slate-300 px-2 py-1 text-sm min-w-[200px] focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500">
+            </select>
+            <button class="viajes-close text-slate-600 hover:bg-slate-100 border border-slate-300 px-2 py-1 rounded-lg text-sm" id="viajesCloseBtn" title="Cerrar">
+              ✕
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="viajes-body" id="viajesContent"></div>
+    </div>
   </div>
 
   <script>
@@ -1871,14 +1890,12 @@ if ($empresaFiltro !== "") {
     let currentPanel = null;
     let currentSide = null;
     let startX, startWidth;
-    let startCenterWidth, startLeftWidth, startRightWidth;
+    let startCenterWidth, startLeftWidth;
     const originalCenterWidth = 1100;
     const minCenterWidth = 800;
     const maxCenterWidth = 1600;
     const minPanelWidth = 250;
     const maxPanelWidth = 600;
-    const minRightPanelWidth = 250;
-    const maxRightPanelWidth = 600;
     
     // Sistema de redimensionamiento para TODOS los paneles
     document.querySelectorAll('.resize-handle').forEach(handle => {
@@ -1906,7 +1923,6 @@ if ($empresaFiltro !== "") {
       if (currentPanel === 'center') {
         startCenterWidth = parseInt(getComputedStyle(tableContainer).width, 10);
         startLeftWidth = parseInt(getComputedStyle(document.getElementById('leftPanel')).width, 10) || 400;
-        startRightWidth = parseInt(getComputedStyle(document.getElementById('rightPanel')).width, 10);
       } else {
         startWidth = parseInt(getComputedStyle(panel).width, 10);
       }
@@ -1927,14 +1943,13 @@ if ($empresaFiltro !== "") {
       const tableContainer = document.getElementById('tableContainer');
       const mainLayout = document.getElementById('mainLayout');
       const leftPanel = document.getElementById('leftPanel');
-      const rightPanel = document.getElementById('rightPanel');
       
       // Actualizar línea visual
       const resizeLine = document.getElementById('resizeLine');
       resizeLine.style.left = e.clientX + 'px';
       
       if (currentPanel === 'center') {
-        // Redimensionar panel CENTRAL - Toma espacio de los paneles laterales
+        // Redimensionar panel CENTRAL - Toma espacio del panel izquierdo
         let newCenterWidth;
         
         if (currentSide === 'left') {
@@ -1963,26 +1978,12 @@ if ($empresaFiltro !== "") {
           tableContainer.style.width = newCenterWidth + 'px';
           
         } else {
-          // Redimensionar desde el lado derecho - Toma espacio del panel derecho
+          // Redimensionar desde el lado derecho - Solo expande/contrae el centro
           newCenterWidth = startCenterWidth + dx;
           
           // Aplicar límites al panel central
           newCenterWidth = Math.max(minCenterWidth, Math.min(newCenterWidth, maxCenterWidth));
           
-          // Calcular nuevo ancho para el panel derecho
-          const newRightWidth = startRightWidth - (newCenterWidth - startCenterWidth);
-          
-          // Aplicar límites al panel derecho
-          const clampedRightWidth = Math.max(minRightPanelWidth, Math.min(newRightWidth, maxRightPanelWidth));
-          
-          // Ajustar diferencial
-          const rightDiff = newRightWidth - clampedRightWidth;
-          if (rightDiff !== 0) {
-            newCenterWidth -= rightDiff;
-          }
-          
-          // Aplicar cambios
-          rightPanel.style.width = clampedRightWidth + 'px';
           tableContainer.style.width = newCenterWidth + 'px';
         }
         
@@ -2000,23 +2001,6 @@ if ($empresaFiltro !== "") {
         // Aplicar cambios solo si el centro no es muy pequeño
         if (newCenterWidth >= minCenterWidth) {
           leftPanel.style.width = newLeftWidth + 'px';
-          tableContainer.style.width = newCenterWidth + 'px';
-        }
-        
-      } else if (currentPanel === 'right') {
-        // ¡CORREGIDO! Redimensionar panel DERECHO - Toma espacio del centro (hacia la izquierda)
-        let newRightWidth = startWidth - dx; // NOTA: Menos dx porque movemos hacia la izquierda
-        
-        // Aplicar límites
-        newRightWidth = Math.max(minRightPanelWidth, Math.min(newRightWidth, maxRightPanelWidth));
-        
-        // Calcular nuevo ancho para el centro (el centro pierde espacio)
-        const centerWidth = parseInt(getComputedStyle(tableContainer).width, 10);
-        const newCenterWidth = centerWidth - (startWidth - newRightWidth);
-        
-        // Aplicar cambios solo si el centro no es muy pequeño
-        if (newCenterWidth >= minCenterWidth) {
-          rightPanel.style.width = newRightWidth + 'px';
           tableContainer.style.width = newCenterWidth + 'px';
         }
       }
@@ -2041,43 +2025,31 @@ if ($empresaFiltro !== "") {
     // ===== CONTROLES PARA TABLA CENTRAL =====
     function expandTableWidth(amount = 100) {
       const tableContainer = document.getElementById('tableContainer');
-      const rightPanel = document.getElementById('rightPanel');
       const currentWidth = parseInt(getComputedStyle(tableContainer).width, 10);
-      const rightWidth = parseInt(getComputedStyle(rightPanel).width, 10);
       
-      // Reducir el panel derecho para expandir el centro
       const newCenterWidth = Math.min(currentWidth + amount, maxCenterWidth);
-      const newRightWidth = Math.max(rightWidth - (newCenterWidth - currentWidth), minRightPanelWidth);
       
       // Aplicar cambios
       tableContainer.style.width = newCenterWidth + 'px';
-      rightPanel.style.width = newRightWidth + 'px';
     }
     
     function shrinkTableWidth(amount = 100) {
       const tableContainer = document.getElementById('tableContainer');
-      const rightPanel = document.getElementById('rightPanel');
       const currentWidth = parseInt(getComputedStyle(tableContainer).width, 10);
-      const rightWidth = parseInt(getComputedStyle(rightPanel).width, 10);
       
-      // Aumentar el panel derecho para reducir el centro
       const newCenterWidth = Math.max(currentWidth - amount, minCenterWidth);
-      const newRightWidth = Math.min(rightWidth + (currentWidth - newCenterWidth), maxRightPanelWidth);
       
       // Aplicar cambios
       tableContainer.style.width = newCenterWidth + 'px';
-      rightPanel.style.width = newRightWidth + 'px';
     }
     
     function resetTableWidth() {
       const tableContainer = document.getElementById('tableContainer');
       const leftPanel = document.getElementById('leftPanel');
-      const rightPanel = document.getElementById('rightPanel');
       
       // Restaurar tamaños originales
       tableContainer.style.width = originalCenterWidth + 'px';
       leftPanel.style.width = '400px';
-      rightPanel.style.width = '350px';
     }
     
     // ===== REDIMENSIONAMIENTO DE COLUMNAS =====
@@ -2170,8 +2142,7 @@ if ($empresaFiltro !== "") {
       'filtro': 'bg-gradient-to-br from-green-500 to-emerald-500',
       'crear-clasif': 'bg-gradient-to-br from-purple-500 to-pink-500',
       'clasif-rutas': 'bg-gradient-to-br from-orange-500 to-amber-500',
-      'resumen': 'bg-gradient-to-br from-indigo-500 to-purple-500',
-      'panel-viajes': 'bg-gradient-to-br from-teal-500 to-cyan-500'
+      'resumen': 'bg-gradient-to-br from-indigo-500 to-purple-500'
     };
     
     const ballIcons = {
@@ -2179,8 +2150,7 @@ if ($empresaFiltro !== "") {
       'filtro': '📅',
       'crear-clasif': '➕',
       'clasif-rutas': '🧭',
-      'resumen': '🧑‍✈️',
-      'panel-viajes': '🧳'
+      'resumen': '🧑‍✈️'
     };
     
     const ballTitles = {
@@ -2188,8 +2158,7 @@ if ($empresaFiltro !== "") {
       'filtro': 'Filtro',
       'crear-clasif': 'Crear Clasif',
       'clasif-rutas': 'Clasif Rutas',
-      'resumen': 'Resumen',
-      'panel-viajes': 'Viajes'
+      'resumen': 'Resumen'
     };
 
     function toggleMinimize(containerId) {
@@ -2638,34 +2607,142 @@ if ($empresaFiltro !== "") {
       });
     }
 
+    // ===== MODAL DE VIAJES (EXACTAMENTE IGUAL AL PRIMER CÓDIGO) =====
+    const RANGO_DESDE = <?= json_encode($desde) ?>;
+    const RANGO_HASTA = <?= json_encode($hasta) ?>;
+    const RANGO_EMP   = <?= json_encode($empresaFiltro) ?>;
+
+    const viajesModal            = document.getElementById('viajesModal');
+    const viajesContent          = document.getElementById('viajesContent');
+    const viajesTitle            = document.getElementById('viajesTitle');
+    const viajesClose            = document.getElementById('viajesCloseBtn');
+    const viajesSelectConductor  = document.getElementById('viajesSelectConductor');
+    const viajesRango            = document.getElementById('viajesRango');
+    const viajesEmpresa          = document.getElementById('viajesEmpresa');
+
+    let viajesConductorActual = null;
+
+    // Lista de conductores para el select
+    const CONDUCTORES_LIST = <?= json_encode(array_keys($datos), JSON_UNESCAPED_UNICODE); ?>;
+
+    function initViajesSelect(selectedName) {
+        viajesSelectConductor.innerHTML = "";
+        CONDUCTORES_LIST.forEach(nombre => {
+            const opt = document.createElement('option');
+            opt.value = nombre;
+            opt.textContent = nombre;
+            if (nombre === selectedName) opt.selected = true;
+            viajesSelectConductor.appendChild(opt);
+        });
+    }
+
+    function loadViajes(nombre) {
+        viajesContent.innerHTML = '<p class="text-center m-0 animate-pulse">Cargando…</p>';
+        viajesConductorActual = nombre;
+        viajesTitle.textContent = nombre;
+
+        const qs = new URLSearchParams({
+            viajes_conductor: nombre,
+            desde: RANGO_DESDE,
+            hasta: RANGO_HASTA,
+            empresa: RANGO_EMP
+        });
+
+        fetch('<?= basename(__FILE__) ?>?' + qs.toString())
+            .then(r => r.text())
+            .then(html => {
+                viajesContent.innerHTML = html;
+                // Attach filter functionality after content loads
+                setTimeout(attachFiltroViajes, 100);
+            })
+            .catch(() => {
+                viajesContent.innerHTML = '<p class="text-center text-rose-600">Error cargando viajes.</p>';
+            });
+    }
+
+    function attachFiltroViajes(){
+        const pills = viajesContent.querySelectorAll('#legendFilterBar .legend-pill');
+        const rows  = viajesContent.querySelectorAll('#viajesTableBody .row-viaje');
+        if (!pills.length || !rows.length) return;
+
+        let activeCat = null;
+
+        function applyFilter(cat){
+            if (cat === activeCat) {
+                activeCat = null;
+            } else {
+                activeCat = cat;
+            }
+
+            pills.forEach(p => {
+                const pcat = p.getAttribute('data-tipo');
+                if (activeCat && pcat === activeCat) {
+                    p.classList.add('ring-2','ring-blue-500','ring-offset-1','ring-offset-white');
+                } else {
+                    p.classList.remove('ring-2','ring-blue-500','ring-offset-1','ring-offset-white');
+                }
+            });
+
+            rows.forEach(r => {
+                if (!activeCat) {
+                    r.style.display = '';
+                } else {
+                    if (r.classList.contains('cat-' + activeCat)) {
+                        r.style.display = '';
+                    } else {
+                        r.style.display = 'none';
+                    }
+                }
+            });
+        }
+
+        pills.forEach(p => {
+            p.addEventListener('click', ()=>{
+                const cat = p.getAttribute('data-tipo');
+                applyFilter(cat);
+            });
+        });
+    }
+
+    function abrirModalViajes(nombreInicial){
+        viajesRango.textContent   = RANGO_DESDE + " → " + RANGO_HASTA;
+        viajesEmpresa.textContent = (RANGO_EMP && RANGO_EMP !== "") ? RANGO_EMP : "Todas las empresas";
+
+        initViajesSelect(nombreInicial);
+
+        viajesModal.classList.add('show');
+
+        loadViajes(nombreInicial);
+    }
+
+    function cerrarModalViajes(){
+        viajesModal.classList.remove('show');
+        viajesContent.innerHTML = '';
+        viajesConductorActual = null;
+    }
+
+    // Event listeners for modal
+    viajesClose.addEventListener('click', cerrarModalViajes);
+    viajesModal.addEventListener('click', (e)=>{
+        if(e.target===viajesModal) cerrarModalViajes();
+    });
+
+    viajesSelectConductor.addEventListener('change', ()=>{
+        const nuevo = viajesSelectConductor.value;
+        loadViajes(nuevo);
+    });
+
     // ===== INICIALIZACIÓN =====
     document.addEventListener('DOMContentLoaded', function() {
       // Configurar eventos de tarifas
       configurarEventosTarifas();
       
-      // Click en conductor → carga viajes
+      // Click en conductor → abre modal de viajes
       document.querySelectorAll('.conductor-link').forEach(btn=>{
-        btn.addEventListener('click', ()=>{
+        btn.addEventListener('click', (e)=>{
+          e.preventDefault();
           const nombre = btn.textContent.trim().replace('⚠️', '').trim();
-          const desde  = "<?= htmlspecialchars($desde) ?>";
-          const hasta  = "<?= htmlspecialchars($hasta) ?>";
-          const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
-          const panel = document.getElementById('contenidoPanel');
-          panel.innerHTML = "<div class='flex items-center justify-center h-full'><div class='text-center'><div class='animate-pulse text-blue-500 mb-2'>⏳</div><p class='text-sm text-slate-500'>Cargando viajes...</p></div></div>";
-
-          fetch('<?= basename(__FILE__) ?>?viajes_conductor='+encodeURIComponent(nombre)+'&desde='+desde+'&hasta='+hasta+'&empresa='+encodeURIComponent(empresa))
-            .then(r=>r.text())
-            .then(html=>{ 
-              panel.innerHTML = html;
-              const titulo = `<div class="mb-3 pb-2 border-b border-slate-200">
-                                <h5 class="font-semibold text-blue-700">Viajes de: <span class="text-blue-900">${nombre}</span></h5>
-                                <p class="text-xs text-slate-500">${desde} a ${hasta}</p>
-                              </div>`;
-              panel.innerHTML = titulo + panel.innerHTML;
-            })
-            .catch(() => {
-              panel.innerHTML = "<p class='text-center text-rose-600 py-4'>Error cargando viajes.</p>";
-            });
+          abrirModalViajes(nombre);
         });
       });
 
@@ -2706,3 +2783,6 @@ if ($empresaFiltro !== "") {
   </script>
 </body>
 </html>
+<?php
+$conn->close();
+?>
