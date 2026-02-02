@@ -36,7 +36,7 @@ function crearNuevaColumnaTarifa($conn, $nombre_columna) {
         return true; // Ya existe
     }
     
-    // Crear nueva columna
+    // Crear nueva column
     $sql = "ALTER TABLE tarifas ADD COLUMN `$nombre_columna` DECIMAL(10,2) DEFAULT 0.00";
     return $conn->query($sql);
 }
