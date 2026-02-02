@@ -8,7 +8,7 @@ $empresa = "Hospital";
 
 // URL dinámica con las fechas
 $url_liquidacion = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=$desde&hasta=$hasta&empresa=$empresa";
-$url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago.php?desde=$desde&hasta=$hasta&empresa=$empresa";
+$url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/veri.php?desde=$desde&hasta=$hasta&empresa=$empresa";
 ?>
 <style>
 :root {
