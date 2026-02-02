@@ -1,5 +1,5 @@
 <?php
-include("nav.php");
+
 session_start();
 
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
