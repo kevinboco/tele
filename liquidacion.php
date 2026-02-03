@@ -603,8 +603,6 @@ if ($empresaFiltro !== "") {
   ::-webkit-slider-thumb:hover{background:#9ca3af}
   input[type=number]::-webkit-inner-spin-button,
   input[type=number]::-webkit-outer-spin-button{ -webkit-appearance: none; margin: 0; }
-  
-  /* BUSCADOR */
   .buscar-container { position: relative; }
   .buscar-clear { 
     position: absolute; 
@@ -635,186 +633,413 @@ if ($empresaFiltro !== "") {
     50% { opacity: 0.7; }
   }
   
-  /* ===== NUEVO: BOLITAS FLOTANTES ===== */
-  .floating-balls-container {
-    position: fixed;
-    left: 20px;
-    top: 50%;
-    transform: translateY(-50%);
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
-    z-index: 9998;
+  /* ===== SISTEMA DE PANELES EXPANDIBLES ===== */
+  .main-layout {
+    display: grid;
+    grid-template-columns: 400px auto;
+    gap: 1rem;
+    transition: grid-template-columns 0.3s ease;
+    position: relative;
+    overflow: hidden !important;
   }
   
-  .floating-ball {
-    width: 60px;
-    height: 60px;
+  .left-panel {
+    position: relative;
+    transition: all 0.3s ease;
+    background: white;
+    border-radius: 1rem;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    min-width: 0;
+    resize: horizontal;
+    overflow: auto;
+  }
+  
+  .center-panel {
+    position: relative;
+    min-width: 0;
+    overflow: visible !important;
+    transition: all 0.3s ease;
+  }
+  
+  /* Resize handles para TODOS los paneles */
+  .resize-handle {
+    position: absolute;
+    top: 0;
+    width: 24px;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: col-resize;
+    z-index: 100;
+    opacity: 0;
+    transition: opacity 0.2s;
+    user-select: none;
+  }
+  
+  .resize-handle:hover {
+    opacity: 1;
+  }
+  
+  .resize-handle.left {
+    right: -12px;
+  }
+  
+  .resize-handle.center-left {
+    left: -12px;
+  }
+  
+  .resize-handle.center-right {
+    right: -12px;
+  }
+  
+  .resize-dot {
+    width: 4px;
+    height: 30px;
+    background: #94a3b8;
+    border-radius: 2px;
+  }
+  
+  .panel-toggle-btn {
+    position: absolute;
+    top: 10px;
+    z-index: 50;
+    background: white;
+    border: 1px solid #cbd5e1;
     border-radius: 50%;
+    width: 32px;
+    height: 32px;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    border: 3px solid white;
-    position: relative;
-    z-index: 9999;
-    overflow: hidden;
-    user-select: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    transition: all 0.2s;
+    color: #475569;
   }
   
-  .floating-ball:hover {
-    transform: scale(1.15) translateY(-2px);
-    box-shadow: 0 12px 25px rgba(0, 0, 0, 0.3);
-  }
-  
-  .floating-ball:active {
-    transform: scale(0.95);
-  }
-  
-  .ball-content {
-    font-size: 24px;
-    font-weight: bold;
-    color: white;
-    text-shadow: 0 2px 4px rgba(0,0,0,0.3);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  
-  .ball-tooltip {
-    position: absolute;
-    left: 70px;
-    top: 50%;
-    transform: translateY(-50%);
-    background: white;
+  .panel-toggle-btn:hover {
+    background: #f1f5f9;
+    transform: scale(1.1);
     color: #1e293b;
-    padding: 6px 12px;
-    border-radius: 8px;
-    font-size: 12px;
-    font-weight: 600;
-    white-space: nowrap;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    border: 1px solid #e2e8f0;
+  }
+  
+  .panel-toggle-btn.left {
+    right: -16px;
+  }
+  
+  .panel-toggle-btn.center-left {
+    left: -16px;
+  }
+  
+  .panel-toggle-btn.center-right {
+    right: -16px;
+  }
+  
+  .panel-collapsed {
+    width: 60px !important;
+    min-width: 60px !important;
+    max-width: 60px !important;
+    overflow: hidden !important;
+  }
+  
+  .panel-collapsed .panel-content {
     opacity: 0;
     visibility: hidden;
-    transition: all 0.3s;
-    pointer-events: none;
-    z-index: 10000;
+    transition: opacity 0.2s, visibility 0.2s;
   }
   
-  .floating-ball:hover .ball-tooltip {
-    opacity: 1;
-    visibility: visible;
-    left: 75px;
+  .panel-collapsed .panel-toggle-btn .expand-icon {
+    display: block;
   }
   
-  /* Colores específicos para cada bolita */
-  .ball-tarifas {
-    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  .panel-collapsed .panel-toggle-btn .collapse-icon {
+    display: none;
   }
   
-  .ball-crear-clasif {
-    background: linear-gradient(135deg, #10b981, #059669);
+  .panel-expanded .panel-toggle-btn .expand-icon {
+    display: none;
   }
   
-  .ball-clasif-rutas {
-    background: linear-gradient(135deg, #f59e0b, #d97706);
+  .panel-expanded .panel-toggle-btn .collapse-icon {
+    display: block;
   }
   
-  /* ===== NUEVO: PANELES DESLIZANTES ===== */
-  .side-panel-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.4);
-    z-index: 9997;
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.3s;
-  }
-  
-  .side-panel-overlay.active {
-    opacity: 1;
-    visibility: visible;
-  }
-  
-  .side-panel {
-    position: fixed;
-    left: -450px;
-    top: 0;
-    width: 420px;
-    height: 100vh;
-    background: white;
-    box-shadow: 4px 0 25px rgba(0, 0, 0, 0.15);
-    z-index: 9998;
-    transition: left 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    overflow-y: auto;
-    overflow-x: hidden;
-  }
-  
-  .side-panel.active {
-    left: 0;
-  }
-  
-  .side-panel-header {
+  .panel-header {
     position: sticky;
     top: 0;
+    z-index: 40;
     background: white;
+    padding: 1rem;
     border-bottom: 1px solid #e2e8f0;
-    padding: 1.25rem;
-    z-index: 10;
     display: flex;
     align-items: center;
     justify-content: space-between;
   }
   
-  .side-panel-body {
-    padding: 1.25rem;
-    padding-bottom: 2rem;
+  .panel-body {
+    padding: 1rem;
+    overflow-y: auto;
+    max-height: calc(100vh - 120px);
   }
   
-  .side-panel-close {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background: #f1f5f9;
-    border: 1px solid #e2e8f0;
+  .panel-collapsed .panel-header,
+  .panel-collapsed .panel-body {
+    padding: 0.5rem;
+    text-align: center;
+  }
+  
+  .panel-title-collapsed {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #475569;
+    margin: auto;
+  }
+  
+  /* Controles de tamaño para tabla central */
+  .table-controls {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 40;
+    display: flex;
+    gap: 4px;
+  }
+  
+  .table-control-btn {
+    background: white;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    width: 28px;
+    height: 28px;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
+    font-size: 12px;
+    color: #475569;
     transition: all 0.2s;
-    color: #64748b;
   }
   
-  .side-panel-close:hover {
-    background: #e2e8f0;
+  .table-control-btn:hover {
+    background: #f1f5f9;
     color: #1e293b;
   }
   
-  /* ===== TABLA CENTRAL CON ANIMACIÓN ===== */
-  .table-container-wrapper {
-    transition: margin-left 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    margin-left: 0;
+  /* Tabla expansible */
+  .table-container {
+    overflow-x: auto;
+    border-radius: 0.75rem;
+    border: 1px solid #e2e8f0;
+    transition: all 0.3s ease;
+    position: relative;
   }
   
-  .table-container-wrapper.with-panel {
-    margin-left: 420px;
+  .table-container.resizable {
+    min-width: 800px;
+    max-width: 1600px;
+    resize: horizontal;
+    overflow: auto;
   }
   
-  /* Indicador de panel activo */
-  .ball-active {
-    animation: pulse-ball 2s infinite;
-    box-shadow: 0 0 0 8px rgba(59, 130, 246, 0.2);
+  .table-container .table-wrapper {
+    min-width: 100%;
   }
   
-  @keyframes pulse-ball {
-    0%, 100% { box-shadow: 0 8px 20px rgba(0,0,0,0.2), 0 0 0 0 rgba(59, 130, 246, 0.4); }
-    50% { box-shadow: 0 8px 20px rgba(0,0,0,0.2), 0 0 0 12px rgba(59, 130, 246, 0); }
+  /* Columnas ajustables */
+  .col-resizable {
+    position: relative;
+  }
+  
+  .col-resize-handle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 8px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  
+  .col-resize-handle:hover {
+    opacity: 1;
+    background: rgba(59, 130, 246, 0.1);
+  }
+  
+  /* Ancho dinámico para columnas de la tabla */
+  .dynamic-table {
+    width: 100%;
+    min-width: fit-content;
+  }
+  
+  .dynamic-table th,
+  .dynamic-table td {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  
+  /* Indicador visual de redimensionamiento */
+  .resize-indicator {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 10000;
+    display: none;
+  }
+  
+  .resize-indicator.active {
+    display: block;
+  }
+  
+  .resize-line {
+    position: absolute;
+    top: 0;
+    width: 2px;
+    height: 100%;
+    background: #3b82f6;
+    opacity: 0.7;
+  }
+  
+  /* ===== SISTEMA DE BOLITAS FLOTANTES ===== */
+  .container-minimized {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  .floating-ball {
+    position: fixed !important;
+    z-index: 9999;
+    width: 60px !important;
+    height: 60px !important;
+    border-radius: 50% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: move !important;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2) !important;
+    transition: transform 0.2s, box-shadow 0.2s !important;
+    user-select: none !important;
+    overflow: hidden !important;
+    border: 2px solid white !important;
+  }
+  
+  .floating-ball:hover {
+    transform: scale(1.1);
+    box-shadow: 0 15px 30px rgba(0, 0, 0, 0.3);
+  }
+  
+  .floating-ball:active {
+    cursor: grabbing !important;
+  }
+  
+  .floating-ball.minimized {
+    animation: shrinkToBall 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+  
+  .floating-ball.restored {
+    animation: expandFromBall 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+  
+  @keyframes shrinkToBall {
+    0% {
+      border-radius: 12px;
+      width: var(--original-width);
+      height: var(--original-height);
+      left: var(--original-left);
+      top: var(--original-top);
+    }
+    50% {
+      border-radius: 30px;
+      transform: scale(0.7);
+    }
+    100% {
+      border-radius: 50%;
+      width: 60px !important;
+      height: 60px !important;
+      transform: scale(1);
+      left: var(--ball-left, 20px) !important;
+      top: var(--ball-top, 20px) !important;
+    }
+  }
+  
+  @keyframes expandFromBall {
+    0% {
+      border-radius: 50%;
+      width: 60px !important;
+      height: 60px !important;
+      left: var(--ball-left, 20px) !important;
+      top: var(--ball-top, 20px) !important;
+    }
+    50% {
+      border-radius: 30px;
+      transform: scale(1.2);
+    }
+    100% {
+      border-radius: 12px;
+      width: var(--original-width) !important;
+      height: var(--original-height) !important;
+      left: var(--original-left) !important;
+      top: var(--original-top) !important;
+      transform: scale(1);
+    }
+  }
+  
+  .ball-content {
+    font-size: 12px;
+    font-weight: bold;
+    text-align: center;
+    color: white;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 90%;
+  }
+  
+  /* NUEVO: Estilos para minimización completa del panel */
+  .left-panel-completely-hidden {
+    display: none !important;
+    visibility: hidden !important;
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    opacity: 0 !important;
+  }
+  
+  /* Cuando el panel izquierdo está oculto, cambiamos el layout */
+  .main-layout.left-panel-hidden {
+    grid-template-columns: 0px auto !important;
+    gap: 0.5rem !important;
+  }
+  
+  .main-layout.left-panel-hidden .center-panel {
+    grid-column: 2 !important;
+  }
+  
+  /* Bolita especial para panel completo */
+  .entire-panel-ball {
+    width: 70px !important;
+    height: 70px !important;
+    z-index: 10000 !important;
+    box-shadow: 0 15px 35px rgba(59, 130, 246, 0.3) !important;
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8) !important;
+  }
+  
+  .entire-panel-ball:hover {
+    transform: scale(1.15);
+    box-shadow: 0 20px 40px rgba(59, 130, 246, 0.4) !important;
   }
   
   /* Animación de notificaciones */
@@ -833,7 +1058,7 @@ if ($empresaFiltro !== "") {
     animation: fadeInDown 0.3s ease-out;
   }
 
-  /* ===== MODAL VIAJES ===== */
+  /* ===== MODAL VIAJES (EXACTAMENTE IGUAL AL PRIMER CÓDIGO) ===== */
   .viajes-backdrop{ 
     position:fixed; 
     inset:0; 
@@ -877,7 +1102,7 @@ if ($empresaFiltro !== "") {
     text-decoration:underline;
   }
 
-  /* Colores para viajes */
+  /* Colores para viajes - EXACTAMENTE IGUAL AL PRIMER CÓDIGO */
   .row-viaje:hover { background-color: #f8fafc; }
   .cat-completo { background-color: rgba(209, 250, 229, 0.1); }
   .cat-medio { background-color: rgba(254, 243, 199, 0.1); }
@@ -885,41 +1110,6 @@ if ($empresaFiltro !== "") {
   .cat-siapana { background-color: rgba(250, 232, 255, 0.1); }
   .cat-carrotanque { background-color: rgba(207, 250, 254, 0.1); }
   .cat-otro { background-color: rgba(243, 244, 246, 0.1); }
-  
-  /* Responsive */
-  @media (max-width: 768px) {
-    .floating-balls-container {
-      bottom: 20px;
-      top: auto;
-      left: 50%;
-      transform: translateX(-50%);
-      flex-direction: row;
-      gap: 10px;
-    }
-    
-    .floating-ball {
-      width: 50px;
-      height: 50px;
-    }
-    
-    .ball-content {
-      font-size: 20px;
-    }
-    
-    .side-panel {
-      width: 90%;
-      max-width: 400px;
-      left: -100%;
-    }
-    
-    .table-container-wrapper.with-panel {
-      margin-left: 0;
-    }
-    
-    .ball-tooltip {
-      display: none;
-    }
-  }
 </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
@@ -988,235 +1178,265 @@ if ($empresaFiltro !== "") {
     </div>
   </header>
 
-  <!-- ===== NUEVO: BOLITAS FLOTANTES ===== -->
-  <div class="floating-balls-container">
-    <!-- Bolita 1: Tarifas por tipo de vehículo -->
-    <div class="floating-ball ball-tarifas" id="ball-tarifas" data-panel="tarifas">
-      <div class="ball-content">🚐</div>
-      <div class="ball-tooltip">Tarifas por tipo de vehículo</div>
-    </div>
-    
-    <!-- Bolita 2: Crear nueva clasificación -->
-    <div class="floating-ball ball-crear-clasif" id="ball-crear-clasif" data-panel="crear-clasif">
-      <div class="ball-content">➕</div>
-      <div class="ball-tooltip">Crear nueva clasificación</div>
-    </div>
-    
-    <!-- Bolita 3: Clasificar rutas existentes -->
-    <div class="floating-ball ball-clasif-rutas" id="ball-clasif-rutas" data-panel="clasif-rutas">
-      <div class="ball-content">🧭</div>
-      <div class="ball-tooltip">Clasificar rutas existentes</div>
-    </div>
-  </div>
+  <!-- Contenido -->
+  <main class="max-w-[1800px] mx-auto px-3 md:px-4 py-6">
+    <div id="mainLayout" class="main-layout">
+      
+      <!-- PANEL IZQUIERDO (Colapsable) -->
+      <div id="leftPanel" class="left-panel panel-expanded">
+        <div class="resize-handle left" data-panel="left">
+          <div class="resize-dot"></div>
+        </div>
+        
+        <button class="panel-toggle-btn left" onclick="togglePanel('left')">
+          <span class="collapse-icon">←</span>
+          <span class="expand-icon">→</span>
+        </button>
+        
+        <!-- NUEVO: Botón para minimizar todo el panel izquierdo -->
+        <div class="panel-header">
+          <div class="flex items-center justify-between w-full">
+            <h3 class="text-lg font-semibold">Panel Izquierdo</h3>
+            <button onclick="minimizarTodoPanelIzquierdo()" 
+                    class="text-xs px-3 py-1.5 rounded-lg bg-gradient-to-r from-blue-500 to-indigo-500 text-white hover:from-blue-600 hover:to-indigo-600 transition flex items-center gap-1 shadow-md hover:shadow-lg">
+              ⬇️ Minimizar Todo
+            </button>
+          </div>
+        </div>
+        
+        <div class="panel-body space-y-5">
+          
+          <!-- Tarjetas de tarifas DINÁMICAS -->
+          <div id="container-tarifas" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-lg font-semibold flex items-center gap-2">
+                <span>🚐 Tarifas por Tipo de Vehículo</span>
+                <span class="text-xs text-slate-500">(<?= count($columnas_tarifas) ?> tipos de tarifas)</span>
+              </h3>
+              <button onclick="toggleMinimize('tarifas')" 
+                      class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+                ⬇️ Minimizar
+              </button>
+            </div>
 
-  <!-- ===== NUEVO: OVERLAY PARA PANELES ===== -->
-  <div class="side-panel-overlay" id="sidePanelOverlay"></div>
+            <div id="tarifas_grid" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <?php foreach ($vehiculos as $veh):
+                $t = $tarifas_guardadas[$veh] ?? [];
+              ?>
+              <div class="tarjeta-tarifa rounded-2xl border border-slate-200 p-4 shadow-sm bg-slate-50"
+                   data-vehiculo="<?= htmlspecialchars($veh) ?>">
 
-  <!-- ===== NUEVO: PANEL DE TARIFAS ===== -->
-  <div class="side-panel" id="panel-tarifas">
-    <div class="side-panel-header">
-      <h3 class="text-lg font-semibold flex items-center gap-2">
-        <span>🚐 Tarifas por Tipo de Vehículo</span>
-        <span class="text-xs text-slate-500">(<?= count($columnas_tarifas) ?> tipos de tarifas)</span>
-      </h3>
-      <button class="side-panel-close" data-panel="tarifas">✕</button>
-    </div>
-    <div class="side-panel-body">
-      <div id="tarifas_grid" class="grid grid-cols-1 gap-4">
-        <?php foreach ($vehiculos as $veh):
-          $t = $tarifas_guardadas[$veh] ?? [];
-        ?>
-        <div class="tarjeta-tarifa rounded-2xl border border-slate-200 p-4 shadow-sm bg-slate-50"
-             data-vehiculo="<?= htmlspecialchars($veh) ?>">
+                <div class="flex items-center justify-between mb-3">
+                  <div class="text-base font-semibold"><?= htmlspecialchars($veh) ?></div>
+                  <span class="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 border border-blue-200">Config</span>
+                </div>
 
-          <div class="flex items-center justify-between mb-3">
-            <div class="text-base font-semibold"><?= htmlspecialchars($veh) ?></div>
-            <span class="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 border border-blue-200">Config</span>
+                <?php foreach ($columnas_tarifas as $columna): 
+                  $valor = isset($t[$columna]) ? (float)$t[$columna] : 0;
+                  $etiqueta = ucfirst($columna);
+                  
+                  // Etiquetas especiales
+                  $etiquetas_especiales = [
+                      'completo' => 'Viaje Completo',
+                      'medio' => 'Viaje Medio',
+                      'extra' => 'Viaje Extra',
+                      'carrotanque' => 'Carrotanque',
+                      'siapana' => 'Siapana',
+                      'riohacha' => 'Riohacha',
+                      'pru' => 'Pru',
+                      'maco' => 'Maco'
+                  ];
+                  
+                  $etiqueta_final = $etiquetas_especiales[$columna] ?? $etiqueta;
+                ?>
+                <label class="block mb-3">
+                  <span class="block text-sm font-medium mb-1"><?= htmlspecialchars($etiqueta_final) ?></span>
+                  <input type="number" step="1000" value="<?= $valor ?>"
+                         data-campo="<?= htmlspecialchars($columna) ?>"
+                         class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition tarifa-input"
+                         oninput="recalcular()">
+                </label>
+                <?php endforeach; ?>
+              </div>
+              <?php endforeach; ?>
+            </div>
           </div>
 
-          <?php foreach ($columnas_tarifas as $columna): 
-            $valor = isset($t[$columna]) ? (float)$t[$columna] : 0;
-            $etiqueta = ucfirst($columna);
+          <!-- 🔹 Panel de CREACIÓN de NUEVAS CLASIFICACIONES -->
+          <div id="container-crear-clasif" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+            <div class="flex items-center justify-between mb-4">
+              <h5 class="text-base font-semibold flex items-center justify-between">
+                <span>➕ Crear Nueva Clasificación</span>
+                <span class="text-xs text-slate-500">Dinámico</span>
+              </h5>
+              <button onclick="toggleMinimize('crear-clasif')" 
+                      class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+                ⬇️ Minimizar
+              </button>
+            </div>
             
-            // Etiquetas especiales
-            $etiquetas_especiales = [
-                'completo' => 'Viaje Completo',
-                'medio' => 'Viaje Medio',
-                'extra' => 'Viaje Extra',
-                'carrotanque' => 'Carrotanque',
-                'siapana' => 'Siapana',
-                'riohacha' => 'Riohacha',
-                'pru' => 'Pru',
-                'maco' => 'Maco'
-            ];
-            
-            $etiqueta_final = $etiquetas_especiales[$columna] ?? $etiqueta;
-          ?>
-          <label class="block mb-3">
-            <span class="block text-sm font-medium mb-1"><?= htmlspecialchars($etiqueta_final) ?></span>
-            <input type="number" step="1000" value="<?= $valor ?>"
-                   data-campo="<?= htmlspecialchars($columna) ?>"
-                   class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition tarifa-input"
-                   oninput="recalcular()">
-          </label>
-          <?php endforeach; ?>
+            <p class="text-xs text-slate-500 mb-3">
+              Crea una nueva clasificación. Se agregará a la tabla tarifas.
+            </p>
+
+            <div class="flex flex-col gap-2 mb-3">
+              <div>
+                <label class="block text-xs font-medium mb-1">Nombre de la nueva clasificación</label>
+                <input id="txt_nueva_clasificacion" type="text"
+                       class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
+                       placeholder="Ej: Premium, Nocturno, Express...">
+              </div>
+              <div>
+                <label class="block text-xs font-medium mb-1">Texto que deben contener las rutas</label>
+                <input id="txt_patron_ruta" type="text"
+                       class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
+                       placeholder="Dejar vacío para solo crear la clasificación">
+              </div>
+              <button type="button"
+                      onclick="crearYAsignarClasificacion()"
+                      class="mt-2 inline-flex items-center justify-center rounded-xl bg-green-600 text-white px-4 py-2 text-sm font-semibold hover:bg-green-700 active:bg-green-800 focus:ring-4 focus:ring-green-200">
+                ⚙️ Crear y Aplicar
+              </button>
+            </div>
+
+            <p class="text-[11px] text-slate-500 mt-2">
+              La nueva clasificación se creará en la tabla tarifas. Vuelve a dar <strong>Filtrar</strong> para ver los cambios.
+            </p>
+          </div>
+
+          <!-- 🔹 Panel de CLASIFICACIÓN de RUTAS -->
+          <div id="container-clasif-rutas" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+            <div class="flex items-center justify-between mb-4">
+              <h5 class="text-base font-semibold flex items-center justify-between">
+                <span>🧭 Clasificar Rutas Existentes</span>
+                <span class="text-xs text-slate-500">Usa clasificaciones creadas</span>
+              </h5>
+              <button onclick="toggleMinimize('clasif-rutas')" 
+                      class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+                ⬇️ Minimizar
+              </button>
+            </div>
+
+            <div class="max-h-[260px] overflow-y-auto border border-slate-200 rounded-xl">
+              <table class="w-full text-xs">
+                <thead class="bg-slate-100 text-slate-600">
+                  <tr>
+                    <th class="px-2 py-1 text-left">Ruta</th>
+                    <th class="px-2 py-1 text-center">Vehículo</th>
+                    <th class="px-2 py-1 text-center">Clasificación</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                <?php foreach($rutasUnicas as $info): 
+                  $estilo = obtenerEstiloClasificacion($info['clasificacion'] ?? '');
+                ?>
+                  <tr class="fila-ruta hover:bg-slate-50"
+                      data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
+                      data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>">
+                    <td class="px-2 py-1 whitespace-nowrap text-left">
+                      <?= htmlspecialchars($info['ruta']) ?>
+                    </td>
+                    <td class="px-2 py-1 text-center">
+                      <?= htmlspecialchars($info['vehiculo']) ?>
+                    </td>
+                    <td class="px-2 py-1 text-center">
+                      <select class="select-clasif-ruta rounded-lg border border-slate-300 px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-blue-100"
+                              data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
+                              data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>"
+                              style="<?php if($info['clasificacion']): ?>background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>20; color: <?= str_replace('text-', '#', $estilo['text']) ?>; border-color: <?= str_replace('border-', '#', $estilo['border']) ?>;<?php endif; ?>">
+                        <option value="">Sin clasificar</option>
+                        <?php foreach ($clasificaciones_disponibles as $clasif): 
+                          $estilo_opcion = obtenerEstiloClasificacion($clasif);
+                        ?>
+                        <option value="<?= htmlspecialchars($clasif) ?>" 
+                                <?= $info['clasificacion']===$clasif ? 'selected' : '' ?>
+                                style="background-color: <?= str_replace('bg-', '#', $estilo_opcion['bg']) ?>20; color: <?= str_replace('text-', '#', $estilo_opcion['text']) ?>;">
+                          <?= htmlspecialchars(ucfirst($clasif)) ?>
+                        </option>
+                        <?php endforeach; ?>
+                      </select>
+                    </td>
+                  </tr>
+                <?php endforeach; ?>
+                </tbody>
+              </table>
+            </div>
+
+            <p class="text-[11px] text-slate-500 mt-2">
+              Selecciona una clasificación para cada ruta. Los cambios se guardan automáticamente.
+            </p>
+          </div>
         </div>
-        <?php endforeach; ?>
-      </div>
-      
-      <p class="text-xs text-slate-500 mt-4">
-        Los cambios se guardan automáticamente al modificar cualquier valor.
-      </p>
-    </div>
-  </div>
-
-  <!-- ===== NUEVO: PANEL CREAR CLASIFICACIÓN ===== -->
-  <div class="side-panel" id="panel-crear-clasif">
-    <div class="side-panel-header">
-      <h3 class="text-lg font-semibold flex items-center gap-2">
-        <span>➕ Crear Nueva Clasificación</span>
-        <span class="text-xs text-slate-500">Dinámico</span>
-      </h3>
-      <button class="side-panel-close" data-panel="crear-clasif">✕</button>
-    </div>
-    <div class="side-panel-body">
-      <p class="text-sm text-slate-600 mb-4">
-        Crea una nueva clasificación. Se agregará a la tabla tarifas.
-      </p>
-
-      <div class="space-y-4">
-        <div>
-          <label class="block text-sm font-medium mb-2">Nombre de la nueva clasificación</label>
-          <input id="txt_nueva_clasificacion" type="text"
-                 class="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
-                 placeholder="Ej: Premium, Nocturno, Express...">
-        </div>
-        <div>
-          <label class="block text-sm font-medium mb-2">Texto que deben contener las rutas (opcional)</label>
-          <input id="txt_patron_ruta" type="text"
-                 class="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
-                 placeholder="Dejar vacío para solo crear la clasificación">
-        </div>
-        <button type="button"
-                onclick="crearYAsignarClasificacion()"
-                class="w-full inline-flex items-center justify-center rounded-xl bg-green-600 text-white px-4 py-3 text-sm font-semibold hover:bg-green-700 active:bg-green-800 focus:ring-4 focus:ring-green-200 transition">
-          ⚙️ Crear y Aplicar
-        </button>
-      </div>
-
-      <p class="text-xs text-slate-500 mt-4">
-        La nueva clasificación se creará en la tabla tarifas. Vuelve a dar <strong>Filtrar</strong> para ver los cambios.
-      </p>
-    </div>
-  </div>
-
-  <!-- ===== NUEVO: PANEL CLASIFICACIÓN RUTAS ===== -->
-  <div class="side-panel" id="panel-clasif-rutas">
-    <div class="side-panel-header">
-      <h3 class="text-lg font-semibold flex items-center gap-2">
-        <span>🧭 Clasificar Rutas Existentes</span>
-        <span class="text-xs text-slate-500">Usa clasificaciones creadas</span>
-      </h3>
-      <button class="side-panel-close" data-panel="clasif-rutas">✕</button>
-    </div>
-    <div class="side-panel-body">
-      <div class="max-h-[calc(100vh-180px)] overflow-y-auto border border-slate-200 rounded-xl">
-        <table class="w-full text-sm">
-          <thead class="bg-slate-100 text-slate-600 sticky top-0">
-            <tr>
-              <th class="px-3 py-2 text-left">Ruta</th>
-              <th class="px-3 py-2 text-center">Vehículo</th>
-              <th class="px-3 py-2 text-center">Clasificación</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-          <?php foreach($rutasUnicas as $info): 
-            $estilo = obtenerEstiloClasificacion($info['clasificacion'] ?? '');
-          ?>
-            <tr class="fila-ruta hover:bg-slate-50"
-                data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
-                data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>">
-              <td class="px-3 py-2 whitespace-nowrap text-left">
-                <?= htmlspecialchars($info['ruta']) ?>
-              </td>
-              <td class="px-3 py-2 text-center">
-                <?= htmlspecialchars($info['vehiculo']) ?>
-              </td>
-              <td class="px-3 py-2 text-center">
-                <select class="select-clasif-ruta rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100 w-full"
-                        data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
-                        data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>"
-                        style="<?php if($info['clasificacion']): ?>background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>20; color: <?= str_replace('text-', '#', $estilo['text']) ?>; border-color: <?= str_replace('border-', '#', $estilo['border']) ?>;<?php endif; ?>">
-                  <option value="">Sin clasificar</option>
-                  <?php foreach ($clasificaciones_disponibles as $clasif): 
-                    $estilo_opcion = obtenerEstiloClasificacion($clasif);
-                  ?>
-                  <option value="<?= htmlspecialchars($clasif) ?>" 
-                          <?= $info['clasificacion']===$clasif ? 'selected' : '' ?>
-                          style="background-color: <?= str_replace('bg-', '#', $estilo_opcion['bg']) ?>20; color: <?= str_replace('text-', '#', $estilo_opcion['text']) ?>;">
-                    <?= htmlspecialchars(ucfirst($clasif)) ?>
-                  </option>
-                  <?php endforeach; ?>
-                </select>
-              </td>
-            </tr>
-          <?php endforeach; ?>
-          </tbody>
-        </table>
       </div>
 
-      <p class="text-xs text-slate-500 mt-4">
-        Selecciona una clasificación para cada ruta. Los cambios se guardan automáticamente.
-      </p>
-    </div>
-  </div>
-
-  <!-- Contenido principal -->
-  <main class="max-w-[1800px] mx-auto px-3 md:px-4 py-6">
-    <div class="table-container-wrapper" id="tableContainerWrapper">
-      <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-        <!-- Encabezado del panel central -->
-        <div class="p-5 border-b border-slate-200">
-          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <!-- PANEL CENTRAL (Expansible/Retraible) -->
+      <div id="centerPanel" class="center-panel panel-expanded">
+        <!-- Resize handles para ambos lados -->
+        <div class="resize-handle center-left" data-panel="center" data-side="left">
+          <div class="resize-dot"></div>
+        </div>
+        
+        <div class="resize-handle center-right" data-panel="center" data-side="right">
+          <div class="resize-dot"></div>
+        </div>
+        
+        <!-- Controles de expansión -->
+        <div class="table-controls">
+          <button class="table-control-btn" onclick="expandTableWidth(100)" title="Expandir">
+            <span>+</span>
+          </button>
+          <button class="table-control-btn" onclick="shrinkTableWidth(100)" title="Contraer">
+            <span>-</span>
+          </button>
+          <button class="table-control-btn" onclick="resetTableWidth()" title="Restaurar tamaño">
+            <span>⟲</span>
+          </button>
+        </div>
+        
+        <div class="panel-header">
+          <div class="flex items-center justify-between w-full">
             <div>
-              <h3 class="text-xl font-semibold">🧑‍✈️ Resumen por Conductor</h3>
-              <div id="contador-conductores" class="text-sm text-slate-500 mt-1">
+              <h3 class="text-lg font-semibold">🧑‍✈️ Resumen por Conductor</h3>
+              <div id="contador-conductores" class="text-xs text-slate-500 mt-1">
                 Mostrando <?= count($datos) ?> conductores
               </div>
             </div>
             <div class="flex items-center gap-2">
-              <!-- Botón para mostrar resumen de rutas sin clasificar -->
+              <!-- NUEVO: Botón para mostrar resumen de rutas sin clasificar -->
               <button onclick="mostrarResumenRutasSinClasificar()" 
-                      class="text-sm px-4 py-2 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600 transition flex items-center gap-2 shadow-md hover:shadow-lg">
+                      class="text-xs px-3 py-1.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600 transition flex items-center gap-1 shadow-md hover:shadow-lg">
                 ⚠️ Ver rutas sin clasificar
+              </button>
+              <button onclick="toggleMinimize('resumen')" 
+                      class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+                ⬇️ Minimizar
               </button>
             </div>
           </div>
         </div>
-
-        <!-- Contenido del panel central -->
-        <div class="p-5">
-          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-            <div class="flex flex-col md:flex-row gap-4 w-full md:w-auto">
+        
+        <div class="panel-body">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+            <div class="flex flex-col md:flex-row gap-3 w-full md:w-auto">
               <!-- BUSCADOR -->
               <div class="buscar-container w-full md:w-64">
                 <input id="buscadorConductores" type="text" 
                        placeholder="Buscar conductor..." 
-                       class="w-full rounded-xl border border-slate-300 px-4 py-3 pl-4 pr-10 text-sm">
+                       class="w-full rounded-lg border border-slate-300 px-3 py-2 pl-3 pr-10 text-sm">
                 <button id="clearBuscar" class="buscar-clear">✕</button>
               </div>
 
-              <div id="total_chip_container" class="flex flex-wrap items-center gap-3">
-                <span class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 font-semibold text-sm">
+              <div id="total_chip_container" class="flex flex-wrap items-center gap-2">
+                <span class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-700 font-semibold text-sm">
                   🔢 Viajes: <span id="total_viajes">0</span>
                 </span>
-                <span class="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-4 py-2 text-purple-700 font-semibold text-sm">
+                <span class="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-purple-700 font-semibold text-sm">
                   💰 Total: <span id="total_general">0</span>
                 </span>
-                <span class="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-emerald-700 font-semibold text-sm">
+                <span class="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700 font-semibold text-sm">
                   ✅ Pagado: <span id="total_pagado">0</span>
                 </span>
-                <span class="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-rose-700 font-semibold text-sm">
+                <span class="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-rose-700 font-semibold text-sm">
                   ⏳ Faltante: <span id="total_faltante">0</span>
                 </span>
               </div>
@@ -1224,217 +1444,235 @@ if ($empresaFiltro !== "") {
           </div>
 
           <!-- NUEVO: Resumen de rutas sin clasificar -->
-          <div id="resumenRutasSinClasificar" class="hidden mb-6">
+          <div id="resumenRutasSinClasificar" class="hidden mb-4">
             <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
-              <div class="flex items-center justify-between mb-4">
+              <div class="flex items-center justify-between mb-3">
                 <div class="flex items-center gap-2">
                   <span class="text-amber-600 font-bold text-lg">⚠️</span>
                   <h4 class="font-semibold text-amber-800">Rutas sin clasificar encontradas</h4>
                 </div>
-                <span id="contadorRutasSinClasificarGlobal" class="px-3 py-1 bg-amber-500 text-white text-sm font-bold rounded-full">0</span>
+                <span id="contadorRutasSinClasificarGlobal" class="px-2 py-1 bg-amber-500 text-white text-xs font-bold rounded-full">0</span>
               </div>
               
               <div id="listaRutasSinClasificarGlobal" class="space-y-2 max-h-60 overflow-y-auto">
                 <!-- Aquí se cargarán las rutas dinámicamente -->
               </div>
               
-              <div class="mt-4 pt-4 border-t border-amber-100">
+              <div class="mt-3 pt-3 border-t border-amber-100">
                 <button onclick="irAClasificacionRutas()" 
-                        class="w-full py-3 bg-amber-100 text-amber-700 hover:bg-amber-200 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2">
-                  🧭 Ir a clasificar rutas
+                        class="w-full py-2 bg-amber-100 text-amber-700 hover:bg-amber-200 rounded-lg text-sm font-medium transition">
+                  📋 Ir a clasificar rutas
                 </button>
               </div>
             </div>
           </div>
 
-          <!-- CONTENEDOR DE TABLA -->
-          <div id="tableContainer" class="overflow-x-auto rounded-xl border border-slate-200">
-            <table id="tabla_conductores" class="w-full text-sm">
-              <thead class="bg-blue-600 text-white">
-                <tr>
-                  <!-- NUEVA COLUMNA PARA ALERTAS VISUALES -->
-                  <th class="px-4 py-3 text-center" style="min-width: 70px;">
-                    Estado
-                  </th>
-                  <th class="px-4 py-3 text-left" style="min-width: 220px;">
-                    Conductor
-                  </th>
-                  <th class="px-4 py-3 text-center" style="min-width: 120px;">
-                    Tipo
-                  </th>
-                  
-                  <?php foreach ($clasificaciones_disponibles as $index => $clasif): 
-                    $estilo = obtenerEstiloClasificacion($clasif);
-                    // Definir abreviaturas
-                    $abreviaturas = [
-                        'completo' => 'COM',
-                        'medio' => 'MED', 
-                        'extra' => 'EXT',
-                        'carrotanque' => 'CTK',
-                        'siapana' => 'SIA',
-                        'riohacha' => 'RIO',
-                        'pru' => 'PRU',
-                        'maco' => 'MAC'
-                    ];
-                    $abreviatura = $abreviaturas[$clasif] ?? strtoupper(substr($clasif, 0, 3));
+          <!-- CONTENEDOR DE TABLA EXPANSIBLE -->
+          <div id="tableContainer" class="table-container resizable" style="width: 1100px;">
+            <div class="table-wrapper">
+              <table id="tabla_conductores" class="dynamic-table w-full text-sm">
+                <thead class="bg-blue-600 text-white">
+                  <tr>
+                    <!-- NUEVA COLUMNA PARA ALERTAS VISUALES -->
+                    <th class="px-3 py-2 text-center col-resizable" style="min-width: 60px; width: 5%;">
+                      Estado
+                      <div class="col-resize-handle" data-col="0"></div>
+                    </th>
+                    <th class="px-3 py-2 text-left col-resizable" style="min-width: 200px; width: 25%;">
+                      Conductor
+                      <div class="col-resize-handle" data-col="1"></div>
+                    </th>
+                    <th class="px-3 py-2 text-center col-resizable" style="min-width: 100px; width: 12%;">
+                      Tipo
+                      <div class="col-resize-handle" data-col="2"></div>
+                    </th>
                     
-                    // Mapear colores Tailwind a colores HEX para CSS inline
-                    $colorMap = [
-                        'bg-emerald-100' => '#d1fae5', 'text-emerald-700' => '#047857', 'border-emerald-200' => '#a7f3d0',
-                        'bg-amber-100' => '#fef3c7', 'text-amber-800' => '#92400e', 'border-amber-200' => '#fcd34d',
-                        'bg-slate-200' => '#e2e8f0', 'text-slate-800' => '#1e293b', 'border-slate-300' => '#cbd5e1',
-                        'bg-fuchsia-100' => '#fae8ff', 'text-fuchsia-700' => '#a21caf', 'border-fuchsia-200' => '#f5d0fe',
-                        'bg-cyan-100' => '#cffafe', 'text-cyan-800' => '#155e75', 'border-cyan-200' => '#a5f3fc',
-                        'bg-indigo-100' => '#e0e7ff', 'text-indigo-700' => '#4338ca', 'border-indigo-200' => '#c7d2fe',
-                        'bg-teal-100' => '#ccfbf1', 'text-teal-700' => '#0f766e', 'border-teal-200' => '#99f6e4',
-                        'bg-rose-100' => '#ffe4e6', 'text-rose-700' => '#be123c', 'border-rose-200' => '#fecdd3',
-                        'bg-violet-100' => '#ede9fe', 'text-violet-700' => '#6d28d9', 'border-violet-200' => '#ddd6fe',
-                        'bg-orange-100' => '#ffedd5', 'text-orange-700' => '#c2410c', 'border-orange-200' => '#fdba74',
-                        'bg-lime-100' => '#ecfccb', 'text-lime-700' => '#4d7c0f', 'border-lime-200' => '#d9f99d',
-                        'bg-sky-100' => '#e0f2fe', 'text-sky-700' => '#0369a1', 'border-sky-200' => '#bae6fd',
-                        'bg-pink-100' => '#fce7f3', 'text-pink-700' => '#be185d', 'border-pink-200' => '#fbcfe8',
-                        'bg-purple-100' => '#f3e8ff', 'text-purple-700' => '#7e22ce', 'border-purple-200' => '#e9d5ff',
-                        'bg-yellow-100' => '#fef9c3', 'text-yellow-700' => '#a16207', 'border-yellow-200' => '#fde68a',
-                        'bg-red-100' => '#fee2e2', 'text-red-700' => '#b91c1c', 'border-red-200' => '#fecaca'
-                    ];
-                    
-                    $bg_color = $colorMap[$estilo['bg']] ?? '#f1f5f9';
-                    $text_color = $colorMap[$estilo['text']] ?? '#1e293b';
-                  ?>
-                  <th class="px-4 py-3 text-center" 
-                      title="<?= htmlspecialchars($clasif) ?>"
-                      style="min-width: 80px; background-color: <?= $bg_color ?>; color: <?= $text_color ?>; border-bottom: 2px solid <?= $colorMap[$estilo['border']] ?? '#cbd5e1' ?>;">
-                    <?= htmlspecialchars($abreviatura) ?>
-                  </th>
-                  <?php endforeach; ?>
-                  <th class="px-4 py-3 text-center" style="min-width: 140px;">
-                    Total
-                  </th>
-                  <th class="px-4 py-3 text-center" style="min-width: 120px;">
-                    Pagado
-                  </th>
-                  <th class="px-4 py-3 text-center" style="min-width: 100px;">
-                    Faltante
-                  </th>
-                </tr>
-              </thead>
-              <tbody id="tabla_conductores_body" class="divide-y divide-slate-100 bg-white">
-              <?php foreach ($datos as $conductor => $info): 
-                $esMensual = (stripos($info['vehiculo'], 'mensual') !== false);
-                $claseVehiculo = $esMensual ? 'vehiculo-mensual' : '';
-                $rutasSinClasificar = $info['rutas_sin_clasificar'] ?? 0;
-              ?>
-                <tr data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>" 
-                    data-conductor="<?= htmlspecialchars($conductor) ?>" 
-                    data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
-                    data-pagado="<?= (int)($info['pagado'] ?? 0) ?>"
-                    data-sin-clasificar="<?= $rutasSinClasificar ?>"
-                    class="hover:bg-blue-50/40 transition-colors <?php echo $rutasSinClasificar > 0 ? 'alerta-sin-clasificar' : ''; ?>">
-                  <!-- NUEVA CELDA: Indicador visual de rutas sin clasificar -->
-                  <td class="px-4 py-3 text-center" style="min-width: 70px;">
-                    <?php if ($rutasSinClasificar > 0): ?>
-                      <div class="flex flex-col items-center justify-center gap-1" title="<?= $rutasSinClasificar ?> ruta(s) sin clasificar">
-                        <span class="text-amber-600 font-bold animate-pulse">⚠️</span>
-                        <span class="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded-full font-bold">
-                          <?= $rutasSinClasificar ?>
-                        </span>
-                      </div>
-                    <?php else: ?>
-                      <div class="flex flex-col items-center justify-center gap-1" title="Todas las rutas están clasificadas">
-                        <span class="text-emerald-600">✅</span>
-                        <span class="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full font-bold">
-                          0
-                        </span>
-                      </div>
-                    <?php endif; ?>
-                  </td>
-                  
-                  <td class="px-4 py-3" style="min-width: 220px;">
-                    <button type="button"
-                            class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition flex items-center gap-2"
-                            title="Ver viajes">
+                    <?php foreach ($clasificaciones_disponibles as $index => $clasif): 
+                      $estilo = obtenerEstiloClasificacion($clasif);
+                      // Definir abreviaturas
+                      $abreviaturas = [
+                          'completo' => 'COM',
+                          'medio' => 'MED', 
+                          'extra' => 'EXT',
+                          'carrotanque' => 'CTK',
+                          'siapana' => 'SIA',
+                          'riohacha' => 'RIO',
+                          'pru' => 'PRU',
+                          'maco' => 'MAC'
+                      ];
+                      $abreviatura = $abreviaturas[$clasif] ?? strtoupper(substr($clasif, 0, 3));
+                      
+                      // Mapear colores Tailwind a colores HEX para CSS inline
+                      $colorMap = [
+                          'bg-emerald-100' => '#d1fae5', 'text-emerald-700' => '#047857', 'border-emerald-200' => '#a7f3d0',
+                          'bg-amber-100' => '#fef3c7', 'text-amber-800' => '#92400e', 'border-amber-200' => '#fcd34d',
+                          'bg-slate-200' => '#e2e8f0', 'text-slate-800' => '#1e293b', 'border-slate-300' => '#cbd5e1',
+                          'bg-fuchsia-100' => '#fae8ff', 'text-fuchsia-700' => '#a21caf', 'border-fuchsia-200' => '#f5d0fe',
+                          'bg-cyan-100' => '#cffafe', 'text-cyan-800' => '#155e75', 'border-cyan-200' => '#a5f3fc',
+                          'bg-indigo-100' => '#e0e7ff', 'text-indigo-700' => '#4338ca', 'border-indigo-200' => '#c7d2fe',
+                          'bg-teal-100' => '#ccfbf1', 'text-teal-700' => '#0f766e', 'border-teal-200' => '#99f6e4',
+                          'bg-rose-100' => '#ffe4e6', 'text-rose-700' => '#be123c', 'border-rose-200' => '#fecdd3',
+                          'bg-violet-100' => '#ede9fe', 'text-violet-700' => '#6d28d9', 'border-violet-200' => '#ddd6fe',
+                          'bg-orange-100' => '#ffedd5', 'text-orange-700' => '#c2410c', 'border-orange-200' => '#fdba74',
+                          'bg-lime-100' => '#ecfccb', 'text-lime-700' => '#4d7c0f', 'border-lime-200' => '#d9f99d',
+                          'bg-sky-100' => '#e0f2fe', 'text-sky-700' => '#0369a1', 'border-sky-200' => '#bae6fd',
+                          'bg-pink-100' => '#fce7f3', 'text-pink-700' => '#be185d', 'border-pink-200' => '#fbcfe8',
+                          'bg-purple-100' => '#f3e8ff', 'text-purple-700' => '#7e22ce', 'border-purple-200' => '#e9d5ff',
+                          'bg-yellow-100' => '#fef9c3', 'text-yellow-700' => '#a16207', 'border-yellow-200' => '#fde68a',
+                          'bg-red-100' => '#fee2e2', 'text-red-700' => '#b91c1c', 'border-red-200' => '#fecaca'
+                      ];
+                      
+                      $bg_color = $colorMap[$estilo['bg']] ?? '#f1f5f9';
+                      $text_color = $colorMap[$estilo['text']] ?? '#1e293b';
+                    ?>
+                    <th class="px-3 py-2 text-center col-resizable" 
+                        title="<?= htmlspecialchars($clasif) ?>"
+                        style="min-width: 70px; width: 7%; background-color: <?= $bg_color ?>; color: <?= $text_color ?>; border-bottom: 2px solid <?= $colorMap[$estilo['border']] ?? '#cbd5e1' ?>;">
+                      <?= htmlspecialchars($abreviatura) ?>
+                      <div class="col-resize-handle" data-col="<?= $index + 3 ?>"></div>
+                    </th>
+                    <?php endforeach; ?>
+                    <th class="px-3 py-2 text-center col-resizable" style="min-width: 120px; width: 15%;">
+                      Total
+                      <div class="col-resize-handle" data-col="<?= count($clasificaciones_disponibles) + 3 ?>"></div>
+                    </th>
+                    <th class="px-3 py-2 text-center col-resizable" style="min-width: 100px; width: 12%;">
+                      Pagado
+                      <div class="col-resize-handle" data-col="<?= count($clasificaciones_disponibles) + 4 ?>"></div>
+                    </th>
+                    <th class="px-3 py-2 text-center col-resizable" style="min-width: 80px; width: 10%;">
+                      Faltante
+                      <div class="col-resize-handle" data-col="<?= count($clasificaciones_disponibles) + 5 ?>"></div>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody id="tabla_conductores_body" class="divide-y divide-slate-100 bg-white">
+                <?php foreach ($datos as $conductor => $info): 
+                  $esMensual = (stripos($info['vehiculo'], 'mensual') !== false);
+                  $claseVehiculo = $esMensual ? 'vehiculo-mensual' : '';
+                  $rutasSinClasificar = $info['rutas_sin_clasificar'] ?? 0;
+                ?>
+                  <tr data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>" 
+                      data-conductor="<?= htmlspecialchars($conductor) ?>" 
+                      data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
+                      data-pagado="<?= (int)($info['pagado'] ?? 0) ?>"
+                      data-sin-clasificar="<?= $rutasSinClasificar ?>"
+                      class="hover:bg-blue-50/40 transition-colors <?php echo $rutasSinClasificar > 0 ? 'alerta-sin-clasificar' : ''; ?>">
+                    <!-- NUEVA CELDA: Indicador visual de rutas sin clasificar -->
+                    <td class="px-3 py-2 text-center" style="min-width: 60px;">
                       <?php if ($rutasSinClasificar > 0): ?>
-                        <span class="text-amber-600">⚠️</span>
+                        <div class="flex flex-col items-center justify-center gap-1" title="<?= $rutasSinClasificar ?> ruta(s) sin clasificar">
+                          <span class="text-amber-600 font-bold animate-pulse">⚠️</span>
+                          <span class="text-xs bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full font-bold">
+                            <?= $rutasSinClasificar ?>
+                          </span>
+                        </div>
+                      <?php else: ?>
+                        <div class="flex flex-col items-center justify-center gap-1" title="Todas las rutas están clasificadas">
+                          <span class="text-emerald-600">✅</span>
+                          <span class="text-xs bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-full font-bold">
+                            0
+                          </span>
+                        </div>
                       <?php endif; ?>
-                      <?= htmlspecialchars($conductor) ?>
-                    </button>
-                  </td>
-                  <td class="px-4 py-3 text-center" style="min-width: 120px;">
-                    <span class="inline-block <?= $claseVehiculo ?> px-3 py-1.5 rounded-lg text-xs font-medium">
-                      <?= htmlspecialchars($info['vehiculo']) ?>
-                      <?php if ($esMensual): ?>
-                        <span class="ml-1">📅</span>
-                      <?php endif; ?>
-                    </span>
-                  </td>
-                  
-                  <?php foreach ($clasificaciones_disponibles as $clasif): 
-                    $estilo = obtenerEstiloClasificacion($clasif);
-                    $cantidad = (int)($info[$clasif] ?? 0);
+                    </td>
                     
-                    // Mapear colores para fondo de celdas
-                    $colorMap = [
-                        'bg-emerald-100' => '#f0fdf4', 'text-emerald-700' => '#047857',
-                        'bg-amber-100' => '#fffbeb', 'text-amber-800' => '#92400e',
-                        'bg-slate-200' => '#f8fafc', 'text-slate-800' => '#1e293b',
-                        'bg-fuchsia-100' => '#fdf4ff', 'text-fuchsia-700' => '#a21caf',
-                        'bg-cyan-100' => '#ecfeff', 'text-cyan-800' => '#155e75',
-                        'bg-indigo-100' => '#eef2ff', 'text-indigo-700' => '#4338ca',
-                        'bg-teal-100' => '#f0fdfa', 'text-teal-700' => '#0f766e',
-                        'bg-rose-100' => '#fff1f2', 'text-rose-700' => '#be123c',
-                        'bg-violet-100' => '#f5f3ff', 'text-violet-700' => '#6d28d9',
-                        'bg-orange-100' => '#fff7ed', 'text-orange-700' => '#c2410c',
-                        'bg-lime-100' => '#f7fee7', 'text-lime-700' => '#4d7c0f',
-                        'bg-sky-100' => '#f0f9ff', 'text-sky-700' => '#0369a1',
-                        'bg-pink-100' => '#fdf2f8', 'text-pink-700' => '#be185d',
-                        'bg-purple-100' => '#faf5ff', 'text-purple-700' => '#7e22ce',
-                        'bg-yellow-100' => '#fefce8', 'text-yellow-700' => '#a16207',
-                        'bg-red-100' => '#fef2f2', 'text-red-700' => '#b91c1c'
-                    ];
+                    <td class="px-3 py-2" style="min-width: 200px;">
+                      <button type="button"
+                              class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition flex items-center gap-2"
+                              title="Ver viajes">
+                        <?php if ($rutasSinClasificar > 0): ?>
+                          <span class="text-amber-600">⚠️</span>
+                        <?php endif; ?>
+                        <?= htmlspecialchars($conductor) ?>
+                      </button>
+                    </td>
+                    <td class="px-3 py-2 text-center" style="min-width: 100px;">
+                      <span class="inline-block <?= $claseVehiculo ?> px-2 py-1 rounded-lg text-xs font-medium">
+                        <?= htmlspecialchars($info['vehiculo']) ?>
+                        <?php if ($esMensual): ?>
+                          <span class="ml-1">📅</span>
+                        <?php endif; ?>
+                      </span>
+                    </td>
                     
-                    $bg_cell_color = $colorMap[$estilo['bg']] ?? '#f8fafc';
-                    $text_cell_color = $colorMap[$estilo['text']] ?? '#1e293b';
-                  ?>
-                  <td class="px-4 py-3 text-center font-medium" 
-                      style="min-width: 80px; background-color: <?= $bg_cell_color ?>; color: <?= $text_cell_color ?>; border-left: 1px solid <?= str_replace('bg-', '#', $estilo['bg']) ?>30; border-right: 1px solid <?= str_replace('bg-', '#', $estilo['bg']) ?>30;">
-                    <?= $cantidad ?>
-                  </td>
-                  <?php endforeach; ?>
+                    <?php foreach ($clasificaciones_disponibles as $clasif): 
+                      $estilo = obtenerEstiloClasificacion($clasif);
+                      $cantidad = (int)($info[$clasif] ?? 0);
+                      
+                      // Mapear colores para fondo de celdas
+                      $colorMap = [
+                          'bg-emerald-100' => '#f0fdf4', 'text-emerald-700' => '#047857',
+                          'bg-amber-100' => '#fffbeb', 'text-amber-800' => '#92400e',
+                          'bg-slate-200' => '#f8fafc', 'text-slate-800' => '#1e293b',
+                          'bg-fuchsia-100' => '#fdf4ff', 'text-fuchsia-700' => '#a21caf',
+                          'bg-cyan-100' => '#ecfeff', 'text-cyan-800' => '#155e75',
+                          'bg-indigo-100' => '#eef2ff', 'text-indigo-700' => '#4338ca',
+                          'bg-teal-100' => '#f0fdfa', 'text-teal-700' => '#0f766e',
+                          'bg-rose-100' => '#fff1f2', 'text-rose-700' => '#be123c',
+                          'bg-violet-100' => '#f5f3ff', 'text-violet-700' => '#6d28d9',
+                          'bg-orange-100' => '#fff7ed', 'text-orange-700' => '#c2410c',
+                          'bg-lime-100' => '#f7fee7', 'text-lime-700' => '#4d7c0f',
+                          'bg-sky-100' => '#f0f9ff', 'text-sky-700' => '#0369a1',
+                          'bg-pink-100' => '#fdf2f8', 'text-pink-700' => '#be185d',
+                          'bg-purple-100' => '#faf5ff', 'text-purple-700' => '#7e22ce',
+                          'bg-yellow-100' => '#fefce8', 'text-yellow-700' => '#a16207',
+                          'bg-red-100' => '#fef2f2', 'text-red-700' => '#b91c1c'
+                      ];
+                      
+                      $bg_cell_color = $colorMap[$estilo['bg']] ?? '#f8fafc';
+                      $text_cell_color = $colorMap[$estilo['text']] ?? '#1e293b';
+                    ?>
+                    <td class="px-3 py-2 text-center font-medium" 
+                        style="min-width: 70px; background-color: <?= $bg_cell_color ?>; color: <?= $text_cell_color ?>; border-left: 1px solid <?= str_replace('bg-', '#', $estilo['bg']) ?>30; border-right: 1px solid <?= str_replace('bg-', '#', $estilo['bg']) ?>30;">
+                      <?= $cantidad ?>
+                    </td>
+                    <?php endforeach; ?>
 
-                  <!-- Total -->
-                  <td class="px-4 py-3" style="min-width: 140px;">
-                    <input type="text"
-                           class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none whitespace-nowrap tabular-nums"
-                           readonly dir="ltr">
-                  </td>
+                    <!-- Total -->
+                    <td class="px-3 py-2" style="min-width: 120px;">
+                      <input type="text"
+                             class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none whitespace-nowrap tabular-nums"
+                             readonly dir="ltr">
+                    </td>
 
-                  <!-- Pagado -->
-                  <td class="px-4 py-3" style="min-width: 120px;">
-                    <input type="text"
-                           class="pagado w-full rounded-xl border border-emerald-200 px-3 py-2 text-right bg-emerald-50 outline-none whitespace-nowrap tabular-nums"
-                           readonly dir="ltr"
-                           value="<?= number_format((int)($info['pagado'] ?? 0), 0, ',', '.') ?>">
-                  </td>
+                    <!-- Pagado -->
+                    <td class="px-3 py-2" style="min-width: 100px;">
+                      <input type="text"
+                             class="pagado w-full rounded-xl border border-emerald-200 px-3 py-2 text-right bg-emerald-50 outline-none whitespace-nowrap tabular-nums"
+                             readonly dir="ltr"
+                             value="<?= number_format((int)($info['pagado'] ?? 0), 0, ',', '.') ?>">
+                    </td>
 
-                  <!-- Faltante -->
-                  <td class="px-4 py-3" style="min-width: 100px;">
-                    <input type="text"
-                           class="faltante w-full rounded-xl border border-rose-200 px-3 py-2 text-right bg-rose-50 outline-none whitespace-nowrap tabular-nums"
-                           readonly dir="ltr"
-                           value="0">
-                  </td>
+                    <!-- Faltante -->
+                    <td class="px-3 py-2" style="min-width: 80px;">
+                      <input type="text"
+                             class="faltante w-full rounded-xl border border-rose-200 px-3 py-2 text-right bg-rose-50 outline-none whitespace-nowrap tabular-nums"
+                             readonly dir="ltr"
+                             value="0">
+                    </td>
 
-                </tr>
-              <?php endforeach; ?>
-              </tbody>
-            </table>
+                  </tr>
+                <?php endforeach; ?>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
+
     </div>
   </main>
 
-  <!-- ===== Modal VIAJES ===== -->
+  <!-- Área para las bolitas flotantes -->
+  <div id="floatingBallsArea"></div>
+
+  <!-- Indicador visual de redimensionamiento -->
+  <div id="resizeIndicator" class="resize-indicator">
+    <div id="resizeLine" class="resize-line"></div>
+  </div>
+
+  <!-- ===== Modal VIAJES (EXACTAMENTE IGUAL AL PRIMER CÓDIGO) ===== -->
   <div id="viajesModal" class="viajes-backdrop">
     <div class="viajes-card">
       <div class="viajes-header">
@@ -1466,78 +1704,7 @@ if ($empresaFiltro !== "") {
   </div>
 
   <script>
-    // ===== NUEVO: SISTEMA DE BOLITAS Y PANELES =====
-    let activePanel = null;
-    const panels = ['tarifas', 'crear-clasif', 'clasif-rutas'];
-    
-    // Inicializar sistema de bolitas
-    document.addEventListener('DOMContentLoaded', function() {
-      // Configurar eventos para cada bolita
-      panels.forEach(panelId => {
-        const ball = document.getElementById(`ball-${panelId}`);
-        const panel = document.getElementById(`panel-${panelId}`);
-        const closeBtn = panel.querySelector('.side-panel-close');
-        const overlay = document.getElementById('sidePanelOverlay');
-        const tableWrapper = document.getElementById('tableContainerWrapper');
-        
-        // Abrir panel al hacer clic en la bolita
-        ball.addEventListener('click', () => togglePanel(panelId));
-        
-        // Cerrar panel con el botón X
-        closeBtn.addEventListener('click', () => togglePanel(panelId));
-        
-        // Cerrar panel al hacer clic en el overlay
-        overlay.addEventListener('click', () => {
-          if (activePanel === panelId) {
-            togglePanel(panelId);
-          }
-        });
-      });
-      
-      // Cerrar panel con tecla ESC
-      document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && activePanel) {
-          togglePanel(activePanel);
-        }
-      });
-    });
-    
-    // Función para abrir/cerrar paneles
-    function togglePanel(panelId) {
-      const ball = document.getElementById(`ball-${panelId}`);
-      const panel = document.getElementById(`panel-${panelId}`);
-      const overlay = document.getElementById('sidePanelOverlay');
-      const tableWrapper = document.getElementById('tableContainerWrapper');
-      
-      if (activePanel === panelId) {
-        // Cerrar panel actual
-        panel.classList.remove('active');
-        ball.classList.remove('ball-active');
-        overlay.classList.remove('active');
-        tableWrapper.classList.remove('with-panel');
-        activePanel = null;
-      } else {
-        // Cerrar panel anterior si hay uno abierto
-        if (activePanel) {
-          document.getElementById(`panel-${activePanel}`).classList.remove('active');
-          document.getElementById(`ball-${activePanel}`).classList.remove('ball-active');
-        }
-        
-        // Abrir nuevo panel
-        panel.classList.add('active');
-        ball.classList.add('ball-active');
-        overlay.classList.add('active');
-        tableWrapper.classList.add('with-panel');
-        activePanel = panelId;
-        
-        // Asegurar que el panel esté visible
-        setTimeout(() => {
-          panel.scrollTop = 0;
-        }, 100);
-      }
-    }
-    
-    // ===== FUNCIONALIDAD PARA RUTAS SIN CLASIFICAR =====
+    // ===== NUEVO: Funcionalidad para rutas sin clasificar =====
     
     // Mostrar resumen de rutas sin clasificar
     function mostrarResumenRutasSinClasificar() {
@@ -1556,13 +1723,13 @@ if ($empresaFiltro !== "") {
           totalRutasSinClasificar += sinClasificar;
           const conductor = fila.querySelector('.conductor-link').textContent;
           contenidoHTML += `
-            <div class="flex items-center justify-between p-3 bg-amber-50 rounded-lg border border-amber-100 hover:bg-amber-100 transition">
+            <div class="flex items-center justify-between p-2 bg-amber-50 rounded-lg border border-amber-100">
               <div class="flex items-center gap-2">
                 <span class="text-amber-600">⚠️</span>
                 <span class="font-medium text-amber-800">${conductor}</span>
               </div>
               <div class="flex items-center gap-2">
-                <span class="text-xs bg-amber-500 text-white px-2 py-1 rounded-full">${sinClasificar}</span>
+                <span class="text-xs bg-amber-500 text-white px-2 py-0.5 rounded-full">${sinClasificar}</span>
                 <button onclick="verViajesConductor('${conductor}')" 
                         class="text-xs text-amber-600 hover:text-amber-800 hover:underline">
                   Ver viajes
@@ -1603,13 +1770,584 @@ if ($empresaFiltro !== "") {
     
     // Ir a la sección de clasificación de rutas
     function irAClasificacionRutas() {
-      // Abrir el panel de clasificación de rutas
-      togglePanel('clasif-rutas');
-      
-      // Cerrar el resumen
-      document.getElementById('resumenRutasSinClasificar').classList.add('hidden');
+      const clasifRutasSection = document.getElementById('container-clasif-rutas');
+      if (clasifRutasSection) {
+        clasifRutasSection.scrollIntoView({ behavior: 'smooth' });
+        // Resaltar la sección
+        clasifRutasSection.classList.add('ring-4', 'ring-amber-200');
+        setTimeout(() => {
+          clasifRutasSection.classList.remove('ring-4', 'ring-amber-200');
+        }, 3000);
+      }
     }
     
+    // ===== FUNCIÓN CORREGIDA: Minimizar TODO el panel izquierdo =====
+    function minimizarTodoPanelIzquierdo() {
+      const leftPanel = document.getElementById('leftPanel');
+      const mainLayout = document.getElementById('mainLayout');
+      const ballArea = document.getElementById('floatingBallsArea');
+      
+      // Verificar si ya está minimizado
+      if (leftPanel.classList.contains('left-panel-completely-hidden')) {
+        return; // Ya está minimizado
+      }
+      
+      // Guardar estado original del panel izquierdo
+      leftPanel.dataset.originalState = JSON.stringify({
+        isHidden: false
+      });
+      
+      // Crear bolita flotante para TODO el panel
+      const ball = document.createElement('div');
+      ball.id = 'ball-entire-left-panel';
+      ball.className = 'floating-ball entire-panel-ball';
+      
+      // Contenido de la bolita
+      ball.innerHTML = `
+        <div class="ball-content">
+          <div class="text-2xl">📊</div>
+          <div class="text-[10px] mt-1">Panel Izquierdo</div>
+        </div>
+        <button class="close-ball absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600">×</button>
+      `;
+      
+      // Posicionar bolita en la esquina superior derecha
+      ball.style.left = '20px';
+      ball.style.top = '100px';
+      
+      // Hacer la bolita arrastrable
+      makeBallDraggable(ball, 'entire-left-panel');
+      
+      // Evento para restaurar el panel
+      ball.addEventListener('click', function(e) {
+        if (!e.target.closest('.close-ball')) {
+          restaurarPanelIzquierdo();
+        }
+      });
+      
+      // Evento para cerrar permanentemente (solo elimina la bolita)
+      ball.querySelector('.close-ball').addEventListener('click', function(e) {
+        e.stopPropagation();
+        ball.remove();
+      });
+      
+      // Ocultar completamente el panel izquierdo
+      leftPanel.classList.add('left-panel-completely-hidden');
+      leftPanel.style.display = 'none';
+      
+      // Cambiar el layout para redistribuir espacio
+      mainLayout.classList.add('left-panel-hidden');
+      
+      // Agregar bolita al área de bolitas
+      ballArea.appendChild(ball);
+      
+      // Mostrar notificación
+      showNotification('Panel izquierdo minimizado a bola flotante', 'info');
+    }
+
+    // ===== FUNCIÓN PARA RESTAURAR EL PANEL IZQUIERDO =====
+    function restaurarPanelIzquierdo() {
+      const leftPanel = document.getElementById('leftPanel');
+      const mainLayout = document.getElementById('mainLayout');
+      const ball = document.getElementById('ball-entire-left-panel');
+      
+      // Remover bolita
+      if (ball) {
+        ball.remove();
+      }
+      
+      // Restaurar estado original
+      leftPanel.classList.remove('left-panel-completely-hidden');
+      leftPanel.style.display = '';
+      
+      // Restaurar layout original
+      mainLayout.classList.remove('left-panel-hidden');
+      
+      showNotification('Panel izquierdo restaurado', 'success');
+    }
+
+    // Función auxiliar para mostrar notificaciones
+    function showNotification(message, type = 'info') {
+      // Crear elemento de notificación
+      const notification = document.createElement('div');
+      notification.className = `fixed top-4 right-4 z-50 px-4 py-2 rounded-lg shadow-lg text-white text-sm font-medium animate-fade-in-down ${
+        type === 'info' ? 'bg-blue-500' : 
+        type === 'success' ? 'bg-green-500' : 
+        type === 'warning' ? 'bg-amber-500' : 
+        'bg-red-500'
+      }`;
+      notification.textContent = message;
+      
+      // Agregar al documento
+      document.body.appendChild(notification);
+      
+      // Remover después de 3 segundos
+      setTimeout(() => {
+        notification.classList.add('opacity-0', 'transition-opacity', 'duration-300');
+        setTimeout(() => {
+          if (notification.parentNode) {
+            notification.parentNode.removeChild(notification);
+          }
+        }, 300);
+      }, 3000);
+    }
+
+    // ===== SISTEMA DE REDIMENSIONAMIENTO COMPLETO CORREGIDO =====
+    let isResizing = false;
+    let currentPanel = null;
+    let currentSide = null;
+    let startX, startWidth;
+    let startCenterWidth, startLeftWidth;
+    const originalCenterWidth = 1100;
+    const minCenterWidth = 800;
+    const maxCenterWidth = 1600;
+    const minPanelWidth = 250;
+    const maxPanelWidth = 600;
+    
+    // Sistema de redimensionamiento para TODOS los paneles
+    document.querySelectorAll('.resize-handle').forEach(handle => {
+      handle.addEventListener('mousedown', initResize);
+    });
+    
+    function initResize(e) {
+      const handle = e.target.closest('.resize-handle');
+      currentPanel = handle.dataset.panel;
+      currentSide = handle.dataset.side || 'right'; // Por defecto
+      
+      const panel = document.getElementById(currentPanel + 'Panel');
+      const tableContainer = document.getElementById('tableContainer');
+      const mainLayout = document.getElementById('mainLayout');
+      
+      // Si el panel izquierdo está oculto, no permitir redimensionar
+      if (currentPanel === 'left' && panel.classList.contains('left-panel-completely-hidden')) {
+        return;
+      }
+      
+      isResizing = true;
+      startX = e.clientX;
+      
+      // Guardar dimensiones iniciales
+      if (currentPanel === 'center') {
+        startCenterWidth = parseInt(getComputedStyle(tableContainer).width, 10);
+        startLeftWidth = parseInt(getComputedStyle(document.getElementById('leftPanel')).width, 10) || 400;
+      } else {
+        startWidth = parseInt(getComputedStyle(panel).width, 10);
+      }
+      
+      // Mostrar indicador visual
+      document.getElementById('resizeIndicator').classList.add('active');
+      
+      document.addEventListener('mousemove', resize);
+      document.addEventListener('mouseup', stopResize);
+      
+      e.preventDefault();
+    }
+    
+    function resize(e) {
+      if (!isResizing) return;
+      
+      const dx = e.clientX - startX;
+      const tableContainer = document.getElementById('tableContainer');
+      const mainLayout = document.getElementById('mainLayout');
+      const leftPanel = document.getElementById('leftPanel');
+      
+      // Actualizar línea visual
+      const resizeLine = document.getElementById('resizeLine');
+      resizeLine.style.left = e.clientX + 'px';
+      
+      if (currentPanel === 'center') {
+        // Redimensionar panel CENTRAL - Toma espacio del panel izquierdo
+        let newCenterWidth;
+        
+        if (currentSide === 'left') {
+          // Redimensionar desde el lado izquierdo - Toma espacio del panel izquierdo
+          newCenterWidth = startCenterWidth - dx;
+          
+          // Aplicar límites al panel central
+          newCenterWidth = Math.max(minCenterWidth, Math.min(newCenterWidth, maxCenterWidth));
+          
+          // Calcular nuevo ancho para el panel izquierdo
+          const newLeftWidth = startLeftWidth + (startCenterWidth - newCenterWidth);
+          
+          // Aplicar límites al panel izquierdo
+          const clampedLeftWidth = Math.max(minPanelWidth, Math.min(newLeftWidth, maxPanelWidth));
+          
+          // Ajustar diferencial
+          const leftDiff = newLeftWidth - clampedLeftWidth;
+          if (leftDiff !== 0) {
+            newCenterWidth += leftDiff;
+          }
+          
+          // Aplicar cambios si el panel izquierdo no está oculto
+          if (!leftPanel.classList.contains('left-panel-completely-hidden')) {
+            leftPanel.style.width = clampedLeftWidth + 'px';
+          }
+          tableContainer.style.width = newCenterWidth + 'px';
+          
+        } else {
+          // Redimensionar desde el lado derecho - Solo expande/contrae el centro
+          newCenterWidth = startCenterWidth + dx;
+          
+          // Aplicar límites al panel central
+          newCenterWidth = Math.max(minCenterWidth, Math.min(newCenterWidth, maxCenterWidth));
+          
+          tableContainer.style.width = newCenterWidth + 'px';
+        }
+        
+      } else if (currentPanel === 'left') {
+        // Redimensionar panel IZQUIERDO - Toma espacio del centro
+        let newLeftWidth = startWidth + dx;
+        
+        // Aplicar límites
+        newLeftWidth = Math.max(minPanelWidth, Math.min(newLeftWidth, maxPanelWidth));
+        
+        // Calcular nuevo ancho para el centro (tomando espacio del centro)
+        const centerWidth = parseInt(getComputedStyle(tableContainer).width, 10);
+        const newCenterWidth = centerWidth - (newLeftWidth - startWidth);
+        
+        // Aplicar cambios solo si el centro no es muy pequeño
+        if (newCenterWidth >= minCenterWidth) {
+          leftPanel.style.width = newLeftWidth + 'px';
+          tableContainer.style.width = newCenterWidth + 'px';
+        }
+      }
+      
+      // Prevenir selección de texto durante el resize
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'col-resize';
+    }
+    
+    function stopResize() {
+      isResizing = false;
+      document.removeEventListener('mousemove', resize);
+      document.removeEventListener('mouseup', stopResize);
+      
+      // Ocultar indicador visual
+      document.getElementById('resizeIndicator').classList.remove('active');
+      
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    }
+    
+    // ===== CONTROLES PARA TABLA CENTRAL =====
+    function expandTableWidth(amount = 100) {
+      const tableContainer = document.getElementById('tableContainer');
+      const currentWidth = parseInt(getComputedStyle(tableContainer).width, 10);
+      
+      const newCenterWidth = Math.min(currentWidth + amount, maxCenterWidth);
+      
+      // Aplicar cambios
+      tableContainer.style.width = newCenterWidth + 'px';
+    }
+    
+    function shrinkTableWidth(amount = 100) {
+      const tableContainer = document.getElementById('tableContainer');
+      const currentWidth = parseInt(getComputedStyle(tableContainer).width, 10);
+      
+      const newCenterWidth = Math.max(currentWidth - amount, minCenterWidth);
+      
+      // Aplicar cambios
+      tableContainer.style.width = newCenterWidth + 'px';
+    }
+    
+    function resetTableWidth() {
+      const tableContainer = document.getElementById('tableContainer');
+      const leftPanel = document.getElementById('leftPanel');
+      
+      // Restaurar tamaños originales
+      tableContainer.style.width = originalCenterWidth + 'px';
+      leftPanel.style.width = '400px';
+    }
+    
+    // ===== REDIMENSIONAMIENTO DE COLUMNAS =====
+    let isResizingColumn = false;
+    let currentColIndex = null;
+    let startColX, startColWidth;
+    
+    document.querySelectorAll('.col-resize-handle').forEach(handle => {
+      handle.addEventListener('mousedown', initColResize);
+    });
+    
+    function initColResize(e) {
+      currentColIndex = parseInt(e.target.dataset.col);
+      isResizingColumn = true;
+      startColX = e.clientX;
+      
+      const table = document.getElementById('tabla_conductores');
+      const col = table.querySelectorAll('th, td').nth(currentColIndex);
+      startColWidth = col.getBoundingClientRect().width;
+      
+      // Mostrar indicador visual
+      document.getElementById('resizeIndicator').classList.add('active');
+      const resizeLine = document.getElementById('resizeLine');
+      resizeLine.style.left = e.clientX + 'px';
+      
+      document.addEventListener('mousemove', resizeColumn);
+      document.addEventListener('mouseup', stopColResize);
+      
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    
+    function resizeColumn(e) {
+      if (!isResizingColumn) return;
+      
+      const dx = e.clientX - startColX;
+      const newWidth = Math.max(50, startColWidth + dx);
+      
+      // Actualizar línea visual
+      const resizeLine = document.getElementById('resizeLine');
+      resizeLine.style.left = e.clientX + 'px';
+      
+      // Aplicar nuevo ancho a todas las celdas de esta columna
+      const table = document.getElementById('tabla_conductores');
+      const allRows = table.querySelectorAll('tr');
+      
+      allRows.forEach(row => {
+        const cell = row.children[currentColIndex];
+        if (cell) {
+          cell.style.width = newWidth + 'px';
+          cell.style.minWidth = newWidth + 'px';
+        }
+      });
+      
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'col-resize';
+    }
+    
+    function stopColResize() {
+      isResizingColumn = false;
+      document.removeEventListener('mousemove', resizeColumn);
+      document.removeEventListener('mouseup', stopColResize);
+      
+      // Ocultar indicador visual
+      document.getElementById('resizeIndicator').classList.remove('active');
+      
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    }
+    
+    // ===== SISTEMA DE PANELES COLAPSABLES =====
+    function togglePanel(panelSide) {
+      const panel = document.getElementById(panelSide + 'Panel');
+      
+      if (panel.classList.contains('panel-collapsed')) {
+        // Expandir panel
+        panel.classList.remove('panel-collapsed');
+        panel.classList.add('panel-expanded');
+      } else {
+        // Colapsar panel
+        panel.classList.remove('panel-expanded');
+        panel.classList.add('panel-collapsed');
+      }
+    }
+    
+    // ===== SISTEMA DE MINIMIZAR CONTENEDORES INDIVIDUALES =====
+    const containerStates = {};
+    const ballColors = {
+      'tarifas': 'bg-gradient-to-br from-blue-500 to-cyan-500',
+      'filtro': 'bg-gradient-to-br from-green-500 to-emerald-500',
+      'crear-clasif': 'bg-gradient-to-br from-purple-500 to-pink-500',
+      'clasif-rutas': 'bg-gradient-to-br from-orange-500 to-amber-500',
+      'resumen': 'bg-gradient-to-br from-indigo-500 to-purple-500'
+    };
+    
+    const ballIcons = {
+      'tarifas': '🚐',
+      'filtro': '📅',
+      'crear-clasif': '➕',
+      'clasif-rutas': '🧭',
+      'resumen': '🧑‍✈️'
+    };
+    
+    const ballTitles = {
+      'tarifas': 'Tarifas',
+      'filtro': 'Filtro',
+      'crear-clasif': 'Crear Clasif',
+      'clasif-rutas': 'Clasif Rutas',
+      'resumen': 'Resumen'
+    };
+
+    function toggleMinimize(containerId) {
+      const container = document.getElementById(`container-${containerId}`);
+      const ball = document.getElementById(`ball-${containerId}`);
+      
+      if (container.classList.contains('hidden')) {
+        // Restaurar desde la bolita
+        restoreContainer(containerId);
+      } else {
+        // Minimizar a bolita
+        minimizeToBall(containerId);
+      }
+    }
+
+    function minimizeToBall(containerId) {
+      const container = document.getElementById(`container-${containerId}`);
+      const ballArea = document.getElementById('floatingBallsArea');
+      
+      // Guardar posición original
+      const rect = container.getBoundingClientRect();
+      containerStates[containerId] = {
+        originalLeft: rect.left + window.scrollX,
+        originalTop: rect.top + window.scrollY,
+        originalWidth: rect.width,
+        originalHeight: rect.height,
+        container: container
+      };
+      
+      // Crear bolita flotante
+      const ball = document.createElement('div');
+      ball.id = `ball-${containerId}`;
+      ball.className = `floating-ball minimized ${ballColors[containerId]}`;
+      ball.style.setProperty('--original-width', rect.width + 'px');
+      ball.style.setProperty('--original-height', rect.height + 'px');
+      ball.style.setProperty('--original-left', rect.left + window.scrollX + 'px');
+      ball.style.setProperty('--original-top', rect.top + window.scrollY + 'px');
+      
+      // Posición aleatoria inicial
+      const randomLeft = Math.random() * (window.innerWidth - 100) + 20;
+      const randomTop = Math.random() * (window.innerHeight - 100) + 20;
+      ball.style.setProperty('--ball-left', randomLeft + 'px');
+      ball.style.setProperty('--ball-top', randomTop + 'px');
+      
+      // Contenido de la bolita
+      ball.innerHTML = `
+        <div class="ball-content">
+          <div class="text-2xl">${ballIcons[containerId]}</div>
+          <div class="text-[10px] mt-1">${ballTitles[containerId]}</div>
+        </div>
+      `;
+      
+      // Hacer la bolita arrastrable
+      makeBallDraggable(ball, containerId);
+      
+      // Agregar evento de clic para restaurar
+      ball.addEventListener('click', function(e) {
+        if (!e.target.closest('.close-ball')) {
+          restoreContainer(containerId);
+        }
+      });
+      
+      // Botón para cerrar la bolita
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'close-ball absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600';
+      closeBtn.innerHTML = '×';
+      closeBtn.onclick = function(e) {
+        e.stopPropagation();
+        removeBall(containerId);
+      };
+      ball.appendChild(closeBtn);
+      
+      // Ocultar contenedor y mostrar bolita
+      container.classList.add('hidden');
+      ballArea.appendChild(ball);
+      
+      // Animar la transformación a bolita
+      setTimeout(() => {
+        ball.classList.remove('minimized');
+        ball.style.left = randomLeft + 'px';
+        ball.style.top = randomTop + 'px';
+        ball.style.width = '60px';
+        ball.style.height = '60px';
+      }, 50);
+    }
+
+    function restoreContainer(containerId) {
+      const container = containerStates[containerId].container;
+      const ball = document.getElementById(`ball-${containerId}`);
+      
+      if (!ball || !container) return;
+      
+      // Animar restauración
+      ball.classList.add('restored');
+      
+      setTimeout(() => {
+        // Mostrar contenedor
+        container.classList.remove('hidden');
+        
+        // Eliminar bolita
+        if (ball.parentNode) {
+          ball.parentNode.removeChild(ball);
+        }
+        
+        // Limpiar animación
+        ball.classList.remove('restored');
+      }, 500);
+    }
+
+    function removeBall(containerId) {
+      const ball = document.getElementById(`ball-${containerId}`);
+      if (ball && ball.parentNode) {
+        ball.parentNode.removeChild(ball);
+      }
+    }
+
+    function makeBallDraggable(ball, containerId) {
+      let isDragging = false;
+      let currentX;
+      let currentY;
+      let initialX;
+      let initialY;
+      let xOffset = 0;
+      let yOffset = 0;
+      
+      ball.addEventListener('mousedown', dragStart);
+      ball.addEventListener('touchstart', dragStart);
+      
+      function dragStart(e) {
+        if (e.type === "touchstart") {
+          initialX = e.touches[0].clientX - xOffset;
+          initialY = e.touches[0].clientY - yOffset;
+        } else {
+          initialX = e.clientX - xOffset;
+          initialY = e.clientY - yOffset;
+        }
+        
+        if (e.target === ball || e.target.closest('.ball-content')) {
+          isDragging = true;
+          ball.style.cursor = 'grabbing';
+          ball.style.zIndex = '10000';
+        }
+      }
+      
+      function dragEnd(e) {
+        initialX = currentX;
+        initialY = currentY;
+        isDragging = false;
+        ball.style.cursor = 'move';
+        ball.style.zIndex = '9999';
+        
+        // Guardar posición final
+        ball.style.setProperty('--ball-left', ball.style.left);
+        ball.style.setProperty('--ball-top', ball.style.top);
+      }
+      
+      function drag(e) {
+        if (isDragging) {
+          e.preventDefault();
+          
+          if (e.type === "touchmove") {
+            currentX = e.touches[0].clientX - initialX;
+            currentY = e.touches[0].clientY - initialY;
+          } else {
+            currentX = e.clientX - initialX;
+            currentY = e.clientY - initialY;
+          }
+          
+          xOffset = currentX;
+          yOffset = currentY;
+          
+          ball.style.left = currentX + "px";
+          ball.style.top = currentY + "px";
+        }
+      }
+      
+      document.addEventListener('mousemove', drag);
+      document.addEventListener('touchmove', drag, { passive: false });
+      document.addEventListener('mouseup', dragEnd);
+      document.addEventListener('touchend', dragEnd);
+    }
+
     // ===== BUSCADOR DE CONDUCTORES =====
     const buscadorConductores = document.getElementById('buscadorConductores');
     const clearBuscar = document.getElementById('clearBuscar');
@@ -1876,7 +2614,7 @@ if ($empresaFiltro !== "") {
       });
     }
 
-    // ===== MODAL DE VIAJES =====
+    // ===== MODAL DE VIAJES (EXACTAMENTE IGUAL AL PRIMER CÓDIGO) =====
     const RANGO_DESDE = <?= json_encode($desde) ?>;
     const RANGO_HASTA = <?= json_encode($hasta) ?>;
     const RANGO_EMP   = <?= json_encode($empresaFiltro) ?>;

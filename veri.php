@@ -1,1693 +1,1882 @@
-
 <?php
-session_start();
-
+include("nav.php");
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
 if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); }
-$conn->set_charset('utf8mb4');
+$conn->set_charset("utf8mb4");
 
-/* ================= Helpers ================= */
-function strip_accents($s){
-  $t = @iconv('UTF-8','ASCII//TRANSLIT//IGNORE',$s);
-  if ($t !== false) return $t;
-  $repl = ['á'=>'a','é'=>'e','í'=>'i','ó'=>'o','ú'=>'u','ñ'=>'n','Á'=>'A','É'=>'E','Í'=>'I','Ó'=>'O','Ú'=>'U','Ñ'=>'N'];
-  return strtr($s,$repl);
-}
-function norm_person($s){
-  $s = strip_accents((string)$s);
-  $s = mb_strtolower($s,'UTF-8');
-  $s = preg_replace('/[^a-z0-9\s]/',' ', $s);
-  $s = preg_replace('/\s+/',' ', trim($s));
-  return $s;
-}
+/* =======================================================
+   🔹 FUNCIONES DINÁMICAS
+======================================================= */
 
-/* ================= CREAR TABLA CUENTAS GUARDADAS ================= */
-$conn->query("
-CREATE TABLE IF NOT EXISTS cuentas_guardadas (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    nombre VARCHAR(255) NOT NULL,
-    empresa VARCHAR(100) NOT NULL,
-    desde DATE NOT NULL,
-    hasta DATE NOT NULL,
-    facturado DECIMAL(15,2) NOT NULL,
-    porcentaje_ajuste DECIMAL(5,2) NOT NULL,
-    datos_json LONGTEXT NOT NULL,
-    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    usuario VARCHAR(100),
-    INDEX idx_empresa (empresa),
-    INDEX idx_fecha (fecha_creacion)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-");
-
-/* ================= AJAX PARA GESTIÓN DE CUENTAS ================= */
-if (isset($_GET['obtener_cuentas'])) {
-    header('Content-Type: application/json');
-    
-    $empresa = $conn->real_escape_string($_GET['empresa'] ?? '');
-    
-    $sql = "SELECT id, nombre, empresa, desde, hasta, facturado, porcentaje_ajuste, 
-                   datos_json, fecha_creacion, usuario 
-            FROM cuentas_guardadas";
-    
-    if (!empty($empresa)) {
-        $sql .= " WHERE empresa = '$empresa'";
-    }
-    
-    $sql .= " ORDER BY fecha_creacion DESC";
-    
-    $result = $conn->query($sql);
-    $cuentas = [];
-    
-    if ($result && $result->num_rows > 0) {
-        while ($row = $result->fetch_assoc()) {
-            $datos_json = json_decode($row['datos_json'], true);
-            $row['datos_json'] = ($datos_json === null) ? [] : $datos_json;
-            $cuentas[] = $row;
+// Obtener columnas de tarifas dinámicamente
+function obtenerColumnasTarifas($conn) {
+    $columnas = [];
+    $res = $conn->query("SHOW COLUMNS FROM tarifas");
+    if ($res) {
+        while ($row = $res->fetch_assoc()) {
+            $field = $row['Field'];
+            // Excluir columnas que no son tarifas
+            $excluir = ['id', 'empresa', 'tipo_vehiculo', 'created_at', 'updated_at'];
+            if (!in_array($field, $excluir)) {
+                $columnas[] = $field;
+            }
         }
     }
-    
-    echo json_encode($cuentas, JSON_UNESCAPED_UNICODE);
-    exit;
+    return $columnas;
 }
 
-// AJAX para guardar cuenta
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'guardar_cuenta') {
-    header('Content-Type: application/json');
+// Crear nueva columna en tarifas
+function crearNuevaColumnaTarifa($conn, $nombre_columna) {
+    $nombre_columna = preg_replace('/[^a-zA-Z0-9_]/', '_', $nombre_columna);
+    $nombre_columna = strtolower($nombre_columna);
     
-    $nombre = $conn->real_escape_string($_POST['nombre'] ?? '');
-    $empresa = $conn->real_escape_string($_POST['empresa'] ?? '');
-    $desde = $conn->real_escape_string($_POST['desde'] ?? '');
-    $hasta = $conn->real_escape_string($_POST['hasta'] ?? '');
-    $facturado = floatval($_POST['facturado'] ?? 0);
-    $porcentaje_ajuste = floatval($_POST['porcentaje_ajuste'] ?? 0);
-    $datos_json = $conn->real_escape_string($_POST['datos_json'] ?? '{}');
-    $usuario = $conn->real_escape_string($_SESSION['usuario'] ?? 'Sistema');
+    // Verificar si la columna ya existe
+    $columnas_existentes = obtenerColumnasTarifas($conn);
+    if (in_array($nombre_columna, $columnas_existentes)) {
+        return true; // Ya existe
+    }
     
-    if (empty($nombre) || empty($empresa)) {
-        echo json_encode(['success' => false, 'message' => 'Faltan datos obligatorios']);
+    // Crear nueva columna
+    $sql = "ALTER TABLE tarifas ADD COLUMN `$nombre_columna` DECIMAL(10,2) DEFAULT 0.00";
+    return $conn->query($sql);
+}
+
+// Obtener clasificaciones disponibles (solo de tarifas)
+function obtenerClasificacionesDisponibles($conn) {
+    return obtenerColumnasTarifas($conn);
+}
+
+// Mapeo de colores para clasificaciones
+function obtenerEstiloClasificacion($clasificacion) {
+    $estilos = [
+        'completo'    => ['bg' => 'bg-emerald-100', 'text' => 'text-emerald-700', 'border' => 'border-emerald-200', 'row' => 'bg-emerald-50/40', 'label' => 'Completo'],
+        'medio'       => ['bg' => 'bg-amber-100', 'text' => 'text-amber-800', 'border' => 'border-amber-200', 'row' => 'bg-amber-50/40', 'label' => 'Medio'],
+        'extra'       => ['bg' => 'bg-slate-200', 'text' => 'text-slate-800', 'border' => 'border-slate-300', 'row' => 'bg-slate-50', 'label' => 'Extra'],
+        'siapana'     => ['bg' => 'bg-fuchsia-100', 'text' => 'text-fuchsia-700', 'border' => 'border-fuchsia-200', 'row' => 'bg-fuchsia-50/40', 'label' => 'Siapana'],
+        'carrotanque' => ['bg' => 'bg-cyan-100', 'text' => 'text-cyan-800', 'border' => 'border-cyan-200', 'row' => 'bg-cyan-50/40', 'label' => 'Carrotanque'],
+        'riohacha'    => ['bg' => 'bg-indigo-100', 'text' => 'text-indigo-700', 'border' => 'border-indigo-200', 'row' => 'bg-indigo-50/40', 'label' => 'Riohacha'],
+        'pru'         => ['bg' => 'bg-teal-100', 'text' => 'text-teal-700', 'border' => 'border-teal-200', 'row' => 'bg-teal-50/40', 'label' => 'Pru'],
+        'maco'        => ['bg' => 'bg-rose-100', 'text' => 'text-rose-700', 'border' => 'border-rose-200', 'row' => 'bg-rose-50/40', 'label' => 'Maco']
+    ];
+    
+    // Si ya existe, devolverlo
+    if (isset($estilos[$clasificacion])) {
+        return $estilos[$clasificacion];
+    }
+    
+    // Generar estilo dinámico para nuevas clasificaciones
+    $colors = [
+        ['bg' => 'bg-violet-100', 'text' => 'text-violet-700', 'border' => 'border-violet-200'],
+        ['bg' => 'bg-orange-100', 'text' => 'text-orange-700', 'border' => 'border-orange-200'],
+        ['bg' => 'bg-lime-100', 'text' => 'text-lime-700', 'border' => 'border-lime-200'],
+        ['bg' => 'bg-sky-100', 'text' => 'text-sky-700', 'border' => 'border-sky-200'],
+        ['bg' => 'bg-pink-100', 'text' => 'text-pink-700', 'border' => 'border-pink-200'],
+        ['bg' => 'bg-purple-100', 'text' => 'text-purple-700', 'border' => 'border-purple-200'],
+        ['bg' => 'bg-yellow-100', 'text' => 'text-yellow-700', 'border' => 'border-yellow-200'],
+        ['bg' => 'bg-red-100', 'text' => 'text-red-700', 'border' => 'border-red-200'],
+    ];
+    
+    $hash = crc32($clasificacion);
+    $color_index = abs($hash) % count($colors);
+    
+    return [
+        'bg' => $colors[$color_index]['bg'],
+        'text' => $colors[$color_index]['text'],
+        'border' => $colors[$color_index]['border'],
+        'row' => str_replace('bg-', 'bg-', $colors[$color_index]['bg']) . '/40',
+        'label' => ucfirst($clasificacion)
+    ];
+}
+
+/* =======================================================
+   🔹 Crear nueva clasificación (AJAX)
+======================================================= */
+if (isset($_POST['crear_clasificacion'])) {
+    $nombre_clasificacion = trim($conn->real_escape_string($_POST['nombre_clasificacion']));
+    
+    if (empty($nombre_clasificacion)) {
+        echo "error: nombre vacío";
         exit;
     }
     
-    $sql = "INSERT INTO cuentas_guardadas (nombre, empresa, desde, hasta, facturado, porcentaje_ajuste, datos_json, usuario) 
-            VALUES ('$nombre', '$empresa', '$desde', '$hasta', $facturado, $porcentaje_ajuste, '$datos_json', '$usuario')";
+    // Limpiar nombre para columna SQL (siempre minúsculas)
+    $nombre_columna = preg_replace('/[^a-zA-Z0-9_]/', '_', $nombre_clasificacion);
+    $nombre_columna = strtolower($nombre_columna);
     
-    $resultado = $conn->query($sql);
-    
-    if ($resultado) {
-        echo json_encode(['success' => true, 'id' => $conn->insert_id, 'message' => 'Cuenta guardada exitosamente']);
+    // Crear nueva columna
+    if (crearNuevaColumnaTarifa($conn, $nombre_columna)) {
+        echo "ok";
     } else {
-        echo json_encode(['success' => false, 'message' => 'Error al guardar: ' . $conn->error]);
+        echo "error: " . $conn->error;
     }
     exit;
 }
 
-// AJAX para eliminar cuenta
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'eliminar_cuenta') {
-    header('Content-Type: application/json');
-    $id = intval($_POST['id']);
-    
-    $sql = "DELETE FROM cuentas_guardadas WHERE id = $id";
-    $resultado = $conn->query($sql);
-    
-    echo json_encode(['success' => $resultado, 'message' => $resultado ? 'Cuenta eliminada' : 'Error al eliminar']);
-    exit;
-}
+/* =======================================================
+   🔹 Guardar tarifas dinámicamente (AJAX)
+======================================================= */
+if (isset($_POST['guardar_tarifa'])) {
+    $empresa  = $conn->real_escape_string($_POST['empresa']);
+    $vehiculo = $conn->real_escape_string($_POST['tipo_vehiculo']);
+    $campo    = $conn->real_escape_string($_POST['campo']);
+    $valor    = (float)$_POST['valor'];
 
-// AJAX para cargar cuenta
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'cargar_cuenta') {
-    header('Content-Type: application/json');
-    $id = intval($_POST['id']);
-    $sql = "SELECT * FROM cuentas_guardadas WHERE id = $id";
-    $result = $conn->query($sql);
+    // IMPORTANTE: Normalizar el nombre del campo a minúsculas
+    $campo = strtolower($campo);
+    $campo = preg_replace('/[^a-z0-9_]/', '_', $campo);
+
+    // Validar que el campo exista en la tabla tarifas
+    $columnas_tarifas = obtenerColumnasTarifas($conn);
     
-    if ($result && $result->num_rows > 0) {
-        $row = $result->fetch_assoc();
-        $datos_json = json_decode($row['datos_json'], true);
-        $row['datos_json'] = ($datos_json === null) ? [] : $datos_json;
-        echo json_encode(['success' => true, 'cuenta' => $row]);
-    } else {
-        echo json_encode(['success' => false, 'message' => 'Cuenta no encontrada']);
-    }
-    exit;
-}
-
-/* ================= TARIFAS DINÁMICAS ================= */
-$columnas_tarifas = [];
-$tarifas = [];
-
-$resColumns = $conn->query("SHOW COLUMNS FROM tarifas");
-if ($resColumns) {
-    while ($col = $resColumns->fetch_assoc()) {
-        $field = $col['Field'];
-        if (!in_array($field, ['id', 'empresa', 'tipo_vehiculo', 'created_at', 'updated_at'])) {
-            $columnas_tarifas[] = $field;
+    // Si el campo no existe, intentar crearlo
+    if (!in_array($campo, $columnas_tarifas)) { 
+        if (crearNuevaColumnaTarifa($conn, $campo)) {
+            // Actualizar lista de columnas después de crearla
+            $columnas_tarifas = obtenerColumnasTarifas($conn);
+        } else {
+            echo "error: no se pudo crear el campo '$campo'";
+            exit;
         }
     }
-}
 
-/* ================= OBTENER CLASIFICACIONES ================= */
-$todas_clasificaciones = [];
-$resClasifAll = $conn->query("SELECT DISTINCT clasificacion FROM ruta_clasificacion");
-if ($resClasifAll) {
-    while ($r = $resClasifAll->fetch_assoc()) {
-        $todas_clasificaciones[] = strtolower($r['clasificacion']);
+    // Insertar o actualizar
+    $conn->query("INSERT IGNORE INTO tarifas (empresa, tipo_vehiculo) VALUES ('$empresa', '$vehiculo')");
+    $sql = "UPDATE tarifas SET `$campo` = $valor WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'";
+    
+    if ($conn->query($sql)) {
+        echo "ok";
+    } else {
+        echo "error: " . $conn->error;
     }
+    exit;
 }
 
-foreach ($columnas_tarifas as $columna) {
-    $columna_normalizada = strtolower($columna);
-    if (!in_array($columna_normalizada, $todas_clasificaciones)) {
-        $todas_clasificaciones[] = $columna_normalizada;
+/* =======================================================
+   🔹 Guardar CLASIFICACIÓN de rutas (AJAX)
+======================================================= */
+if (isset($_POST['guardar_clasificacion'])) {
+    $ruta       = $conn->real_escape_string($_POST['ruta']);
+    $vehiculo   = $conn->real_escape_string($_POST['tipo_vehiculo']);
+    $clasif     = $conn->real_escape_string($_POST['clasificacion']);
+
+    // Normalizar clasificación a minúsculas
+    $clasif = strtolower($clasif);
+
+    if ($clasif === '') {
+        // Eliminar clasificación si está vacía
+        $sql = "DELETE FROM ruta_clasificacion WHERE ruta = '$ruta' AND tipo_vehiculo = '$vehiculo'";
+    } else {
+        $sql = "INSERT INTO ruta_clasificacion (ruta, tipo_vehiculo, clasificacion)
+                VALUES ('$ruta', '$vehiculo', '$clasif')
+                ON DUPLICATE KEY UPDATE clasificacion = VALUES(clasificacion)";
     }
+    
+    echo $conn->query($sql) ? "ok" : ("error: " . $conn->error);
+    exit;
 }
 
-/* ================= Cargar clasificaciones ================= */
-$clasificaciones = [];
-$resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
-if ($resClasif) {
-    while ($r = $resClasif->fetch_assoc()) {
-        $key = mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo']), 'UTF-8');
-        $clasificaciones[$key] = strtolower($r['clasificacion']);
-    }
-}
-
-/* ================= AJAX: Viajes por conductor ================= */
+/* =======================================================
+   🔹 Endpoint AJAX: viajes por conductor - ACTUALIZADO
+======================================================= */
 if (isset($_GET['viajes_conductor'])) {
     $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
-    $desde   = $conn->real_escape_string($_GET['desde'] ?? '');
-    $hasta   = $conn->real_escape_string($_GET['hasta'] ?? '');
-    $empresa = $conn->real_escape_string($_GET['empresa'] ?? '');
+    $desde   = $_GET['desde'];
+    $hasta   = $_GET['hasta'];
+    $empresa = $_GET['empresa'] ?? "";
 
-    $sql = "SELECT fecha, ruta, empresa, tipo_vehiculo
+    // Obtener clasificaciones disponibles
+    $clasificaciones_disponibles = obtenerClasificacionesDisponibles($conn);
+    $legend = [];
+    
+    foreach ($clasificaciones_disponibles as $clasif) {
+        $estilo = obtenerEstiloClasificacion($clasif);
+        $legend[$clasif] = [
+            'label' => $estilo['label'],
+            'badge' => "{$estilo['bg']} {$estilo['text']} border {$estilo['border']}",
+            'row' => $estilo['row']
+        ];
+    }
+    
+    // Agregar "otro" para no clasificados
+    $legend['otro'] = ['label'=>'Sin clasificar', 'badge'=>'bg-gray-100 text-gray-700 border border-gray-200', 'row'=>'bg-gray-50/20'];
+
+    // Cargar clasificaciones de rutas
+    $clasif_rutas = [];
+    $resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
+    if ($resClasif) {
+        while ($r = $resClasif->fetch_assoc()) {
+            $key = mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo']), 'UTF-8');
+            $clasif_rutas[$key] = $r['clasificacion'];
+        }
+    }
+
+    $sql = "SELECT fecha, ruta, empresa, tipo_vehiculo, COALESCE(pago_parcial,0) AS pago_parcial
             FROM viajes
             WHERE nombre = '$nombre'
               AND fecha BETWEEN '$desde' AND '$hasta'";
-    if ($empresa !== '') {
+    if ($empresa !== "") {
+        $empresa = $conn->real_escape_string($empresa);
         $sql .= " AND empresa = '$empresa'";
     }
     $sql .= " ORDER BY fecha ASC";
 
     $res = $conn->query($sql);
 
-    $rowsHTML = "";
-    $counts = ['otro' => 0];
-    foreach ($todas_clasificaciones as $clas) {
-        $counts[strtolower($clas)] = 0;
-    }
-
     if ($res && $res->num_rows > 0) {
+        // Contadores dinámicos
+        $counts = array_fill_keys(array_keys($legend), 0);
+        
+        // NUEVO: Contador de rutas sin clasificar para este conductor
+        $rutas_sin_clasificar = [];
+        $total_sin_clasificar = 0;
+
+        $rowsHTML = "";
+        
         while ($r = $res->fetch_assoc()) {
             $ruta = (string)$r['ruta'];
             $vehiculo = $r['tipo_vehiculo'];
             
+            // Determinar clasificación
             $key = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
-            $cat = isset($clasificaciones[$key]) ? strtolower($clasificaciones[$key]) : 'otro';
+            $cat = $clasif_rutas[$key] ?? 'otro';
             
-            if (!in_array($cat, $todas_clasificaciones)) {
-                $cat = 'otro';
+            // Normalizar a minúsculas
+            $cat = strtolower($cat);
+            
+            // NUEVO: Contar rutas sin clasificar
+            if ($cat === 'otro' || $cat === '') {
+                $total_sin_clasificar++;
+                $rutas_sin_clasificar[] = [
+                    'ruta' => $ruta,
+                    'vehiculo' => $vehiculo,
+                    'fecha' => $r['fecha']
+                ];
+            }
+            
+            // Si es nueva clasificación, agregar a legend
+            if ($cat !== 'otro' && !isset($legend[$cat])) {
+                $estilo = obtenerEstiloClasificacion($cat);
+                $legend[$cat] = [
+                    'label' => $estilo['label'],
+                    'badge' => "{$estilo['bg']} {$estilo['text']} border {$estilo['border']}",
+                    'row' => $estilo['row']
+                ];
+                $counts[$cat] = 0;
             }
 
-            if (isset($counts[$cat])) {
-                $counts[$cat]++;
-            } else {
-                $counts[$cat] = 1;
-            }
+            $counts[$cat]++;
 
-            // Determinar color según categoría (usando colores del primer código)
-            $color_class = '';
-            switch($cat) {
-                case 'completo': $color_class = 'bg-emerald-100 text-emerald-800 border-emerald-300'; break;
-                case 'medio': $color_class = 'bg-amber-100 text-amber-800 border-amber-300'; break;
-                case 'extra': $color_class = 'bg-slate-200 text-slate-800 border-slate-300'; break;
-                case 'siapana': $color_class = 'bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200'; break;
-                case 'carrotanque': $color_class = 'bg-cyan-100 text-cyan-800 border-cyan-200'; break;
-                default: $color_class = 'bg-gray-100 text-gray-700 border-gray-200';
-            }
+            $l = $legend[$cat];
+            $badge = "<span class='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold {$l['badge']}'>".$l['label']."</span>";
+            $rowCls = trim("row-viaje hover:bg-blue-50 transition-colors {$l['row']} cat-$cat");
 
-            $rowsHTML .= "<tr class='viaje-item cat-$cat'>
-                    <td class='px-3 py-2'>".htmlspecialchars($r['fecha'])."</td>
+            $pp = (int)($r['pago_parcial'] ?? 0);
+            $pagoParcialHTML = $pp > 0 ? '$'.number_format($pp,0,',','.') : "<span class='text-slate-400'>—</span>";
+
+            $rowsHTML .= "<tr class='{$rowCls}'>
+                    <td class='px-3 py-2 text-center'>".htmlspecialchars($r['fecha'])."</td>
                     <td class='px-3 py-2'>
-                        <span class='inline-block px-2 py-1 rounded text-xs font-medium border $color_class'>
-                            ".htmlspecialchars($ruta)."
-                        </span>
+                      <div class='flex items-center justify-center gap-2'>
+                        {$badge}
+                        <span>".htmlspecialchars($ruta)."</span>
+                      </div>
                     </td>
-                    <td class='px-3 py-2'>".htmlspecialchars($r['empresa'])."</td>
-                    <td class='px-3 py-2'>
-                        <span class='inline-block px-2 py-1 rounded text-xs bg-slate-100 border border-slate-300'>
-                            ".htmlspecialchars($vehiculo)."
-                        </span>
-                    </td>
+                    <td class='px-3 py-2 text-center'>".htmlspecialchars($r['empresa'])."</td>
+                    <td class='px-3 py-2 text-center'>".htmlspecialchars($vehiculo)."</td>
+                    <td class='px-3 py-2 text-center'>{$pagoParcialHTML}</td>
                   </tr>";
         }
-    } else {
-        $rowsHTML .= "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresa.</td></tr>";
-    }
 
-    ?>
-    <div class='space-y-3'>
-        <!-- Leyenda con contadores y filtro -->
-        <div class='flex flex-wrap gap-2 text-xs' id="legendFilterBar">
-            <?php
-            // Mostrar todas las clasificaciones dinámicamente
-            $colores_base = [
-                'completo'         => 'bg-emerald-100 text-emerald-700 border border-emerald-200',
-                'medio'            => 'bg-amber-100 text-amber-800 border border-amber-200',
-                'extra'            => 'bg-slate-200 text-slate-800 border border-slate-300',
-                'siapana'          => 'bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-200',
-                'carrotanque'      => 'bg-cyan-100 text-cyan-800 border border-cyan-200',
-            ];
+        // Generar HTML
+        echo "<div class='space-y-3'>";
+        
+        // NUEVO: Mostrar alerta de rutas sin clasificar para este conductor
+        if ($total_sin_clasificar > 0) {
+            echo "<div class='bg-amber-50 border border-amber-200 rounded-xl p-4 mb-3'>
+                    <div class='flex items-center gap-2 mb-2'>
+                        <span class='text-amber-600 font-bold text-lg'>⚠️</span>
+                        <span class='font-semibold text-amber-800'>Este conductor tiene $total_sin_clasificar viaje(s) sin clasificar</span>
+                    </div>
+                    <div class='text-sm text-amber-700'>
+                        <p class='mb-2'>Rutas sin clasificación:</p>";
             
-            // Generar leyenda dinámica
-            $legend = [];
-            foreach ($todas_clasificaciones as $clas) {
-                $clas_normalizada = strtolower($clas);
-                
-                if (isset($colores_base[$clas_normalizada])) {
-                    $legend[$clas_normalizada] = [
-                        'label' => ucwords(str_replace(['_', ' medio', ' completo'], [' ', ' Medio', ' Completo'], $clas)),
-                        'badge' => $colores_base[$clas_normalizada]
-                    ];
-                } else {
-                    $legend[$clas_normalizada] = [
-                        'label' => ucwords(str_replace('_', ' ', $clas)),
-                        'badge' => 'bg-gray-100 text-gray-700 border border-gray-200'
-                    ];
-                }
+            foreach (array_slice($rutas_sin_clasificar, 0, 5) as $rsc) {
+                echo "<div class='flex items-center gap-2 mb-1'>
+                        <span class='text-xs'>•</span>
+                        <span>".htmlspecialchars($rsc['ruta'])." (".htmlspecialchars($rsc['vehiculo']).")</span>
+                        <span class='text-xs text-amber-500'>".$rsc['fecha']."</span>
+                      </div>";
             }
-            $legend['otro'] = ['label'=>'Sin clasificar','badge'=>'bg-gray-100 text-gray-700 border border-gray-200'];
-
-            foreach ($legend as $k => $l) {
+            
+            if ($total_sin_clasificar > 5) {
+                echo "<p class='text-xs text-amber-600 mt-1'>... y ".($total_sin_clasificar - 5)." más</p>";
+            }
+            
+            echo "</div>
+                  </div>";
+        }
+        
+        // Leyenda dinámica con filtro
+        echo "<div class='flex flex-wrap gap-2 text-xs' id='legendFilterBar'>";
+        foreach (array_keys($legend) as $k) {
+            if ($counts[$k] > 0) { // Solo mostrar si hay viajes
+                $l = $legend[$k];
                 $countVal = $counts[$k] ?? 0;
-                if ($countVal > 0) {
-                    echo "<button
-                            class='legend-pill inline-flex items-center gap-2 px-3 py-2 rounded-full {$l['badge']} hover:opacity-90 transition ring-0 outline-none border cursor-pointer select-none'
-                            data-tipo='{$k}'
-                          >
-                            <span class='w-2.5 h-2.5 rounded-full bg-opacity-100 border border-white/30 shadow-inner'></span>
-                            <span class='font-semibold text-[13px]'>{$l['label']}</span>
-                            <span class='text-[11px] font-semibold opacity-80'>({$countVal})</span>
-                          </button>";
-                }
+                $badgeClass = str_replace(['bg-','/40'], ['bg-',''], $l['row']);
+                echo "<button
+                        class='legend-pill inline-flex items-center gap-2 px-3 py-2 rounded-full {$l['badge']} hover:opacity-90 transition ring-0 outline-none border cursor-pointer select-none'
+                        data-tipo='{$k}'
+                      >
+                        <span class='w-2.5 h-2.5 rounded-full {$badgeClass} bg-opacity-100 border border-white/30 shadow-inner'></span>
+                        <span class='font-semibold text-[13px]'>{$l['label']}</span>
+                        <span class='text-[11px] font-semibold opacity-80'>({$countVal})</span>
+                      </button>";
             }
-            ?>
-        </div>
+        }
+        echo "</div>";
 
-        <!-- Tabla -->
-        <div class='overflow-x-auto'>
-            <table class='min-w-full text-sm text-left'>
-                <thead class='bg-blue-600 text-white'>
-                <tr>
-                    <th class='px-3 py-2'>Fecha</th>
-                    <th class='px-3 py-2'>Ruta</th>
-                    <th class='px-3 py-2'>Empresa</th>
-                    <th class='px-3 py-2'>Vehículo</th>
-                </tr>
-                </thead>
-                <tbody class='divide-y divide-gray-100 bg-white' id="viajesTableBody">
-                <?= $rowsHTML ?>
-                </tbody>
-            </table>
-        </div>
-    </div>
-    <?php
+        // Tabla
+        echo "<div class='overflow-x-auto max-h-[350px]'>
+                <table class='min-w-full text-sm text-left'>
+                  <thead class='bg-blue-600 text-white sticky top-0 z-10'>
+                    <tr>
+                      <th class='px-3 py-2 text-center'>Fecha</th>
+                      <th class='px-3 py-2 text-center'>Ruta</th>
+                      <th class='px-3 py-2 text-center'>Empresa</th>
+                      <th class='px-3 py-2 text-center'>Vehículo</th>
+                      <th class='px-3 py-2 text-center'>Pago parcial</th>
+                    </tr>
+                  </thead>
+                  <tbody id='viajesTableBody' class='divide-y divide-gray-100'>
+                    {$rowsHTML}
+                  </tbody>
+                </table>
+              </div>";
+        
+        echo "</div>";
+        
+        // Script para filtros
+        echo "<script>
+                function attachFiltroViajes(){
+                    const pills = document.querySelectorAll('#legendFilterBar .legend-pill');
+                    const rows  = document.querySelectorAll('#viajesTableBody .row-viaje');
+                    if (!pills.length || !rows.length) return;
+
+                    let activeCat = null;
+
+                    function applyFilter(cat){
+                        if (cat === activeCat) {
+                            activeCat = null;
+                        } else {
+                            activeCat = cat;
+                        }
+
+                        pills.forEach(p => {
+                            const pcat = p.getAttribute('data-tipo');
+                            if (activeCat && pcat === activeCat) {
+                                p.classList.add('ring-2','ring-blue-500','ring-offset-1','ring-offset-white');
+                            } else {
+                                p.classList.remove('ring-2','ring-blue-500','ring-offset-1','ring-offset-white');
+                            }
+                        });
+
+                        rows.forEach(r => {
+                            if (!activeCat) {
+                                r.style.display = '';
+                            } else {
+                                if (r.classList.contains('cat-' + activeCat)) {
+                                    r.style.display = '';
+                                } else {
+                                    r.style.display = 'none';
+                                }
+                            }
+                        });
+                    }
+
+                    pills.forEach(p => {
+                        p.addEventListener('click', ()=>{
+                            const cat = p.getAttribute('data-tipo');
+                            applyFilter(cat);
+                        });
+                    });
+                }
+                
+                setTimeout(attachFiltroViajes, 100);
+              </script>";
+
+    } else {
+        echo "<p class='text-center text-gray-500 py-4'>No se encontraron viajes para este conductor en ese rango.</p>";
+    }
     exit;
 }
 
-/* ================= Form si faltan fechas ================= */
+/* =======================================================
+   🔹 Formulario inicial
+======================================================= */
 if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
     $empresas = [];
     $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
     if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
     ?>
     <!DOCTYPE html>
-    <html lang="es"><head>
-        <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-        <title>Ajuste de Pago</title><script src="https://cdn.tailwindcss.com"></script>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+      <title>Filtrar viajes</title>
+      <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="min-h-screen bg-slate-100 text-slate-800">
-    <div class="max-w-lg mx-auto p-6">
+      <div class="max-w-lg mx-auto p-6">
         <div class="bg-white shadow-sm rounded-2xl p-6 border border-slate-200">
-            <h2 class="text-2xl font-bold text-center mb-2">📅 Ajuste de Pago por rango</h2>
-            <form method="get" class="space-y-4">
-                <label class="block"><span class="block text-sm font-medium mb-1">Desde</span>
-                    <input type="date" name="desde" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
-                </label>
-                <label class="block"><span class="block text-sm font-medium mb-1">Hasta</span>
-                    <input type="date" name="hasta" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
-                </label>
-                <label class="block"><span class="block text-sm font-medium mb-1">Empresa</span>
-                    <select name="empresa" class="w-full rounded-xl border border-slate-300 px-3 py-2">
-                        <option value="">-- Todas --</option>
-                        <?php foreach($empresas as $e): ?>
-                            <option value="<?= htmlspecialchars($e) ?>"><?= htmlspecialchars($e) ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </label>
-                <button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow">Continuar</button>
-            </form>
+          <h2 class="text-2xl font-bold text-center mb-2">📅 Filtrar viajes por rango</h2>
+          <p class="text-center text-slate-500 mb-6">Selecciona el periodo y (opcional) una empresa.</p>
+          <form method="get" class="space-y-4">
+            <label class="block">
+              <span class="block text-sm font-medium mb-1">Desde</span>
+              <input type="date" name="desde" required
+                     class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"/>
+            </label>
+            <label class="block">
+              <span class="block text-sm font-medium mb-1">Hasta</span>
+              <input type="date" name="hasta" required
+                     class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"/>
+            </label>
+            <label class="block">
+              <span class="block text-sm font-medium mb-1">Empresa</span>
+              <select name="empresa"
+                      class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
+                <option value="">-- Todas --</option>
+                <?php foreach($empresas as $e): ?>
+                  <option value="<?= htmlspecialchars($e) ?>"><?= htmlspecialchars($e) ?></option>
+                <?php endforeach; ?>
+              </select>
+            </label>
+            <button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow hover:bg-blue-700 active:bg-blue-800 focus:ring-4 focus:ring-blue-200 transition">
+              Filtrar
+            </button>
+          </form>
         </div>
-    </div>
-    </body></html>
-    <?php exit;
+      </div>
+    </body>
+    </html>
+    <?php
+    exit;
 }
 
-/* ================= Parámetros ================= */
+/* =======================================================
+   🔹 Cálculo y armado de tablas DINÁMICO - MODIFICADO
+======================================================= */
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
 $empresaFiltro = $_GET['empresa'] ?? "";
-$empresaFiltroEsc = $conn->real_escape_string($empresaFiltro);
 
-/* ================= CARGAR TARIFAS ================= */
-$tarifas = [];
-if ($empresaFiltro !== "") {
-    $resT = $conn->query("SELECT * FROM tarifas WHERE empresa='".$empresaFiltroEsc."'");
-    if ($resT) {
-        while($r = $resT->fetch_assoc()) {
-            $tarifa_normalizada = [];
-            foreach ($r as $key => $value) {
-                $tarifa_normalizada[strtolower($key)] = $value;
-            }
-            $tarifas[$r['tipo_vehiculo']] = $tarifa_normalizada;
-        }
+// Obtener datos dinámicos
+$columnas_tarifas = obtenerColumnasTarifas($conn);
+$clasificaciones_disponibles = obtenerClasificacionesDisponibles($conn);
+
+// Cargar clasificaciones de rutas desde BD
+$clasif_rutas = [];
+$resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
+if ($resClasif) {
+    while ($r = $resClasif->fetch_assoc()) {
+        $key = mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo']), 'UTF-8');
+        $clasif_rutas[$key] = strtolower($r['clasificacion']);
     }
 }
 
-/* ================= Viajes del rango ================= */
-$sqlV = "SELECT nombre, ruta, empresa, tipo_vehiculo
-         FROM viajes
-         WHERE fecha BETWEEN '$desde' AND '$hasta'";
+// Traer viajes
+$sql = "SELECT nombre, ruta, empresa, tipo_vehiculo, COALESCE(pago_parcial,0) AS pago_parcial
+        FROM viajes
+        WHERE fecha BETWEEN '$desde' AND '$hasta'";
 if ($empresaFiltro !== "") {
-    $sqlV .= " AND empresa = '$empresaFiltroEsc'";
+    $empresaFiltro = $conn->real_escape_string($empresaFiltro);
+    $sql .= " AND empresa = '$empresaFiltro'";
 }
-$resV = $conn->query($sqlV);
+$res = $conn->query($sql);
 
-$contadores = [];
-if ($resV) {
-    while ($row = $resV->fetch_assoc()) {
-        $nombre = $row['nombre'];
-        $ruta = $row['ruta'];
+$datos = [];
+$vehiculos = [];
+$rutasUnicas = [];
+$pagosConductor = [];
+
+// NUEVO: Contador global de rutas sin clasificar por conductor
+$rutas_sin_clasificar_por_conductor = [];
+
+if ($res) {
+    while ($row = $res->fetch_assoc()) {
+        $nombre   = $row['nombre'];
+        $ruta     = $row['ruta'];
         $vehiculo = $row['tipo_vehiculo'];
-        
-        if (!isset($contadores[$nombre])) {
-            $contadores[$nombre] = ['vehiculo' => $vehiculo];
-            foreach ($todas_clasificaciones as $clas) {
-                $clas_normalizada = strtolower($clas);
-                $contadores[$nombre][$clas_normalizada] = 0;
+        $pagoParcial = (int)($row['pago_parcial'] ?? 0);
+
+        // Acumular pago parcial
+        if (!isset($pagosConductor[$nombre])) $pagosConductor[$nombre] = 0;
+        $pagosConductor[$nombre] += $pagoParcial;
+
+        $keyRuta = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
+
+        // Guardar lista de rutas únicas
+        if (!isset($rutasUnicas[$keyRuta])) {
+            $rutasUnicas[$keyRuta] = [
+                'ruta'          => $ruta,
+                'vehiculo'      => $vehiculo,
+                'clasificacion' => $clasif_rutas[$keyRuta] ?? ''
+            ];
+        }
+
+        // Lista de tipos de vehículo
+        if (!in_array($vehiculo, $vehiculos, true)) {
+            $vehiculos[] = $vehiculo;
+        }
+
+        // NUEVO: Verificar si la ruta tiene clasificación
+        $clasificacion_ruta = $clasif_rutas[$keyRuta] ?? '';
+        if ($clasificacion_ruta === '' || $clasificacion_ruta === 'otro') {
+            if (!isset($rutas_sin_clasificar_por_conductor[$nombre])) {
+                $rutas_sin_clasificar_por_conductor[$nombre] = [];
+            }
+            // Evitar duplicados
+            $ruta_key = $ruta . '|' . $vehiculo;
+            if (!in_array($ruta_key, $rutas_sin_clasificar_por_conductor[$nombre])) {
+                $rutas_sin_clasificar_por_conductor[$nombre][] = $ruta_key;
             }
         }
-        
-        $key = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
-        $clasif = isset($clasificaciones[$key]) ? strtolower($clasificaciones[$key]) : '';
-        
-        if ($clasif !== '' && in_array($clasif, $todas_clasificaciones)) {
-            if (isset($contadores[$nombre][$clasif])) {
-                $contadores[$nombre][$clasif]++;
+
+        // Inicializar datos del conductor (dinámicamente)
+        if (!isset($datos[$nombre])) {
+            $datos[$nombre] = [
+                "vehiculo" => $vehiculo,
+                "pagado"   => 0
+            ];
+            // Inicializar contadores para cada clasificación disponible
+            foreach ($clasificaciones_disponibles as $clasif) {
+                $datos[$nombre][$clasif] = 0;
             }
+        }
+
+        // Clasificación MANUAL de la ruta
+        $clasifRuta = $clasif_rutas[$keyRuta] ?? '';
+
+        // Si tiene clasificación, sumar al contador (crear campo si no existe)
+        if ($clasifRuta !== '') {
+            if (!isset($datos[$nombre][$clasifRuta])) {
+                $datos[$nombre][$clasifRuta] = 0;
+            }
+            $datos[$nombre][$clasifRuta]++;
         }
     }
 }
 
-/* ================= Préstamos ================= */
-$prestamosList = [];
-$i = 0;
+// Inyectar pago acumulado
+foreach ($datos as $conductor => $info) {
+    $datos[$conductor]["pagado"] = (int)($pagosConductor[$conductor] ?? 0);
+    // NUEVO: Inyectar contador de rutas sin clasificar
+    $datos[$conductor]["rutas_sin_clasificar"] = count($rutas_sin_clasificar_por_conductor[$conductor] ?? []);
+}
 
-$qPrest = "
-  SELECT deudor,
-         SUM(
-           monto + 
-           monto * 
-           CASE 
-             WHEN fecha >= '2025-10-29' THEN 0.13
-             ELSE 0.10
-           END *
-           CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
-         ) AS total
-  FROM prestamos
-  WHERE (pagado IS NULL OR pagado = 0)
-";
+// Empresas y tarifas
+$empresas = [];
+$resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
+if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
 
+$tarifas_guardadas = [];
 if ($empresaFiltro !== "") {
-    $qPrest .= " AND empresa = '".$empresaFiltroEsc."'";
-}
-
-$qPrest .= " GROUP BY deudor";
-
-if ($rP = $conn->query($qPrest)) {
-    while($r = $rP->fetch_assoc()){
-        $name = $r['deudor'];
-        $key  = norm_person($name);
-        $total = (int)round($r['total']);
-        $prestamosList[] = ['id'=>$i++, 'name'=>$name, 'key'=>$key, 'total'=>$total];
+  $resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa='$empresaFiltro'");
+  if ($resTarifas) {
+    while ($r = $resTarifas->fetch_assoc()) {
+      $tarifas_guardadas[$r['tipo_vehiculo']] = $r;
     }
+  }
 }
-
-/* ================= Filas base ================= */
-$filas = []; 
-$total_facturado = 0;
-
-foreach ($contadores as $nombre => $v) {
-    $veh = $v['vehiculo'];
-    $t = $tarifas[$veh] ?? [];
-    
-    $total = 0;
-    
-    foreach ($todas_clasificaciones as $clas) {
-        $clas_normalizada = strtolower($clas);
-        $cantidad = $v[$clas_normalizada] ?? 0;
-        
-        if ($cantidad > 0) {
-            $precio = 0;
-            
-            if (isset($t[$clas_normalizada])) {
-                $precio = (float)$t[$clas_normalizada];
-            } else {
-                $clas_con_guion = str_replace(' ', '_', $clas_normalizada);
-                if (isset($t[$clas_con_guion])) {
-                    $precio = (float)$t[$clas_con_guion];
-                } else {
-                    $clas_con_espacio = str_replace('_', ' ', $clas_normalizada);
-                    if (isset($t[$clas_con_espacio])) {
-                        $precio = (float)$t[$clas_con_espacio];
-                    }
-                }
-            }
-            
-            $subtotal = $cantidad * $precio;
-            $total += $subtotal;
-        }
-    }
-
-    $filas[] = ['nombre'=>$nombre, 'total_bruto'=>(int)$total];
-    $total_facturado += (int)$total;
-}
-
-usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 ?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>Ajuste de Pago (con gestor de cuentas de cobro)</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    <style>
-        .num { font-variant-numeric: tabular-nums; }
-        .table-sticky thead tr { position: sticky; top: 0; z-index: 30; }
-        .table-sticky thead th { position: sticky; top: 0; z-index: 31; background-color: #2563eb !important; color: #fff !important; }
-        .table-sticky thead { box-shadow: 0 2px 0 rgba(0,0,0,0.06); }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Liquidación de Conductores</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  ::-webkit-scrollbar{height:10px;width:10px}
+  ::-webkit-slider-thumb{background:#d1d5db;border-radius:999px}
+  ::-webkit-slider-thumb:hover{background:#9ca3af}
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button{ -webkit-appearance: none; margin: 0; }
+  
+  /* BUSCADOR */
+  .buscar-container { position: relative; }
+  .buscar-clear { 
+    position: absolute; 
+    right: 10px; 
+    top: 50%; 
+    transform: translateY(-50%); 
+    background: none; 
+    border: none; 
+    color: #64748b; 
+    cursor: pointer; 
+    display: none; 
+  }
+  .buscar-clear:hover { color: #475569; }
+  .vehiculo-mensual {
+    background-color: #fef3c7 !important;
+    border: 1px solid #f59e0b !important;
+    color: #92400e !important;
+    font-weight: 600;
+  }
+  
+  /* Estilos para alertas visuales */
+  .alerta-sin-clasificar {
+    animation: pulse-alerta 2s infinite;
+  }
+  
+  @keyframes pulse-alerta {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+  
+  /* ===== NUEVO: BOLITAS FLOTANTES ===== */
+  .floating-balls-container {
+    position: fixed;
+    left: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    z-index: 9998;
+  }
+  
+  .floating-ball {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 3px solid white;
+    position: relative;
+    z-index: 9999;
+    overflow: hidden;
+    user-select: none;
+  }
+  
+  .floating-ball:hover {
+    transform: scale(1.15) translateY(-2px);
+    box-shadow: 0 12px 25px rgba(0, 0, 0, 0.3);
+  }
+  
+  .floating-ball:active {
+    transform: scale(0.95);
+  }
+  
+  .ball-content {
+    font-size: 24px;
+    font-weight: bold;
+    color: white;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .ball-tooltip {
+    position: absolute;
+    left: 70px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: white;
+    color: #1e293b;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    border: 1px solid #e2e8f0;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s;
+    pointer-events: none;
+    z-index: 10000;
+  }
+  
+  .floating-ball:hover .ball-tooltip {
+    opacity: 1;
+    visibility: visible;
+    left: 75px;
+  }
+  
+  /* Colores específicos para cada bolita */
+  .ball-tarifas {
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  }
+  
+  .ball-crear-clasif {
+    background: linear-gradient(135deg, #10b981, #059669);
+  }
+  
+  .ball-clasif-rutas {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+  }
+  
+  /* ===== NUEVO: PANELES DESLIZANTES ===== */
+  .side-panel-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 9997;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s;
+  }
+  
+  .side-panel-overlay.active {
+    opacity: 1;
+    visibility: visible;
+  }
+  
+  .side-panel {
+    position: fixed;
+    left: -450px;
+    top: 0;
+    width: 420px;
+    height: 100vh;
+    background: white;
+    box-shadow: 4px 0 25px rgba(0, 0, 0, 0.15);
+    z-index: 9998;
+    transition: left 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  
+  .side-panel.active {
+    left: 0;
+  }
+  
+  .side-panel-header {
+    position: sticky;
+    top: 0;
+    background: white;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 1.25rem;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  
+  .side-panel-body {
+    padding: 1.25rem;
+    padding-bottom: 2rem;
+  }
+  
+  .side-panel-close {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: #64748b;
+  }
+  
+  .side-panel-close:hover {
+    background: #e2e8f0;
+    color: #1e293b;
+  }
+  
+  /* ===== TABLA CENTRAL CON ANIMACIÓN ===== */
+  .table-container-wrapper {
+    transition: margin-left 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    margin-left: 0;
+  }
+  
+  .table-container-wrapper.with-panel {
+    margin-left: 420px;
+  }
+  
+  /* Indicador de panel activo */
+  .ball-active {
+    animation: pulse-ball 2s infinite;
+    box-shadow: 0 0 0 8px rgba(59, 130, 246, 0.2);
+  }
+  
+  @keyframes pulse-ball {
+    0%, 100% { box-shadow: 0 8px 20px rgba(0,0,0,0.2), 0 0 0 0 rgba(59, 130, 246, 0.4); }
+    50% { box-shadow: 0 8px 20px rgba(0,0,0,0.2), 0 0 0 12px rgba(59, 130, 246, 0); }
+  }
+  
+  /* Animación de notificaciones */
+  @keyframes fadeInDown {
+    from {
+      opacity: 0;
+      transform: translateY(-20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  .animate-fade-in-down {
+    animation: fadeInDown 0.3s ease-out;
+  }
 
-        /* Modal Viajes - EXACTAMENTE IGUAL AL PRIMER CÓDIGO */
-        .viajes-backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:10000; }
-        .viajes-backdrop.show{ display:flex; }
-        .viajes-card{ width:min(720px,94vw); max-height:90vh; overflow:hidden; border-radius:16px; background:#fff;
-            box-shadow:0 20px 60px rgba(0,0,0,.25); border:1px solid #e5e7eb; }
-        .viajes-header{padding:14px 16px;border-bottom:1px solid #eef2f7}
-        .viajes-body{padding:14px 16px;overflow:auto; max-height:70vh}
-        .viajes-close{padding:6px 10px; border-radius:10px; cursor:pointer;}
-        .viajes-close:hover{background:#f3f4f6}
+  /* ===== MODAL VIAJES ===== */
+  .viajes-backdrop{ 
+    position:fixed; 
+    inset:0; 
+    background:rgba(0,0,0,.45); 
+    display:none; 
+    align-items:center; 
+    justify-content:center; 
+    z-index:10000; 
+  }
+  .viajes-backdrop.show{ display:flex; }
+  .viajes-card{ 
+    width:min(720px,94vw); 
+    max-height:90vh; 
+    overflow:hidden; 
+    border-radius:16px; 
+    background:#fff;
+    box-shadow:0 20px 60px rgba(0,0,0,.25); 
+    border:1px solid #e5e7eb; 
+  }
+  .viajes-header{
+    padding:14px 16px;
+    border-bottom:1px solid #eef2f7
+  }
+  .viajes-body{
+    padding:14px 16px;
+    overflow:auto; 
+    max-height:70vh
+  }
+  .viajes-close{
+    padding:6px 10px; 
+    border-radius:10px; 
+    cursor:pointer;
+  }
+  .viajes-close:hover{
+    background:#f3f4f6
+  }
 
-        .conductor-link{cursor:pointer; color:#0d6efd; text-decoration:underline;}
+  .conductor-link{
+    cursor:pointer; 
+    color:#0d6efd; 
+    text-decoration:underline;
+  }
 
-        /* Estados de pago */
-        .estado-pagado { background-color: #f0fdf4 !important; border-left: 4px solid #22c55e; }
-        .estado-pendiente { background-color: #fef2f2 !important; border-left: 4px solid #ef4444; }
-        .estado-procesando { background-color: #fffbeb !important; border-left: 4px solid #f59e0b; }
-        .estado-parcial { background-color: #eff6ff !important; border-left: 4px solid #3b82f6; }
-
-        /* Fila manual */
-        .fila-manual { background-color: #f0f9ff !important; border-left: 4px solid #0ea5e9; }
-        .fila-manual td { background-color: #f0f9ff !important; }
-        
-        /* Buscador */
-        .buscar-container { position: relative; }
-        .buscar-clear { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #64748b; cursor: pointer; display: none; }
-        .buscar-clear:hover { color: #475569; }
-        
-        /* Panel flotante */
-        #floatingPanel { box-shadow: 0 10px 40px rgba(0,0,0,0.15); z-index: 9999; }
-        #panelDragHandle { user-select: none; }
-        .checkbox-conductor { width: 18px; height: 18px; cursor: pointer; }
-        .fila-seleccionada { background-color: #f0f9ff !important; }
-        
-        /* Leyenda */
-        .legend-pill { transition: all 0.2s; }
-        .legend-pill.active { box-shadow: 0 0 0 2px #3b82f6, 0 0 0 4px rgba(59, 130, 246, 0.2); }
-        
-        /* Badge base datos */
-        .bd-badge { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
-        
-        /* Colores para viajes - EXACTAMENTE IGUAL AL PRIMER CÓDIGO */
-        .row-viaje:hover { background-color: #f8fafc; }
-        .cat-completo { background-color: rgba(209, 250, 229, 0.1); }
-        .cat-medio { background-color: rgba(254, 243, 199, 0.1); }
-        .cat-extra { background-color: rgba(241, 245, 249, 0.1); }
-        .cat-siapana { background-color: rgba(250, 232, 255, 0.1); }
-        .cat-carrotanque { background-color: rgba(207, 250, 254, 0.1); }
-        .cat-otro { background-color: rgba(243, 244, 246, 0.1); }
-    </style>
+  /* Colores para viajes */
+  .row-viaje:hover { background-color: #f8fafc; }
+  .cat-completo { background-color: rgba(209, 250, 229, 0.1); }
+  .cat-medio { background-color: rgba(254, 243, 199, 0.1); }
+  .cat-extra { background-color: rgba(241, 245, 249, 0.1); }
+  .cat-siapana { background-color: rgba(250, 232, 255, 0.1); }
+  .cat-carrotanque { background-color: rgba(207, 250, 254, 0.1); }
+  .cat-otro { background-color: rgba(243, 244, 246, 0.1); }
+  
+  /* Responsive */
+  @media (max-width: 768px) {
+    .floating-balls-container {
+      bottom: 20px;
+      top: auto;
+      left: 50%;
+      transform: translateX(-50%);
+      flex-direction: row;
+      gap: 10px;
+    }
+    
+    .floating-ball {
+      width: 50px;
+      height: 50px;
+    }
+    
+    .ball-content {
+      font-size: 20px;
+    }
+    
+    .side-panel {
+      width: 90%;
+      max-width: 400px;
+      left: -100%;
+    }
+    
+    .table-container-wrapper.with-panel {
+      margin-left: 0;
+    }
+    
+    .ball-tooltip {
+      display: none;
+    }
+  }
+</style>
 </head>
-<body class="bg-slate-100 text-slate-800 min-h-screen">
-<header class="max-w-[1600px] mx-auto px-3 md:px-4 pt-6">
+<body class="bg-slate-100 min-h-screen text-slate-800">
+
+  <!-- Encabezado CON FILTRO INTEGRADO -->
+  <header class="max-w-[1800px] mx-auto px-3 md:px-4 pt-6">
     <div class="bg-white border border-slate-200 rounded-2xl shadow-sm px-5 py-4">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <h2 class="text-xl md:text-2xl font-bold">🧾 Ajuste de Pago <span class="bd-badge text-xs px-2 py-1 rounded-full ml-2">Base de Datos</span></h2>
-            <div class="flex items-center gap-2">
-                <button id="btnShowSaveCuenta" class="rounded-lg border border-amber-300 px-3 py-2 text-sm bg-amber-50 hover:bg-amber-100">⭐ Guardar como cuenta</button>
-                <button id="btnShowGestorCuentas" class="rounded-lg border border-blue-300 px-3 py-2 text-sm bg-blue-50 hover:bg-blue-100">📚 Cuentas guardadas</button>
-            </div>
-        </div>
-
-        <!-- filtros -->
-        <form id="formFiltros" class="mt-3 grid grid-cols-1 md:grid-cols-6 gap-3" method="get">
-            <label class="block md:col-span-1">
-                <span class="block text-xs font-medium mb-1">Desde</span>
-                <input id="inp_desde" type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
-            </label>
-            <label class="block md:col-span-1">
-                <span class="block text-xs font-medium mb-1">Hasta</span>
-                <input id="inp_hasta" type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
-            </label>
-            <label class="block md:col-span-2">
-                <span class="block text-xs font-medium mb-1">Empresa</span>
-                <select id="sel_empresa" name="empresa" class="w-full rounded-xl border border-slate-300 px-3 py-2">
-                    <option value="">-- Todas --</option>
-                    <?php
-                    $resEmp2 = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
-                    if ($resEmp2) while ($e = $resEmp2->fetch_assoc()) {
-                        $sel = ($empresaFiltro==$e['empresa'])?'selected':''; ?>
-                        <option value="<?= htmlspecialchars($e['empresa']) ?>" <?= $sel ?>><?= htmlspecialchars($e['empresa']) ?></option>
-                    <?php } ?>
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
+        <!-- Título y filtro en la misma línea -->
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between w-full gap-3">
+          <div class="flex items-center gap-3">
+            <h2 class="text-xl md:text-2xl font-bold">🪙 Liquidación de Conductores</h2>
+            <?php if ($empresaFiltro !== ""): ?>
+              <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-sm font-medium">
+                🏢 <?= htmlspecialchars($empresaFiltro) ?>
+              </span>
+            <?php endif; ?>
+          </div>
+          
+          <!-- FILTRO DE FECHA - AHORA EN EL ENCABEZADO -->
+          <form id="headerFilterForm" class="flex flex-col md:flex-row md:items-center gap-2" method="get">
+            <div class="flex flex-col md:flex-row md:items-center gap-2">
+              <label class="flex items-center gap-1">
+                <span class="text-xs font-medium text-slate-600 whitespace-nowrap">Desde:</span>
+                <input type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" required
+                       class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition">
+              </label>
+              <label class="flex items-center gap-1">
+                <span class="text-xs font-medium text-slate-600 whitespace-nowrap">Hasta:</span>
+                <input type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" required
+                       class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition">
+              </label>
+              <label class="flex items-center gap-1">
+                <span class="text-xs font-medium text-slate-600 whitespace-nowrap">Empresa:</span>
+                <select name="empresa"
+                        class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition min-w-[120px]">
+                  <option value="">-- Todas --</option>
+                  <?php foreach($empresas as $e): ?>
+                    <option value="<?= htmlspecialchars($e) ?>" <?= $empresaFiltro==$e?'selected':'' ?>>
+                      <?= htmlspecialchars($e) ?>
+                    </option>
+                  <?php endforeach; ?>
                 </select>
-            </label>
-            <div class="md:col-span-2 flex md:items-end">
-                <button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow">Aplicar</button>
+              </label>
+              <button type="submit" 
+                      class="rounded-lg bg-blue-600 text-white px-4 py-1.5 text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 focus:ring-2 focus:ring-blue-200 transition whitespace-nowrap">
+                🔄 Aplicar
+              </button>
             </div>
-        </form>
+          </form>
+        </div>
+      </div>
+      
+      <!-- Información del periodo actual -->
+      <div class="text-sm text-slate-600 flex items-center gap-2">
+        <span class="font-medium">Periodo actual:</span>
+        <span class="bg-slate-100 px-2 py-1 rounded-lg font-semibold">
+          <?= htmlspecialchars($desde) ?> → <?= htmlspecialchars($hasta) ?>
+        </span>
+        <span class="mx-2">•</span>
+        <span class="font-medium">Conductores:</span>
+        <span class="bg-slate-100 px-2 py-1 rounded-lg font-semibold">
+          <?= count($datos) ?>
+        </span>
+      </div>
     </div>
-</header>
+  </header>
 
-<main class="max-w-[1600px] mx-auto px-3 md:px-4 py-6 space-y-5">
-    <!-- Panel montos -->
-    <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-        <div class="grid grid-cols-1 md:grid-cols-7 gap-4">
-            <div>
-                <div class="text-xs text-slate-500 mb-1">Conductores</div>
-                <div class="text-lg font-semibold"><?= count($filas) ?></div>
-            </div>
-            <label class="block md:col-span-2">
-                <span class="block text-xs font-medium mb-1">Cuenta de cobro (facturado)</span>
-                <input id="inp_facturado" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num"
-                       value="<?= number_format($total_facturado,0,',','.') ?>">
-            </label>
-            <label class="block md:col-span-2">
-                <span class="block text-xs font-medium mb-1">Viajes manuales agregados</span>
-                <input id="inp_viajes_manuales" type="text" class="w-full rounded-xl border border-green-200 px-3 py-2 text-right num bg-green-50" value="0" readonly>
-            </label>
-            <label class="block">
-                <span class="block text-xs font-medium mb-1">Porcentaje de ajuste (%)</span>
-                <input id="inp_porcentaje_ajuste" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num"
-                       value="5" placeholder="Ej: 5">
-            </label>
-            <div>
-                <div class="text-xs text-slate-500 mb-1">Total ajuste</div>
-                <div id="lbl_total_ajuste" class="text-lg font-semibold text-amber-600 num">0</div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Tabla principal -->
-    <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-            <div>
-                <h3 class="text-lg font-semibold">Conductores</h3>
-                <div id="contador-conductores" class="text-xs text-slate-500 mt-1">
-                    Mostrando <?= count($filas) ?> de <?= count($filas) ?> conductores
-                </div>
-            </div>
-            <div class="flex flex-col md:flex-row gap-3 w-full md:w-auto">
-                <!-- BUSCADOR DE CONDUCTORES -->
-                <div class="buscar-container w-full md:w-64">
-                    <input id="buscadorConductores" type="text" 
-                           placeholder="Buscar conductor..." 
-                           class="w-full rounded-lg border border-slate-300 px-3 py-2 pl-3 pr-10">
-                    <button id="clearBuscar" class="buscar-clear">✕</button>
-                </div>
-                <button id="btnAddManual" type="button" class="rounded-lg bg-green-600 text-white px-4 py-2 text-sm hover:bg-green-700 whitespace-nowrap">
-                    ➕ Agregar conductor manual
-                </button>
-            </div>
-        </div>
-
-        <div class="overflow-auto max-h-[70vh] rounded-xl border border-slate-200 table-sticky">
-            <table class="min-w-[1200px] w-full text-sm">
-                <thead class="bg-blue-600 text-white">
-                <tr>
-                    <th class="px-3 py-2 text-left">Conductor</th>
-                    <th class="px-3 py-2 text-right">Total viajes (base)</th>
-                    <th class="px-3 py-2 text-right">Ajuste por diferencia</th>
-                    <th class="px-3 py-2 text-right">Valor que llegó</th>
-                    <th class="px-3 py-2 text-right">Retención 3.5%</th>
-                    <th class="px-3 py-2 text-right">4×1000</th>
-                    <th class="px-3 py-2 text-right">Aporte 10%</th>
-                    <th class="px-3 py-2 text-right">Seg. social</th>
-                    <th class="px-3 py-2 text-right">Préstamos (pend.)</th>
-                    <th class="px-3 py-2 text-left">N° Cuenta</th>
-                    <th class="px-3 py-2 text-right">A pagar</th>
-                    <th class="px-3 py-2 text-center">Estado</th>
-                    <th class="px-3 py-2 text-center">
-                        <input type="checkbox" id="selectAllCheckbox" class="checkbox-conductor" title="Seleccionar todos">
-                    </th>
-                </tr>
-                </thead>
-                <tbody id="tbody" class="divide-y divide-slate-100 bg-white">
-                <?php 
-                $contador_filas = 0;
-                foreach ($filas as $f): 
-                    $contador_filas++;
-                    $nombre_normalizado = htmlspecialchars(mb_strtolower($f['nombre']));
-                ?>
-                    <tr data-conductor="<?= $nombre_normalizado ?>" data-total-base="<?= $f['total_bruto'] ?>" data-row-index="<?= $contador_filas ?>">
-                        <td class="px-3 py-2">
-                            <button type="button" class="conductor-link" data-nombre="<?= htmlspecialchars($f['nombre']) ?>" title="Ver viajes"><?= htmlspecialchars($f['nombre']) ?></button>
-                        </td>
-                        <td class="px-3 py-2 text-right num base"><?= number_format($f['total_bruto'],0,',','.') ?></td>
-                        <td class="px-3 py-2 text-right num ajuste">0</td>
-                        <td class="px-3 py-2 text-right num llego">0</td>
-                        <td class="px-3 py-2 text-right num ret">0</td>
-                        <td class="px-3 py-2 text-right num mil4">0</td>
-                        <td class="px-3 py-2 text-right num apor">0</td>
-                        <td class="px-3 py-2 text-right">
-                            <input type="text" class="ss w-full max-w-[120px] rounded-lg border border-slate-300 px-2 py-1 text-right num" value="">
-                        </td>
-                        <td class="px-3 py-2 text-right">
-                            <div class="flex items-center justify-end gap-2">
-                                <span class="num prest">0</span>
-                                <button type="button" class="btn-prest text-xs px-2 py-1 rounded border border-slate-300 bg-slate-50 hover:bg-slate-100" data-nombre="<?= htmlspecialchars($f['nombre']) ?>">
-                                    Seleccionar
-                                </button>
-                            </div>
-                            <div class="text-[11px] text-slate-500 text-right selected-deudor"></div>
-                        </td>
-                        <td class="px-3 py-2">
-                            <input type="text" class="cta w-full max-w-[180px] rounded-lg border border-slate-300 px-2 py-1" value="" placeholder="N° cuenta">
-                        </td>
-                        <td class="px-3 py-2 text-right num pagar">0</td>
-                        <td class="px-3 py-2 text-center">
-                            <select class="estado-pago w-full max-w-[140px] rounded-lg border border-slate-300 px-2 py-1 text-sm">
-                                <option value="">Sin estado</option>
-                                <option value="pagado">✅ Pagado</option>
-                                <option value="pendiente">❌ Pendiente</option>
-                                <option value="procesando">🔄 Procesando</option>
-                                <option value="parcial">⚠️ Parcial</option>
-                            </select>
-                        </td>
-                        <td class="px-3 py-2 text-center">
-                            <input type="checkbox" class="checkbox-conductor selector-conductor">
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-                </tbody>
-                <tfoot class="bg-slate-50 font-semibold">
-                <tr>
-                    <td class="px-3 py-2" colspan="3">Totales</td>
-                    <td class="px-3 py-2 text-right num" id="tot_valor_llego">0</td>
-                    <td class="px-3 py-2 text-right num" id="tot_retencion">0</td>
-                    <td class="px-3 py-2 text-right num" id="tot_4x1000">0</td>
-                    <td class="px-3 py-2 text-right num" id="tot_aporte">0</td>
-                    <td class="px-3 py-2 text-right num" id="tot_ss">0</td>
-                    <td class="px-3 py-2 text-right num" id="tot_prestamos">0</td>
-                    <td class="px-3 py-2"></td>
-                    <td class="px-3 py-2 text-right num" id="tot_pagar">0</td>
-                    <td class="px-3 py-2" colspan="2"></td>
-                </tr>
-                </tfoot>
-            </table>
-        </div>
-    </section>
-</main>
-
-<!-- ===== PANEL FLOTANTE DE SELECCIÓN ===== -->
-<div id="floatingPanel" class="hidden fixed z-50 bg-white border border-blue-300 rounded-xl shadow-lg" style="top: 100px; left: 100px; min-width: 300px;">
-    <div id="panelDragHandle" class="cursor-move bg-blue-600 text-white px-4 py-3 rounded-t-xl flex items-center justify-between">
-        <div class="font-semibold flex items-center gap-2">
-            <span>📊 Sumatoria Seleccionados</span>
-            <span id="selectedCount" class="bg-blue-500 text-white text-xs px-2 py-1 rounded-full">0</span>
-        </div>
-        <button id="closePanel" class="text-white hover:bg-blue-700 p-1 rounded">✕</button>
+  <!-- ===== NUEVO: BOLITAS FLOTANTES ===== -->
+  <div class="floating-balls-container">
+    <!-- Bolita 1: Tarifas por tipo de vehículo -->
+    <div class="floating-ball ball-tarifas" id="ball-tarifas" data-panel="tarifas">
+      <div class="ball-content">🚐</div>
+      <div class="ball-tooltip">Tarifas por tipo de vehículo</div>
     </div>
     
-    <div class="p-4">
-        <div class="space-y-3">
-            <div class="flex justify-between items-center border-b pb-2">
-                <span class="text-sm text-slate-600">Conductores seleccionados:</span>
-                <span id="panelConductoresCount" class="font-semibold">0</span>
-            </div>
-            
-            <div class="grid grid-cols-2 gap-3">
-                <div class="bg-slate-50 p-3 rounded-lg">
-                    <div class="text-xs text-slate-500 mb-1">Total a pagar</div>
-                    <div id="panelTotalPagar" class="text-xl font-bold text-emerald-600 num">0</div>
-                </div>
-                <div class="bg-slate-50 p-3 rounded-lg">
-                    <div class="text-xs text-slate-500 mb-1">Promedio por conductor</div>
-                    <div id="panelPromedio" class="text-lg font-semibold text-blue-600 num">0</div>
-                </div>
-            </div>
-            
-            <div class="text-xs text-slate-500 mt-2">
-                <div class="flex justify-between mb-1">
-                    <span>Valor que llega:</span>
-                    <span id="panelTotalLlego" class="num font-semibold">0</span>
-                </div>
-                <div class="flex justify-between mb-1">
-                    <span>Retención 3.5%:</span>
-                    <span id="panelTotalRetencion" class="num">0</span>
-                </div>
-                <div class="flex justify-between mb-1">
-                    <span>4×1000:</span>
-                    <span id="panelTotal4x1000" class="num">0</span>
-                </div>
-                <div class="flex justify-between mb-1">
-                    <span>Aporte 10%:</span>
-                    <span id="panelTotalAporte" class="num">0</span>
-                </div>
-                <div class="flex justify-between mb-1">
-                    <span>Seg. social:</span>
-                    <span id="panelTotalSS" class="num">0</span>
-                </div>
-                <div class="flex justify-between">
-                    <span>Préstamos:</span>
-                    <span id="panelTotalPrestamos" class="num">0</span>
-                </div>
-            </div>
-            
-            <div class="mt-3 pt-3 border-t">
-                <div class="text-xs text-slate-500 mb-2">Conductores:</div>
-                <div id="panelNombresConductores" class="text-xs max-h-[100px] overflow-y-auto">
-                    <div class="text-slate-400 italic">Ningún conductor seleccionado</div>
-                </div>
-            </div>
-        </div>
+    <!-- Bolita 2: Crear nueva clasificación -->
+    <div class="floating-ball ball-crear-clasif" id="ball-crear-clasif" data-panel="crear-clasif">
+      <div class="ball-content">➕</div>
+      <div class="ball-tooltip">Crear nueva clasificación</div>
     </div>
-</div>
+    
+    <!-- Bolita 3: Clasificar rutas existentes -->
+    <div class="floating-ball ball-clasif-rutas" id="ball-clasif-rutas" data-panel="clasif-rutas">
+      <div class="ball-content">🧭</div>
+      <div class="ball-tooltip">Clasificar rutas existentes</div>
+    </div>
+  </div>
 
-<!-- ===== Modal PRÉSTAMOS ===== -->
-<div id="prestModal" class="hidden fixed inset-0 z-50">
-    <div class="absolute inset-0 bg-black/30"></div>
-    <div class="relative mx-auto my-8 max-w-2xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
-        <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-            <h3 class="text-lg font-semibold">Seleccionar deudores (puedes marcar varios)</h3>
-            <button id="btnCloseModal" class="p-2 rounded hover:bg-slate-100" title="Cerrar">✕</button>
-        </div>
-        <div class="p-4">
-            <div class="flex flex-col md:flex-row md:items-center gap-3 mb-3">
-                <input id="prestSearch" type="text" placeholder="Buscar deudor..." class="w-full rounded-xl border border-slate-300 px-3 py-2">
-                <div class="flex gap-2">
-                    <button id="btnSelectAll" class="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 hover:bg-slate-100">Marcar visibles</button>
-                    <button id="btnUnselectAll" class="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-slate-50 hover:bg-slate-100">Desmarcar</button>
-                    <button id="btnClearSel" class="rounded-lg border border-rose-300 text-rose-700 px-3 py-2 text-sm bg-rose-50 hover:bg-rose-100">Quitar selección</button>
-                </div>
-            </div>
-            <div id="prestList" class="max-h-[50vh] overflow-auto rounded-xl border border-slate-200"></div>
-        </div>
-        <div class="px-5 py-4 border-t border-slate-200 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div class="text-sm text-slate-600">
-                Seleccionados: <span id="selCount" class="font-semibold">0</span><br>
-                <span class="text-xs">Total seleccionado: <span id="selTotal" class="num font-semibold">0</span></span>
-            </div>
+  <!-- ===== NUEVO: OVERLAY PARA PANELES ===== -->
+  <div class="side-panel-overlay" id="sidePanelOverlay"></div>
 
+  <!-- ===== NUEVO: PANEL DE TARIFAS ===== -->
+  <div class="side-panel" id="panel-tarifas">
+    <div class="side-panel-header">
+      <h3 class="text-lg font-semibold flex items-center gap-2">
+        <span>🚐 Tarifas por Tipo de Vehículo</span>
+        <span class="text-xs text-slate-500">(<?= count($columnas_tarifas) ?> tipos de tarifas)</span>
+      </h3>
+      <button class="side-panel-close" data-panel="tarifas">✕</button>
+    </div>
+    <div class="side-panel-body">
+      <div id="tarifas_grid" class="grid grid-cols-1 gap-4">
+        <?php foreach ($vehiculos as $veh):
+          $t = $tarifas_guardadas[$veh] ?? [];
+        ?>
+        <div class="tarjeta-tarifa rounded-2xl border border-slate-200 p-4 shadow-sm bg-slate-50"
+             data-vehiculo="<?= htmlspecialchars($veh) ?>">
+
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-base font-semibold"><?= htmlspecialchars($veh) ?></div>
+            <span class="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 border border-blue-200">Config</span>
+          </div>
+
+          <?php foreach ($columnas_tarifas as $columna): 
+            $valor = isset($t[$columna]) ? (float)$t[$columna] : 0;
+            $etiqueta = ucfirst($columna);
+            
+            // Etiquetas especiales
+            $etiquetas_especiales = [
+                'completo' => 'Viaje Completo',
+                'medio' => 'Viaje Medio',
+                'extra' => 'Viaje Extra',
+                'carrotanque' => 'Carrotanque',
+                'siapana' => 'Siapana',
+                'riohacha' => 'Riohacha',
+                'pru' => 'Pru',
+                'maco' => 'Maco'
+            ];
+            
+            $etiqueta_final = $etiquetas_especiales[$columna] ?? $etiqueta;
+          ?>
+          <label class="block mb-3">
+            <span class="block text-sm font-medium mb-1"><?= htmlspecialchars($etiqueta_final) ?></span>
+            <input type="number" step="1000" value="<?= $valor ?>"
+                   data-campo="<?= htmlspecialchars($columna) ?>"
+                   class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition tarifa-input"
+                   oninput="recalcular()">
+          </label>
+          <?php endforeach; ?>
+        </div>
+        <?php endforeach; ?>
+      </div>
+      
+      <p class="text-xs text-slate-500 mt-4">
+        Los cambios se guardan automáticamente al modificar cualquier valor.
+      </p>
+    </div>
+  </div>
+
+  <!-- ===== NUEVO: PANEL CREAR CLASIFICACIÓN ===== -->
+  <div class="side-panel" id="panel-crear-clasif">
+    <div class="side-panel-header">
+      <h3 class="text-lg font-semibold flex items-center gap-2">
+        <span>➕ Crear Nueva Clasificación</span>
+        <span class="text-xs text-slate-500">Dinámico</span>
+      </h3>
+      <button class="side-panel-close" data-panel="crear-clasif">✕</button>
+    </div>
+    <div class="side-panel-body">
+      <p class="text-sm text-slate-600 mb-4">
+        Crea una nueva clasificación. Se agregará a la tabla tarifas.
+      </p>
+
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium mb-2">Nombre de la nueva clasificación</label>
+          <input id="txt_nueva_clasificacion" type="text"
+                 class="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
+                 placeholder="Ej: Premium, Nocturno, Express...">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-2">Texto que deben contener las rutas (opcional)</label>
+          <input id="txt_patron_ruta" type="text"
+                 class="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
+                 placeholder="Dejar vacío para solo crear la clasificación">
+        </div>
+        <button type="button"
+                onclick="crearYAsignarClasificacion()"
+                class="w-full inline-flex items-center justify-center rounded-xl bg-green-600 text-white px-4 py-3 text-sm font-semibold hover:bg-green-700 active:bg-green-800 focus:ring-4 focus:ring-green-200 transition">
+          ⚙️ Crear y Aplicar
+        </button>
+      </div>
+
+      <p class="text-xs text-slate-500 mt-4">
+        La nueva clasificación se creará en la tabla tarifas. Vuelve a dar <strong>Filtrar</strong> para ver los cambios.
+      </p>
+    </div>
+  </div>
+
+  <!-- ===== NUEVO: PANEL CLASIFICACIÓN RUTAS ===== -->
+  <div class="side-panel" id="panel-clasif-rutas">
+    <div class="side-panel-header">
+      <h3 class="text-lg font-semibold flex items-center gap-2">
+        <span>🧭 Clasificar Rutas Existentes</span>
+        <span class="text-xs text-slate-500">Usa clasificaciones creadas</span>
+      </h3>
+      <button class="side-panel-close" data-panel="clasif-rutas">✕</button>
+    </div>
+    <div class="side-panel-body">
+      <div class="max-h-[calc(100vh-180px)] overflow-y-auto border border-slate-200 rounded-xl">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-100 text-slate-600 sticky top-0">
+            <tr>
+              <th class="px-3 py-2 text-left">Ruta</th>
+              <th class="px-3 py-2 text-center">Vehículo</th>
+              <th class="px-3 py-2 text-center">Clasificación</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+          <?php foreach($rutasUnicas as $info): 
+            $estilo = obtenerEstiloClasificacion($info['clasificacion'] ?? '');
+          ?>
+            <tr class="fila-ruta hover:bg-slate-50"
+                data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
+                data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>">
+              <td class="px-3 py-2 whitespace-nowrap text-left">
+                <?= htmlspecialchars($info['ruta']) ?>
+              </td>
+              <td class="px-3 py-2 text-center">
+                <?= htmlspecialchars($info['vehiculo']) ?>
+              </td>
+              <td class="px-3 py-2 text-center">
+                <select class="select-clasif-ruta rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100 w-full"
+                        data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
+                        data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>"
+                        style="<?php if($info['clasificacion']): ?>background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>20; color: <?= str_replace('text-', '#', $estilo['text']) ?>; border-color: <?= str_replace('border-', '#', $estilo['border']) ?>;<?php endif; ?>">
+                  <option value="">Sin clasificar</option>
+                  <?php foreach ($clasificaciones_disponibles as $clasif): 
+                    $estilo_opcion = obtenerEstiloClasificacion($clasif);
+                  ?>
+                  <option value="<?= htmlspecialchars($clasif) ?>" 
+                          <?= $info['clasificacion']===$clasif ? 'selected' : '' ?>
+                          style="background-color: <?= str_replace('bg-', '#', $estilo_opcion['bg']) ?>20; color: <?= str_replace('text-', '#', $estilo_opcion['text']) ?>;">
+                    <?= htmlspecialchars(ucfirst($clasif)) ?>
+                  </option>
+                  <?php endforeach; ?>
+                </select>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="text-xs text-slate-500 mt-4">
+        Selecciona una clasificación para cada ruta. Los cambios se guardan automáticamente.
+      </p>
+    </div>
+  </div>
+
+  <!-- Contenido principal -->
+  <main class="max-w-[1800px] mx-auto px-3 md:px-4 py-6">
+    <div class="table-container-wrapper" id="tableContainerWrapper">
+      <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+        <!-- Encabezado del panel central -->
+        <div class="p-5 border-b border-slate-200">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h3 class="text-xl font-semibold">🧑‍✈️ Resumen por Conductor</h3>
+              <div id="contador-conductores" class="text-sm text-slate-500 mt-1">
+                Mostrando <?= count($datos) ?> conductores
+              </div>
+            </div>
             <div class="flex items-center gap-2">
-                <label class="text-sm flex items-center gap-1">
-                    <span>Valor a aplicar:</span>
-                    <input id="selTotalManual" type="text"
-                           class="w-32 rounded-lg border border-slate-300 px-2 py-1 text-right num"
-                           value="0">
-                </label>
-                <button id="btnCancel" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
-                <button id="btnAssign" class="rounded-lg border border-blue-600 px-4 py-2 bg-blue-600 text-white hover:bg-blue-700">Asignar</button>
+              <!-- Botón para mostrar resumen de rutas sin clasificar -->
+              <button onclick="mostrarResumenRutasSinClasificar()" 
+                      class="text-sm px-4 py-2 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600 transition flex items-center gap-2 shadow-md hover:shadow-lg">
+                ⚠️ Ver rutas sin clasificar
+              </button>
             </div>
+          </div>
         </div>
-    </div>
-</div>
 
-<!-- ===== Modal VIAJES (EXACTAMENTE IGUAL AL PRIMER CÓDIGO) ===== -->
-<div id="viajesModal" class="viajes-backdrop">
-    <div class="viajes-card">
-        <div class="viajes-header">
-            <div class="flex flex-col gap-2 w-full md:flex-row md:items-center md:justify-between">
-                <div class="flex flex-col gap-1">
-                    <h3 class="text-lg font-semibold flex items-center gap-2">
-                        🧳 Viajes — <span id="viajesTitle" class="font-normal"></span>
-                    </h3>
-                    <div class="text-[11px] text-slate-500 leading-tight">
-                        <span id="viajesRango"></span>
-                        <span class="mx-1">•</span>
-                        <span id="viajesEmpresa"></span>
-                    </div>
-                </div>
+        <!-- Contenido del panel central -->
+        <div class="p-5">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+            <div class="flex flex-col md:flex-row gap-4 w-full md:w-auto">
+              <!-- BUSCADOR -->
+              <div class="buscar-container w-full md:w-64">
+                <input id="buscadorConductores" type="text" 
+                       placeholder="Buscar conductor..." 
+                       class="w-full rounded-xl border border-slate-300 px-4 py-3 pl-4 pr-10 text-sm">
+                <button id="clearBuscar" class="buscar-clear">✕</button>
+              </div>
+
+              <div id="total_chip_container" class="flex flex-wrap items-center gap-3">
+                <span class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 font-semibold text-sm">
+                  🔢 Viajes: <span id="total_viajes">0</span>
+                </span>
+                <span class="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-4 py-2 text-purple-700 font-semibold text-sm">
+                  💰 Total: <span id="total_general">0</span>
+                </span>
+                <span class="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-emerald-700 font-semibold text-sm">
+                  ✅ Pagado: <span id="total_pagado">0</span>
+                </span>
+                <span class="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-rose-700 font-semibold text-sm">
+                  ⏳ Faltante: <span id="total_faltante">0</span>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- NUEVO: Resumen de rutas sin clasificar -->
+          <div id="resumenRutasSinClasificar" class="hidden mb-6">
+            <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+              <div class="flex items-center justify-between mb-4">
                 <div class="flex items-center gap-2">
-                    <label class="text-xs text-slate-600 whitespace-nowrap">Conductor:</label>
-                    <select id="viajesSelectConductor"
-                            class="rounded-lg border border-slate-300 px-2 py-1 text-sm min-w-[200px] focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500">
-                    </select>
-                    <button class="viajes-close text-slate-600 hover:bg-slate-100 border border-slate-300 px-2 py-1 rounded-lg text-sm" id="viajesCloseBtn" title="Cerrar">
-                        ✕
-                    </button>
+                  <span class="text-amber-600 font-bold text-lg">⚠️</span>
+                  <h4 class="font-semibold text-amber-800">Rutas sin clasificar encontradas</h4>
                 </div>
-            </div>
-        </div>
-
-        <div class="viajes-body" id="viajesContent"></div>
-    </div>
-</div>
-
-<!-- ===== Modal GUARDAR CUENTA ===== -->
-<div id="saveCuentaModal" class="hidden fixed inset-0 z-50">
-    <div class="absolute inset-0 bg-black/30"></div>
-    <div class="relative mx-auto my-10 w-full max-w-lg bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
-        <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-            <h3 class="text-lg font-semibold">⭐ Guardar cuenta de cobro</h3>
-            <button id="btnCloseSaveCuenta" class="p-2 rounded hover:bg-slate-100" title="Cerrar">✕</button>
-        </div>
-        <div class="p-5 space-y-3">
-            <label class="block">
-                <span class="block text-xs font-medium mb-1">Nombre</span>
-                <input id="cuenta_nombre" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" placeholder="Ej: Hospital Sep 2025">
-            </label>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <label class="block">
-                    <span class="block text-xs font-medium mb-1">Empresa</span>
-                    <input id="cuenta_empresa" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" readonly>
-                </label>
-                <label class="block">
-                    <span class="block text-xs font-medium mb-1">Rango</span>
-                    <input id="cuenta_rango" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" readonly>
-                </label>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <label class="block">
-                    <span class="block text-xs font-medium mb-1">Facturado</span>
-                    <input id="cuenta_facturado" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
-                </label>
-                <label class="block">
-                    <span class="block text-xs font-medium mb-1">Porcentaje ajuste</span>
-                    <input id="cuenta_porcentaje" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
-                </label>
-            </div>
-            <div class="text-xs text-slate-500 mt-2">
-                <strong>⚠️ NOTA:</strong> Se guardarán todos los datos: conductores, préstamos asignados, seguridad social, cuentas bancarias, estados de pago y filas manuales.
-            </div>
-        </div>
-        <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
-            <button id="btnCancelSaveCuenta" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
-            <button id="btnDoSaveCuenta" class="rounded-lg border border-amber-500 text-white px-4 py-2 bg-amber-500 hover:bg-amber-600">Guardar en BD</button>
-        </div>
-    </div>
-</div>
-
-<!-- ===== Modal GESTOR DE CUENTAS (BASE DE DATOS) ===== -->
-<div id="gestorCuentasModal" class="hidden fixed inset-0 z-50">
-    <div class="absolute inset-0 bg-black/30"></div>
-    <div class="relative mx-auto my-10 w-full max-w-4xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
-        <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-            <h3 class="text-lg font-semibold">📚 Cuentas guardadas <span class="bd-badge text-xs px-2 py-1 rounded-full ml-2">Base de Datos</span></h3>
-            <button id="btnCloseGestor" class="p-2 rounded hover:bg-slate-100" title="Cerrar">✕</button>
-        </div>
-        <div class="p-4 space-y-3">
-            <div class="flex flex-col md:flex-row md:items-center gap-3">
-                <div class="text-sm">Filtrar por empresa:</div>
-                <select id="filtroEmpresaCuentas" class="rounded-xl border border-slate-300 px-3 py-2 min-w-[200px]">
-                    <option value="">-- Todas las empresas --</option>
-                    <?php
-                    $resEmpCuentas = $conn->query("SELECT DISTINCT empresa FROM cuentas_guardadas WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
-                    if ($resEmpCuentas) while ($e = $resEmpCuentas->fetch_assoc()) {
-                        $sel = ($empresaFiltro==$e['empresa'])?'selected':''; ?>
-                        <option value="<?= htmlspecialchars($e['empresa']) ?>" <?= $sel ?>><?= htmlspecialchars($e['empresa']) ?></option>
-                    <?php } ?>
-                </select>
-                <div class="flex-1"></div>
-                <div class="buscar-container w-full md:w-64">
-                    <input id="buscaCuentaBD" type="text" placeholder="Buscar por nombre..." 
-                           class="w-full rounded-xl border border-slate-300 px-3 py-2">
-                    <button id="clearBuscarBD" class="buscar-clear">✕</button>
-                </div>
-                <button id="btnRecargarCuentas" class="rounded-lg border border-blue-300 px-3 py-2 bg-blue-50 hover:bg-blue-100">
-                    🔄 Recargar
+                <span id="contadorRutasSinClasificarGlobal" class="px-3 py-1 bg-amber-500 text-white text-sm font-bold rounded-full">0</span>
+              </div>
+              
+              <div id="listaRutasSinClasificarGlobal" class="space-y-2 max-h-60 overflow-y-auto">
+                <!-- Aquí se cargarán las rutas dinámicamente -->
+              </div>
+              
+              <div class="mt-4 pt-4 border-t border-amber-100">
+                <button onclick="irAClasificacionRutas()" 
+                        class="w-full py-3 bg-amber-100 text-amber-700 hover:bg-amber-200 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2">
+                  🧭 Ir a clasificar rutas
                 </button>
+              </div>
             </div>
-            
-            <div class="text-xs text-slate-500 mt-1" id="contador-cuentas">
-                Cargando cuentas desde Base de Datos...
-            </div>
-            
-            <div class="overflow-auto max-h-[60vh] rounded-xl border border-slate-200">
-                <table class="min-w-full text-sm">
-                    <thead class="bg-blue-600 text-white">
-                    <tr>
-                        <th class="px-3 py-2 text-left">Nombre</th>
-                        <th class="px-3 py-2 text-left">Rango</th>
-                        <th class="px-3 py-2 text-right">Facturado</th>
-                        <th class="px-3 py-2 text-right">% Ajuste</th>
-                        <th class="px-3 py-2 text-center">Datos</th>
-                        <th class="px-3 py-2 text-center">Fecha</th>
-                        <th class="px-3 py-2 text-right">Acciones</th>
-                    </tr>
-                    </thead>
-                    <tbody id="tbodyCuentasBD" class="divide-y divide-slate-100 bg-white">
-                        <tr>
-                            <td colspan="7" class="px-3 py-8 text-center text-slate-500">
-                                <div class="animate-pulse">Cargando cuentas desde Base de Datos...</div>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-        <div class="px-5 py-4 border-t border-slate-200 text-right">
-            <button id="btnAddDesdeFiltro" class="rounded-lg border border-amber-300 px-3 py-2 text-sm bg-amber-50 hover:bg-amber-100">⭐ Guardar rango actual</button>
-        </div>
-    </div>
-</div>
+          </div>
 
-<script>
-    // ===== Claves de persistencia LOCAL (solo para sesión actual) =====
-    const COMPANY_SCOPE = <?= json_encode(($empresaFiltro ?: '__todas__')) ?>;
-    const ACC_KEY   = 'cuentas_temp:'+COMPANY_SCOPE;
-    const SS_KEY    = 'seg_social_temp:'+COMPANY_SCOPE;
-    const PREST_SEL_KEY = 'prestamo_sel_multi:v4:'+COMPANY_SCOPE;
-    const ESTADO_PAGO_KEY = 'estado_pago_temp:'+COMPANY_SCOPE;
-    const MANUAL_ROWS_KEY = 'filas_manuales_temp:'+COMPANY_SCOPE;
-    const SELECTED_CONDUCTORS_KEY = 'conductores_seleccionados_temp:'+COMPANY_SCOPE;
-
-    const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
-    const CONDUCTORES_LIST = <?= json_encode(array_map(fn($f)=>$f['nombre'],$filas), JSON_UNESCAPED_UNICODE); ?>;
-
-    const toInt = (s)=>{ 
-        if(typeof s==='number') return Math.round(s); 
-        s=(s||'').toString().replace(/\./g,'').replace(/,/g,'').replace(/[^\d\-]/g,''); 
-        return parseInt(s||'0',10)||0; 
-    };
-    
-    const fmt = (n)=> (n||0).toLocaleString('es-CO');
-    const getLS=(k)=>{try{return JSON.parse(localStorage.getItem(k)||'{}')}catch{return{}}};
-    const setLS=(k,v)=> localStorage.setItem(k, JSON.stringify(v));
-
-    // ===== Variables globales =====
-    let accMap = getLS(ACC_KEY);
-    let ssMap  = getLS(SS_KEY);
-    let prestSel = getLS(PREST_SEL_KEY); 
-    if(!prestSel || typeof prestSel!=='object') prestSel = {};
-    
-    let estadoPagoMap = getLS(ESTADO_PAGO_KEY) || {};
-    let manualRows = JSON.parse(localStorage.getItem(MANUAL_ROWS_KEY) || '[]');
-    let selectedConductors = JSON.parse(localStorage.getItem(SELECTED_CONDUCTORS_KEY) || '[]');
-
-    // ===== Elementos DOM =====
-    const tbody = document.getElementById('tbody');
-    const btnAddManual = document.getElementById('btnAddManual');
-    const floatingPanel = document.getElementById('floatingPanel');
-    const panelDragHandle = document.getElementById('panelDragHandle');
-    const closePanel = document.getElementById('closePanel');
-    const selectAllCheckbox = document.getElementById('selectAllCheckbox');
-
-    // ===== FUNCIÓN PARA OBTENER EL NOMBRE DEL CONDUCTOR =====
-    function obtenerNombreConductorDeFila(tr) {
-        if (tr.classList.contains('fila-manual')) {
-            const select = tr.querySelector('.conductor-select');
-            return select ? select.value.trim() : '';
-        } else {
-            const link = tr.querySelector('.conductor-link');
-            return link ? link.textContent.trim() : '';
-        }
-    }
-
-    // ===== FUNCIÓN PARA ASIGNAR PRÉSTAMOS A FILAS =====
-    function asignarPrestamosAFilas() {
-        document.querySelectorAll('#tbody tr').forEach(tr => {
-            let nombreConductor = obtenerNombreConductorDeFila(tr);
-            if (!nombreConductor) return;
-            
-            const prestamosDeEsteConductor = prestSel[nombreConductor] || [];
-            
-            if (prestamosDeEsteConductor.length === 0) {
-                const prestSpan = tr.querySelector('.prest');
-                if (prestSpan) prestSpan.textContent = '0';
-                const selLabel = tr.querySelector('.selected-deudor');
-                if (selLabel) selLabel.textContent = '';
-                return;
-            }
-            
-            let totalMostrar = 0;
-            let nombres = [];
-            
-            prestamosDeEsteConductor.forEach(prestamoGuardado => {
-                const prestamoActual = PRESTAMOS_LIST.find(p => 
-                    p.id === prestamoGuardado.id || 
-                    p.name === prestamoGuardado.name
-                );
-                
-                if (prestamoActual) {
-                    if (prestamoGuardado.esManual === true && prestamoGuardado.valorManual !== undefined) {
-                        totalMostrar += prestamoGuardado.valorManual;
-                    } else {
-                        totalMostrar += prestamoActual.total;
-                    }
+          <!-- CONTENEDOR DE TABLA -->
+          <div id="tableContainer" class="overflow-x-auto rounded-xl border border-slate-200">
+            <table id="tabla_conductores" class="w-full text-sm">
+              <thead class="bg-blue-600 text-white">
+                <tr>
+                  <!-- NUEVA COLUMNA PARA ALERTAS VISUALES -->
+                  <th class="px-4 py-3 text-center" style="min-width: 70px;">
+                    Estado
+                  </th>
+                  <th class="px-4 py-3 text-left" style="min-width: 220px;">
+                    Conductor
+                  </th>
+                  <th class="px-4 py-3 text-center" style="min-width: 120px;">
+                    Tipo
+                  </th>
+                  
+                  <?php foreach ($clasificaciones_disponibles as $index => $clasif): 
+                    $estilo = obtenerEstiloClasificacion($clasif);
+                    // Definir abreviaturas
+                    $abreviaturas = [
+                        'completo' => 'COM',
+                        'medio' => 'MED', 
+                        'extra' => 'EXT',
+                        'carrotanque' => 'CTK',
+                        'siapana' => 'SIA',
+                        'riohacha' => 'RIO',
+                        'pru' => 'PRU',
+                        'maco' => 'MAC'
+                    ];
+                    $abreviatura = $abreviaturas[$clasif] ?? strtoupper(substr($clasif, 0, 3));
                     
-                    nombres.push(prestamoActual.name);
-                }
-            });
-            
-            const prestSpan = tr.querySelector('.prest');
-            const selLabel = tr.querySelector('.selected-deudor');
-            
-            if (prestSpan) prestSpan.textContent = fmt(totalMostrar);
-            if (selLabel) selLabel.textContent = nombres.length <= 2 
-                ? nombres.join(', ') 
-                : nombres.slice(0,2).join(', ') + ' +' + (nombres.length-2) + ' más';
-        });
-    }
+                    // Mapear colores Tailwind a colores HEX para CSS inline
+                    $colorMap = [
+                        'bg-emerald-100' => '#d1fae5', 'text-emerald-700' => '#047857', 'border-emerald-200' => '#a7f3d0',
+                        'bg-amber-100' => '#fef3c7', 'text-amber-800' => '#92400e', 'border-amber-200' => '#fcd34d',
+                        'bg-slate-200' => '#e2e8f0', 'text-slate-800' => '#1e293b', 'border-slate-300' => '#cbd5e1',
+                        'bg-fuchsia-100' => '#fae8ff', 'text-fuchsia-700' => '#a21caf', 'border-fuchsia-200' => '#f5d0fe',
+                        'bg-cyan-100' => '#cffafe', 'text-cyan-800' => '#155e75', 'border-cyan-200' => '#a5f3fc',
+                        'bg-indigo-100' => '#e0e7ff', 'text-indigo-700' => '#4338ca', 'border-indigo-200' => '#c7d2fe',
+                        'bg-teal-100' => '#ccfbf1', 'text-teal-700' => '#0f766e', 'border-teal-200' => '#99f6e4',
+                        'bg-rose-100' => '#ffe4e6', 'text-rose-700' => '#be123c', 'border-rose-200' => '#fecdd3',
+                        'bg-violet-100' => '#ede9fe', 'text-violet-700' => '#6d28d9', 'border-violet-200' => '#ddd6fe',
+                        'bg-orange-100' => '#ffedd5', 'text-orange-700' => '#c2410c', 'border-orange-200' => '#fdba74',
+                        'bg-lime-100' => '#ecfccb', 'text-lime-700' => '#4d7c0f', 'border-lime-200' => '#d9f99d',
+                        'bg-sky-100' => '#e0f2fe', 'text-sky-700' => '#0369a1', 'border-sky-200' => '#bae6fd',
+                        'bg-pink-100' => '#fce7f3', 'text-pink-700' => '#be185d', 'border-pink-200' => '#fbcfe8',
+                        'bg-purple-100' => '#f3e8ff', 'text-purple-700' => '#7e22ce', 'border-purple-200' => '#e9d5ff',
+                        'bg-yellow-100' => '#fef9c3', 'text-yellow-700' => '#a16207', 'border-yellow-200' => '#fde68a',
+                        'bg-red-100' => '#fee2e2', 'text-red-700' => '#b91c1c', 'border-red-200' => '#fecaca'
+                    ];
+                    
+                    $bg_color = $colorMap[$estilo['bg']] ?? '#f1f5f9';
+                    $text_color = $colorMap[$estilo['text']] ?? '#1e293b';
+                  ?>
+                  <th class="px-4 py-3 text-center" 
+                      title="<?= htmlspecialchars($clasif) ?>"
+                      style="min-width: 80px; background-color: <?= $bg_color ?>; color: <?= $text_color ?>; border-bottom: 2px solid <?= $colorMap[$estilo['border']] ?? '#cbd5e1' ?>;">
+                    <?= htmlspecialchars($abreviatura) ?>
+                  </th>
+                  <?php endforeach; ?>
+                  <th class="px-4 py-3 text-center" style="min-width: 140px;">
+                    Total
+                  </th>
+                  <th class="px-4 py-3 text-center" style="min-width: 120px;">
+                    Pagado
+                  </th>
+                  <th class="px-4 py-3 text-center" style="min-width: 100px;">
+                    Faltante
+                  </th>
+                </tr>
+              </thead>
+              <tbody id="tabla_conductores_body" class="divide-y divide-slate-100 bg-white">
+              <?php foreach ($datos as $conductor => $info): 
+                $esMensual = (stripos($info['vehiculo'], 'mensual') !== false);
+                $claseVehiculo = $esMensual ? 'vehiculo-mensual' : '';
+                $rutasSinClasificar = $info['rutas_sin_clasificar'] ?? 0;
+              ?>
+                <tr data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>" 
+                    data-conductor="<?= htmlspecialchars($conductor) ?>" 
+                    data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
+                    data-pagado="<?= (int)($info['pagado'] ?? 0) ?>"
+                    data-sin-clasificar="<?= $rutasSinClasificar ?>"
+                    class="hover:bg-blue-50/40 transition-colors <?php echo $rutasSinClasificar > 0 ? 'alerta-sin-clasificar' : ''; ?>">
+                  <!-- NUEVA CELDA: Indicador visual de rutas sin clasificar -->
+                  <td class="px-4 py-3 text-center" style="min-width: 70px;">
+                    <?php if ($rutasSinClasificar > 0): ?>
+                      <div class="flex flex-col items-center justify-center gap-1" title="<?= $rutasSinClasificar ?> ruta(s) sin clasificar">
+                        <span class="text-amber-600 font-bold animate-pulse">⚠️</span>
+                        <span class="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded-full font-bold">
+                          <?= $rutasSinClasificar ?>
+                        </span>
+                      </div>
+                    <?php else: ?>
+                      <div class="flex flex-col items-center justify-center gap-1" title="Todas las rutas están clasificadas">
+                        <span class="text-emerald-600">✅</span>
+                        <span class="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full font-bold">
+                          0
+                        </span>
+                      </div>
+                    <?php endif; ?>
+                  </td>
+                  
+                  <td class="px-4 py-3" style="min-width: 220px;">
+                    <button type="button"
+                            class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition flex items-center gap-2"
+                            title="Ver viajes">
+                      <?php if ($rutasSinClasificar > 0): ?>
+                        <span class="text-amber-600">⚠️</span>
+                      <?php endif; ?>
+                      <?= htmlspecialchars($conductor) ?>
+                    </button>
+                  </td>
+                  <td class="px-4 py-3 text-center" style="min-width: 120px;">
+                    <span class="inline-block <?= $claseVehiculo ?> px-3 py-1.5 rounded-lg text-xs font-medium">
+                      <?= htmlspecialchars($info['vehiculo']) ?>
+                      <?php if ($esMensual): ?>
+                        <span class="ml-1">📅</span>
+                      <?php endif; ?>
+                    </span>
+                  </td>
+                  
+                  <?php foreach ($clasificaciones_disponibles as $clasif): 
+                    $estilo = obtenerEstiloClasificacion($clasif);
+                    $cantidad = (int)($info[$clasif] ?? 0);
+                    
+                    // Mapear colores para fondo de celdas
+                    $colorMap = [
+                        'bg-emerald-100' => '#f0fdf4', 'text-emerald-700' => '#047857',
+                        'bg-amber-100' => '#fffbeb', 'text-amber-800' => '#92400e',
+                        'bg-slate-200' => '#f8fafc', 'text-slate-800' => '#1e293b',
+                        'bg-fuchsia-100' => '#fdf4ff', 'text-fuchsia-700' => '#a21caf',
+                        'bg-cyan-100' => '#ecfeff', 'text-cyan-800' => '#155e75',
+                        'bg-indigo-100' => '#eef2ff', 'text-indigo-700' => '#4338ca',
+                        'bg-teal-100' => '#f0fdfa', 'text-teal-700' => '#0f766e',
+                        'bg-rose-100' => '#fff1f2', 'text-rose-700' => '#be123c',
+                        'bg-violet-100' => '#f5f3ff', 'text-violet-700' => '#6d28d9',
+                        'bg-orange-100' => '#fff7ed', 'text-orange-700' => '#c2410c',
+                        'bg-lime-100' => '#f7fee7', 'text-lime-700' => '#4d7c0f',
+                        'bg-sky-100' => '#f0f9ff', 'text-sky-700' => '#0369a1',
+                        'bg-pink-100' => '#fdf2f8', 'text-pink-700' => '#be185d',
+                        'bg-purple-100' => '#faf5ff', 'text-purple-700' => '#7e22ce',
+                        'bg-yellow-100' => '#fefce8', 'text-yellow-700' => '#a16207',
+                        'bg-red-100' => '#fef2f2', 'text-red-700' => '#b91c1c'
+                    ];
+                    
+                    $bg_cell_color = $colorMap[$estilo['bg']] ?? '#f8fafc';
+                    $text_cell_color = $colorMap[$estilo['text']] ?? '#1e293b';
+                  ?>
+                  <td class="px-4 py-3 text-center font-medium" 
+                      style="min-width: 80px; background-color: <?= $bg_cell_color ?>; color: <?= $text_cell_color ?>; border-left: 1px solid <?= str_replace('bg-', '#', $estilo['bg']) ?>30; border-right: 1px solid <?= str_replace('bg-', '#', $estilo['bg']) ?>30;">
+                    <?= $cantidad ?>
+                  </td>
+                  <?php endforeach; ?>
 
-    // ===== FUNCIÓN PARA AGREGAR FILA MANUAL =====
-    function agregarFilaManual(manualIdFromLS=null) {
-        const manualId = manualIdFromLS || ('manual_' + Date.now());
-        const nuevaFila = document.createElement('tr');
-        nuevaFila.className = 'fila-manual';
-        nuevaFila.dataset.manualId = manualId;
-        nuevaFila.dataset.conductor = '';
-        
-        nuevaFila.innerHTML = `
-      <td class="px-3 py-2">
-        <select class="conductor-select w-full max-w-[200px] rounded-lg border border-slate-300 px-2 py-1">
-          <option value="">-- Seleccionar conductor --</option>
-          ${CONDUCTORES_LIST.map(c => `<option value="${c}">${c}</option>`).join('')}
-        </select>
-      </td>
-      <td class="px-3 py-2 text-right">
-        <input type="text" class="base-manual w-full max-w-[120px] rounded-lg border border-slate-300 px-2 py-1 text-right num" value="0" placeholder="0">
-      </td>
-      <td class="px-3 py-2 text-right num ajuste">0</td>
-      <td class="px-3 py-2 text-right num llego">0</td>
-      <td class="px-3 py-2 text-right num ret">0</td>
-      <td class="px-3 py-2 text-right num mil4">0</td>
-      <td class="px-3 py-2 text-right num apor">0</td>
-      <td class="px-3 py-2 text-right">
-        <input type="text" class="ss w-full max-w-[120px] rounded-lg border border-slate-300 px-2 py-1 text-right num" value="">
-      </td>
-      <td class="px-3 py-2 text-right">
-        <div class="flex items-center justify-end gap-2">
-          <span class="num prest">0</span>
-          <button type="button" class="btn-prest text-xs px-2 py-1 rounded border border-slate-300 bg-slate-50 hover:bg-slate-100">
-            Seleccionar
-          </button>
+                  <!-- Total -->
+                  <td class="px-4 py-3" style="min-width: 140px;">
+                    <input type="text"
+                           class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none whitespace-nowrap tabular-nums"
+                           readonly dir="ltr">
+                  </td>
+
+                  <!-- Pagado -->
+                  <td class="px-4 py-3" style="min-width: 120px;">
+                    <input type="text"
+                           class="pagado w-full rounded-xl border border-emerald-200 px-3 py-2 text-right bg-emerald-50 outline-none whitespace-nowrap tabular-nums"
+                           readonly dir="ltr"
+                           value="<?= number_format((int)($info['pagado'] ?? 0), 0, ',', '.') ?>">
+                  </td>
+
+                  <!-- Faltante -->
+                  <td class="px-4 py-3" style="min-width: 100px;">
+                    <input type="text"
+                           class="faltante w-full rounded-xl border border-rose-200 px-3 py-2 text-right bg-rose-50 outline-none whitespace-nowrap tabular-nums"
+                           readonly dir="ltr"
+                           value="0">
+                  </td>
+
+                </tr>
+              <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
         </div>
-        <div class="text-[11px] text-slate-500 text-right selected-deudor"></div>
-      </td>
-      <td class="px-3 py-2">
-        <input type="text" class="cta w-full max-w-[180px] rounded-lg border border-slate-300 px-2 py-1" value="" placeholder="N° cuenta">
-      </td>
-      <td class="px-3 py-2 text-right num pagar">0</td>
-      <td class="px-3 py-2 text-center">
-        <select class="estado-pago w-full max-w-[140px] rounded-lg border border-slate-300 px-2 py-1 text-sm">
-          <option value="">Sin estado</option>
-          <option value="pagado">✅ Pagado</option>
-          <option value="pendiente">❌ Pendiente</option>
-          <option value="procesando">🔄 Procesando</option>
-          <option value="parcial">⚠️ Parcial</option>
-        </select>
-      </td>
-      <td class="px-3 py-2 text-center">
-        <div class="flex items-center justify-center gap-2">
-          <input type="checkbox" class="checkbox-conductor selector-conductor">
-          <button type="button" class="btn-eliminar-manual text-xs px-2 py-1 rounded border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700">
-            🗑️
-          </button>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===== Modal VIAJES ===== -->
+  <div id="viajesModal" class="viajes-backdrop">
+    <div class="viajes-card">
+      <div class="viajes-header">
+        <div class="flex flex-col gap-2 w-full md:flex-row md:items-center md:justify-between">
+          <div class="flex flex-col gap-1">
+            <h3 class="text-lg font-semibold flex items-center gap-2">
+              🧳 Viajes — <span id="viajesTitle" class="font-normal"></span>
+            </h3>
+            <div class="text-[11px] text-slate-500 leading-tight">
+              <span id="viajesRango"></span>
+              <span class="mx-1">•</span>
+              <span id="viajesEmpresa"></span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="text-xs text-slate-600 whitespace-nowrap">Conductor:</label>
+            <select id="viajesSelectConductor"
+                    class="rounded-lg border border-slate-300 px-2 py-1 text-sm min-w-[200px] focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500">
+            </select>
+            <button class="viajes-close text-slate-600 hover:bg-slate-100 border border-slate-300 px-2 py-1 rounded-lg text-sm" id="viajesCloseBtn" title="Cerrar">
+              ✕
+            </button>
+          </div>
         </div>
-      </td>
-    `;
+      </div>
 
-        tbody.appendChild(nuevaFila);
+      <div class="viajes-body" id="viajesContent"></div>
+    </div>
+  </div>
 
-        if (!manualIdFromLS) {
-            manualRows.push(manualId);
-            localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
-        }
-
-        configurarEventosFila(nuevaFila);
-        asignarPrestamosAFilas();
-        recalc();
-        filtrarConductores();
-        restaurarSeleccionCheckbox(nuevaFila);
-    }
-
-    // ===== CONFIGURAR EVENTOS PARA FILA =====
-    function configurarEventosFila(tr) {
-        const baseInput = tr.querySelector('.base-manual');
-        const cta = tr.querySelector('input.cta');
-        const ss = tr.querySelector('input.ss');
-        const estadoPago = tr.querySelector('select.estado-pago');
-        const btnEliminar = tr.querySelector('.btn-eliminar-manual');
-        const btnPrest = tr.querySelector('.btn-prest');
-        const conductorSelect = tr.querySelector('.conductor-select');
-        const checkbox = tr.querySelector('.selector-conductor');
-
-        let baseName = '';
-        if (conductorSelect) {
-            baseName = conductorSelect.value || '';
-            conductorSelect.addEventListener('change', () => {
-                tr.dataset.conductor = normalizarTexto(conductorSelect.value);
-                filtrarConductores();
-                asignarPrestamosAFilas();
-            });
-            tr.dataset.conductor = normalizarTexto(baseName);
-        } else {
-            baseName = tr.querySelector('.conductor-link').textContent.trim();
-        }
-
-        // Checkbox de selección
-        if (checkbox) {
-            checkbox.addEventListener('change', () => {
-                if (checkbox.checked) {
-                    tr.classList.add('fila-seleccionada');
-                } else {
-                    tr.classList.remove('fila-seleccionada');
-                }
-                actualizarPanelFlotante();
-                guardarSeleccionCheckboxes();
-            });
-        }
-
-        // Base manual
-        if (baseInput) {
-            baseInput.addEventListener('input', () => {
-                baseInput.value = fmt(toInt(baseInput.value));
-                recalc();
-                actualizarPanelFlotante();
-            });
-        }
-
-        // Cuenta bancaria
-        if (cta) {
-            if (baseName && accMap[baseName]) cta.value = accMap[baseName];
-            cta.addEventListener('change', () => { 
-                const name = conductorSelect ? conductorSelect.value : tr.querySelector('.conductor-link').textContent.trim();
-                if (!name) return;
-                accMap[name] = cta.value.trim(); 
-                setLS(ACC_KEY, accMap); 
-            });
-        }
-
-        // Seguridad social
-        if (ss) {
-            if (baseName && ssMap[baseName]) ss.value = fmt(toInt(ssMap[baseName]));
-            ss.addEventListener('input', () => { 
-                const name = conductorSelect ? conductorSelect.value : tr.querySelector('.conductor-link').textContent.trim();
-                if (!name) return;
-                ssMap[name] = toInt(ss.value); 
-                setLS(SS_KEY, ssMap); 
-                recalc(); 
-                actualizarPanelFlotante();
-            });
-        }
-
-        // Estado de pago
-        if (estadoPago) {
-            if (baseName && estadoPagoMap[baseName]) {
-                estadoPago.value = estadoPagoMap[baseName];
-                aplicarEstadoFila(tr, estadoPagoMap[baseName]);
-            }
-            estadoPago.addEventListener('change', () => { 
-                const name = conductorSelect ? conductorSelect.value : tr.querySelector('.conductor-link').textContent.trim();
-                if (!name) return;
-                estadoPagoMap[name] = estadoPago.value; 
-                setLS(ESTADO_PAGO_KEY, estadoPagoMap); 
-                aplicarEstadoFila(tr, estadoPago.value);
-            });
-        }
-
-        // Eliminar fila manual
-        if (btnEliminar) {
-            btnEliminar.addEventListener('click', () => {
-                const manualId = tr.dataset.manualId;
-                manualRows = manualRows.filter(id => id !== manualId);
-                localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
-                tr.remove();
-                recalc();
-                actualizarPanelFlotante();
-                filtrarConductores();
-            });
-        }
-
-        // Botón préstamos
-        if (btnPrest) {
-            btnPrest.addEventListener('click', () => openPrestModalForRow(tr));
-        }
-
-        // Cambio de conductor en fila manual
-        if (conductorSelect) {
-            conductorSelect.addEventListener('change', () => {
-                const newBaseName = conductorSelect.value;
-                baseName = newBaseName;
-
-                if (cta && accMap[newBaseName]) cta.value = accMap[newBaseName];
-                if (ss && ssMap[newBaseName]) ss.value = fmt(toInt(ssMap[newBaseName]));
-                if (estadoPago && estadoPagoMap[newBaseName]) {
-                    estadoPago.value = estadoPagoMap[newBaseName];
-                    aplicarEstadoFila(tr, estadoPagoMap[newBaseName]);
-                }
-                
-                asignarPrestamosAFilas();
-                recalc();
-                actualizarPanelFlotante();
-            });
-        }
-
-        asignarPrestamosAFilas();
-    }
-
-    // ===== FUNCIÓN PARA APLICAR ESTADO DE FILA =====
-    function aplicarEstadoFila(tr, estado) {
-        tr.classList.remove('estado-pagado', 'estado-pendiente', 'estado-procesando', 'estado-parcial');
-        if (estado) tr.classList.add(`estado-${estado}`);
-    }
-
-    // ===== PANEL FLOTANTE =====
-    function actualizarPanelFlotante() {
-        const checkboxes = document.querySelectorAll('#tbody .selector-conductor:checked');
-        const count = checkboxes.length;
+  <script>
+    // ===== NUEVO: SISTEMA DE BOLITAS Y PANELES =====
+    let activePanel = null;
+    const panels = ['tarifas', 'crear-clasif', 'clasif-rutas'];
+    
+    // Inicializar sistema de bolitas
+    document.addEventListener('DOMContentLoaded', function() {
+      // Configurar eventos para cada bolita
+      panels.forEach(panelId => {
+        const ball = document.getElementById(`ball-${panelId}`);
+        const panel = document.getElementById(`panel-${panelId}`);
+        const closeBtn = panel.querySelector('.side-panel-close');
+        const overlay = document.getElementById('sidePanelOverlay');
+        const tableWrapper = document.getElementById('tableContainerWrapper');
         
-        if (count === 0) {
-            floatingPanel.classList.add('hidden');
-            return;
-        }
+        // Abrir panel al hacer clic en la bolita
+        ball.addEventListener('click', () => togglePanel(panelId));
         
-        floatingPanel.classList.remove('hidden');
+        // Cerrar panel con el botón X
+        closeBtn.addEventListener('click', () => togglePanel(panelId));
         
-        let totalPagar = 0;
-        let totalLlego = 0;
-        let totalRetencion = 0;
-        let total4x1000 = 0;
-        let totalAporte = 0;
-        let totalSS = 0;
-        let totalPrestamos = 0;
-        let nombresConductores = [];
-        
-        checkboxes.forEach(checkbox => {
-            const tr = checkbox.closest('tr');
-            if (!tr) return;
-            
-            const pagar = toInt(tr.querySelector('.pagar').textContent || '0');
-            const llego = toInt(tr.querySelector('.llego').textContent || '0');
-            const ret = toInt(tr.querySelector('.ret').textContent || '0');
-            const mil4 = toInt(tr.querySelector('.mil4').textContent || '0');
-            const apor = toInt(tr.querySelector('.apor').textContent || '0');
-            const prest = toInt(tr.querySelector('.prest').textContent || '0');
-            
-            let nombreConductor = obtenerNombreConductorDeFila(tr);
-            
-            totalPagar += pagar;
-            totalLlego += llego;
-            totalRetencion += ret;
-            total4x1000 += mil4;
-            totalAporte += apor;
-            totalPrestamos += prest;
-            nombresConductores.push(nombreConductor);
-            
-            const ssInput = tr.querySelector('input.ss');
-            if (ssInput) {
-                totalSS += toInt(ssInput.value);
-            }
+        // Cerrar panel al hacer clic en el overlay
+        overlay.addEventListener('click', () => {
+          if (activePanel === panelId) {
+            togglePanel(panelId);
+          }
         });
-        
-        document.getElementById('selectedCount').textContent = count;
-        document.getElementById('panelConductoresCount').textContent = count;
-        document.getElementById('panelTotalPagar').textContent = fmt(totalPagar);
-        document.getElementById('panelTotalLlego').textContent = fmt(totalLlego);
-        document.getElementById('panelTotalRetencion').textContent = fmt(totalRetencion);
-        document.getElementById('panelTotal4x1000').textContent = fmt(total4x1000);
-        document.getElementById('panelTotalAporte').textContent = fmt(totalAporte);
-        document.getElementById('panelTotalSS').textContent = fmt(totalSS);
-        document.getElementById('panelTotalPrestamos').textContent = fmt(totalPrestamos);
-        
-        const promedio = count > 0 ? Math.round(totalPagar / count) : 0;
-        document.getElementById('panelPromedio').textContent = fmt(promedio);
-        
-        const nombresContainer = document.getElementById('panelNombresConductores');
-        nombresContainer.innerHTML = '';
-        
-        if (nombresConductores.length > 0) {
-            nombresConductores.forEach(nombre => {
-                const div = document.createElement('div');
-                div.className = 'py-1 border-b border-slate-100 last:border-0';
-                div.textContent = nombre;
-                nombresContainer.appendChild(div);
-            });
-        } else {
-            nombresContainer.innerHTML = '<div class="text-slate-400 italic">Ningún conductor seleccionado</div>';
+      });
+      
+      // Cerrar panel con tecla ESC
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && activePanel) {
+          togglePanel(activePanel);
         }
-    }
-
-    function guardarSeleccionCheckboxes() {
-        const checkboxes = document.querySelectorAll('#tbody .selector-conductor');
-        const seleccionados = [];
+      });
+    });
+    
+    // Función para abrir/cerrar paneles
+    function togglePanel(panelId) {
+      const ball = document.getElementById(`ball-${panelId}`);
+      const panel = document.getElementById(`panel-${panelId}`);
+      const overlay = document.getElementById('sidePanelOverlay');
+      const tableWrapper = document.getElementById('tableContainerWrapper');
+      
+      if (activePanel === panelId) {
+        // Cerrar panel actual
+        panel.classList.remove('active');
+        ball.classList.remove('ball-active');
+        overlay.classList.remove('active');
+        tableWrapper.classList.remove('with-panel');
+        activePanel = null;
+      } else {
+        // Cerrar panel anterior si hay uno abierto
+        if (activePanel) {
+          document.getElementById(`panel-${activePanel}`).classList.remove('active');
+          document.getElementById(`ball-${activePanel}`).classList.remove('ball-active');
+        }
         
-        checkboxes.forEach((checkbox, index) => {
-            if (checkbox.checked) {
-                const tr = checkbox.closest('tr');
-                if (tr) {
-                    let nombreConductor = obtenerNombreConductorDeFila(tr);
-                    if (nombreConductor) {
-                        seleccionados.push(nombreConductor);
-                    }
-                }
-            }
-        });
+        // Abrir nuevo panel
+        panel.classList.add('active');
+        ball.classList.add('ball-active');
+        overlay.classList.add('active');
+        tableWrapper.classList.add('with-panel');
+        activePanel = panelId;
         
-        selectedConductors = seleccionados;
-        localStorage.setItem(SELECTED_CONDUCTORS_KEY, JSON.stringify(selectedConductors));
+        // Asegurar que el panel esté visible
+        setTimeout(() => {
+          panel.scrollTop = 0;
+        }, 100);
+      }
     }
-
-    function restaurarSeleccionCheckbox(tr) {
-        if (!tr) return;
+    
+    // ===== FUNCIONALIDAD PARA RUTAS SIN CLASIFICAR =====
+    
+    // Mostrar resumen de rutas sin clasificar
+    function mostrarResumenRutasSinClasificar() {
+      const resumenDiv = document.getElementById('resumenRutasSinClasificar');
+      const listaDiv = document.getElementById('listaRutasSinClasificarGlobal');
+      const contadorSpan = document.getElementById('contadorRutasSinClasificarGlobal');
+      
+      // Obtener conductores con rutas sin clasificar
+      const filas = document.querySelectorAll('#tabla_conductores_body tr');
+      let totalRutasSinClasificar = 0;
+      let contenidoHTML = '';
+      
+      filas.forEach(fila => {
+        const sinClasificar = parseInt(fila.dataset.sinClasificar || '0');
+        if (sinClasificar > 0) {
+          totalRutasSinClasificar += sinClasificar;
+          const conductor = fila.querySelector('.conductor-link').textContent;
+          contenidoHTML += `
+            <div class="flex items-center justify-between p-3 bg-amber-50 rounded-lg border border-amber-100 hover:bg-amber-100 transition">
+              <div class="flex items-center gap-2">
+                <span class="text-amber-600">⚠️</span>
+                <span class="font-medium text-amber-800">${conductor}</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs bg-amber-500 text-white px-2 py-1 rounded-full">${sinClasificar}</span>
+                <button onclick="verViajesConductor('${conductor}')" 
+                        class="text-xs text-amber-600 hover:text-amber-800 hover:underline">
+                  Ver viajes
+                </button>
+              </div>
+            </div>
+          `;
+        }
+      });
+      
+      if (totalRutasSinClasificar > 0) {
+        contadorSpan.textContent = totalRutasSinClasificar;
+        listaDiv.innerHTML = contenidoHTML;
+        resumenDiv.classList.remove('hidden');
         
-        let nombreConductor = obtenerNombreConductorDeFila(tr);
-        
-        if (nombreConductor && selectedConductors.includes(nombreConductor)) {
-            const checkbox = tr.querySelector('.selector-conductor');
-            if (checkbox) {
-                checkbox.checked = true;
-                tr.classList.add('fila-seleccionada');
-            }
-        }
+        // Scroll al resumen
+        resumenDiv.scrollIntoView({ behavior: 'smooth' });
+      } else {
+        listaDiv.innerHTML = '<div class="text-center py-4 text-amber-600">🎉 ¡Excelente! Todas las rutas están clasificadas.</div>';
+        contadorSpan.textContent = '0';
+        resumenDiv.classList.remove('hidden');
+      }
     }
-
-    // ===== PANEL ARRASTRABLE =====
-    function hacerPanelArrastrable() {
-        let isDragging = false;
-        let currentX;
-        let currentY;
-        let initialX;
-        let initialY;
-        let xOffset = 0;
-        let yOffset = 0;
-
-        panelDragHandle.addEventListener('mousedown', dragStart);
-        document.addEventListener('mousemove', drag);
-        document.addEventListener('mouseup', dragEnd);
-
-        function dragStart(e) {
-            initialX = e.clientX - xOffset;
-            initialY = e.clientY - yOffset;
-
-            if (e.target === panelDragHandle || panelDragHandle.contains(e.target)) {
-                isDragging = true;
-            }
+    
+    // Ver viajes de un conductor específico
+    function verViajesConductor(nombre) {
+      // Encontrar el botón del conductor y hacer clic
+      const botonesConductor = document.querySelectorAll('.conductor-link');
+      botonesConductor.forEach(boton => {
+        if (boton.textContent.trim() === nombre.trim()) {
+          boton.click();
         }
-
-        function drag(e) {
-            if (isDragging) {
-                e.preventDefault();
-                currentX = e.clientX - initialX;
-                currentY = e.clientY - initialY;
-
-                xOffset = currentX;
-                yOffset = currentY;
-
-                setTranslate(currentX, currentY, floatingPanel);
-            }
-        }
-
-        function dragEnd() {
-            initialX = currentX;
-            initialY = currentY;
-            isDragging = false;
-        }
-
-        function setTranslate(xPos, yPos, el) {
-            el.style.transform = `translate3d(${xPos}px, ${yPos}px, 0)`;
-        }
+      });
+      
+      // Cerrar el resumen
+      document.getElementById('resumenRutasSinClasificar').classList.add('hidden');
     }
-
-    // ===== CARGAR FILAS MANUALES =====
-    function cargarFilasManuales() {
-        manualRows.forEach(manualId => {
-            agregarFilaManual(manualId);
-        });
+    
+    // Ir a la sección de clasificación de rutas
+    function irAClasificacionRutas() {
+      // Abrir el panel de clasificación de rutas
+      togglePanel('clasif-rutas');
+      
+      // Cerrar el resumen
+      document.getElementById('resumenRutasSinClasificar').classList.add('hidden');
     }
-
-    // ===== INICIALIZAR FILAS EXISTENTES =====
-    function initializeExistingRows() {
-        [...tbody.querySelectorAll('tr')].forEach(tr => {
-            if (!tr.classList.contains('fila-manual')) {
-                configurarEventosFila(tr);
-                restaurarSeleccionCheckbox(tr);
-            }
-        });
-        asignarPrestamosAFilas();
-    }
-
-    // ===== NORMALIZAR TEXTO =====
-    function normalizarTexto(texto) {
-        return texto
-            .toLowerCase()
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .trim();
-    }
-
+    
     // ===== BUSCADOR DE CONDUCTORES =====
     const buscadorConductores = document.getElementById('buscadorConductores');
     const clearBuscar = document.getElementById('clearBuscar');
     const contadorConductores = document.getElementById('contador-conductores');
+    const tablaConductoresBody = document.getElementById('tabla_conductores_body');
+
+    function normalizarTexto(texto) {
+      return texto
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
+    }
 
     function filtrarConductores() {
-        const textoBusqueda = normalizarTexto(buscadorConductores.value);
-        const filas = tbody.querySelectorAll('tr');
-        let filasVisibles = 0;
-        
-        if (textoBusqueda === '') {
-            filas.forEach(fila => {
-                fila.style.display = '';
-                filasVisibles++;
-            });
-            clearBuscar.style.display = 'none';
-        } else {
-            filas.forEach(fila => {
-                let nombreConductor = obtenerNombreConductorDeFila(fila);
-                const nombreNormalizado = normalizarTexto(nombreConductor);
-                
-                if (nombreNormalizado.includes(textoBusqueda)) {
-                    fila.style.display = '';
-                    filasVisibles++;
-                } else {
-                    fila.style.display = 'none';
-                }
-            });
-            clearBuscar.style.display = 'block';
-        }
-        
-        const totalConductores = filas.length;
-        contadorConductores.textContent = `Mostrando ${filasVisibles} de ${totalConductores} conductores`;
-        
-        actualizarPanelFlotante();
+      const textoBusqueda = normalizarTexto(buscadorConductores.value);
+      const filas = tablaConductoresBody.querySelectorAll('tr');
+      let filasVisibles = 0;
+      
+      if (textoBusqueda === '') {
+        filas.forEach(fila => { fila.style.display = ''; filasVisibles++; });
+        clearBuscar.style.display = 'none';
+      } else {
+        filas.forEach(fila => {
+          const nombreConductor = fila.querySelector('.conductor-link').textContent;
+          const nombreNormalizado = normalizarTexto(nombreConductor);
+          if (nombreNormalizado.includes(textoBusqueda)) {
+            fila.style.display = '';
+            filasVisibles++;
+          } else {
+            fila.style.display = 'none';
+          }
+        });
+        clearBuscar.style.display = 'block';
+      }
+      
+      const totalConductores = filas.length;
+      contadorConductores.textContent = `Mostrando ${filasVisibles} de ${totalConductores} conductores`;
+      recalcular();
     }
 
     buscadorConductores.addEventListener('input', filtrarConductores);
     clearBuscar.addEventListener('click', () => {
-        buscadorConductores.value = '';
-        filtrarConductores();
-        buscadorConductores.focus();
+      buscadorConductores.value = '';
+      filtrarConductores();
+      buscadorConductores.focus();
     });
 
-    // ===== EVENTOS =====
-    btnAddManual.addEventListener('click', ()=> agregarFilaManual());
-    closePanel.addEventListener('click', () => floatingPanel.classList.add('hidden'));
+    // ===== FUNCIONES DE CÁLCULO =====
+    function getTarifas(){
+      const tarifas = {};
+      document.querySelectorAll('.tarjeta-tarifa').forEach(card=>{
+        const veh = card.dataset.vehiculo;
+        tarifas[veh] = {};
+        
+        // Obtener todas las columnas dinámicas
+        card.querySelectorAll('input[data-campo]').forEach(input=>{
+          const campo = input.dataset.campo.toLowerCase(); // IMPORTANTE: Normalizar a minúsculas
+          const valor = parseFloat(input.value) || 0;
+          tarifas[veh][campo] = valor;
+        });
+      });
+      return tarifas;
+    }
 
-    if (selectAllCheckbox) {
-        selectAllCheckbox.addEventListener('change', () => {
-            const checkboxes = document.querySelectorAll('#tbody .selector-conductor');
-            checkboxes.forEach(checkbox => {
-                checkbox.checked = selectAllCheckbox.checked;
-                const tr = checkbox.closest('tr');
-                if (tr) {
-                    if (selectAllCheckbox.checked) {
-                        tr.classList.add('fila-seleccionada');
-                    } else {
-                        tr.classList.remove('fila-seleccionada');
-                    }
-                }
+    function formatNumber(num){ 
+      return new Intl.NumberFormat('es-CO').format(num || 0);
+    }
+
+    function recalcular(){
+      const tarifas = getTarifas();
+      const filas = document.querySelectorAll('#tabla_conductores_body tr');
+      
+      // Obtener clasificaciones desde los encabezados (en minúsculas)
+      const clasificaciones = [];
+      document.querySelectorAll('#tabla_conductores thead th[title]').forEach(th => {
+        clasificaciones.push(th.getAttribute('title').toLowerCase());
+      });
+
+      let totalViajes = 0;
+      let totalPagado = 0;
+      let totalFaltante = 0;
+
+      filas.forEach(fila => {
+        if (fila.style.display === 'none') return;
+
+        const veh = fila.dataset.vehiculo;
+        const celdas = fila.querySelectorAll('td');
+        const tarifasVeh = tarifas[veh] || {};
+
+        let totalFila = 0;
+        let columnaIndex = 3; // Empieza después de estado, conductor y tipo
+        
+        // Calcular por cada clasificación
+        clasificaciones.forEach(clasif => {
+          const cantidad = parseInt(celdas[columnaIndex]?.textContent || 0);
+          const tarifa = tarifasVeh[clasif] || 0;
+          totalFila += cantidad * tarifa;
+          columnaIndex++;
+        });
+
+        const pagado = parseInt(fila.dataset.pagado || '0') || 0;
+        let faltante = totalFila - pagado;
+        if (faltante < 0) faltante = 0;
+
+        const inpTotal = fila.querySelector('input.totales');
+        if (inpTotal) inpTotal.value = formatNumber(totalFila);
+
+        const inpFalt = fila.querySelector('input.faltante');
+        if (inpFalt) inpFalt.value = formatNumber(faltante);
+
+        totalViajes += totalFila;
+        totalPagado += pagado;
+        totalFaltante += faltante;
+      });
+
+      document.getElementById('total_viajes').innerText = formatNumber(totalViajes);
+      document.getElementById('total_general').innerText = formatNumber(totalViajes);
+      document.getElementById('total_pagado').innerText = formatNumber(totalPagado);
+      document.getElementById('total_faltante').innerText = formatNumber(totalFaltante);
+    }
+
+    // ===== CREAR NUEVA CLASIFICACIÓN =====
+    function crearYAsignarClasificacion() {
+      const nombreClasif = document.getElementById('txt_nueva_clasificacion').value.trim();
+      const patronRuta = document.getElementById('txt_patron_ruta').value.trim().toLowerCase();
+      
+      if (!nombreClasif) {
+        alert('Escribe el nombre de la nueva clasificación.');
+        return;
+      }
+
+      // 1. Crear nueva columna en tarifas (normalizada a minúsculas)
+      fetch('<?= basename(__FILE__) ?>', {
+        method:'POST',
+        headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:new URLSearchParams({
+          crear_clasificacion:1,
+          nombre_clasificacion:nombreClasif
+        })
+      })
+      .then(r=>r.text())
+      .then(respuesta=>{
+        if (respuesta.trim() === 'ok') {
+          
+          // 2. Si hay patrón, asignar a rutas
+          if (patronRuta) {
+            const filas = document.querySelectorAll('.fila-ruta');
+            let contador = 0;
+            
+            filas.forEach(row => {
+              const ruta = row.dataset.ruta.toLowerCase();
+              const vehiculo = row.dataset.vehiculo;
+              if (ruta.includes(patronRuta)) {
+                const sel = row.querySelector('.select-clasif-ruta');
+                sel.value = nombreClasif.toLowerCase();
+                
+                // Guardar clasificación
+                fetch('<?= basename(__FILE__) ?>', {
+                  method:'POST',
+                  headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                  body:new URLSearchParams({
+                    guardar_clasificacion:1,
+                    ruta:row.dataset.ruta,
+                    tipo_vehiculo:vehiculo,
+                    clasificacion:nombreClasif.toLowerCase()
+                  })
+                });
+                contador++;
+              }
             });
-            actualizarPanelFlotante();
-            guardarSeleccionCheckboxes();
-        });
-    }
-
-    // ===== Modal PRÉSTAMOS =====
-    const prestModal   = document.getElementById('prestModal');
-    const btnAssign    = document.getElementById('btnAssign');
-    const btnCancel    = document.getElementById('btnCancel');
-    const btnClose     = document.getElementById('btnCloseModal');
-    const btnSelectAll = document.getElementById('btnSelectAll');
-    const btnUnselectAll = document.getElementById('btnUnselectAll');
-    const btnClearSel  = document.getElementById('btnClearSel');
-    const prestSearch  = document.getElementById('prestSearch');
-    const prestList    = document.getElementById('prestList');
-    const selCount     = document.getElementById('selCount');
-    const selTotal     = document.getElementById('selTotal');
-    const selTotalManual = document.getElementById('selTotalManual');
-
-    let currentRow=null, selectedIds=new Set(), filteredIdx=[];
-
-    selTotalManual.addEventListener('input', ()=>{ selTotalManual.dataset.touched = '1'; });
-
-    function renderPrestList(filter=''){
-        prestList.innerHTML='';
-        const nf=(filter||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
-        filteredIdx=[];
-        const frag=document.createDocumentFragment();
-        PRESTAMOS_LIST.forEach((item,idx)=>{
-            if(nf && !item.key.includes(nf)) return;
-            filteredIdx.push(idx);
-
-            const row=document.createElement('label');
-            row.className='flex items-center justify-between gap-3 px-3 py-2 border-b border-slate-200';
-            const left=document.createElement('div'); left.className='flex items-center gap-3';
-            const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=selectedIds.has(item.id); cb.dataset.id=item.id;
-            const nm=document.createElement('span'); nm.className='truncate max-w-[360px]'; nm.textContent=item.name;
-            left.append(cb,nm);
-            const val=document.createElement('span'); val.className='num font-semibold'; val.textContent=(item.total||0).toLocaleString('es-CO');
-            row.append(left,val);
-            cb.addEventListener('change',()=>{ if(cb.checked)selectedIds.add(item.id); else selectedIds.delete(item.id); updateSelSummary(); });
-            frag.append(row);
-        });
-        prestList.append(frag);
-        updateSelSummary();
-    }
-
-    function updateSelSummary(){
-        const arr=PRESTAMOS_LIST.filter(it=>selectedIds.has(it.id));
-        const total = arr.reduce((a,b)=>a+(b.total||0),0);
-        selCount.textContent=arr.length;
-        selTotal.textContent=fmt(total);
-
-        if (!selTotalManual.dataset.touched) {
-            selTotalManual.value = fmt(total);
+            
+            if (contador > 0) {
+              alert('✅ Se creó "' + nombreClasif + '" y se aplicó a ' + contador + ' rutas. Recarga la página para ver los cambios.');
+            } else {
+              alert('✅ Se creó "' + nombreClasif + '". No se encontraron rutas con "' + patronRuta + '". Recarga la página.');
+            }
+          } else {
+            alert('✅ Se creó la clasificación "' + nombreClasif + '". Recarga la página para verla en los selectores.');
+          }
+          
+          // Limpiar campos
+          document.getElementById('txt_nueva_clasificacion').value = '';
+          document.getElementById('txt_patron_ruta').value = '';
+          
+        } else {
+          alert('❌ Error: ' + respuesta);
         }
+      })
+      .catch(error=>{
+        alert('❌ Error de conexión: ' + error);
+      });
     }
 
-    function openPrestModalForRow(tr){
-        currentRow = tr;
-        selectedIds = new Set();
-        
-        let baseName = obtenerNombreConductorDeFila(tr);
-        
-        if (!baseName) {
-            alert('Primero selecciona o ingresa el nombre del conductor antes de elegir préstamos.');
-            return;
-        }
-
-        const prestamosGuardados = prestSel[baseName] || [];
-        
-        prestamosGuardados.forEach(prestamo => {
-            if (prestamo.id !== undefined) {
-                selectedIds.add(Number(prestamo.id));
+    // ===== GUARDAR TARIFAS DINÁMICAMENTE =====
+    function configurarEventosTarifas() {
+        // Usar delegación de eventos para manejar inputs dinámicos
+        document.addEventListener('change', function(e) {
+            if (e.target.matches('.tarifa-input')) {
+                const input = e.target;
+                const card = input.closest('.tarjeta-tarifa');
+                const tipoVehiculo = card.dataset.vehiculo;
+                const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
+                const campo = input.dataset.campo.toLowerCase(); // NORMALIZAR A MINÚSCULAS
+                const valor = parseFloat(input.value) || 0;
+                
+                console.log('Guardando tarifa:', { empresa, tipoVehiculo, campo, valor });
+                
+                // Guardar via AJAX
+                fetch('<?= basename(__FILE__) ?>', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        guardar_tarifa: 1,
+                        empresa: empresa,
+                        tipo_vehiculo: tipoVehiculo,
+                        campo: campo,
+                        valor: valor
+                    })
+                })
+                .then(r => r.text())
+                .then(t => {
+                    const respuesta = t.trim();
+                    if (respuesta === 'ok') {
+                        console.log('Tarifa guardada exitosamente');
+                        // Guardar el valor como el nuevo default
+                        input.defaultValue = input.value;
+                    } else {
+                        console.error('Error guardando tarifa:', respuesta);
+                        // Restaurar el valor anterior
+                        input.value = input.defaultValue;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error de conexión:', error);
+                    // Restaurar el valor anterior
+                    input.value = input.defaultValue;
+                });
             }
         });
-
-        prestSearch.value = '';
-        delete selTotalManual.dataset.touched;
         
-        const currentPrestVal = toInt(tr.querySelector('.prest').textContent || '0');
-        selTotalManual.value = fmt(currentPrestVal);
-        
-        renderPrestList('');
-
-        prestModal.classList.remove('hidden');
-        requestAnimationFrame(() => {
-            prestSearch.focus();
-            prestSearch.select();
+        // Configurar valor por defecto para todos los inputs
+        document.querySelectorAll('.tarifa-input').forEach(input => {
+            input.defaultValue = input.value;
         });
     }
 
-    function closePrest(){ 
-        prestModal.classList.add('hidden'); 
-        currentRow=null; selectedIds=new Set(); filteredIdx=[]; 
-        selTotalManual.value='0';
-        delete selTotalManual.dataset.touched;
+    // ===== CLASIFICACIONES INDIVIDUALES =====
+    function guardarClasificacionRuta(ruta, vehiculo, clasificacion) {
+      if (!clasificacion) return;
+      fetch('<?= basename(__FILE__) ?>', {
+        method:'POST',
+        headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:new URLSearchParams({
+          guardar_clasificacion:1,
+          ruta:ruta,
+          tipo_vehiculo:vehiculo,
+          clasificacion:clasificacion.toLowerCase() // NORMALIZAR A MINÚSCULAS
+        })
+      })
+      .then(r=>r.text())
+      .then(t=>{
+        if (t.trim() !== 'ok') console.error('Error guardando clasificación:', t);
+      });
     }
 
-    btnCancel.addEventListener('click',closePrest); 
-    btnClose.addEventListener('click',closePrest);
-    btnSelectAll.addEventListener('click',()=>{ filteredIdx.forEach(i=>selectedIds.add(PRESTAMOS_LIST[i].id)); renderPrestList(prestSearch.value); });
-    btnUnselectAll.addEventListener('click',()=>{ filteredIdx.forEach(i=>selectedIds.delete(PRESTAMOS_LIST[i].id)); renderPrestList(prestSearch.value); });
-
-    btnClearSel.addEventListener('click',()=>{
-        if(!currentRow) return;
-        let baseName = obtenerNombreConductorDeFila(currentRow);
-        
-        if (!baseName) return;
-        
-        currentRow.querySelector('.prest').textContent='0';
-        currentRow.querySelector('.selected-deudor').textContent='';
-        
-        if (baseName) {
-            delete prestSel[baseName]; 
-            setLS(PREST_SEL_KEY, prestSel); 
-        }
-        
-        recalc();
-        actualizarPanelFlotante();
-        selectedIds.clear(); 
-        delete selTotalManual.dataset.touched;
-        selTotalManual.value='0';
-        renderPrestList(prestSearch.value);
-    });
-
-    // ===== ASIGNAR PRÉSTAMOS =====
-    btnAssign.addEventListener('click', () => {
-        if (!currentRow) return;
-        
-        let baseName = obtenerNombreConductorDeFila(currentRow);
-
-        if (!baseName) {
-            alert('Primero selecciona o ingresa el nombre del conductor.');
-            return;
-        }
-
-        const fueEditadoManual = selTotalManual.dataset.touched === '1';
-        let valorManual = fueEditadoManual ? toInt(selTotalManual.value) : 0;
-        
-        const prestamosSeleccionados = PRESTAMOS_LIST.filter(it => selectedIds.has(it.id));
-        
-        const prestamosAGuardar = prestamosSeleccionados.map(it => {
-            const prestamoGuardado = {
-                id: it.id,
-                name: it.name,
-                totalActual: it.total,
-                esManual: false,
-                valorManual: null
-            };
-            
-            if (fueEditadoManual && selectedIds.size === 1) {
-                prestamoGuardado.esManual = true;
-                prestamoGuardado.valorManual = valorManual;
-            }
-            
-            return prestamoGuardado;
-        });
-
-        prestSel[baseName] = prestamosAGuardar;
-        setLS(PREST_SEL_KEY, prestSel);
-
-        asignarPrestamosAFilas();
-        recalc();
-        actualizarPanelFlotante();
-        closePrest();
-    });
-
-    prestSearch.addEventListener('input',()=>renderPrestList(prestSearch.value));
-
-    // ===== MODAL DE VIAJES (EXACTAMENTE IGUAL AL PRIMER CÓDIGO) =====
+    // ===== MODAL DE VIAJES =====
     const RANGO_DESDE = <?= json_encode($desde) ?>;
     const RANGO_HASTA = <?= json_encode($hasta) ?>;
     const RANGO_EMP   = <?= json_encode($empresaFiltro) ?>;
@@ -1702,6 +1891,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     let viajesConductorActual = null;
 
+    // Lista de conductores para el select
+    const CONDUCTORES_LIST = <?= json_encode(array_keys($datos), JSON_UNESCAPED_UNICODE); ?>;
+
     function initViajesSelect(selectedName) {
         viajesSelectConductor.innerHTML = "";
         CONDUCTORES_LIST.forEach(nombre => {
@@ -1711,6 +1903,30 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             if (nombre === selectedName) opt.selected = true;
             viajesSelectConductor.appendChild(opt);
         });
+    }
+
+    function loadViajes(nombre) {
+        viajesContent.innerHTML = '<p class="text-center m-0 animate-pulse">Cargando…</p>';
+        viajesConductorActual = nombre;
+        viajesTitle.textContent = nombre;
+
+        const qs = new URLSearchParams({
+            viajes_conductor: nombre,
+            desde: RANGO_DESDE,
+            hasta: RANGO_HASTA,
+            empresa: RANGO_EMP
+        });
+
+        fetch('<?= basename(__FILE__) ?>?' + qs.toString())
+            .then(r => r.text())
+            .then(html => {
+                viajesContent.innerHTML = html;
+                // Attach filter functionality after content loads
+                setTimeout(attachFiltroViajes, 100);
+            })
+            .catch(() => {
+                viajesContent.innerHTML = '<p class="text-center text-rose-600">Error cargando viajes.</p>';
+            });
     }
 
     function attachFiltroViajes(){
@@ -1757,29 +1973,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         });
     }
 
-    function loadViajes(nombre) {
-        viajesContent.innerHTML = '<p class="text-center m-0 animate-pulse">Cargando…</p>';
-        viajesConductorActual = nombre;
-        viajesTitle.textContent = nombre;
-
-        const qs = new URLSearchParams({
-            viajes_conductor: nombre,
-            desde: RANGO_DESDE,
-            hasta: RANGO_HASTA,
-            empresa: RANGO_EMP
-        });
-
-        fetch('<?= basename(__FILE__) ?>?' + qs.toString())
-            .then(r => r.text())
-            .then(html => {
-                viajesContent.innerHTML = html;
-                attachFiltroViajes();
-            })
-            .catch(() => {
-                viajesContent.innerHTML = '<p class="text-center text-rose-600">Error cargando viajes.</p>';
-            });
-    }
-
     function abrirModalViajes(nombreInicial){
         viajesRango.textContent   = RANGO_DESDE + " → " + RANGO_HASTA;
         viajesEmpresa.textContent = (RANGO_EMP && RANGO_EMP !== "") ? RANGO_EMP : "Todas las empresas";
@@ -1797,6 +1990,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         viajesConductorActual = null;
     }
 
+    // Event listeners for modal
     viajesClose.addEventListener('click', cerrarModalViajes);
     viajesModal.addEventListener('click', (e)=>{
         if(e.target===viajesModal) cerrarModalViajes();
@@ -1807,606 +2001,55 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         loadViajes(nuevo);
     });
 
-    // Conectar botones de conductor al modal (EXACTAMENTE IGUAL AL PRIMER CÓDIGO)
-    document.querySelectorAll('#tbody .conductor-link').forEach(btn=>{
-        btn.addEventListener('click', ()=>{
-            abrirModalViajes(btn.textContent.trim());
-        });
-    });
-
-    // ===== CÁLCULOS PRINCIPALES =====
-    function recalc(){
-        const porcentaje = parseFloat(document.getElementById('inp_porcentaje_ajuste').value) || 0;
-        const rows = [...tbody.querySelectorAll('tr')];
-        
-        let totalAutomaticos = <?= $total_facturado ?>;
-        let totalManuales = 0;
-        
-        let sumLleg = 0, sumRet = 0, sumMil4 = 0, sumAp = 0, sumSS = 0, sumPrest = 0, sumPagar = 0;
-        
-        rows.forEach((tr) => {
-            if (tr.style.display === 'none') return;
-            
-            let base;
-            
-            if (tr.classList.contains('fila-manual')) {
-                const baseInput = tr.querySelector('.base-manual');
-                base = baseInput ? toInt(baseInput.value) : 0;
-                totalManuales += base;
-            } else {
-                const baseEl = tr.querySelector('.base');
-                if (!baseEl) return;
-                base = toInt(baseEl.textContent);
-            }
-            
-            const ajuste = Math.round(base * (porcentaje / 100));
-            const llego = base - ajuste;
-            const prest = toInt(tr.querySelector('.prest').textContent || '0');
-            const ret = Math.round(llego * 0.035);
-            const mil4 = Math.round(llego * 0.004);
-            const ap = Math.round(llego * 0.10);
-            const ssInput = tr.querySelector('input.ss');
-            const ssVal = ssInput ? toInt(ssInput.value) : 0;
-            const pagar = llego - ret - mil4 - ap - ssVal - prest;
-            
-            tr.querySelector('.ajuste').textContent = fmt(ajuste);
-            tr.querySelector('.llego').textContent = fmt(llego);
-            tr.querySelector('.ret').textContent = fmt(ret);
-            tr.querySelector('.mil4').textContent = fmt(mil4);
-            tr.querySelector('.apor').textContent = fmt(ap);
-            tr.querySelector('.pagar').textContent = fmt(pagar);
-            
-            sumLleg += llego;
-            sumRet += ret;
-            sumMil4 += mil4;
-            sumAp += ap;
-            sumSS += ssVal;
-            sumPrest += prest;
-            sumPagar += pagar;
-        });
-        
-        const totalFacturado = totalAutomaticos + totalManuales;
-        document.getElementById('inp_facturado').value = fmt(totalFacturado);
-        document.getElementById('inp_viajes_manuales').value = fmt(totalManuales);
-        
-        const ajusteTotal = Math.round(totalFacturado * (porcentaje / 100));
-        document.getElementById('lbl_total_ajuste').textContent = fmt(ajusteTotal);
-        
-        document.getElementById('tot_valor_llego').textContent = fmt(sumLleg);
-        document.getElementById('tot_retencion').textContent = fmt(sumRet);
-        document.getElementById('tot_4x1000').textContent = fmt(sumMil4);
-        document.getElementById('tot_aporte').textContent = fmt(sumAp);
-        document.getElementById('tot_ss').textContent = fmt(sumSS);
-        document.getElementById('tot_prestamos').textContent = fmt(sumPrest);
-        document.getElementById('tot_pagar').textContent = fmt(sumPagar);
-        
-        actualizarPanelFlotante();
-    }
-
-    // ===== GESTIÓN DE CUENTAS GUARDADAS EN BD =====
-    const formFiltros = document.getElementById('formFiltros');
-    const inpDesde = document.getElementById('inp_desde');
-    const inpHasta = document.getElementById('inp_hasta');
-    const selEmpresa = document.getElementById('sel_empresa');
-    const inpFact = document.getElementById('inp_facturado');
-    const inpPorcentaje = document.getElementById('inp_porcentaje_ajuste');
-
-    const saveCuentaModal = document.getElementById('saveCuentaModal');
-    const btnShowSaveCuenta = document.getElementById('btnShowSaveCuenta');
-    const btnCloseSaveCuenta = document.getElementById('btnCloseSaveCuenta');
-    const btnCancelSaveCuenta = document.getElementById('btnCancelSaveCuenta');
-    const btnDoSaveCuenta = document.getElementById('btnDoSaveCuenta');
-
-    const iNombre = document.getElementById('cuenta_nombre');
-    const iEmpresa = document.getElementById('cuenta_empresa');
-    const iRango = document.getElementById('cuenta_rango');
-    const iCFact = document.getElementById('cuenta_facturado');
-    const iCPorcentaje  = document.getElementById('cuenta_porcentaje');
-
-    // ===== GUARDAR CUENTA EN BASE DE DATOS =====
-    async function openSaveCuenta(){
-        const emp = selEmpresa.value.trim();
-        if(!emp){ 
-            Swal.fire({
-                title: '⚠️ Empresa requerida',
-                text: 'Selecciona una EMPRESA antes de guardar la cuenta.',
-                icon: 'warning'
-            });
-            return; 
-        }
-        const d = inpDesde.value; const h = inpHasta.value;
-
-        iEmpresa.value = emp;
-        iRango.value = `${d} → ${h}`;
-        iNombre.value = `${emp} ${d} a ${h}`;
-        iCFact.value = fmt(toInt(inpFact.value));
-        iCPorcentaje.value = parseFloat(inpPorcentaje.value) || 0;
-
-        saveCuentaModal.classList.remove('hidden');
-        setTimeout(()=> iNombre.focus(), 0);
-    }
-    
-    function closeSaveCuenta(){ saveCuentaModal.classList.add('hidden'); }
-
-    btnShowSaveCuenta.addEventListener('click', openSaveCuenta);
-    btnCloseSaveCuenta.addEventListener('click', closeSaveCuenta);
-    btnCancelSaveCuenta.addEventListener('click', closeSaveCuenta);
-
-    btnDoSaveCuenta.addEventListener('click', async ()=>{
-        const emp = iEmpresa.value.trim();
-        const [d1, d2raw] = iRango.value.split('→');
-        const desde = (d1||'').trim();
-        const hasta = (d2raw||'').trim();
-        const nombre = iNombre.value.trim() || `${emp} ${desde} a ${hasta}`;
-        const facturado = toInt(iCFact.value);
-        const porcentaje  = parseFloat(iCPorcentaje.value) || 0;
-
-        // OBTENER TODOS LOS DATOS ACTUALES PARA JSON
-        const datosParaGuardar = {
-            prestamos: { ...prestSel },
-            segSocial: { ...ssMap },
-            cuentasBancarias: { ...accMap },
-            estadosPago: { ...estadoPagoMap },
-            filasManuales: []
-        };
-        
-        // Guardar datos de filas manuales
-        document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => {
-            const conductor = tr.querySelector('.conductor-select')?.value || '';
-            const base = toInt(tr.querySelector('.base-manual')?.value || '0');
-            const cuenta = tr.querySelector('input.cta')?.value || '';
-            const segSocial = toInt(tr.querySelector('input.ss')?.value || '0');
-            const estado = tr.querySelector('select.estado-pago')?.value || '';
-            
-            if (conductor) {
-                datosParaGuardar.filasManuales.push({
-                    conductor,
-                    base,
-                    cuenta,
-                    segSocial,
-                    estado
-                });
-            }
-        });
-
-        // Preparar datos para enviar
-        const formData = new FormData();
-        formData.append('accion', 'guardar_cuenta');
-        formData.append('nombre', nombre);
-        formData.append('empresa', emp);
-        formData.append('desde', desde);
-        formData.append('hasta', hasta);
-        formData.append('facturado', facturado);
-        formData.append('porcentaje_ajuste', porcentaje);
-        formData.append('datos_json', JSON.stringify(datosParaGuardar));
-
-        try {
-            const response = await fetch('', {
-                method: 'POST',
-                body: formData
-            });
-            
-            const resultado = await response.json();
-            
-            if (resultado.success) {
-                Swal.fire({
-                    title: '✅ Cuenta guardada',
-                    text: 'La cuenta se guardó exitosamente en la base de datos.',
-                    icon: 'success',
-                    timer: 2000,
-                    showConfirmButton: false
-                });
-                
-                closeSaveCuenta();
-                
-                // Recargar lista en el gestor si está abierto
-                if (!gestorModal.classList.contains('hidden')) {
-                    await renderCuentasBD();
-                }
-            } else {
-                throw new Error(resultado.message);
-            }
-        } catch (error) {
-            Swal.fire({
-                title: '❌ Error',
-                text: 'No se pudo guardar la cuenta: ' + error.message,
-                icon: 'error'
-            });
-        }
-    });
-
-    // ===== GESTOR DE CUENTAS DESDE BASE DE DATOS =====
-    const gestorModal = document.getElementById('gestorCuentasModal');
-    const btnShowGestor = document.getElementById('btnShowGestorCuentas');
-    const btnCloseGestor = document.getElementById('btnCloseGestor');
-    const btnAddDesdeFiltro = document.getElementById('btnAddDesdeFiltro');
-    const btnRecargarCuentas = document.getElementById('btnRecargarCuentas');
-    const filtroEmpresaCuentas = document.getElementById('filtroEmpresaCuentas');
-    const buscaCuentaBD = document.getElementById('buscaCuentaBD');
-    const clearBuscarBD = document.getElementById('clearBuscarBD');
-    const tbodyCuentasBD = document.getElementById('tbodyCuentasBD');
-    const contadorCuentas = document.getElementById('contador-cuentas');
-
-    // Función para formatear fecha
-    function formatFecha(fechaStr) {
-        if (!fechaStr) return '';
-        const fecha = new Date(fechaStr);
-        return fecha.toLocaleDateString('es-CO', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-    }
-
-    // Función para contar préstamos en cuenta
-    function contarPrestamosEnCuenta(cuenta) {
-        if (!cuenta.datos_json || !cuenta.datos_json.prestamos) return 0;
-        let total = 0;
-        Object.values(cuenta.datos_json.prestamos).forEach(prestamosArray => {
-            total += prestamosArray.length;
-        });
-        return total;
-    }
-
-    // Función para contar filas manuales
-    function contarFilasManuales(cuenta) {
-        if (!cuenta.datos_json || !cuenta.datos_json.filasManuales) return 0;
-        return cuenta.datos_json.filasManuales.length;
-    }
-
-    // Renderizar cuentas desde BD
-    async function renderCuentasBD() {
-        const empresa = filtroEmpresaCuentas.value;
-        const filtro = (buscaCuentaBD.value || '').toLowerCase();
-        
-        try {
-            const response = await fetch(`?obtener_cuentas=1&empresa=${encodeURIComponent(empresa)}`);
-            const cuentas = await response.json();
-            
-            // Filtrar por búsqueda
-            const cuentasFiltradas = cuentas.filter(cuenta => 
-                !filtro || 
-                cuenta.nombre.toLowerCase().includes(filtro) ||
-                cuenta.usuario?.toLowerCase().includes(filtro)
-            );
-            
-            contadorCuentas.textContent = `Mostrando ${cuentasFiltradas.length} de ${cuentas.length} cuentas`;
-            
-            if (cuentasFiltradas.length === 0) {
-                tbodyCuentasBD.innerHTML = `
-                    <tr>
-                        <td colspan="7" class="px-3 py-8 text-center text-slate-500">
-                            <div class="flex flex-col items-center gap-2">
-                                <div class="text-3xl">📭</div>
-                                <div>No hay cuentas guardadas</div>
-                                ${filtro ? '<div class="text-xs text-slate-400">No se encontraron cuentas con ese filtro</div>' : ''}
-                            </div>
-                        </td>
-                    </tr>`;
-                return;
-            }
-            
-            let html = '';
-            cuentasFiltradas.forEach(cuenta => {
-                const totalPrestamos = contarPrestamosEnCuenta(cuenta);
-                const totalFilasManuales = contarFilasManuales(cuenta);
-                
-                html += `
-                <tr class="hover:bg-slate-50">
-                    <td class="px-3 py-3">
-                        <div class="font-medium">${cuenta.nombre}</div>
-                        <div class="text-xs text-slate-500">${cuenta.usuario || 'Sistema'}</div>
-                    </td>
-                    <td class="px-3 py-3">
-                        <div class="text-sm">${cuenta.desde} → ${cuenta.hasta}</div>
-                    </td>
-                    <td class="px-3 py-3 text-right num font-semibold">${fmt(cuenta.facturado || 0)}</td>
-                    <td class="px-3 py-3 text-right num">${cuenta.porcentaje_ajuste || 0}%</td>
-                    <td class="px-3 py-3 text-center">
-                        <div class="flex flex-col gap-1 items-center">
-                            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs ${totalPrestamos > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">
-                                ${totalPrestamos} préstamos
-                            </span>
-                            ${totalFilasManuales > 0 ? 
-                            `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-blue-100 text-blue-700">
-                                ${totalFilasManuales} manuales
-                            </span>` : ''}
-                        </div>
-                    </td>
-                    <td class="px-3 py-3 text-center text-xs text-slate-500">
-                        ${formatFecha(cuenta.fecha_creacion)}
-                    </td>
-                    <td class="px-3 py-3 text-right">
-                        <div class="inline-flex gap-2">
-                            <button class="btnCargarCuenta border px-3 py-2 rounded bg-blue-50 hover:bg-blue-100 text-xs text-blue-700" 
-                                    data-id="${cuenta.id}"
-                                    title="Cargar esta cuenta">
-                                📂 Cargar
-                            </button>
-                            <button class="btnEliminarCuenta border px-3 py-2 rounded bg-rose-50 hover:bg-rose-100 text-xs text-rose-700" 
-                                    data-id="${cuenta.id}"
-                                    title="Eliminar esta cuenta">
-                                🗑️
-                            </button>
-                        </div>
-                    </td>
-                </tr>`;
-            });
-            
-            tbodyCuentasBD.innerHTML = html;
-            
-            // Agregar eventos a los botones
-            document.querySelectorAll('.btnCargarCuenta').forEach(btn => {
-                btn.addEventListener('click', async () => {
-                    const id = btn.dataset.id;
-                    await cargarCuentaCompletaBD(id);
-                });
-            });
-            
-            document.querySelectorAll('.btnEliminarCuenta').forEach(btn => {
-                btn.addEventListener('click', async () => {
-                    const id = btn.dataset.id;
-                    await eliminarCuentaBD(id);
-                });
-            });
-            
-        } catch (error) {
-            console.error('Error al cargar cuentas:', error);
-            tbodyCuentasBD.innerHTML = `
-                <tr>
-                    <td colspan="7" class="px-3 py-8 text-center text-rose-600">
-                        <div class="flex flex-col items-center gap-2">
-                            <div class="text-3xl">❌</div>
-                            <div>Error al cargar cuentas</div>
-                            <div class="text-xs">${error.message}</div>
-                        </div>
-                    </td>
-                </tr>`;
-        }
-    }
-
-    // ===== CARGAR CUENTA COMPLETA DESDE BD =====
-    async function cargarCuentaCompletaBD(id) {
-        const confirmacion = await Swal.fire({
-            title: '¿Cargar esta cuenta?',
-            text: 'Se restaurarán todos los datos guardados',
-            icon: 'question',
-            showCancelButton: true,
-            confirmButtonText: 'Sí, cargar',
-            cancelButtonText: 'Cancelar',
-            confirmButtonColor: '#3b82f6'
-        });
-        
-        if (!confirmacion.isConfirmed) return;
-        
-        try {
-            const formData = new FormData();
-            formData.append('accion', 'cargar_cuenta');
-            formData.append('id', id);
-            
-            const response = await fetch('', {
-                method: 'POST',
-                body: formData
-            });
-            
-            const resultado = await response.json();
-            
-            if (resultado.success) {
-                const cuenta = resultado.cuenta;
-                
-                // Cargar datos básicos
-                selEmpresa.value = cuenta.empresa;
-                inpDesde.value = cuenta.desde;
-                inpHasta.value = cuenta.hasta;
-                inpFact.value = fmt(cuenta.facturado || 0);
-                inpPorcentaje.value = cuenta.porcentaje_ajuste || 0;
-                
-                const datos = cuenta.datos_json || {};
-                
-                // Cargar datos asociados a conductores
-                if (datos.prestamos) {
-                    prestSel = datos.prestamos;
-                    setLS(PREST_SEL_KEY, prestSel);
-                }
-                
-                if (datos.segSocial) {
-                    ssMap = datos.segSocial;
-                    setLS(SS_KEY, ssMap);
-                }
-                
-                if (datos.cuentasBancarias) {
-                    accMap = datos.cuentasBancarias;
-                    setLS(ACC_KEY, accMap);
-                }
-                
-                if (datos.estadosPago) {
-                    estadoPagoMap = datos.estadosPago;
-                    setLS(ESTADO_PAGO_KEY, estadoPagoMap);
-                }
-                
-                // Limpiar filas manuales existentes
-                document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => tr.remove());
-                manualRows = [];
-                
-                // Cargar filas manuales
-                if (datos.filasManuales && datos.filasManuales.length > 0) {
-                    datos.filasManuales.forEach(filaManual => {
-                        agregarFilaManual();
-                        
-                        // Obtener la última fila agregada
-                        const ultimaFila = tbody.querySelector('tr.fila-manual:last-child');
-                        if (ultimaFila) {
-                            const select = ultimaFila.querySelector('.conductor-select');
-                            const baseInput = ultimaFila.querySelector('.base-manual');
-                            const ctaInput = ultimaFila.querySelector('input.cta');
-                            const ssInput = ultimaFila.querySelector('input.ss');
-                            const estadoSelect = ultimaFila.querySelector('select.estado-pago');
-                            
-                            if (select) select.value = filaManual.conductor;
-                            if (baseInput) baseInput.value = fmt(filaManual.base);
-                            if (ctaInput) ctaInput.value = filaManual.cuenta;
-                            if (ssInput) ssInput.value = fmt(filaManual.segSocial);
-                            if (estadoSelect) estadoSelect.value = filaManual.estado;
-                            
-                            // Actualizar datos del conductor
-                            const nombreConductor = filaManual.conductor;
-                            if (nombreConductor) {
-                                if (filaManual.cuenta) accMap[nombreConductor] = filaManual.cuenta;
-                                if (filaManual.segSocial) ssMap[nombreConductor] = filaManual.segSocial;
-                                if (filaManual.estado) estadoPagoMap[nombreConductor] = filaManual.estado;
-                            }
-                        }
-                    });
-                    
-                    localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
-                }
-                
-                // Aplicar cambios a todas las filas
-                setTimeout(() => {
-                    // Aplicar cuentas bancarias
-                    document.querySelectorAll('#tbody tr').forEach(tr => {
-                        const nombre = obtenerNombreConductorDeFila(tr);
-                        if (nombre && accMap[nombre]) {
-                            const ctaInput = tr.querySelector('input.cta');
-                            if (ctaInput) ctaInput.value = accMap[nombre];
-                        }
-                        
-                        // Aplicar seguridad social
-                        if (nombre && ssMap[nombre]) {
-                            const ssInput = tr.querySelector('input.ss');
-                            if (ssInput) ssInput.value = fmt(ssMap[nombre]);
-                        }
-                        
-                        // Aplicar estado de pago
-                        if (nombre && estadoPagoMap[nombre]) {
-                            const estadoSelect = tr.querySelector('select.estado-pago');
-                            if (estadoSelect) {
-                                estadoSelect.value = estadoPagoMap[nombre];
-                                aplicarEstadoFila(tr, estadoPagoMap[nombre]);
-                            }
-                        }
-                    });
-                    
-                    // Asignar préstamos
-                    asignarPrestamosAFilas();
-                    
-                    // Recalcular todo
-                    recalc();
-                    
-                    // Cerrar modal
-                    closeGestor();
-                    
-                    Swal.fire({
-                        title: '✅ Cuenta cargada',
-                        text: `"${cuenta.nombre}" cargada exitosamente`,
-                        icon: 'success',
-                        timer: 2000,
-                        showConfirmButton: false
-                    });
-                }, 100);
-            } else {
-                throw new Error(resultado.message);
-            }
-        } catch (error) {
-            Swal.fire({
-                title: '❌ Error',
-                text: error.message,
-                icon: 'error'
-            });
-        }
-    }
-
-    // ===== ELIMINAR CUENTA DE BD =====
-    async function eliminarCuentaBD(id) {
-        const confirmacion = await Swal.fire({
-            title: '¿Eliminar esta cuenta?',
-            text: 'Esta acción no se puede deshacer',
-            icon: 'warning',
-            showCancelButton: true,
-            confirmButtonText: 'Sí, eliminar',
-            cancelButtonText: 'Cancelar',
-            confirmButtonColor: '#ef4444'
-        });
-        
-        if (!confirmacion.isConfirmed) return;
-        
-        try {
-            const formData = new FormData();
-            formData.append('accion', 'eliminar_cuenta');
-            formData.append('id', id);
-            
-            const response = await fetch('', {
-                method: 'POST',
-                body: formData
-            });
-            
-            const resultado = await response.json();
-            
-            if (resultado.success) {
-                await renderCuentasBD();
-                Swal.fire({
-                    title: '✅ Eliminada',
-                    text: 'Cuenta eliminada correctamente',
-                    icon: 'success',
-                    timer: 2000,
-                    showConfirmButton: false
-                });
-            } else {
-                throw new Error(resultado.message);
-            }
-        } catch (error) {
-            Swal.fire({
-                title: '❌ Error',
-                text: error.message,
-                icon: 'error'
-            });
-        }
-    }
-
-    function openGestor(){
-        renderCuentasBD();
-        gestorModal.classList.remove('hidden');
-        setTimeout(()=> buscaCuentaBD.focus(), 0);
-    }
-    
-    function closeGestor(){ 
-        gestorModal.classList.add('hidden'); 
-        buscaCuentaBD.value = '';
-    }
-
-    btnShowGestor.addEventListener('click', openGestor);
-    btnCloseGestor.addEventListener('click', closeGestor);
-    btnRecargarCuentas.addEventListener('click', renderCuentasBD);
-    filtroEmpresaCuentas.addEventListener('change', renderCuentasBD);
-    buscaCuentaBD.addEventListener('input', renderCuentasBD);
-    clearBuscarBD.addEventListener('click', () => {
-        buscaCuentaBD.value = '';
-        renderCuentasBD();
-        buscaCuentaBD.focus();
-    });
-    btnAddDesdeFiltro.addEventListener('click', ()=>{ 
-        closeGestor(); 
-        setTimeout(() => openSaveCuenta(), 300);
-    });
-
     // ===== INICIALIZACIÓN =====
     document.addEventListener('DOMContentLoaded', function() {
-        initializeExistingRows();
-        cargarFilasManuales();
-        hacerPanelArrastrable();
-        asignarPrestamosAFilas();
-        recalc();
-        if (selectedConductors.length > 0) {
-            actualizarPanelFlotante();
-        }
-        
-        // Configurar eventos de entrada para recalcular
-        document.getElementById('inp_porcentaje_ajuste').addEventListener('input', recalc);
-        document.getElementById('inp_facturado').addEventListener('input', recalc);
+      // Configurar eventos de tarifas
+      configurarEventosTarifas();
+      
+      // Click en conductor → abre modal de viajes
+      document.querySelectorAll('.conductor-link').forEach(btn=>{
+        btn.addEventListener('click', (e)=>{
+          e.preventDefault();
+          const nombre = btn.textContent.trim().replace('⚠️', '').trim();
+          abrirModalViajes(nombre);
+        });
+      });
+
+      // Cambio clasificación ruta individual
+      document.querySelectorAll('.select-clasif-ruta').forEach(sel=>{
+        sel.addEventListener('change', ()=>{
+          const ruta = sel.dataset.ruta;
+          const vehiculo = sel.dataset.vehiculo;
+          const clasif = sel.value.toLowerCase(); // NORMALIZAR A MINÚSCULAS
+          if (clasif) guardarClasificacionRuta(ruta, vehiculo, clasif);
+        });
+      });
+
+      // Permitir escribir nuevas clasificaciones en select
+      document.querySelectorAll('.select-clasif-ruta').forEach(sel=>{
+        sel.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter') {
+            const nuevaClasif = this.value.trim().toLowerCase();
+            if (nuevaClasif) {
+              const ruta = this.dataset.ruta;
+              const vehiculo = this.dataset.vehiculo;
+              guardarClasificacionRuta(ruta, vehiculo, nuevaClasif);
+              this.blur();
+            }
+          }
+        });
+      });
+
+      // Recalcular al cargar
+      recalcular();
+      
+      // Mostrar automáticamente el resumen si hay rutas sin clasificar
+      const totalRutasSinClasificar = <?= array_sum(array_column($datos, 'rutas_sin_clasificar')) ?>;
+      if (totalRutasSinClasificar > 0) {
+        mostrarResumenRutasSinClasificar();
+      }
     });
-</script>
+  </script>
 </body>
 </html>
 <?php
