@@ -350,7 +350,7 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
     </body></html>
     <?php exit;
 }
-
+include("nav.php");
 /* ================= Parámetros ================= */
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
