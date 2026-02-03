@@ -89,6 +89,55 @@ function obtenerEstiloClasificacion($clasificacion) {
 }
 
 /* =======================================================
+   🔹 NUEVA FUNCIÓN: Colores únicos por tipo de vehículo
+======================================================= */
+function obtenerColorVehiculo($vehiculo) {
+    // Paleta de colores vibrantes para vehículos
+    $colores_vehiculos = [
+        'camioneta' => ['bg' => 'bg-blue-100', 'text' => 'text-blue-700', 'border' => 'border-blue-200', 'dark' => 'bg-blue-50'],
+        'turbo' => ['bg' => 'bg-green-100', 'text' => 'text-green-700', 'border' => 'border-green-200', 'dark' => 'bg-green-50'],
+        'mensual' => ['bg' => 'bg-orange-100', 'text' => 'text-orange-700', 'border' => 'border-orange-200', 'dark' => 'bg-orange-50'],
+        'camión' => ['bg' => 'bg-purple-100', 'text' => 'text-purple-700', 'border' => 'border-purple-200', 'dark' => 'bg-purple-50'],
+        'buseta' => ['bg' => 'bg-pink-100', 'text' => 'text-pink-700', 'border' => 'border-pink-200', 'dark' => 'bg-pink-50'],
+        'minivan' => ['bg' => 'bg-teal-100', 'text' => 'text-teal-700', 'border' => 'border-teal-200', 'dark' => 'bg-teal-50'],
+        'automóvil' => ['bg' => 'bg-red-100', 'text' => 'text-red-700', 'border' => 'border-red-200', 'dark' => 'bg-red-50'],
+        'moto' => ['bg' => 'bg-indigo-100', 'text' => 'text-indigo-700', 'border' => 'border-indigo-200', 'dark' => 'bg-indigo-50'],
+        'bicicleta' => ['bg' => 'bg-lime-100', 'text' => 'text-lime-700', 'border' => 'border-lime-200', 'dark' => 'bg-lime-50'],
+        'furgoneta' => ['bg' => 'bg-amber-100', 'text' => 'text-amber-700', 'border' => 'border-amber-200', 'dark' => 'bg-amber-50'],
+    ];
+    
+    // Normalizar nombre del vehículo
+    $vehiculo_lower = strtolower($vehiculo);
+    
+    // Buscar coincidencia exacta
+    if (isset($colores_vehiculos[$vehiculo_lower])) {
+        return $colores_vehiculos[$vehiculo_lower];
+    }
+    
+    // Buscar coincidencias parciales
+    foreach ($colores_vehiculos as $key => $color) {
+        if (strpos($vehiculo_lower, $key) !== false) {
+            return $color;
+        }
+    }
+    
+    // Generar color dinámico si no se encuentra
+    $colores_genericos = [
+        ['bg' => 'bg-violet-100', 'text' => 'text-violet-700', 'border' => 'border-violet-200', 'dark' => 'bg-violet-50'],
+        ['bg' => 'bg-cyan-100', 'text' => 'text-cyan-700', 'border' => 'border-cyan-200', 'dark' => 'bg-cyan-50'],
+        ['bg' => 'bg-emerald-100', 'text' => 'text-emerald-700', 'border' => 'border-emerald-200', 'dark' => 'bg-emerald-50'],
+        ['bg' => 'bg-fuchsia-100', 'text' => 'text-fuchsia-700', 'border' => 'border-fuchsia-200', 'dark' => 'bg-fuchsia-50'],
+        ['bg' => 'bg-rose-100', 'text' => 'text-rose-700', 'border' => 'border-rose-200', 'dark' => 'bg-rose-50'],
+        ['bg' => 'bg-sky-100', 'text' => 'text-sky-700', 'border' => 'border-sky-200', 'dark' => 'bg-sky-50'],
+    ];
+    
+    $hash = crc32($vehiculo);
+    $color_index = abs($hash) % count($colores_genericos);
+    
+    return $colores_genericos[$color_index];
+}
+
+/* =======================================================
    🔹 Crear nueva clasificación (AJAX)
 ======================================================= */
 if (isset($_POST['crear_clasificacion'])) {
@@ -635,7 +684,7 @@ if ($empresaFiltro !== "") {
     50% { opacity: 0.7; }
   }
   
-  /* ===== NUEVO: BOLITAS FLOTANTES ===== */
+  /* ===== BOLITAS FLOTANTES ===== */
   .floating-balls-container {
     position: fixed;
     left: 20px;
@@ -723,7 +772,7 @@ if ($empresaFiltro !== "") {
     background: linear-gradient(135deg, #f59e0b, #d97706);
   }
   
-  /* ===== NUEVO: PANELES DESLIZANTES ===== */
+  /* ===== PANELES DESLIZANTES ===== */
   .side-panel-overlay {
     position: fixed;
     top: 0;
@@ -917,6 +966,47 @@ if ($empresaFiltro !== "") {
     transform: rotate(90deg);
   }
   
+  /* ===== NUEVO: COLORES PARA FILAS DE CLASIFICACIÓN DE RUTAS ===== */
+  .fila-clasificada-completo {
+    background-color: rgba(209, 250, 229, 0.3) !important;
+    border-left: 4px solid #10b981 !important;
+  }
+  
+  .fila-clasificada-medio {
+    background-color: rgba(254, 243, 199, 0.3) !important;
+    border-left: 4px solid #f59e0b !important;
+  }
+  
+  .fila-clasificada-extra {
+    background-color: rgba(241, 245, 249, 0.3) !important;
+    border-left: 4px solid #64748b !important;
+  }
+  
+  .fila-clasificada-siapana {
+    background-color: rgba(250, 232, 255, 0.3) !important;
+    border-left: 4px solid #d946ef !important;
+  }
+  
+  .fila-clasificada-carrotanque {
+    background-color: rgba(207, 250, 254, 0.3) !important;
+    border-left: 4px solid #06b6d4 !important;
+  }
+  
+  .fila-clasificada-riohacha {
+    background-color: rgba(224, 231, 255, 0.3) !important;
+    border-left: 4px solid #4f46e5 !important;
+  }
+  
+  .fila-clasificada-pru {
+    background-color: rgba(204, 251, 241, 0.3) !important;
+    border-left: 4px solid #14b8a6 !important;
+  }
+  
+  .fila-clasificada-maco {
+    background-color: rgba(255, 228, 230, 0.3) !important;
+    border-left: 4px solid #f43f5e !important;
+  }
+  
   /* Responsive */
   @media (max-width: 768px) {
     .floating-balls-container {
@@ -1019,7 +1109,7 @@ if ($empresaFiltro !== "") {
     </div>
   </header>
 
-  <!-- ===== NUEVO: BOLITAS FLOTANTES ===== -->
+  <!-- ===== BOLITAS FLOTANTES ===== -->
   <div class="floating-balls-container">
     <!-- Bolita 1: Tarifas por tipo de vehículo -->
     <div class="floating-ball ball-tarifas" id="ball-tarifas" data-panel="tarifas">
@@ -1040,10 +1130,10 @@ if ($empresaFiltro !== "") {
     </div>
   </div>
 
-  <!-- ===== NUEVO: OVERLAY PARA PANELES ===== -->
+  <!-- ===== OVERLAY PARA PANELES ===== -->
   <div class="side-panel-overlay" id="sidePanelOverlay"></div>
 
-  <!-- ===== NUEVO: PANEL DE TARIFAS CON ACORDEÓN ===== -->
+  <!-- ===== PANEL DE TARIFAS CON ACORDEÓN Y COLORES ===== -->
   <div class="side-panel" id="panel-tarifas">
     <div class="side-panel-header">
       <h3 class="text-lg font-semibold flex items-center gap-2">
@@ -1066,35 +1156,40 @@ if ($empresaFiltro !== "") {
       </div>
       
       <div id="tarifas_grid" class="grid grid-cols-1 gap-3">
-        <?php foreach ($vehiculos as $veh):
+        <?php foreach ($vehiculos as $index => $veh):
+          $color_vehiculo = obtenerColorVehiculo($veh);
           $t = $tarifas_guardadas[$veh] ?? [];
           $veh_id = preg_replace('/[^a-z0-9]/i', '-', strtolower($veh));
         ?>
-        <div class="tarjeta-tarifa-acordeon rounded-xl border border-slate-200 overflow-hidden shadow-sm bg-white"
+        <div class="tarjeta-tarifa-acordeon rounded-xl border <?= $color_vehiculo['border'] ?> overflow-hidden shadow-sm"
              data-vehiculo="<?= htmlspecialchars($veh) ?>"
-             id="acordeon-<?= $veh_id ?>">
+             id="acordeon-<?= $veh_id ?>"
+             style="background-color: <?= str_replace('bg-', '#', $color_vehiculo['dark']) ?>;">
           
           <!-- CABECERA DEL ACORDEÓN (siempre visible) -->
-          <div class="acordeon-header flex items-center justify-between px-4 py-3.5 cursor-pointer hover:bg-slate-50 transition"
-               onclick="toggleAcordeon('<?= $veh_id ?>')">
+          <div class="acordeon-header flex items-center justify-between px-4 py-3.5 cursor-pointer transition <?= $color_vehiculo['bg'] ?> hover:opacity-90"
+               onclick="toggleAcordeon('<?= $veh_id ?>')"
+               style="background-color: <?= str_replace('bg-', '#', $color_vehiculo['bg']) ?>;">
             <div class="flex items-center gap-3">
-              <span class="acordeon-icon text-lg transition-transform duration-300" id="icon-<?= $veh_id ?>">▶️</span>
+              <span class="acordeon-icon text-lg transition-transform duration-300 <?= $color_vehiculo['text'] ?>" id="icon-<?= $veh_id ?>">▶️</span>
               <div>
-                <div class="text-base font-semibold"><?= htmlspecialchars($veh) ?></div>
+                <div class="text-base font-semibold <?= $color_vehiculo['text'] ?>">
+                  <?= htmlspecialchars($veh) ?>
+                </div>
                 <div class="text-xs text-slate-500 mt-0.5">
                   <?= count($columnas_tarifas) ?> tipos de tarifas configurados
                 </div>
               </div>
             </div>
             <div class="flex items-center gap-2">
-              <span class="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 border border-blue-200">
+              <span class="text-xs px-2 py-1 rounded-full <?= $color_vehiculo['text'] ?> border <?= $color_vehiculo['border'] ?> bg-white/80">
                 Configurar
               </span>
             </div>
           </div>
           
           <!-- CONTENIDO DESPLEGABLE (oculto inicialmente) -->
-          <div class="acordeon-content px-4 py-3 border-t border-slate-100" id="content-<?= $veh_id ?>">
+          <div class="acordeon-content px-4 py-3 border-t <?= $color_vehiculo['border'] ?> bg-white" id="content-<?= $veh_id ?>">
             <div class="space-y-3">
               <?php foreach ($columnas_tarifas as $columna): 
                 $valor = isset($t[$columna]) ? (float)$t[$columna] : 0;
@@ -1113,13 +1208,24 @@ if ($empresaFiltro !== "") {
                 ];
                 
                 $etiqueta_final = $etiquetas_especiales[$columna] ?? $etiqueta;
+                
+                // Obtener color para esta clasificación
+                $estilo_clasif = obtenerEstiloClasificacion($columna);
               ?>
               <label class="block">
-                <span class="block text-sm font-medium mb-1"><?= htmlspecialchars($etiqueta_final) ?></span>
-                <input type="number" step="1000" value="<?= $valor ?>"
-                       data-campo="<?= htmlspecialchars($columna) ?>"
-                       class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition tarifa-input"
-                       oninput="recalcular()">
+                <span class="block text-sm font-medium mb-1 <?= $estilo_clasif['text'] ?>">
+                  <?= htmlspecialchars($etiqueta_final) ?>
+                </span>
+                <div class="relative">
+                  <input type="number" step="1000" value="<?= $valor ?>"
+                         data-campo="<?= htmlspecialchars($columna) ?>"
+                         class="w-full rounded-xl border <?= $estilo_clasif['border'] ?> px-3 py-2 pr-10 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition tarifa-input"
+                         style="border-color: <?= str_replace('border-', '#', $estilo_clasif['border']) ?>;"
+                         oninput="recalcular()">
+                  <span class="absolute right-3 top-1/2 transform -translate-y-1/2 text-sm font-semibold <?= $estilo_clasif['text'] ?>">
+                    $
+                  </span>
+                </div>
               </label>
               <?php endforeach; ?>
             </div>
@@ -1134,7 +1240,7 @@ if ($empresaFiltro !== "") {
     </div>
   </div>
 
-  <!-- ===== NUEVO: PANEL CREAR CLASIFICACIÓN ===== -->
+  <!-- ===== PANEL CREAR CLASIFICACIÓN ===== -->
   <div class="side-panel" id="panel-crear-clasif">
     <div class="side-panel-header">
       <h3 class="text-lg font-semibold flex items-center gap-2">
@@ -1174,7 +1280,7 @@ if ($empresaFiltro !== "") {
     </div>
   </div>
 
-  <!-- ===== NUEVO: PANEL CLASIFICACIÓN RUTAS ===== -->
+  <!-- ===== PANEL CLASIFICACIÓN RUTAS CON COLORES ===== -->
   <div class="side-panel" id="panel-clasif-rutas">
     <div class="side-panel-header">
       <h3 class="text-lg font-semibold flex items-center gap-2">
@@ -1193,31 +1299,39 @@ if ($empresaFiltro !== "") {
               <th class="px-3 py-2 text-center">Clasificación</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-slate-100">
+          <tbody class="divide-y divide-slate-100" id="tablaClasificacionRutas">
           <?php foreach($rutasUnicas as $info): 
-            $estilo = obtenerEstiloClasificacion($info['clasificacion'] ?? '');
+            $clasificacion_actual = $info['clasificacion'] ?? '';
+            $estilo = obtenerEstiloClasificacion($clasificacion_actual);
+            $clase_fila = $clasificacion_actual ? 'fila-clasificada-' . $clasificacion_actual : '';
           ?>
-            <tr class="fila-ruta hover:bg-slate-50"
+            <tr class="fila-ruta hover:bg-slate-50 <?= $clase_fila ?>"
                 data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
-                data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>">
-              <td class="px-3 py-2 whitespace-nowrap text-left">
+                data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>"
+                data-clasificacion="<?= htmlspecialchars($clasificacion_actual) ?>">
+              <td class="px-3 py-2 whitespace-nowrap text-left font-medium">
                 <?= htmlspecialchars($info['ruta']) ?>
               </td>
               <td class="px-3 py-2 text-center">
-                <?= htmlspecialchars($info['vehiculo']) ?>
+                <?php 
+                  $color_vehiculo = obtenerColorVehiculo($info['vehiculo']);
+                ?>
+                <span class="inline-block px-2 py-1 rounded-md text-xs font-medium <?= $color_vehiculo['bg'] ?> <?= $color_vehiculo['text'] ?> border <?= $color_vehiculo['border'] ?>">
+                  <?= htmlspecialchars($info['vehiculo']) ?>
+                </span>
               </td>
               <td class="px-3 py-2 text-center">
-                <select class="select-clasif-ruta rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100 w-full"
+                <select class="select-clasif-ruta rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100 w-full transition-all duration-300"
                         data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
                         data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>"
-                        style="<?php if($info['clasificacion']): ?>background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>20; color: <?= str_replace('text-', '#', $estilo['text']) ?>; border-color: <?= str_replace('border-', '#', $estilo['border']) ?>;<?php endif; ?>">
+                        onchange="actualizarColorFila(this)">
                   <option value="">Sin clasificar</option>
                   <?php foreach ($clasificaciones_disponibles as $clasif): 
                     $estilo_opcion = obtenerEstiloClasificacion($clasif);
                   ?>
                   <option value="<?= htmlspecialchars($clasif) ?>" 
                           <?= $info['clasificacion']===$clasif ? 'selected' : '' ?>
-                          style="background-color: <?= str_replace('bg-', '#', $estilo_opcion['bg']) ?>20; color: <?= str_replace('text-', '#', $estilo_opcion['text']) ?>;">
+                          style="background-color: <?= str_replace('bg-', '#', $estilo_opcion['bg']) ?>20; color: <?= str_replace('text-', '#', $estilo_opcion['text']) ?>; font-weight: 600;">
                     <?= htmlspecialchars(ucfirst($clasif)) ?>
                   </option>
                   <?php endforeach; ?>
@@ -1230,7 +1344,7 @@ if ($empresaFiltro !== "") {
       </div>
 
       <p class="text-xs text-slate-500 mt-4">
-        Selecciona una clasificación para cada ruta. Los cambios se guardan automáticamente.
+        Selecciona una clasificación para cada ruta. Los cambios se guardan automáticamente y la fila cambiará de color.
       </p>
     </div>
   </div>
@@ -1387,6 +1501,7 @@ if ($empresaFiltro !== "") {
                 $esMensual = (stripos($info['vehiculo'], 'mensual') !== false);
                 $claseVehiculo = $esMensual ? 'vehiculo-mensual' : '';
                 $rutasSinClasificar = $info['rutas_sin_clasificar'] ?? 0;
+                $color_vehiculo = obtenerColorVehiculo($info['vehiculo']);
               ?>
                 <tr data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>" 
                     data-conductor="<?= htmlspecialchars($conductor) ?>" 
@@ -1424,7 +1539,7 @@ if ($empresaFiltro !== "") {
                     </button>
                   </td>
                   <td class="px-4 py-3 text-center" style="min-width: 120px;">
-                    <span class="inline-block <?= $claseVehiculo ?> px-3 py-1.5 rounded-lg text-xs font-medium">
+                    <span class="inline-block <?= $claseVehiculo ?> px-3 py-1.5 rounded-lg text-xs font-medium border <?= $color_vehiculo['border'] ?> <?= $color_vehiculo['text'] ?> <?= $color_vehiculo['bg'] ?>">
                       <?= htmlspecialchars($info['vehiculo']) ?>
                       <?php if ($esMensual): ?>
                         <span class="ml-1">📅</span>
@@ -1530,7 +1645,7 @@ if ($empresaFiltro !== "") {
   </div>
 
   <script>
-    // ===== NUEVO: SISTEMA DE BOLITAS Y PANELES =====
+    // ===== SISTEMA DE BOLITAS Y PANELES =====
     let activePanel = null;
     const panels = ['tarifas', 'crear-clasif', 'clasif-rutas'];
     
@@ -1567,6 +1682,9 @@ if ($empresaFiltro !== "") {
       
       // Inicializar acordeón de tarifas (todos colapsados inicialmente)
       colapsarTodosTarifas();
+      
+      // Inicializar colores de las filas de clasificación
+      inicializarColoresClasificacion();
     });
     
     // Función para abrir/cerrar paneles
@@ -1647,6 +1765,41 @@ if ($empresaFiltro !== "") {
           if (icon) icon.classList.remove('expanded');
         }
       });
+    }
+    
+    // ===== FUNCIONES PARA COLORES DE CLASIFICACIÓN DE RUTAS =====
+    
+    function inicializarColoresClasificacion() {
+      const filas = document.querySelectorAll('.fila-ruta');
+      filas.forEach(fila => {
+        const select = fila.querySelector('.select-clasif-ruta');
+        actualizarColorFila(select);
+      });
+    }
+    
+    function actualizarColorFila(selectElement) {
+      const fila = selectElement.closest('tr');
+      const clasificacion = selectElement.value.toLowerCase();
+      const ruta = fila.dataset.ruta;
+      const vehiculo = fila.dataset.vehiculo;
+      
+      // Limpiar clases de color anteriores
+      fila.classList.forEach(className => {
+        if (className.startsWith('fila-clasificada-')) {
+          fila.classList.remove(className);
+        }
+      });
+      
+      // Actualizar dataset
+      fila.dataset.clasificacion = clasificacion;
+      
+      // Aplicar nueva clase de color si hay clasificación
+      if (clasificacion) {
+        fila.classList.add('fila-clasificada-' + clasificacion);
+      }
+      
+      // Guardar la clasificación en la base de datos
+      guardarClasificacionRuta(ruta, vehiculo, clasificacion);
     }
     
     // ===== FUNCIONALIDAD PARA RUTAS SIN CLASIFICAR =====
@@ -1879,17 +2032,8 @@ if ($empresaFiltro !== "") {
                 const sel = row.querySelector('.select-clasif-ruta');
                 sel.value = nombreClasif.toLowerCase();
                 
-                // Guardar clasificación
-                fetch('<?= basename(__FILE__) ?>', {
-                  method:'POST',
-                  headers:{'Content-Type':'application/x-www-form-urlencoded'},
-                  body:new URLSearchParams({
-                    guardar_clasificacion:1,
-                    ruta:row.dataset.ruta,
-                    tipo_vehiculo:vehiculo,
-                    clasificacion:nombreClasif.toLowerCase()
-                  })
-                });
+                // Actualizar color de la fila
+                actualizarColorFila(sel);
                 contador++;
               }
             });
@@ -2129,26 +2273,8 @@ if ($empresaFiltro !== "") {
 
       // Cambio clasificación ruta individual
       document.querySelectorAll('.select-clasif-ruta').forEach(sel=>{
-        sel.addEventListener('change', ()=>{
-          const ruta = sel.dataset.ruta;
-          const vehiculo = sel.dataset.vehiculo;
-          const clasif = sel.value.toLowerCase(); // NORMALIZAR A MINÚSCULAS
-          if (clasif) guardarClasificacionRuta(ruta, vehiculo, clasif);
-        });
-      });
-
-      // Permitir escribir nuevas clasificaciones en select
-      document.querySelectorAll('.select-clasif-ruta').forEach(sel=>{
-        sel.addEventListener('keydown', function(e) {
-          if (e.key === 'Enter') {
-            const nuevaClasif = this.value.trim().toLowerCase();
-            if (nuevaClasif) {
-              const ruta = this.dataset.ruta;
-              const vehiculo = this.dataset.vehiculo;
-              guardarClasificacionRuta(ruta, vehiculo, nuevaClasif);
-              this.blur();
-            }
-          }
+        sel.addEventListener('change', function() {
+          actualizarColorFila(this);
         });
       });
 
