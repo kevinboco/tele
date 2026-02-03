@@ -886,37 +886,6 @@ if ($empresaFiltro !== "") {
   .cat-carrotanque { background-color: rgba(207, 250, 254, 0.1); }
   .cat-otro { background-color: rgba(243, 244, 246, 0.1); }
   
-  /* ===== ACORDEÓN PARA TARIFAS ===== */
-  .tarjeta-tarifa-acordeon {
-    transition: all 0.3s ease;
-  }
-  
-  .tarjeta-tarifa-acordeon:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  }
-  
-  .acordeon-header {
-    transition: background-color 0.2s ease;
-  }
-  
-  .acordeon-content {
-    transition: all 0.3s ease;
-    max-height: 0;
-    overflow: hidden;
-  }
-  
-  .acordeon-content.expanded {
-    max-height: 2000px;
-  }
-  
-  .acordeon-icon {
-    transition: transform 0.3s ease;
-  }
-  
-  .acordeon-icon.expanded {
-    transform: rotate(90deg);
-  }
-  
   /* Responsive */
   @media (max-width: 768px) {
     .floating-balls-container {
@@ -1043,7 +1012,7 @@ if ($empresaFiltro !== "") {
   <!-- ===== NUEVO: OVERLAY PARA PANELES ===== -->
   <div class="side-panel-overlay" id="sidePanelOverlay"></div>
 
-  <!-- ===== NUEVO: PANEL DE TARIFAS CON ACORDEÓN ===== -->
+  <!-- ===== NUEVO: PANEL DE TARIFAS ===== -->
   <div class="side-panel" id="panel-tarifas">
     <div class="side-panel-header">
       <h3 class="text-lg font-semibold flex items-center gap-2">
@@ -1053,77 +1022,44 @@ if ($empresaFiltro !== "") {
       <button class="side-panel-close" data-panel="tarifas">✕</button>
     </div>
     <div class="side-panel-body">
-      <!-- Botones para expandir/colapsar todos -->
-      <div class="flex justify-end gap-2 mb-4">
-        <button onclick="expandirTodosTarifas()" 
-                class="text-xs px-3 py-1.5 rounded-lg border border-green-300 hover:bg-green-50 transition text-green-600">
-          Expandir todos
-        </button>
-        <button onclick="colapsarTodosTarifas()" 
-                class="text-xs px-3 py-1.5 rounded-lg border border-amber-300 hover:bg-amber-50 transition text-amber-600">
-          Colapsar todos
-        </button>
-      </div>
-      
-      <div id="tarifas_grid" class="grid grid-cols-1 gap-3">
+      <div id="tarifas_grid" class="grid grid-cols-1 gap-4">
         <?php foreach ($vehiculos as $veh):
           $t = $tarifas_guardadas[$veh] ?? [];
-          $veh_id = preg_replace('/[^a-z0-9]/i', '-', strtolower($veh));
         ?>
-        <div class="tarjeta-tarifa-acordeon rounded-xl border border-slate-200 overflow-hidden shadow-sm bg-white"
-             data-vehiculo="<?= htmlspecialchars($veh) ?>"
-             id="acordeon-<?= $veh_id ?>">
-          
-          <!-- CABECERA DEL ACORDEÓN (siempre visible) -->
-          <div class="acordeon-header flex items-center justify-between px-4 py-3.5 cursor-pointer hover:bg-slate-50 transition"
-               onclick="toggleAcordeon('<?= $veh_id ?>')">
-            <div class="flex items-center gap-3">
-              <span class="acordeon-icon text-lg transition-transform duration-300" id="icon-<?= $veh_id ?>">▶️</span>
-              <div>
-                <div class="text-base font-semibold"><?= htmlspecialchars($veh) ?></div>
-                <div class="text-xs text-slate-500 mt-0.5">
-                  <?= count($columnas_tarifas) ?> tipos de tarifas configurados
-                </div>
-              </div>
-            </div>
-            <div class="flex items-center gap-2">
-              <span class="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 border border-blue-200">
-                Configurar
-              </span>
-            </div>
+        <div class="tarjeta-tarifa rounded-2xl border border-slate-200 p-4 shadow-sm bg-slate-50"
+             data-vehiculo="<?= htmlspecialchars($veh) ?>">
+
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-base font-semibold"><?= htmlspecialchars($veh) ?></div>
+            <span class="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 border border-blue-200">Config</span>
           </div>
-          
-          <!-- CONTENIDO DESPLEGABLE (oculto inicialmente) -->
-          <div class="acordeon-content px-4 py-3 border-t border-slate-100" id="content-<?= $veh_id ?>">
-            <div class="space-y-3">
-              <?php foreach ($columnas_tarifas as $columna): 
-                $valor = isset($t[$columna]) ? (float)$t[$columna] : 0;
-                $etiqueta = ucfirst($columna);
-                
-                // Etiquetas especiales
-                $etiquetas_especiales = [
-                    'completo' => 'Viaje Completo',
-                    'medio' => 'Viaje Medio',
-                    'extra' => 'Viaje Extra',
-                    'carrotanque' => 'Carrotanque',
-                    'siapana' => 'Siapana',
-                    'riohacha' => 'Riohacha',
-                    'pru' => 'Pru',
-                    'maco' => 'Maco'
-                ];
-                
-                $etiqueta_final = $etiquetas_especiales[$columna] ?? $etiqueta;
-              ?>
-              <label class="block">
-                <span class="block text-sm font-medium mb-1"><?= htmlspecialchars($etiqueta_final) ?></span>
-                <input type="number" step="1000" value="<?= $valor ?>"
-                       data-campo="<?= htmlspecialchars($columna) ?>"
-                       class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition tarifa-input"
-                       oninput="recalcular()">
-              </label>
-              <?php endforeach; ?>
-            </div>
-          </div>
+
+          <?php foreach ($columnas_tarifas as $columna): 
+            $valor = isset($t[$columna]) ? (float)$t[$columna] : 0;
+            $etiqueta = ucfirst($columna);
+            
+            // Etiquetas especiales
+            $etiquetas_especiales = [
+                'completo' => 'Viaje Completo',
+                'medio' => 'Viaje Medio',
+                'extra' => 'Viaje Extra',
+                'carrotanque' => 'Carrotanque',
+                'siapana' => 'Siapana',
+                'riohacha' => 'Riohacha',
+                'pru' => 'Pru',
+                'maco' => 'Maco'
+            ];
+            
+            $etiqueta_final = $etiquetas_especiales[$columna] ?? $etiqueta;
+          ?>
+          <label class="block mb-3">
+            <span class="block text-sm font-medium mb-1"><?= htmlspecialchars($etiqueta_final) ?></span>
+            <input type="number" step="1000" value="<?= $valor ?>"
+                   data-campo="<?= htmlspecialchars($columna) ?>"
+                   class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition tarifa-input"
+                   oninput="recalcular()">
+          </label>
+          <?php endforeach; ?>
         </div>
         <?php endforeach; ?>
       </div>
@@ -1564,9 +1500,6 @@ if ($empresaFiltro !== "") {
           togglePanel(activePanel);
         }
       });
-      
-      // Inicializar acordeón de tarifas (todos colapsados inicialmente)
-      colapsarTodosTarifas();
     });
     
     // Función para abrir/cerrar paneles
@@ -1602,51 +1535,6 @@ if ($empresaFiltro !== "") {
           panel.scrollTop = 0;
         }, 100);
       }
-    }
-    
-    // ===== FUNCIONES PARA EL ACORDEÓN DE TARIFAS =====
-    
-    function toggleAcordeon(vehiculoId) {
-      const content = document.getElementById('content-' + vehiculoId);
-      const icon = document.getElementById('icon-' + vehiculoId);
-      
-      if (content.classList.contains('expanded')) {
-        // Colapsar
-        content.classList.remove('expanded');
-        icon.classList.remove('expanded');
-        content.style.maxHeight = '0';
-      } else {
-        // Expandir
-        content.classList.add('expanded');
-        icon.classList.add('expanded');
-        content.style.maxHeight = content.scrollHeight + 'px';
-      }
-    }
-    
-    function expandirTodosTarifas() {
-      document.querySelectorAll('.acordeon-content').forEach(content => {
-        if (!content.classList.contains('expanded')) {
-          content.classList.add('expanded');
-          content.style.maxHeight = content.scrollHeight + 'px';
-          
-          const vehiculoId = content.id.replace('content-', '');
-          const icon = document.getElementById('icon-' + vehiculoId);
-          if (icon) icon.classList.add('expanded');
-        }
-      });
-    }
-    
-    function colapsarTodosTarifas() {
-      document.querySelectorAll('.acordeon-content').forEach(content => {
-        if (content.classList.contains('expanded')) {
-          content.classList.remove('expanded');
-          content.style.maxHeight = '0';
-          
-          const vehiculoId = content.id.replace('content-', '');
-          const icon = document.getElementById('icon-' + vehiculoId);
-          if (icon) icon.classList.remove('expanded');
-        }
-      });
     }
     
     // ===== FUNCIONALIDAD PARA RUTAS SIN CLASIFICAR =====
@@ -1773,7 +1661,7 @@ if ($empresaFiltro !== "") {
     // ===== FUNCIONES DE CÁLCULO =====
     function getTarifas(){
       const tarifas = {};
-      document.querySelectorAll('.tarjeta-tarifa-acordeon').forEach(card=>{
+      document.querySelectorAll('.tarjeta-tarifa').forEach(card=>{
         const veh = card.dataset.vehiculo;
         tarifas[veh] = {};
         
@@ -1922,7 +1810,7 @@ if ($empresaFiltro !== "") {
         document.addEventListener('change', function(e) {
             if (e.target.matches('.tarifa-input')) {
                 const input = e.target;
-                const card = input.closest('.tarjeta-tarifa-acordeon');
+                const card = input.closest('.tarjeta-tarifa');
                 const tipoVehiculo = card.dataset.vehiculo;
                 const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
                 const campo = input.dataset.campo.toLowerCase(); // NORMALIZAR A MINÚSCULAS
