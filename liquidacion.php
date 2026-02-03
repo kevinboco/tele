@@ -36,7 +36,7 @@ function crearNuevaColumnaTarifa($conn, $nombre_columna) {
         return true; // Ya existe
     }
     
-    // Crear nueva columna
+    // Crear nueva column
     $sql = "ALTER TABLE tarifas ADD COLUMN `$nombre_columna` DECIMAL(10,2) DEFAULT 0.00";
     return $conn->query($sql);
 }
@@ -1114,66 +1114,19 @@ if ($empresaFiltro !== "") {
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
 
-  <!-- Encabezado CON FILTRO INTEGRADO -->
+  <!-- Encabezado -->
   <header class="max-w-[1800px] mx-auto px-3 md:px-4 pt-6">
     <div class="bg-white border border-slate-200 rounded-2xl shadow-sm px-5 py-4">
-      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
-        <!-- Título y filtro en la misma línea -->
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between w-full gap-3">
-          <div class="flex items-center gap-3">
-            <h2 class="text-xl md:text-2xl font-bold">🪙 Liquidación de Conductores</h2>
-            <?php if ($empresaFiltro !== ""): ?>
-              <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-sm font-medium">
-                🏢 <?= htmlspecialchars($empresaFiltro) ?>
-              </span>
-            <?php endif; ?>
-          </div>
-          
-          <!-- FILTRO DE FECHA - AHORA EN EL ENCABEZADO -->
-          <form id="headerFilterForm" class="flex flex-col md:flex-row md:items-center gap-2" method="get">
-            <div class="flex flex-col md:flex-row md:items-center gap-2">
-              <label class="flex items-center gap-1">
-                <span class="text-xs font-medium text-slate-600 whitespace-nowrap">Desde:</span>
-                <input type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" required
-                       class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition">
-              </label>
-              <label class="flex items-center gap-1">
-                <span class="text-xs font-medium text-slate-600 whitespace-nowrap">Hasta:</span>
-                <input type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" required
-                       class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition">
-              </label>
-              <label class="flex items-center gap-1">
-                <span class="text-xs font-medium text-slate-600 whitespace-nowrap">Empresa:</span>
-                <select name="empresa"
-                        class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition min-w-[120px]">
-                  <option value="">-- Todas --</option>
-                  <?php foreach($empresas as $e): ?>
-                    <option value="<?= htmlspecialchars($e) ?>" <?= $empresaFiltro==$e?'selected':'' ?>>
-                      <?= htmlspecialchars($e) ?>
-                    </option>
-                  <?php endforeach; ?>
-                </select>
-              </label>
-              <button type="submit" 
-                      class="rounded-lg bg-blue-600 text-white px-4 py-1.5 text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 focus:ring-2 focus:ring-blue-200 transition whitespace-nowrap">
-                🔄 Aplicar
-              </button>
-            </div>
-          </form>
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <h2 class="text-xl md:text-2xl font-bold">🪙 Liquidación de Conductores</h2>
+        <div class="text-sm text-slate-600">
+          Periodo:
+          <strong><?= htmlspecialchars($desde) ?></strong> &rarr;
+          <strong><?= htmlspecialchars($hasta) ?></strong>
+          <?php if ($empresaFiltro !== ""): ?>
+            <span class="mx-2">•</span> Empresa: <strong><?= htmlspecialchars($empresaFiltro) ?></strong>
+          <?php endif; ?>
         </div>
-      </div>
-      
-      <!-- Información del periodo actual -->
-      <div class="text-sm text-slate-600 flex items-center gap-2">
-        <span class="font-medium">Periodo actual:</span>
-        <span class="bg-slate-100 px-2 py-1 rounded-lg font-semibold">
-          <?= htmlspecialchars($desde) ?> → <?= htmlspecialchars($hasta) ?>
-        </span>
-        <span class="mx-2">•</span>
-        <span class="font-medium">Conductores:</span>
-        <span class="bg-slate-100 px-2 py-1 rounded-lg font-semibold">
-          <?= count($datos) ?>
-        </span>
       </div>
     </div>
   </header>
@@ -1260,6 +1213,46 @@ if ($empresaFiltro !== "") {
               </div>
               <?php endforeach; ?>
             </div>
+          </div>
+
+          <!-- Filtro -->
+          <div id="container-filtro" class="container-minimized bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+            <div class="flex items-center justify-between mb-4">
+              <h5 class="text-base font-semibold text-center">📅 Filtro de Liquidación</h5>
+              <button onclick="toggleMinimize('filtro')" 
+                      class="minimize-btn text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+                ⬇️ Minimizar
+              </button>
+            </div>
+            <form class="grid grid-cols-1 md:grid-cols-4 gap-3" method="get">
+              <label class="block md:col-span-1">
+                <span class="block text-sm font-medium mb-1">Desde</span>
+                <input type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" required
+                       class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
+              </label>
+              <label class="block md:col-span-1">
+                <span class="block text-sm font-medium mb-1">Hasta</span>
+                <input type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" required
+                       class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
+              </label>
+              <label class="block md:col-span-1">
+                <span class="block text-sm font-medium mb-1">Empresa</span>
+                <select name="empresa"
+                        class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
+                  <option value="">-- Todas --</option>
+                  <?php foreach($empresas as $e): ?>
+                    <option value="<?= htmlspecialchars($e) ?>" <?= $empresaFiltro==$e?'selected':'' ?>>
+                      <?= htmlspecialchars($e) ?>
+                    </option>
+                  <?php endforeach; ?>
+                </select>
+              </label>
+              <div class="md:col-span-1 flex items-end">
+                <button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow hover:bg-blue-700 active:bg-blue-800 focus:ring-4 focus:ring-blue-200 transition">
+                  Filtrar
+                </button>
+              </div>
+            </form>
           </div>
 
           <!-- 🔹 Panel de CREACIÓN de NUEVAS CLASIFICACIONES -->
