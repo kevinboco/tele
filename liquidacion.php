@@ -1280,23 +1280,23 @@ if ($empresaFiltro !== "") {
     </div>
   </div>
 
-  <!-- ===== PANEL CLASIFICACIÓN RUTAS CON COLORES ===== -->
+  <!-- ===== PANEL CLASIFICACIÓN RUTAS CON COLORES Y SCROLL ===== -->
   <div class="side-panel" id="panel-clasif-rutas">
     <div class="side-panel-header">
       <h3 class="text-lg font-semibold flex items-center gap-2">
         <span>🧭 Clasificar Rutas Existentes</span>
-        <span class="text-xs text-slate-500">Usa clasificaciones creadas</span>
+        <span class="text-xs text-slate-500"><?= count($rutasUnicas) ?> rutas</span>
       </h3>
       <button class="side-panel-close" data-panel="clasif-rutas">✕</button>
     </div>
     <div class="side-panel-body">
       <div class="max-h-[calc(100vh-180px)] overflow-y-auto border border-slate-200 rounded-xl">
         <table class="w-full text-sm">
-          <thead class="bg-slate-100 text-slate-600 sticky top-0">
+          <thead class="bg-slate-100 text-slate-600 sticky top-0 z-10">
             <tr>
-              <th class="px-3 py-2 text-left">Ruta</th>
-              <th class="px-3 py-2 text-center">Vehículo</th>
-              <th class="px-3 py-2 text-center">Clasificación</th>
+              <th class="px-3 py-2 text-left sticky top-0 bg-slate-100">Ruta</th>
+              <th class="px-3 py-2 text-center sticky top-0 bg-slate-100">Vehículo</th>
+              <th class="px-3 py-2 text-center sticky top-0 bg-slate-100">Clasificación</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100" id="tablaClasificacionRutas">
@@ -1425,19 +1425,19 @@ if ($empresaFiltro !== "") {
             </div>
           </div>
 
-          <!-- CONTENEDOR DE TABLA -->
-          <div id="tableContainer" class="overflow-x-auto rounded-xl border border-slate-200">
+          <!-- CONTENEDOR DE TABLA CON ENCABEZADOS FIJOS -->
+          <div id="tableContainer" class="overflow-x-auto rounded-xl border border-slate-200 max-h-[70vh]">
             <table id="tabla_conductores" class="w-full text-sm">
-              <thead class="bg-blue-600 text-white">
+              <thead class="bg-blue-600 text-white sticky top-0 z-20">
                 <tr>
                   <!-- NUEVA COLUMNA PARA ALERTAS VISUALES -->
-                  <th class="px-4 py-3 text-center" style="min-width: 70px;">
+                  <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 70px;">
                     Estado
                   </th>
-                  <th class="px-4 py-3 text-left" style="min-width: 220px;">
+                  <th class="px-4 py-3 text-left sticky top-0 bg-blue-600" style="min-width: 220px;">
                     Conductor
                   </th>
-                  <th class="px-4 py-3 text-center" style="min-width: 120px;">
+                  <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 120px;">
                     Tipo
                   </th>
                   
@@ -1479,19 +1479,19 @@ if ($empresaFiltro !== "") {
                     $bg_color = $colorMap[$estilo['bg']] ?? '#f1f5f9';
                     $text_color = $colorMap[$estilo['text']] ?? '#1e293b';
                   ?>
-                  <th class="px-4 py-3 text-center" 
+                  <th class="px-4 py-3 text-center sticky top-0" 
                       title="<?= htmlspecialchars($clasif) ?>"
-                      style="min-width: 80px; background-color: <?= $bg_color ?>; color: <?= $text_color ?>; border-bottom: 2px solid <?= $colorMap[$estilo['border']] ?? '#cbd5e1' ?>;">
+                      style="min-width: 80px; background-color: <?= $bg_color ?>; color: <?= $text_color ?>; border-bottom: 2px solid <?= $colorMap[$estilo['border']] ?? '#cbd5e1' ?>; z-index: 19;">
                     <?= htmlspecialchars($abreviatura) ?>
                   </th>
                   <?php endforeach; ?>
-                  <th class="px-4 py-3 text-center" style="min-width: 140px;">
+                  <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 140px; z-index: 20;">
                     Total
                   </th>
-                  <th class="px-4 py-3 text-center" style="min-width: 120px;">
+                  <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 120px; z-index: 20;">
                     Pagado
                   </th>
-                  <th class="px-4 py-3 text-center" style="min-width: 100px;">
+                  <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 100px; z-index: 20;">
                     Faltante
                   </th>
                 </tr>
