@@ -43,7 +43,7 @@ if (!isset($_SESSION['columnas_clasificaciones_visibles'])) {
     }
 }
 
-// Procesar cambios en las columnas visibles (POST)
+// Procesar cambios en las columnas visibles (POST) - DEBE IR ANTES DE CUALQUIER SALIDA HTML
 if (isset($_POST['actualizar_columnas_clasificaciones'])) {
     // Recibir las columnas seleccionadas
     $columnas_seleccionadas = $_POST['columnas_clasificaciones'] ?? [];
@@ -56,17 +56,19 @@ if (isset($_POST['actualizar_columnas_clasificaciones'])) {
         $_SESSION['columnas_clasificaciones_visibles'][$columna] = in_array($columna, $columnas_seleccionadas);
     }
     
-    // Redirigir para evitar reenvío del formulario
+    // Respuesta simple sin HTML adicional
+    header('Content-Type: text/plain');
     echo "ok";
     exit();
 }
 
-// Restablecer todas las columnas
+// Restablecer todas las columnas - TAMBIÉN DEBE IR ANTES DE CUALQUIER SALIDA HTML
 if (isset($_POST['restablecer_columnas_clasificaciones'])) {
     $columnas_tarifas = obtenerColumnasTarifas($conn);
     foreach ($columnas_tarifas as $columna) {
         $_SESSION['columnas_clasificaciones_visibles'][$columna] = true;
     }
+    header('Content-Type: text/plain');
     echo "ok";
     exit();
 }
@@ -188,7 +190,7 @@ function obtenerColorVehiculo($vehiculo) {
 }
 
 /* =======================================================
-   🔹 Crear nueva clasificación (AJAX)
+   🔹 Crear nueva clasificación (AJAX) - DEBE IR ANTES DE HTML
 ======================================================= */
 if (isset($_POST['crear_clasificacion'])) {
     $nombre_clasificacion = trim($conn->real_escape_string($_POST['nombre_clasificacion']));
@@ -2018,6 +2020,12 @@ if ($empresaFiltro !== "") {
         }
       });
       
+      // Mostrar indicador de carga
+      const boton = document.querySelector('#panel-config-columnas button:first-child');
+      const textoOriginal = boton.textContent;
+      boton.innerHTML = '<span class="animate-spin">⏳</span> Procesando...';
+      boton.disabled = true;
+      
       // Enviar configuración al servidor
       fetch('<?= basename(__FILE__) ?>', {
         method: 'POST',
@@ -2027,24 +2035,37 @@ if ($empresaFiltro !== "") {
           columnas_clasificaciones: columnasSeleccionadas
         })
       })
-      .then(r => r.text())
+      .then(r => {
+        if (!r.ok) throw new Error('Error en la respuesta');
+        return r.text();
+      })
       .then(respuesta => {
         if (respuesta.trim() === 'ok') {
           // Recargar la página para aplicar cambios
           location.reload();
         } else {
           mostrarNotificacion('❌ Error al guardar configuración', 'error');
+          boton.textContent = textoOriginal;
+          boton.disabled = false;
         }
       })
       .catch(error => {
         console.error('Error:', error);
         mostrarNotificacion('❌ Error de conexión', 'error');
+        boton.textContent = textoOriginal;
+        boton.disabled = false;
       });
     }
     
     // Restablecer todas las columnas
     function restablecerColumnasClasificaciones() {
       if (!confirm('¿Restablecer todas las columnas a visibles?')) return;
+      
+      // Mostrar indicador de carga
+      const boton = document.querySelector('#panel-config-columnas button:last-child');
+      const textoOriginal = boton.textContent;
+      boton.innerHTML = '<span class="animate-spin">⏳</span> Procesando...';
+      boton.disabled = true;
       
       fetch('<?= basename(__FILE__) ?>', {
         method: 'POST',
@@ -2053,14 +2074,25 @@ if ($empresaFiltro !== "") {
           restablecer_columnas_clasificaciones: 1
         })
       })
-      .then(r => r.text())
+      .then(r => {
+        if (!r.ok) throw new Error('Error en la respuesta');
+        return r.text();
+      })
       .then(respuesta => {
         if (respuesta.trim() === 'ok') {
           // Recargar la página para aplicar cambios
           location.reload();
         } else {
           mostrarNotificacion('❌ Error al restablecer', 'error');
+          boton.textContent = textoOriginal;
+          boton.disabled = false;
         }
+      })
+      .catch(error => {
+        console.error('Error:', error);
+        mostrarNotificacion('❌ Error de conexión', 'error');
+        boton.textContent = textoOriginal;
+        boton.disabled = false;
       });
     }
     
@@ -2269,6 +2301,12 @@ if ($empresaFiltro !== "") {
         return;
       }
 
+      // Mostrar indicador de carga
+      const boton = document.querySelector('#panel-crear-clasif button');
+      const textoOriginal = boton.textContent;
+      boton.innerHTML = '<span class="animate-spin">⏳</span> Procesando...';
+      boton.disabled = true;
+
       // 1. Crear nueva columna en tarifas (normalizada a minúsculas)
       fetch('<?= basename(__FILE__) ?>', {
         method:'POST',
@@ -2301,12 +2339,12 @@ if ($empresaFiltro !== "") {
             });
             
             if (contador > 0) {
-              alert('✅ Se creó "' + nombreClasif + '" y se aplicó a ' + contador + ' rutas. Recarga la página para ver los cambios.');
+              mostrarNotificacion('✅ Se creó "' + nombreClasif + '" y se aplicó a ' + contador + ' rutas. Recarga la página para ver los cambios.', 'success');
             } else {
-              alert('✅ Se creó "' + nombreClasif + '". No se encontraron rutas con "' + patronRuta + '". Recarga la página.');
+              mostrarNotificacion('✅ Se creó "' + nombreClasif + '". No se encontraron rutas con "' + patronRuta + '". Recarga la página.', 'success');
             }
           } else {
-            alert('✅ Se creó la clasificación "' + nombreClasif + '". Recarga la página para verla en los selectores.');
+            mostrarNotificacion('✅ Se creó la clasificación "' + nombreClasif + '". Recarga la página para verla en los selectores.', 'success');
           }
           
           // Limpiar campos
@@ -2314,11 +2352,15 @@ if ($empresaFiltro !== "") {
           document.getElementById('txt_patron_ruta').value = '';
           
         } else {
-          alert('❌ Error: ' + respuesta);
+          mostrarNotificacion('❌ Error: ' + respuesta, 'error');
         }
+        boton.textContent = textoOriginal;
+        boton.disabled = false;
       })
       .catch(error=>{
-        alert('❌ Error de conexión: ' + error);
+        mostrarNotificacion('❌ Error de conexión: ' + error, 'error');
+        boton.textContent = textoOriginal;
+        boton.disabled = false;
       });
     }
 
@@ -2355,6 +2397,8 @@ if ($empresaFiltro !== "") {
                         console.log('Tarifa guardada exitosamente');
                         // Guardar el valor como el nuevo default
                         input.defaultValue = input.value;
+                        // Recalcular
+                        recalcular();
                     } else {
                         console.error('Error guardando tarifa:', respuesta);
                         // Restaurar el valor anterior
