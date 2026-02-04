@@ -11,6 +11,7 @@ $conn->set_charset("utf8mb4");
 
 /* =======================================================
    🔹 CONFIGURACIÓN DE COLUMNAS VISIBLES DE CLASIFICACIONES
+   🔹 ESTO DEBE IR ANTES DE CUALQUIER SALIDA HTML
 ======================================================= */
 
 // Función para obtener columnas de tarifas dinámicamente
@@ -30,7 +31,48 @@ function obtenerColumnasTarifas($conn) {
     return $columnas;
 }
 
-// Inicializar configuración de columnas visibles en sesión
+// 1. PRIMERO: Procesar cambios en las columnas visibles (POST) - DEBE SER LO PRIMERO
+if (isset($_POST['actualizar_columnas_clasificaciones'])) {
+    // Recibir las columnas seleccionadas
+    $columnas_seleccionadas = $_POST['columnas_clasificaciones'] ?? [];
+    
+    // Obtener todas las columnas de tarifas
+    $columnas_tarifas = obtenerColumnasTarifas($conn);
+    
+    // Inicializar el array si no existe
+    if (!isset($_SESSION['columnas_clasificaciones_visibles'])) {
+        $_SESSION['columnas_clasificaciones_visibles'] = [];
+    }
+    
+    // Actualizar el estado de cada columna
+    foreach ($columnas_tarifas as $columna) {
+        $_SESSION['columnas_clasificaciones_visibles'][$columna] = in_array($columna, $columnas_seleccionadas);
+    }
+    
+    // Respuesta limpia
+    header('Content-Type: text/plain; charset=utf-8');
+    echo "ok";
+    exit();
+}
+
+// 2. Restablecer todas las columnas
+if (isset($_POST['restablecer_columnas_clasificaciones'])) {
+    $columnas_tarifas = obtenerColumnasTarifas($conn);
+    
+    if (!isset($_SESSION['columnas_clasificaciones_visibles'])) {
+        $_SESSION['columnas_clasificaciones_visibles'] = [];
+    }
+    
+    foreach ($columnas_tarifas as $columna) {
+        $_SESSION['columnas_clasificaciones_visibles'][$columna] = true;
+    }
+    
+    header('Content-Type: text/plain; charset=utf-8');
+    echo "ok";
+    exit();
+}
+
+// 3. Inicializar configuración de columnas visibles en sesión si no existe
 if (!isset($_SESSION['columnas_clasificaciones_visibles'])) {
     $_SESSION['columnas_clasificaciones_visibles'] = [];
     
@@ -41,36 +83,6 @@ if (!isset($_SESSION['columnas_clasificaciones_visibles'])) {
     foreach ($columnas_tarifas as $columna) {
         $_SESSION['columnas_clasificaciones_visibles'][$columna] = true;
     }
-}
-
-// Procesar cambios en las columnas visibles (POST) - DEBE IR ANTES DE CUALQUIER SALIDA HTML
-if (isset($_POST['actualizar_columnas_clasificaciones'])) {
-    // Recibir las columnas seleccionadas
-    $columnas_seleccionadas = $_POST['columnas_clasificaciones'] ?? [];
-    
-    // Obtener todas las columnas de tarifas
-    $columnas_tarifas = obtenerColumnasTarifas($conn);
-    
-    // Actualizar el estado de cada columna
-    foreach ($columnas_tarifas as $columna) {
-        $_SESSION['columnas_clasificaciones_visibles'][$columna] = in_array($columna, $columnas_seleccionadas);
-    }
-    
-    // Respuesta simple sin HTML adicional
-    header('Content-Type: text/plain');
-    echo "ok";
-    exit();
-}
-
-// Restablecer todas las columnas - TAMBIÉN DEBE IR ANTES DE CUALQUIER SALIDA HTML
-if (isset($_POST['restablecer_columnas_clasificaciones'])) {
-    $columnas_tarifas = obtenerColumnasTarifas($conn);
-    foreach ($columnas_tarifas as $columna) {
-        $_SESSION['columnas_clasificaciones_visibles'][$columna] = true;
-    }
-    header('Content-Type: text/plain');
-    echo "ok";
-    exit();
 }
 
 /* =======================================================
@@ -190,12 +202,13 @@ function obtenerColorVehiculo($vehiculo) {
 }
 
 /* =======================================================
-   🔹 Crear nueva clasificación (AJAX) - DEBE IR ANTES DE HTML
+   🔹 Crear nueva clasificación (AJAX)
 ======================================================= */
 if (isset($_POST['crear_clasificacion'])) {
     $nombre_clasificacion = trim($conn->real_escape_string($_POST['nombre_clasificacion']));
     
     if (empty($nombre_clasificacion)) {
+        header('Content-Type: text/plain; charset=utf-8');
         echo "error: nombre vacío";
         exit;
     }
@@ -206,8 +219,10 @@ if (isset($_POST['crear_clasificacion'])) {
     
     // Crear nueva columna
     if (crearNuevaColumnaTarifa($conn, $nombre_columna)) {
+        header('Content-Type: text/plain; charset=utf-8');
         echo "ok";
     } else {
+        header('Content-Type: text/plain; charset=utf-8');
         echo "error: " . $conn->error;
     }
     exit;
@@ -235,6 +250,7 @@ if (isset($_POST['guardar_tarifa'])) {
             // Actualizar lista de columnas después de crearla
             $columnas_tarifas = obtenerColumnasTarifas($conn);
         } else {
+            header('Content-Type: text/plain; charset=utf-8');
             echo "error: no se pudo crear el campo '$campo'";
             exit;
         }
@@ -245,8 +261,10 @@ if (isset($_POST['guardar_tarifa'])) {
     $sql = "UPDATE tarifas SET `$campo` = $valor WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'";
     
     if ($conn->query($sql)) {
+        header('Content-Type: text/plain; charset=utf-8');
         echo "ok";
     } else {
+        header('Content-Type: text/plain; charset=utf-8');
         echo "error: " . $conn->error;
     }
     exit;
@@ -272,6 +290,7 @@ if (isset($_POST['guardar_clasificacion'])) {
                 ON DUPLICATE KEY UPDATE clasificacion = VALUES(clasificacion)";
     }
     
+    header('Content-Type: text/plain; charset=utf-8');
     echo $conn->query($sql) ? "ok" : ("error: " . $conn->error);
     exit;
 }
@@ -2022,9 +2041,12 @@ if ($empresaFiltro !== "") {
       
       // Mostrar indicador de carga
       const boton = document.querySelector('#panel-config-columnas button:first-child');
-      const textoOriginal = boton.textContent;
+      const textoOriginal = boton.innerHTML;
       boton.innerHTML = '<span class="animate-spin">⏳</span> Procesando...';
       boton.disabled = true;
+      
+      // Depuración: ver qué se está enviando
+      console.log('Enviando columnas:', columnasSeleccionadas);
       
       // Enviar configuración al servidor
       fetch('<?= basename(__FILE__) ?>', {
@@ -2035,24 +2057,30 @@ if ($empresaFiltro !== "") {
           columnas_clasificaciones: columnasSeleccionadas
         })
       })
-      .then(r => {
-        if (!r.ok) throw new Error('Error en la respuesta');
-        return r.text();
+      .then(response => {
+        console.log('Respuesta status:', response.status);
+        console.log('Respuesta ok:', response.ok);
+        return response.text();
       })
       .then(respuesta => {
-        if (respuesta.trim() === 'ok') {
+        console.log('Respuesta completa:', respuesta);
+        const respuestaTrim = respuesta.trim();
+        
+        if (respuestaTrim === 'ok') {
+          console.log('Configuración guardada exitosamente');
           // Recargar la página para aplicar cambios
           location.reload();
         } else {
-          mostrarNotificacion('❌ Error al guardar configuración', 'error');
-          boton.textContent = textoOriginal;
+          console.error('Error en respuesta:', respuestaTrim);
+          mostrarNotificacion('❌ Error al guardar configuración: ' + respuestaTrim, 'error');
+          boton.innerHTML = textoOriginal;
           boton.disabled = false;
         }
       })
       .catch(error => {
-        console.error('Error:', error);
-        mostrarNotificacion('❌ Error de conexión', 'error');
-        boton.textContent = textoOriginal;
+        console.error('Error de conexión:', error);
+        mostrarNotificacion('❌ Error de conexión: ' + error.message, 'error');
+        boton.innerHTML = textoOriginal;
         boton.disabled = false;
       });
     }
@@ -2063,7 +2091,7 @@ if ($empresaFiltro !== "") {
       
       // Mostrar indicador de carga
       const boton = document.querySelector('#panel-config-columnas button:last-child');
-      const textoOriginal = boton.textContent;
+      const textoOriginal = boton.innerHTML;
       boton.innerHTML = '<span class="animate-spin">⏳</span> Procesando...';
       boton.disabled = true;
       
@@ -2074,24 +2102,22 @@ if ($empresaFiltro !== "") {
           restablecer_columnas_clasificaciones: 1
         })
       })
-      .then(r => {
-        if (!r.ok) throw new Error('Error en la respuesta');
-        return r.text();
-      })
+      .then(r => r.text())
       .then(respuesta => {
-        if (respuesta.trim() === 'ok') {
+        const respuestaTrim = respuesta.trim();
+        if (respuestaTrim === 'ok') {
           // Recargar la página para aplicar cambios
           location.reload();
         } else {
-          mostrarNotificacion('❌ Error al restablecer', 'error');
-          boton.textContent = textoOriginal;
+          mostrarNotificacion('❌ Error al restablecer: ' + respuestaTrim, 'error');
+          boton.innerHTML = textoOriginal;
           boton.disabled = false;
         }
       })
       .catch(error => {
         console.error('Error:', error);
-        mostrarNotificacion('❌ Error de conexión', 'error');
-        boton.textContent = textoOriginal;
+        mostrarNotificacion('❌ Error de conexión: ' + error.message, 'error');
+        boton.innerHTML = textoOriginal;
         boton.disabled = false;
       });
     }
