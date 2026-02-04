@@ -772,11 +772,6 @@ if ($empresaFiltro !== "") {
     background: linear-gradient(135deg, #f59e0b, #d97706);
   }
   
-  /* ===== NUEVO: COLOR PARA BOLITA DE CONFIGURAR COLUMNAS ===== */
-  .ball-config-columnas {
-    background: linear-gradient(135deg, #8b5cf6, #7c3aed);
-  }
-  
   /* ===== PANELES DESLIZANTES ===== */
   .side-panel-overlay {
     position: fixed;
@@ -1046,46 +1041,6 @@ if ($empresaFiltro !== "") {
       display: none;
     }
   }
-  
-  /* ===== NUEVO: ESTILOS PARA CHECKBOXES DE COLUMNAS ===== */
-  .checkbox-columna {
-    transition: all 0.2s ease;
-  }
-  
-  .checkbox-columna:hover {
-    background-color: #f8fafc;
-    transform: translateY(-1px);
-  }
-  
-  .checkbox-columna input[type="checkbox"] {
-    width: 18px;
-    height: 18px;
-    border-radius: 4px;
-    border: 2px solid #cbd5e1;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  
-  .checkbox-columna input[type="checkbox"]:checked {
-    background-color: #3b82f6;
-    border-color: #3b82f6;
-  }
-  
-  .columna-disabled {
-    opacity: 0.5;
-    pointer-events: none;
-  }
-  
-  .badge-columna-count {
-    min-width: 24px;
-    height: 24px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 12px;
-    font-weight: 600;
-    border-radius: 6px;
-  }
 </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
@@ -1172,12 +1127,6 @@ if ($empresaFiltro !== "") {
     <div class="floating-ball ball-clasif-rutas" id="ball-clasif-rutas" data-panel="clasif-rutas">
       <div class="ball-content">🧭</div>
       <div class="ball-tooltip">Clasificar rutas existentes</div>
-    </div>
-    
-    <!-- ===== NUEVA BOLITA 4: CONFIGURAR COLUMNAS VISIBLES ===== -->
-    <div class="floating-ball ball-config-columnas" id="ball-config-columnas" data-panel="config-columnas">
-      <div class="ball-content">👁️</div>
-      <div class="ball-tooltip">Mostrar/Ocultar Columnas</div>
     </div>
   </div>
 
@@ -1400,58 +1349,6 @@ if ($empresaFiltro !== "") {
     </div>
   </div>
 
-  <!-- ===== NUEVO PANEL: CONFIGURAR COLUMNAS VISIBLES ===== -->
-  <div class="side-panel" id="panel-config-columnas">
-    <div class="side-panel-header">
-      <h3 class="text-lg font-semibold flex items-center gap-2">
-        <span>👁️ Mostrar/Ocultar Columnas</span>
-        <span class="text-xs text-slate-500">Selección persistente</span>
-      </h3>
-      <button class="side-panel-close" data-panel="config-columnas">✕</button>
-    </div>
-    <div class="side-panel-body">
-      <div class="mb-4">
-        <p class="text-sm text-slate-600 mb-3">
-          Selecciona qué columnas quieres ver en la tabla principal. Tu selección se guardará automáticamente.
-        </p>
-        <div class="flex items-center justify-between gap-2">
-          <button onclick="seleccionarTodasColumnas()" 
-                  class="text-xs px-3 py-1.5 rounded-lg border border-green-300 hover:bg-green-50 transition text-green-600">
-            ✅ Seleccionar todas
-          </button>
-          <button onclick="deseleccionarTodasColumnas()" 
-                  class="text-xs px-3 py-1.5 rounded-lg border border-rose-300 hover:bg-rose-50 transition text-rose-600">
-            ❌ Deseleccionar todas
-          </button>
-          <button onclick="restaurarColumnasPredeterminadas()" 
-                  class="text-xs px-3 py-1.5 rounded-lg border border-blue-300 hover:bg-blue-50 transition text-blue-600">
-            🔄 Restaurar predeterminadas
-          </button>
-        </div>
-      </div>
-
-      <div class="max-h-[calc(100vh-280px)] overflow-y-auto border border-slate-200 rounded-xl p-3">
-        <div id="listaColumnas" class="space-y-2">
-          <!-- Las columnas se cargarán dinámicamente con JavaScript -->
-        </div>
-      </div>
-
-      <div class="mt-4 p-3 bg-slate-50 rounded-xl">
-        <div class="flex items-center justify-between">
-          <span class="text-sm font-medium text-slate-700">Columnas seleccionadas:</span>
-          <span id="contadorColumnasSeleccionadas" class="bg-blue-600 text-white px-2 py-1 rounded-md text-sm font-bold">0</span>
-        </div>
-        <div id="columnasSeleccionadasPreview" class="mt-2 flex flex-wrap gap-1">
-          <!-- Vista previa de columnas seleccionadas -->
-        </div>
-      </div>
-
-      <p class="text-xs text-slate-500 mt-4">
-        <strong>💡 Consejo:</strong> Las columnas marcadas como "Siempre visibles" no se pueden ocultar porque son esenciales para el funcionamiento del sistema.
-      </p>
-    </div>
-  </div>
-
   <!-- Contenido principal -->
   <main class="max-w-[1800px] mx-auto px-3 md:px-4 py-6">
     <div class="table-container-wrapper" id="tableContainerWrapper">
@@ -1470,12 +1367,6 @@ if ($empresaFiltro !== "") {
               <button onclick="mostrarResumenRutasSinClasificar()" 
                       class="text-sm px-4 py-2 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600 transition flex items-center gap-2 shadow-md hover:shadow-lg">
                 ⚠️ Ver rutas sin clasificar
-              </button>
-              
-              <!-- NUEVO: Botón para configurar columnas -->
-              <button onclick="togglePanel('config-columnas')" 
-                      class="text-sm px-4 py-2 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-600 hover:to-pink-600 transition flex items-center gap-2 shadow-md hover:shadow-lg">
-                👁️ Mostrar/Ocultar Columnas
               </button>
             </div>
           </div>
@@ -1540,121 +1431,67 @@ if ($empresaFiltro !== "") {
               <thead class="bg-blue-600 text-white sticky top-0 z-20">
                 <tr>
                   <!-- NUEVA COLUMNA PARA ALERTAS VISUALES -->
-                  <th class="columna-fija px-4 py-3 text-center sticky top-0 bg-blue-600" 
-                      data-columna="estado" 
-                      style="min-width: 70px; left: 0; z-index: 21;">
+                  <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 70px;">
                     Estado
                   </th>
-                  <th class="columna-fija px-4 py-3 text-left sticky top-0 bg-blue-600" 
-                      data-columna="conductor" 
-                      style="min-width: 220px; left: 70px; z-index: 21;">
+                  <th class="px-4 py-3 text-left sticky top-0 bg-blue-600" style="min-width: 220px;">
                     Conductor
                   </th>
-                  <th class="columna-fija px-4 py-3 text-center sticky top-0 bg-blue-600" 
-                      data-columna="tipo" 
-                      style="min-width: 120px; left: 290px; z-index: 21;">
+                  <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 120px;">
                     Tipo
                   </th>
                   
-                  <?php 
-                  // Definir el orden predeterminado de columnas
-                  $orden_columnas = ['completo', 'medio', 'extra', 'siapana', 'carrotanque', 'riohacha', 'pru', 'maco'];
-                  
-                  // Primero mostrar las columnas predeterminadas en orden
-                  foreach ($orden_columnas as $clasif):
-                    if (in_array($clasif, $clasificaciones_disponibles)):
-                      $estilo = obtenerEstiloClasificacion($clasif);
-                      // Definir abreviaturas
-                      $abreviaturas = [
-                          'completo' => 'COM',
-                          'medio' => 'MED', 
-                          'extra' => 'EXT',
-                          'carrotanque' => 'CTK',
-                          'siapana' => 'SIA',
-                          'riohacha' => 'RIO',
-                          'pru' => 'PRU',
-                          'maco' => 'MAC'
-                      ];
-                      $abreviatura = $abreviaturas[$clasif] ?? strtoupper(substr($clasif, 0, 3));
-                      
-                      // Mapear colores Tailwind a colores HEX para CSS inline
-                      $colorMap = [
-                          'bg-emerald-100' => '#d1fae5', 'text-emerald-700' => '#047857', 'border-emerald-200' => '#a7f3d0',
-                          'bg-amber-100' => '#fef3c7', 'text-amber-800' => '#92400e', 'border-amber-200' => '#fcd34d',
-                          'bg-slate-200' => '#e2e8f0', 'text-slate-800' => '#1e293b', 'border-slate-300' => '#cbd5e1',
-                          'bg-fuchsia-100' => '#fae8ff', 'text-fuchsia-700' => '#a21caf', 'border-fuchsia-200' => '#f5d0fe',
-                          'bg-cyan-100' => '#cffafe', 'text-cyan-800' => '#155e75', 'border-cyan-200' => '#a5f3fc',
-                          'bg-indigo-100' => '#e0e7ff', 'text-indigo-700' => '#4338ca', 'border-indigo-200' => '#c7d2fe',
-                          'bg-teal-100' => '#ccfbf1', 'text-teal-700' => '#0f766e', 'border-teal-200' => '#99f6e4',
-                          'bg-rose-100' => '#ffe4e6', 'text-rose-700' => '#be123c', 'border-rose-200' => '#fecdd3',
-                          'bg-violet-100' => '#ede9fe', 'text-violet-700' => '#6d28d9', 'border-violet-200' => '#ddd6fe',
-                          'bg-orange-100' => '#ffedd5', 'text-orange-700' => '#c2410c', 'border-orange-200' => '#fdba74',
-                          'bg-lime-100' => '#ecfccb', 'text-lime-700' => '#4d7c0f', 'border-lime-200' => '#d9f99d',
-                          'bg-sky-100' => '#e0f2fe', 'text-sky-700' => '#0369a1', 'border-sky-200' => '#bae6fd',
-                          'bg-pink-100' => '#fce7f3', 'text-pink-700' => '#be185d', 'border-pink-200' => '#fbcfe8',
-                          'bg-purple-100' => '#f3e8ff', 'text-purple-700' => '#7e22ce', 'border-purple-200' => '#e9d5ff',
-                          'bg-yellow-100' => '#fef9c3', 'text-yellow-700' => '#a16207', 'border-yellow-200' => '#fde68a',
-                          'bg-red-100' => '#fee2e2', 'text-red-700' => '#b91c1c', 'border-red-200' => '#fecaca'
-                      ];
-                      
-                      $bg_color = $colorMap[$estilo['bg']] ?? '#f1f5f9';
-                      $text_color = $colorMap[$estilo['text']] ?? '#1e293b';
+                  <?php foreach ($clasificaciones_disponibles as $index => $clasif): 
+                    $estilo = obtenerEstiloClasificacion($clasif);
+                    // Definir abreviaturas
+                    $abreviaturas = [
+                        'completo' => 'COM',
+                        'medio' => 'MED', 
+                        'extra' => 'EXT',
+                        'carrotanque' => 'CTK',
+                        'siapana' => 'SIA',
+                        'riohacha' => 'RIO',
+                        'pru' => 'PRU',
+                        'maco' => 'MAC'
+                    ];
+                    $abreviatura = $abreviaturas[$clasif] ?? strtoupper(substr($clasif, 0, 3));
+                    
+                    // Mapear colores Tailwind a colores HEX para CSS inline
+                    $colorMap = [
+                        'bg-emerald-100' => '#d1fae5', 'text-emerald-700' => '#047857', 'border-emerald-200' => '#a7f3d0',
+                        'bg-amber-100' => '#fef3c7', 'text-amber-800' => '#92400e', 'border-amber-200' => '#fcd34d',
+                        'bg-slate-200' => '#e2e8f0', 'text-slate-800' => '#1e293b', 'border-slate-300' => '#cbd5e1',
+                        'bg-fuchsia-100' => '#fae8ff', 'text-fuchsia-700' => '#a21caf', 'border-fuchsia-200' => '#f5d0fe',
+                        'bg-cyan-100' => '#cffafe', 'text-cyan-800' => '#155e75', 'border-cyan-200' => '#a5f3fc',
+                        'bg-indigo-100' => '#e0e7ff', 'text-indigo-700' => '#4338ca', 'border-indigo-200' => '#c7d2fe',
+                        'bg-teal-100' => '#ccfbf1', 'text-teal-700' => '#0f766e', 'border-teal-200' => '#99f6e4',
+                        'bg-rose-100' => '#ffe4e6', 'text-rose-700' => '#be123c', 'border-rose-200' => '#fecdd3',
+                        'bg-violet-100' => '#ede9fe', 'text-violet-700' => '#6d28d9', 'border-violet-200' => '#ddd6fe',
+                        'bg-orange-100' => '#ffedd5', 'text-orange-700' => '#c2410c', 'border-orange-200' => '#fdba74',
+                        'bg-lime-100' => '#ecfccb', 'text-lime-700' => '#4d7c0f', 'border-lime-200' => '#d9f99d',
+                        'bg-sky-100' => '#e0f2fe', 'text-sky-700' => '#0369a1', 'border-sky-200' => '#bae6fd',
+                        'bg-pink-100' => '#fce7f3', 'text-pink-700' => '#be185d', 'border-pink-200' => '#fbcfe8',
+                        'bg-purple-100' => '#f3e8ff', 'text-purple-700' => '#7e22ce', 'border-purple-200' => '#e9d5ff',
+                        'bg-yellow-100' => '#fef9c3', 'text-yellow-700' => '#a16207', 'border-yellow-200' => '#fde68a',
+                        'bg-red-100' => '#fee2e2', 'text-red-700' => '#b91c1c', 'border-red-200' => '#fecaca'
+                    ];
+                    
+                    $bg_color = $colorMap[$estilo['bg']] ?? '#f1f5f9';
+                    $text_color = $colorMap[$estilo['text']] ?? '#1e293b';
                   ?>
-                  <th class="columna-clasificacion px-4 py-3 text-center sticky top-0" 
-                      data-columna="<?= htmlspecialchars($clasif) ?>"
+                  <th class="px-4 py-3 text-center sticky top-0" 
                       title="<?= htmlspecialchars($clasif) ?>"
-                      style="min-width: 80px; background-color: <?= $bg_color ?>; color: <?= $text_color ?>; border-bottom: 2px solid <?= $colorMap[$estilo['border']] ?? '#cbd5e1' ?>; z-index: 20;">
+                      style="min-width: 80px; background-color: <?= $bg_color ?>; color: <?= $text_color ?>; border-bottom: 2px solid <?= $colorMap[$estilo['border']] ?? '#cbd5e1' ?>; z-index: 19;">
                     <?= htmlspecialchars($abreviatura) ?>
                   </th>
-                  <?php 
-                    endif;
-                  endforeach; 
-                  
-                  // Luego mostrar las demás columnas (nuevas que no están en el orden predeterminado)
-                  foreach ($clasificaciones_disponibles as $clasif):
-                    if (!in_array($clasif, $orden_columnas)):
-                      $estilo = obtenerEstiloClasificacion($clasif);
-                      $abreviatura = strtoupper(substr($clasif, 0, 3));
-                      
-                      $colorMap = [
-                          'bg-violet-100' => '#ede9fe', 'text-violet-700' => '#6d28d9', 'border-violet-200' => '#ddd6fe',
-                          'bg-orange-100' => '#ffedd5', 'text-orange-700' => '#c2410c', 'border-orange-200' => '#fdba74',
-                          'bg-lime-100' => '#ecfccb', 'text-lime-700' => '#4d7c0f', 'border-lime-200' => '#d9f99d',
-                          'bg-sky-100' => '#e0f2fe', 'text-sky-700' => '#0369a1', 'border-sky-200' => '#bae6fd',
-                          'bg-pink-100' => '#fce7f3', 'text-pink-700' => '#be185d', 'border-pink-200' => '#fbcfe8',
-                          'bg-purple-100' => '#f3e8ff', 'text-purple-700' => '#7e22ce', 'border-purple-200' => '#e9d5ff',
-                          'bg-yellow-100' => '#fef9c3', 'text-yellow-700' => '#a16207', 'border-yellow-200' => '#fde68a',
-                          'bg-red-100' => '#fee2e2', 'text-red-700' => '#b91c1c', 'border-red-200' => '#fecaca'
-                      ];
-                      
-                      $bg_color = $colorMap[$estilo['bg']] ?? '#f1f5f9';
-                      $text_color = $colorMap[$estilo['text']] ?? '#1e293b';
-                  ?>
-                  <th class="columna-clasificacion px-4 py-3 text-center sticky top-0" 
-                      data-columna="<?= htmlspecialchars($clasif) ?>"
-                      title="<?= htmlspecialchars($clasif) ?>"
-                      style="min-width: 80px; background-color: <?= $bg_color ?>; color: <?= $text_color ?>; border-bottom: 2px solid <?= $colorMap[$estilo['border']] ?? '#cbd5e1' ?>; z-index: 20;">
-                    <?= htmlspecialchars($abreviatura) ?>
-                  </th>
-                  <?php 
-                    endif;
-                  endforeach; 
-                  ?>
-                  
-                  <!-- Columnas fijas (siempre visibles) -->
-                  <th class="columna-fija px-4 py-3 text-center sticky top-0 bg-blue-600" 
-                      data-columna="total" 
-                      style="min-width: 140px; z-index: 20;">
+                  <?php endforeach; ?>
+                  <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 140px; z-index: 20;">
                     Total
                   </th>
-                  <th class="columna-fija px-4 py-3 text-center sticky top-0 bg-blue-600" 
-                      data-columna="pagado" 
-                      style="min-width: 120px; z-index: 20;">
+                  <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 120px; z-index: 20;">
                     Pagado
                   </th>
-                  <th class="columna-fija px-4 py-3 text-center sticky top-0 bg-blue-600" 
-                      data-columna="faltante" 
-                      style="min-width: 100px; z-index: 20;">
+                  <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 100px; z-index: 20;">
                     Faltante
                   </th>
                 </tr>
@@ -1673,9 +1510,7 @@ if ($empresaFiltro !== "") {
                     data-sin-clasificar="<?= $rutasSinClasificar ?>"
                     class="hover:bg-blue-50/40 transition-colors <?php echo $rutasSinClasificar > 0 ? 'alerta-sin-clasificar' : ''; ?>">
                   <!-- NUEVA CELDA: Indicador visual de rutas sin clasificar -->
-                  <td class="columna-fija px-4 py-3 text-center" 
-                      data-columna="estado"
-                      style="min-width: 70px; left: 0; background-color: white; z-index: 10;">
+                  <td class="px-4 py-3 text-center" style="min-width: 70px;">
                     <?php if ($rutasSinClasificar > 0): ?>
                       <div class="flex flex-col items-center justify-center gap-1" title="<?= $rutasSinClasificar ?> ruta(s) sin clasificar">
                         <span class="text-amber-600 font-bold animate-pulse">⚠️</span>
@@ -1693,9 +1528,7 @@ if ($empresaFiltro !== "") {
                     <?php endif; ?>
                   </td>
                   
-                  <td class="columna-fija px-4 py-3" 
-                      data-columna="conductor"
-                      style="min-width: 220px; left: 70px; background-color: white; z-index: 10;">
+                  <td class="px-4 py-3" style="min-width: 220px;">
                     <button type="button"
                             class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition flex items-center gap-2"
                             title="Ver viajes">
@@ -1705,9 +1538,7 @@ if ($empresaFiltro !== "") {
                       <?= htmlspecialchars($conductor) ?>
                     </button>
                   </td>
-                  <td class="columna-fija px-4 py-3 text-center" 
-                      data-columna="tipo"
-                      style="min-width: 120px; left: 290px; background-color: white; z-index: 10;">
+                  <td class="px-4 py-3 text-center" style="min-width: 120px;">
                     <span class="inline-block <?= $claseVehiculo ?> px-3 py-1.5 rounded-lg text-xs font-medium border <?= $color_vehiculo['border'] ?> <?= $color_vehiculo['text'] ?> <?= $color_vehiculo['bg'] ?>">
                       <?= htmlspecialchars($info['vehiculo']) ?>
                       <?php if ($esMensual): ?>
@@ -1716,88 +1547,48 @@ if ($empresaFiltro !== "") {
                     </span>
                   </td>
                   
-                  <?php 
-                  // Primero mostrar las columnas predeterminadas en orden
-                  foreach ($orden_columnas as $clasif):
-                    if (in_array($clasif, $clasificaciones_disponibles)):
-                      $estilo = obtenerEstiloClasificacion($clasif);
-                      $cantidad = (int)($info[$clasif] ?? 0);
-                      
-                      // Mapear colores para fondo de celdas
-                      $colorMap = [
-                          'bg-emerald-100' => '#f0fdf4', 'text-emerald-700' => '#047857',
-                          'bg-amber-100' => '#fffbeb', 'text-amber-800' => '#92400e',
-                          'bg-slate-200' => '#f8fafc', 'text-slate-800' => '#1e293b',
-                          'bg-fuchsia-100' => '#fdf4ff', 'text-fuchsia-700' => '#a21caf',
-                          'bg-cyan-100' => '#ecfeff', 'text-cyan-800' => '#155e75',
-                          'bg-indigo-100' => '#eef2ff', 'text-indigo-700' => '#4338ca',
-                          'bg-teal-100' => '#f0fdfa', 'text-teal-700' => '#0f766e',
-                          'bg-rose-100' => '#fff1f2', 'text-rose-700' => '#be123c',
-                          'bg-violet-100' => '#f5f3ff', 'text-violet-700' => '#6d28d9',
-                          'bg-orange-100' => '#fff7ed', 'text-orange-700' => '#c2410c',
-                          'bg-lime-100' => '#f7fee7', 'text-lime-700' => '#4d7c0f',
-                          'bg-sky-100' => '#f0f9ff', 'text-sky-700' => '#0369a1',
-                          'bg-pink-100' => '#fdf2f8', 'text-pink-700' => '#be185d',
-                          'bg-purple-100' => '#faf5ff', 'text-purple-700' => '#7e22ce',
-                          'bg-yellow-100' => '#fefce8', 'text-yellow-700' => '#a16207',
-                          'bg-red-100' => '#fef2f2', 'text-red-700' => '#b91c1c'
-                      ];
-                      
-                      $bg_cell_color = $colorMap[$estilo['bg']] ?? '#f8fafc';
-                      $text_cell_color = $colorMap[$estilo['text']] ?? '#1e293b';
+                  <?php foreach ($clasificaciones_disponibles as $clasif): 
+                    $estilo = obtenerEstiloClasificacion($clasif);
+                    $cantidad = (int)($info[$clasif] ?? 0);
+                    
+                    // Mapear colores para fondo de celdas
+                    $colorMap = [
+                        'bg-emerald-100' => '#f0fdf4', 'text-emerald-700' => '#047857',
+                        'bg-amber-100' => '#fffbeb', 'text-amber-800' => '#92400e',
+                        'bg-slate-200' => '#f8fafc', 'text-slate-800' => '#1e293b',
+                        'bg-fuchsia-100' => '#fdf4ff', 'text-fuchsia-700' => '#a21caf',
+                        'bg-cyan-100' => '#ecfeff', 'text-cyan-800' => '#155e75',
+                        'bg-indigo-100' => '#eef2ff', 'text-indigo-700' => '#4338ca',
+                        'bg-teal-100' => '#f0fdfa', 'text-teal-700' => '#0f766e',
+                        'bg-rose-100' => '#fff1f2', 'text-rose-700' => '#be123c',
+                        'bg-violet-100' => '#f5f3ff', 'text-violet-700' => '#6d28d9',
+                        'bg-orange-100' => '#fff7ed', 'text-orange-700' => '#c2410c',
+                        'bg-lime-100' => '#f7fee7', 'text-lime-700' => '#4d7c0f',
+                        'bg-sky-100' => '#f0f9ff', 'text-sky-700' => '#0369a1',
+                        'bg-pink-100' => '#fdf2f8', 'text-pink-700' => '#be185d',
+                        'bg-purple-100' => '#faf5ff', 'text-purple-700' => '#7e22ce',
+                        'bg-yellow-100' => '#fefce8', 'text-yellow-700' => '#a16207',
+                        'bg-red-100' => '#fef2f2', 'text-red-700' => '#b91c1c'
+                    ];
+                    
+                    $bg_cell_color = $colorMap[$estilo['bg']] ?? '#f8fafc';
+                    $text_cell_color = $colorMap[$estilo['text']] ?? '#1e293b';
                   ?>
-                  <td class="columna-clasificacion px-4 py-3 text-center font-medium" 
-                      data-columna="<?= htmlspecialchars($clasif) ?>"
+                  <td class="px-4 py-3 text-center font-medium" 
                       style="min-width: 80px; background-color: <?= $bg_cell_color ?>; color: <?= $text_cell_color ?>; border-left: 1px solid <?= str_replace('bg-', '#', $estilo['bg']) ?>30; border-right: 1px solid <?= str_replace('bg-', '#', $estilo['bg']) ?>30;">
                     <?= $cantidad ?>
                   </td>
-                  <?php 
-                    endif;
-                  endforeach; 
-                  
-                  // Luego mostrar las demás columnas (nuevas que no están en el orden predeterminado)
-                  foreach ($clasificaciones_disponibles as $clasif):
-                    if (!in_array($clasif, $orden_columnas)):
-                      $estilo = obtenerEstiloClasificacion($clasif);
-                      $cantidad = (int)($info[$clasif] ?? 0);
-                      
-                      $colorMap = [
-                          'bg-violet-100' => '#f5f3ff', 'text-violet-700' => '#6d28d9',
-                          'bg-orange-100' => '#fff7ed', 'text-orange-700' => '#c2410c',
-                          'bg-lime-100' => '#f7fee7', 'text-lime-700' => '#4d7c0f',
-                          'bg-sky-100' => '#f0f9ff', 'text-sky-700' => '#0369a1',
-                          'bg-pink-100' => '#fdf2f8', 'text-pink-700' => '#be185d',
-                          'bg-purple-100' => '#faf5ff', 'text-purple-700' => '#7e22ce',
-                          'bg-yellow-100' => '#fefce8', 'text-yellow-700' => '#a16207',
-                          'bg-red-100' => '#fef2f2', 'text-red-700' => '#b91c1c'
-                      ];
-                      
-                      $bg_cell_color = $colorMap[$estilo['bg']] ?? '#f8fafc';
-                      $text_cell_color = $colorMap[$estilo['text']] ?? '#1e293b';
-                  ?>
-                  <td class="columna-clasificacion px-4 py-3 text-center font-medium" 
-                      data-columna="<?= htmlspecialchars($clasif) ?>"
-                      style="min-width: 80px; background-color: <?= $bg_cell_color ?>; color: <?= $text_cell_color ?>; border-left: 1px solid <?= str_replace('bg-', '#', $estilo['bg']) ?>30; border-right: 1px solid <?= str_replace('bg-', '#', $estilo['bg']) ?>30;">
-                    <?= $cantidad ?>
-                  </td>
-                  <?php 
-                    endif;
-                  endforeach; 
-                  ?>
+                  <?php endforeach; ?>
 
                   <!-- Total -->
-                  <td class="columna-fija px-4 py-3" 
-                      data-columna="total"
-                      style="min-width: 140px; background-color: white;">
+                  <td class="px-4 py-3" style="min-width: 140px;">
                     <input type="text"
                            class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none whitespace-nowrap tabular-nums"
                            readonly dir="ltr">
                   </td>
 
                   <!-- Pagado -->
-                  <td class="columna-fija px-4 py-3" 
-                      data-columna="pagado"
-                      style="min-width: 120px; background-color: white;">
+                  <td class="px-4 py-3" style="min-width: 120px;">
                     <input type="text"
                            class="pagado w-full rounded-xl border border-emerald-200 px-3 py-2 text-right bg-emerald-50 outline-none whitespace-nowrap tabular-nums"
                            readonly dir="ltr"
@@ -1805,9 +1596,7 @@ if ($empresaFiltro !== "") {
                   </td>
 
                   <!-- Faltante -->
-                  <td class="columna-fija px-4 py-3" 
-                      data-columna="faltante"
-                      style="min-width: 100px; background-color: white;">
+                  <td class="px-4 py-3" style="min-width: 100px;">
                     <input type="text"
                            class="faltante w-full rounded-xl border border-rose-200 px-3 py-2 text-right bg-rose-50 outline-none whitespace-nowrap tabular-nums"
                            readonly dir="ltr"
@@ -1856,370 +1645,9 @@ if ($empresaFiltro !== "") {
   </div>
 
   <script>
-    // ===== SISTEMA DE COLUMNAS SELECCIONABLES - PERSISTENTE =====
-    
-    // Configuración de columnas
-    const columnasConfig = {
-      // Columnas que SIEMPRE deben estar visibles (no se pueden ocultar)
-      columnasFijas: ['estado', 'conductor', 'tipo', 'total', 'pagado', 'faltante'],
-      
-      // Columnas predeterminadas que deberían estar seleccionadas al inicio
-      columnasPredeterminadas: ['completo', 'medio', 'extra', 'siapana', 'carrotanque', 'riohacha', 'pru', 'maco'],
-      
-      // Storage key para guardar la configuración
-      storageKey: 'configuracion_columnas_liquidacion',
-      
-      // Obtener todas las columnas disponibles dinámicamente desde PHP
-      obtenerColumnasDisponibles: function() {
-        const columnas = [];
-        // Obtener columnas de clasificación desde los encabezados
-        document.querySelectorAll('thead th[data-columna]').forEach(th => {
-          const columna = th.getAttribute('data-columna');
-          if (!this.columnasFijas.includes(columna) && !columnas.includes(columna)) {
-            columnas.push(columna);
-          }
-        });
-        return columnas;
-      },
-      
-      // Cargar configuración guardada
-      cargarConfiguracion: function() {
-        const saved = localStorage.getItem(this.storageKey);
-        if (saved) {
-          return JSON.parse(saved);
-        }
-        return null;
-      },
-      
-      // Guardar configuración
-      guardarConfiguracion: function(config) {
-        localStorage.setItem(this.storageKey, JSON.stringify(config));
-      },
-      
-      // Obtener configuración actual
-      obtenerConfiguracionActual: function() {
-        const columnasDisponibles = this.obtenerColumnasDisponibles();
-        const savedConfig = this.cargarConfiguracion();
-        
-        if (savedConfig) {
-          // Verificar si hay nuevas columnas que no estaban en la configuración guardada
-          const nuevasColumnas = columnasDisponibles.filter(col => 
-            !savedConfig.columnas.includes(col) && !this.columnasFijas.includes(col)
-          );
-          
-          if (nuevasColumnas.length > 0) {
-            // Agregar nuevas columnas a la configuración (seleccionadas por defecto)
-            savedConfig.columnas = [...savedConfig.columnas, ...nuevasColumnas];
-            this.guardarConfiguracion(savedConfig);
-          }
-          
-          return savedConfig;
-        }
-        
-        // Configuración por defecto (primera vez)
-        return {
-          columnas: [...this.columnasPredeterminadas],
-          timestamp: new Date().toISOString()
-        };
-      },
-      
-      // Aplicar configuración a la tabla
-      aplicarConfiguracion: function(config) {
-        const todasLasColumnas = this.obtenerColumnasDisponibles();
-        
-        // Ocultar/mostrar columnas de clasificación
-        todasLasColumnas.forEach(columna => {
-          const mostrar = config.columnas.includes(columna);
-          this.toggleColumna(columna, mostrar);
-        });
-        
-        // Actualizar contador
-        this.actualizarContadorColumnas(config.columnas.length);
-        
-        // Actualizar vista previa
-        this.actualizarVistaPreviaColumnas(config.columnas);
-      },
-      
-      // Mostrar/ocultar una columna específica
-      toggleColumna: function(nombreColumna, mostrar) {
-        // Encabezados
-        document.querySelectorAll(`th[data-columna="${nombreColumna}"]`).forEach(th => {
-          th.style.display = mostrar ? '' : 'none';
-        });
-        
-        // Celdas del cuerpo
-        document.querySelectorAll(`td[data-columna="${nombreColumna}"]`).forEach(td => {
-          td.style.display = mostrar ? '' : 'none';
-        });
-      },
-      
-      // Actualizar contador de columnas seleccionadas
-      actualizarContadorColumnas: function(cantidad) {
-        const contador = document.getElementById('contadorColumnasSeleccionadas');
-        if (contador) {
-          contador.textContent = cantidad;
-        }
-      },
-      
-      // Actualizar vista previa de columnas seleccionadas
-      actualizarVistaPreviaColumnas: function(columnasSeleccionadas) {
-        const previewDiv = document.getElementById('columnasSeleccionadasPreview');
-        if (!previewDiv) return;
-        
-        previewDiv.innerHTML = '';
-        
-        columnasSeleccionadas.forEach(col => {
-          const estilo = obtenerEstiloClasificacionJS(col);
-          const badge = document.createElement('span');
-          badge.className = `inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium ${estilo.bg} ${estilo.text} border ${estilo.border}`;
-          badge.textContent = col.charAt(0).toUpperCase() + col.slice(1);
-          previewDiv.appendChild(badge);
-        });
-        
-        if (columnasSeleccionadas.length === 0) {
-          previewDiv.innerHTML = '<span class="text-slate-500 text-sm">No hay columnas seleccionadas</span>';
-        }
-      },
-      
-      // Inicializar el sistema
-      inicializar: function() {
-        // Cargar configuración
-        const config = this.obtenerConfiguracionActual();
-        
-        // Aplicar configuración a la tabla
-        this.aplicarConfiguracion(config);
-        
-        // Generar lista de columnas en el panel
-        this.generarListaColumnas(config.columnas);
-        
-        // Guardar configuración inicial si no existía
-        if (!this.cargarConfiguracion()) {
-          this.guardarConfiguracion(config);
-        }
-      },
-      
-      // Generar la lista de columnas en el panel de configuración
-      generarListaColumnas: function(columnasSeleccionadas) {
-        const listaDiv = document.getElementById('listaColumnas');
-        if (!listaDiv) return;
-        
-        const todasLasColumnas = this.obtenerColumnasDisponibles();
-        const columnasFijas = this.columnasFijas;
-        const columnasPredeterminadas = this.columnasPredeterminadas;
-        
-        listaDiv.innerHTML = '';
-        
-        // Agrupar columnas
-        const grupos = {
-          fijas: [],
-          predeterminadas: [],
-          otras: []
-        };
-        
-        todasLasColumnas.forEach(col => {
-          if (columnasFijas.includes(col)) {
-            grupos.fijas.push(col);
-          } else if (columnasPredeterminadas.includes(col)) {
-            grupos.predeterminadas.push(col);
-          } else {
-            grupos.otras.push(col);
-          }
-        });
-        
-        // Función para crear item de columna
-        const crearItemColumna = (col, esFija = false) => {
-          const estilo = obtenerEstiloClasificacionJS(col);
-          const estaSeleccionada = esFija || columnasSeleccionadas.includes(col);
-          const esPredeterminada = columnasPredeterminadas.includes(col);
-          
-          const item = document.createElement('div');
-          item.className = `checkbox-columna flex items-center justify-between p-3 rounded-lg border ${estilo.border} ${esFija ? 'columna-disabled' : ''}`;
-          item.style.backgroundColor = `var(--${estilo.bg.replace('bg-', '')}-50)`;
-          
-          // Contar cuántos conductores tienen datos en esta columna
-          let contador = 0;
-          document.querySelectorAll(`td[data-columna="${col}"]`).forEach(td => {
-            if (parseInt(td.textContent) > 0) contador++;
-          });
-          
-          item.innerHTML = `
-            <div class="flex items-center gap-3">
-              <input type="checkbox" 
-                     id="col-${col}" 
-                     ${esFija ? 'disabled' : ''}
-                     ${estaSeleccionada ? 'checked' : ''}
-                     class="rounded border-slate-300" 
-                     onchange="toggleColumnaSeleccionada('${col}', this.checked)">
-              <label for="col-${col}" class="cursor-pointer ${esFija ? 'cursor-not-allowed' : ''}">
-                <div class="font-medium ${estilo.text}">${col.charAt(0).toUpperCase() + col.slice(1)}</div>
-                <div class="text-xs text-slate-500 mt-0.5">
-                  ${esFija ? 'Siempre visible' : (esPredeterminada ? 'Columna predeterminada' : 'Columna adicional')}
-                </div>
-              </label>
-            </div>
-            <div class="flex items-center gap-2">
-              ${contador > 0 ? `<span class="badge-columna-count ${estilo.bg} ${estilo.text}">${contador}</span>` : ''}
-              <span class="w-3 h-3 rounded-full ${estilo.bg.replace('bg-', 'bg-')} border ${estilo.border}"></span>
-            </div>
-          `;
-          
-          return item;
-        };
-        
-        // Agregar columnas fijas (siempre visibles)
-        if (grupos.fijas.length > 0) {
-          const tituloFijas = document.createElement('div');
-          tituloFijas.className = 'text-sm font-semibold text-slate-700 mb-2 mt-4';
-          tituloFijas.textContent = '📌 Columnas fijas (siempre visibles)';
-          listaDiv.appendChild(tituloFijas);
-          
-          grupos.fijas.forEach(col => {
-            listaDiv.appendChild(crearItemColumna(col, true));
-          });
-        }
-        
-        // Agregar columnas predeterminadas
-        if (grupos.predeterminadas.length > 0) {
-          const tituloPred = document.createElement('div');
-          tituloPred.className = 'text-sm font-semibold text-slate-700 mb-2 mt-4';
-          tituloPred.textContent = '⭐ Columnas principales';
-          listaDiv.appendChild(tituloPred);
-          
-          grupos.predeterminadas.forEach(col => {
-            listaDiv.appendChild(crearItemColumna(col, false));
-          });
-        }
-        
-        // Agregar otras columnas
-        if (grupos.otras.length > 0) {
-          const tituloOtras = document.createElement('div');
-          tituloOtras.className = 'text-sm font-semibold text-slate-700 mb-2 mt-4';
-          tituloOtras.textContent = '🔧 Columnas adicionales';
-          listaDiv.appendChild(tituloOtras);
-          
-          grupos.otras.forEach(col => {
-            listaDiv.appendChild(crearItemColumna(col, false));
-          });
-        }
-        
-        // Actualizar contador
-        this.actualizarContadorColumnas(columnasSeleccionadas.length);
-        this.actualizarVistaPreviaColumnas(columnasSeleccionadas);
-      }
-    };
-    
-    // Función helper para obtener estilos desde JavaScript
-    function obtenerEstiloClasificacionJS(clasificacion) {
-      // Esta es una versión simplificada de la función PHP
-      const estilos = {
-        'completo': { bg: 'bg-emerald-100', text: 'text-emerald-700', border: 'border-emerald-200' },
-        'medio': { bg: 'bg-amber-100', text: 'text-amber-800', border: 'border-amber-200' },
-        'extra': { bg: 'bg-slate-200', text: 'text-slate-800', border: 'border-slate-300' },
-        'siapana': { bg: 'bg-fuchsia-100', text: 'text-fuchsia-700', border: 'border-fuchsia-200' },
-        'carrotanque': { bg: 'bg-cyan-100', text: 'text-cyan-800', border: 'border-cyan-200' },
-        'riohacha': { bg: 'bg-indigo-100', text: 'text-indigo-700', border: 'border-indigo-200' },
-        'pru': { bg: 'bg-teal-100', text: 'text-teal-700', border: 'border-teal-200' },
-        'maco': { bg: 'bg-rose-100', text: 'text-rose-700', border: 'border-rose-200' }
-      };
-      
-      if (estilos[clasificacion]) {
-        return estilos[clasificacion];
-      }
-      
-      // Para nuevas clasificaciones, generar color dinámico
-      const colors = [
-        { bg: 'bg-violet-100', text: 'text-violet-700', border: 'border-violet-200' },
-        { bg: 'bg-orange-100', text: 'text-orange-700', border: 'border-orange-200' },
-        { bg: 'bg-lime-100', text: 'text-lime-700', border: 'border-lime-200' },
-        { bg: 'bg-sky-100', text: 'text-sky-700', border: 'border-sky-200' },
-        { bg: 'bg-pink-100', text: 'text-pink-700', border: 'border-pink-200' },
-        { bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-200' },
-        { bg: 'bg-yellow-100', text: 'text-yellow-700', border: 'border-yellow-200' },
-        { bg: 'bg-red-100', text: 'text-red-700', border: 'border-red-200' },
-      ];
-      
-      let hash = 0;
-      for (let i = 0; i < clasificacion.length; i++) {
-        hash = ((hash << 5) - hash) + clasificacion.charCodeAt(i);
-        hash |= 0;
-      }
-      const color_index = Math.abs(hash) % colors.length;
-      
-      return colors[color_index];
-    }
-    
-    // ===== FUNCIONES DE CONTROL DE COLUMNAS =====
-    
-    function toggleColumnaSeleccionada(nombreColumna, seleccionada) {
-      // Actualizar configuración
-      const config = columnasConfig.obtenerConfiguracionActual();
-      
-      if (seleccionada && !config.columnas.includes(nombreColumna)) {
-        config.columnas.push(nombreColumna);
-      } else if (!seleccionada) {
-        config.columnas = config.columnas.filter(col => col !== nombreColumna);
-      }
-      
-      // Guardar configuración
-      columnasConfig.guardarConfiguracion(config);
-      
-      // Aplicar cambios
-      columnasConfig.aplicarConfiguracion(config);
-      
-      // Actualizar lista en panel
-      columnasConfig.generarListaColumnas(config.columnas);
-      
-      // Recalcular totales
-      recalcular();
-    }
-    
-    function seleccionarTodasColumnas() {
-      const todasLasColumnas = columnasConfig.obtenerColumnasDisponibles();
-      const config = columnasConfig.obtenerConfiguracionActual();
-      
-      // Agregar todas las columnas (excepto fijas que ya están)
-      todasLasColumnas.forEach(col => {
-        if (!columnasConfig.columnasFijas.includes(col) && !config.columnas.includes(col)) {
-          config.columnas.push(col);
-        }
-      });
-      
-      // Guardar y aplicar
-      columnasConfig.guardarConfiguracion(config);
-      columnasConfig.aplicarConfiguracion(config);
-      columnasConfig.generarListaColumnas(config.columnas);
-      recalcular();
-    }
-    
-    function deseleccionarTodasColumnas() {
-      const config = columnasConfig.obtenerConfiguracionActual();
-      
-      // Mantener solo las columnas fijas
-      config.columnas = config.columnas.filter(col => columnasConfig.columnasFijas.includes(col));
-      
-      // Guardar y aplicar
-      columnasConfig.guardarConfiguracion(config);
-      columnasConfig.aplicarConfiguracion(config);
-      columnasConfig.generarListaColumnas(config.columnas);
-      recalcular();
-    }
-    
-    function restaurarColumnasPredeterminadas() {
-      const config = {
-        columnas: [...columnasConfig.columnasPredeterminadas],
-        timestamp: new Date().toISOString()
-      };
-      
-      // Guardar y aplicar
-      columnasConfig.guardarConfiguracion(config);
-      columnasConfig.aplicarConfiguracion(config);
-      columnasConfig.generarListaColumnas(config.columnas);
-      recalcular();
-    }
-    
     // ===== SISTEMA DE BOLITAS Y PANELES =====
     let activePanel = null;
-    const panels = ['tarifas', 'crear-clasif', 'clasif-rutas', 'config-columnas'];
+    const panels = ['tarifas', 'crear-clasif', 'clasif-rutas'];
     
     // Inicializar sistema de bolitas
     document.addEventListener('DOMContentLoaded', function() {
@@ -2257,9 +1685,6 @@ if ($empresaFiltro !== "") {
       
       // Inicializar colores de las filas de clasificación
       inicializarColoresClasificacion();
-      
-      // INICIALIZAR SISTEMA DE COLUMNAS
-      columnasConfig.inicializar();
     });
     
     // Función para abrir/cerrar paneles
@@ -2523,9 +1948,11 @@ if ($empresaFiltro !== "") {
       const tarifas = getTarifas();
       const filas = document.querySelectorAll('#tabla_conductores_body tr');
       
-      // Obtener configuración actual de columnas
-      const config = columnasConfig.obtenerConfiguracionActual();
-      const columnasVisibles = config.columnas;
+      // Obtener clasificaciones desde los encabezados (en minúsculas)
+      const clasificaciones = [];
+      document.querySelectorAll('#tabla_conductores thead th[title]').forEach(th => {
+        clasificaciones.push(th.getAttribute('title').toLowerCase());
+      });
 
       let totalViajes = 0;
       let totalPagado = 0;
@@ -2535,20 +1962,18 @@ if ($empresaFiltro !== "") {
         if (fila.style.display === 'none') return;
 
         const veh = fila.dataset.vehiculo;
+        const celdas = fila.querySelectorAll('td');
         const tarifasVeh = tarifas[veh] || {};
 
         let totalFila = 0;
+        let columnaIndex = 3; // Empieza después de estado, conductor y tipo
         
-        // Calcular solo para columnas visibles
-        columnasVisibles.forEach(columna => {
-          if (!columnasConfig.columnasFijas.includes(columna)) {
-            const celda = fila.querySelector(`td[data-columna="${columna}"]`);
-            if (celda && celda.style.display !== 'none') {
-              const cantidad = parseInt(celda.textContent || 0);
-              const tarifa = tarifasVeh[columna] || 0;
-              totalFila += cantidad * tarifa;
-            }
-          }
+        // Calcular por cada clasificación
+        clasificaciones.forEach(clasif => {
+          const cantidad = parseInt(celdas[columnaIndex]?.textContent || 0);
+          const tarifa = tarifasVeh[clasif] || 0;
+          totalFila += cantidad * tarifa;
+          columnaIndex++;
         });
 
         const pagado = parseInt(fila.dataset.pagado || '0') || 0;
