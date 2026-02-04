@@ -677,13 +677,14 @@ if ($empresaFiltro !== "") {
 <title>Liquidación de Conductores</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
-  /* Estilos anteriores simplificados */
+  /* ===== ESTILOS ORIGINALES DE LAS BOLITAS Y PANELES ===== */
   ::-webkit-scrollbar{height:10px;width:10px}
   ::-webkit-slider-thumb{background:#d1d5db;border-radius:999px}
   ::-webkit-slider-thumb:hover{background:#9ca3af}
   input[type=number]::-webkit-inner-spin-button,
   input[type=number]::-webkit-outer-spin-button{ -webkit-appearance: none; margin: 0; }
   
+  /* BUSCADOR */
   .buscar-container { position: relative; }
   .buscar-clear { 
     position: absolute; 
@@ -704,6 +705,7 @@ if ($empresaFiltro !== "") {
     font-weight: 600;
   }
   
+  /* Estilos para alertas visuales */
   .alerta-sin-clasificar {
     animation: pulse-alerta 2s infinite;
   }
@@ -713,13 +715,341 @@ if ($empresaFiltro !== "") {
     50% { opacity: 0.7; }
   }
   
+  /* ===== BOLITAS FLOTANTES ORIGINALES ===== */
+  .floating-balls-container {
+    position: fixed;
+    left: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    z-index: 9998;
+  }
+  
+  .floating-ball {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 3px solid white;
+    position: relative;
+    z-index: 9999;
+    overflow: hidden;
+    user-select: none;
+  }
+  
+  .floating-ball:hover {
+    transform: scale(1.15) translateY(-2px);
+    box-shadow: 0 12px 25px rgba(0, 0, 0, 0.3);
+  }
+  
+  .floating-ball:active {
+    transform: scale(0.95);
+  }
+  
+  .ball-content {
+    font-size: 24px;
+    font-weight: bold;
+    color: white;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .ball-tooltip {
+    position: absolute;
+    left: 70px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: white;
+    color: #1e293b;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    border: 1px solid #e2e8f0;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s;
+    pointer-events: none;
+    z-index: 10000;
+  }
+  
+  .floating-ball:hover .ball-tooltip {
+    opacity: 1;
+    visibility: visible;
+    left: 75px;
+  }
+  
+  /* Colores específicos para cada bolita (ORIGINALES) */
+  .ball-tarifas {
+    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  }
+  
+  .ball-crear-clasif {
+    background: linear-gradient(135deg, #10b981, #059669);
+  }
+  
+  .ball-clasif-rutas {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+  }
+  
+  /* ===== PANELES DESLIZANTES ORIGINALES ===== */
+  .side-panel-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 9997;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s;
+  }
+  
+  .side-panel-overlay.active {
+    opacity: 1;
+    visibility: visible;
+  }
+  
+  .side-panel {
+    position: fixed;
+    left: -450px;
+    top: 0;
+    width: 420px;
+    height: 100vh;
+    background: white;
+    box-shadow: 4px 0 25px rgba(0, 0, 0, 0.15);
+    z-index: 9998;
+    transition: left 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  
+  .side-panel.active {
+    left: 0;
+  }
+  
+  .side-panel-header {
+    position: sticky;
+    top: 0;
+    background: white;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 1.25rem;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  
+  .side-panel-body {
+    padding: 1.25rem;
+    padding-bottom: 2rem;
+  }
+  
+  .side-panel-close {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: #64748b;
+  }
+  
+  .side-panel-close:hover {
+    background: #e2e8f0;
+    color: #1e293b;
+  }
+  
+  /* ===== TABLA CENTRAL CON ANIMACIÓN ORIGINAL ===== */
+  .table-container-wrapper {
+    transition: margin-left 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    margin-left: 0;
+  }
+  
+  .table-container-wrapper.with-panel {
+    margin-left: 420px;
+  }
+  
+  /* Indicador de panel activo */
+  .ball-active {
+    animation: pulse-ball 2s infinite;
+    box-shadow: 0 0 0 8px rgba(59, 130, 246, 0.2);
+  }
+  
+  @keyframes pulse-ball {
+    0%, 100% { box-shadow: 0 8px 20px rgba(0,0,0,0.2), 0 0 0 0 rgba(59, 130, 246, 0.4); }
+    50% { box-shadow: 0 8px 20px rgba(0,0,0,0.2), 0 0 0 12px rgba(59, 130, 246, 0); }
+  }
+  
+  /* Animación de notificaciones */
+  @keyframes fadeInDown {
+    from {
+      opacity: 0;
+      transform: translateY(-20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  .animate-fade-in-down {
+    animation: fadeInDown 0.3s ease-out;
+  }
+
+  /* ===== MODAL VIAJES ORIGINAL ===== */
+  .viajes-backdrop{ 
+    position:fixed; 
+    inset:0; 
+    background:rgba(0,0,0,.45); 
+    display:none; 
+    align-items:center; 
+    justify-content:center; 
+    z-index:10000; 
+  }
+  .viajes-backdrop.show{ display:flex; }
+  .viajes-card{ 
+    width:min(720px,94vw); 
+    max-height:90vh; 
+    overflow:hidden; 
+    border-radius:16px; 
+    background:#fff;
+    box-shadow:0 20px 60px rgba(0,0,0,.25); 
+    border:1px solid #e5e7eb; 
+  }
+  .viajes-header{
+    padding:14px 16px;
+    border-bottom:1px solid #eef2f7
+  }
+  .viajes-body{
+    padding:14px 16px;
+    overflow:auto; 
+    max-height:70vh
+  }
+  .viajes-close{
+    padding:6px 10px; 
+    border-radius:10px; 
+    cursor:pointer;
+  }
+  .viajes-close:hover{
+    background:#f3f4f6
+  }
+
   .conductor-link{
     cursor:pointer; 
     color:#0d6efd; 
     text-decoration:underline;
   }
 
-  /* Estilo para checkboxes de selección de columnas */
+  /* Colores para viajes */
+  .row-viaje:hover { background-color: #f8fafc; }
+  .cat-completo { background-color: rgba(209, 250, 229, 0.1); }
+  .cat-medio { background-color: rgba(254, 243, 199, 0.1); }
+  .cat-extra { background-color: rgba(241, 245, 249, 0.1); }
+  .cat-siapana { background-color: rgba(250, 232, 255, 0.1); }
+  .cat-carrotanque { background-color: rgba(207, 250, 254, 0.1); }
+  .cat-otro { background-color: rgba(243, 244, 246, 0.1); }
+  
+  /* ===== ACORDEÓN PARA TARIFAS ORIGINAL ===== */
+  .tarjeta-tarifa-acordeon {
+    transition: all 0.3s ease;
+  }
+  
+  .tarjeta-tarifa-acordeon:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  }
+  
+  .acordeon-header {
+    transition: background-color 0.2s ease;
+  }
+  
+  .acordeon-content {
+    transition: all 0.3s ease;
+    max-height: 0;
+    overflow: hidden;
+  }
+  
+  .acordeon-content.expanded {
+    max-height: 2000px;
+  }
+  
+  .acordeon-icon {
+    transition: transform 0.3s ease;
+  }
+  
+  .acordeon-icon.expanded {
+    transform: rotate(90deg);
+  }
+  
+  /* ===== COLORES PARA FILAS DE CLASIFICACIÓN DE RUTAS ORIGINALES ===== */
+  .fila-clasificada-completo {
+    background-color: rgba(209, 250, 229, 0.3) !important;
+    border-left: 4px solid #10b981 !important;
+  }
+  
+  .fila-clasificada-medio {
+    background-color: rgba(254, 243, 199, 0.3) !important;
+    border-left: 4px solid #f59e0b !important;
+  }
+  
+  .fila-clasificada-extra {
+    background-color: rgba(241, 245, 249, 0.3) !important;
+    border-left: 4px solid #64748b !important;
+  }
+  
+  .fila-clasificada-siapana {
+    background-color: rgba(250, 232, 255, 0.3) !important;
+    border-left: 4px solid #d946ef !important;
+  }
+  
+  .fila-clasificada-carrotanque {
+    background-color: rgba(207, 250, 254, 0.3) !important;
+    border-left: 4px solid #06b6d4 !important;
+  }
+  
+  .fila-clasificada-riohacha {
+    background-color: rgba(224, 231, 255, 0.3) !important;
+    border-left: 4px solid #4f46e5 !important;
+  }
+  
+  .fila-clasificada-pru {
+    background-color: rgba(204, 251, 241, 0.3) !important;
+    border-left: 4px solid #14b8a6 !important;
+  }
+  
+  .fila-clasificada-maco {
+    background-color: rgba(255, 228, 230, 0.3) !important;
+    border-left: 4px solid #f43f5e !important;
+  }
+  
+  /* ===== NUEVOS ESTILOS PARA SELECTOR DE COLUMNAS ===== */
+  .selector-columnas-fijo {
+    position: sticky;
+    top: 0;
+    z-index: 25;
+    background: white;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 1rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    margin-bottom: 1rem;
+  }
+  
   .columna-checkbox-item {
     transition: all 0.2s ease;
   }
@@ -766,15 +1096,44 @@ if ($empresaFiltro !== "") {
     display: table-cell !important;
   }
   
-  /* Selector de columnas - fijo */
-  .selector-columnas-fijo {
-    position: sticky;
-    top: 0;
-    z-index: 30;
-    background: white;
-    border-bottom: 1px solid #e2e8f0;
-    padding: 1rem;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  /* Responsive */
+  @media (max-width: 768px) {
+    .floating-balls-container {
+      bottom: 20px;
+      top: auto;
+      left: 50%;
+      transform: translateX(-50%);
+      flex-direction: row;
+      gap: 10px;
+    }
+    
+    .floating-ball {
+      width: 50px;
+      height: 50px;
+    }
+    
+    .ball-content {
+      font-size: 20px;
+    }
+    
+    .side-panel {
+      width: 90%;
+      max-width: 400px;
+      left: -100%;
+    }
+    
+    .table-container-wrapper.with-panel {
+      margin-left: 0;
+    }
+    
+    .ball-tooltip {
+      display: none;
+    }
+    
+    .selector-columnas-fijo {
+      position: relative;
+      top: 0;
+    }
   }
 </style>
 </head>
@@ -849,12 +1208,252 @@ if ($empresaFiltro !== "") {
     </div>
   </header>
 
+  <!-- ===== BOLITAS FLOTANTES ORIGINALES (3 BOLITAS) ===== -->
+  <div class="floating-balls-container">
+    <!-- Bolita 1: Tarifas por tipo de vehículo (ORIGINAL) -->
+    <div class="floating-ball ball-tarifas" id="ball-tarifas" data-panel="tarifas">
+      <div class="ball-content">🚐</div>
+      <div class="ball-tooltip">Tarifas por tipo de vehículo</div>
+    </div>
+    
+    <!-- Bolita 2: Crear nueva clasificación (ORIGINAL) -->
+    <div class="floating-ball ball-crear-clasif" id="ball-crear-clasif" data-panel="crear-clasif">
+      <div class="ball-content">➕</div>
+      <div class="ball-tooltip">Crear nueva clasificación</div>
+    </div>
+    
+    <!-- Bolita 3: Clasificar rutas existentes (ORIGINAL) -->
+    <div class="floating-ball ball-clasif-rutas" id="ball-clasif-rutas" data-panel="clasif-rutas">
+      <div class="ball-content">🧭</div>
+      <div class="ball-tooltip">Clasificar rutas existentes</div>
+    </div>
+  </div>
+
+  <!-- ===== PANEL DE TARIFAS ORIGINAL ===== -->
+  <div class="side-panel" id="panel-tarifas">
+    <div class="side-panel-header">
+      <h3 class="text-lg font-semibold flex items-center gap-2">
+        <span>🚐 Tarifas por Tipo de Vehículo</span>
+        <span class="text-xs text-slate-500">(<?= count($columnas_tarifas) ?> tipos de tarifas)</span>
+      </h3>
+      <button class="side-panel-close" data-panel="tarifas">✕</button>
+    </div>
+    <div class="side-panel-body">
+      <!-- Botones para expandir/colapsar todos -->
+      <div class="flex justify-end gap-2 mb-4">
+        <button onclick="expandirTodosTarifas()" 
+                class="text-xs px-3 py-1.5 rounded-lg border border-green-300 hover:bg-green-50 transition text-green-600">
+          Expandir todos
+        </button>
+        <button onclick="colapsarTodosTarifas()" 
+                class="text-xs px-3 py-1.5 rounded-lg border border-amber-300 hover:bg-amber-50 transition text-amber-600">
+          Colapsar todos
+        </button>
+      </div>
+      
+      <div id="tarifas_grid" class="grid grid-cols-1 gap-3">
+        <?php foreach ($vehiculos as $index => $veh):
+          $color_vehiculo = obtenerColorVehiculo($veh);
+          $t = $tarifas_guardadas[$veh] ?? [];
+          $veh_id = preg_replace('/[^a-z0-9]/i', '-', strtolower($veh));
+        ?>
+        <div class="tarjeta-tarifa-acordeon rounded-xl border <?= $color_vehiculo['border'] ?> overflow-hidden shadow-sm"
+             data-vehiculo="<?= htmlspecialchars($veh) ?>"
+             id="acordeon-<?= $veh_id ?>"
+             style="background-color: <?= str_replace('bg-', '#', $color_vehiculo['dark']) ?>;">
+          
+          <!-- CABECERA DEL ACORDEÓN (siempre visible) -->
+          <div class="acordeon-header flex items-center justify-between px-4 py-3.5 cursor-pointer transition <?= $color_vehiculo['bg'] ?> hover:opacity-90"
+               onclick="toggleAcordeon('<?= $veh_id ?>')"
+               style="background-color: <?= str_replace('bg-', '#', $color_vehiculo['bg']) ?>;">
+            <div class="flex items-center gap-3">
+              <span class="acordeon-icon text-lg transition-transform duration-300 <?= $color_vehiculo['text'] ?>" id="icon-<?= $veh_id ?>">▶️</span>
+              <div>
+                <div class="text-base font-semibold <?= $color_vehiculo['text'] ?>">
+                  <?= htmlspecialchars($veh) ?>
+                </div>
+                <div class="text-xs text-slate-500 mt-0.5">
+                  <?= count($columnas_tarifas) ?> tipos de tarifas configurados
+                </div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-xs px-2 py-1 rounded-full <?= $color_vehiculo['text'] ?> border <?= $color_vehiculo['border'] ?> bg-white/80">
+                Configurar
+              </span>
+            </div>
+          </div>
+          
+          <!-- CONTENIDO DESPLEGABLE (oculto inicialmente) -->
+          <div class="acordeon-content px-4 py-3 border-t <?= $color_vehiculo['border'] ?> bg-white" id="content-<?= $veh_id ?>">
+            <div class="space-y-3">
+              <?php foreach ($columnas_tarifas as $columna): 
+                $valor = isset($t[$columna]) ? (float)$t[$columna] : 0;
+                $etiqueta = ucfirst($columna);
+                
+                // Etiquetas especiales
+                $etiquetas_especiales = [
+                    'completo' => 'Viaje Completo',
+                    'medio' => 'Viaje Medio',
+                    'extra' => 'Viaje Extra',
+                    'carrotanque' => 'Carrotanque',
+                    'siapana' => 'Siapana',
+                    'riohacha' => 'Riohacha',
+                    'pru' => 'Pru',
+                    'maco' => 'Maco'
+                ];
+                
+                $etiqueta_final = $etiquetas_especiales[$columna] ?? $etiqueta;
+                
+                // Obtener color para esta clasificación
+                $estilo_clasif = obtenerEstiloClasificacion($columna);
+              ?>
+              <label class="block">
+                <span class="block text-sm font-medium mb-1 <?= $estilo_clasif['text'] ?>">
+                  <?= htmlspecialchars($etiqueta_final) ?>
+                </span>
+                <div class="relative">
+                  <input type="number" step="1000" value="<?= $valor ?>"
+                         data-campo="<?= htmlspecialchars($columna) ?>"
+                         class="w-full rounded-xl border <?= $estilo_clasif['border'] ?> px-3 py-2 pr-10 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition tarifa-input"
+                         style="border-color: <?= str_replace('border-', '#', $estilo_clasif['border']) ?>;"
+                         oninput="recalcular()">
+                  <span class="absolute right-3 top-1/2 transform -translate-y-1/2 text-sm font-semibold <?= $estilo_clasif['text'] ?>">
+                    $
+                  </span>
+                </div>
+              </label>
+              <?php endforeach; ?>
+            </div>
+          </div>
+        </div>
+        <?php endforeach; ?>
+      </div>
+      
+      <p class="text-xs text-slate-500 mt-4">
+        Los cambios se guardan automáticamente al modificar cualquier valor.
+      </p>
+    </div>
+  </div>
+
+  <!-- ===== PANEL CREAR CLASIFICACIÓN ORIGINAL ===== -->
+  <div class="side-panel" id="panel-crear-clasif">
+    <div class="side-panel-header">
+      <h3 class="text-lg font-semibold flex items-center gap-2">
+        <span>➕ Crear Nueva Clasificación</span>
+        <span class="text-xs text-slate-500">Dinámico</span>
+      </h3>
+      <button class="side-panel-close" data-panel="crear-clasif">✕</button>
+    </div>
+    <div class="side-panel-body">
+      <p class="text-sm text-slate-600 mb-4">
+        Crea una nueva clasificación. Se agregará a la tabla tarifas.
+      </p>
+
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium mb-2">Nombre de la nueva clasificación</label>
+          <input id="txt_nueva_clasificacion" type="text"
+                 class="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
+                 placeholder="Ej: Premium, Nocturno, Express...">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-2">Texto que deben contener las rutas (opcional)</label>
+          <input id="txt_patron_ruta" type="text"
+                 class="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
+                 placeholder="Dejar vacío para solo crear la clasificación">
+        </div>
+        <button type="button"
+                onclick="crearYAsignarClasificacion()"
+                class="w-full inline-flex items-center justify-center rounded-xl bg-green-600 text-white px-4 py-3 text-sm font-semibold hover:bg-green-700 active:bg-green-800 focus:ring-4 focus:ring-green-200 transition">
+          ⚙️ Crear y Aplicar
+        </button>
+      </div>
+
+      <p class="text-xs text-slate-500 mt-4">
+        La nueva clasificación se creará en la tabla tarifas. Vuelve a dar <strong>Filtrar</strong> para ver los cambios.
+      </p>
+    </div>
+  </div>
+
+  <!-- ===== PANEL CLASIFICACIÓN RUTAS ORIGINAL ===== -->
+  <div class="side-panel" id="panel-clasif-rutas">
+    <div class="side-panel-header">
+      <h3 class="text-lg font-semibold flex items-center gap-2">
+        <span>🧭 Clasificar Rutas Existentes</span>
+        <span class="text-xs text-slate-500"><?= count($rutasUnicas) ?> rutas</span>
+      </h3>
+      <button class="side-panel-close" data-panel="clasif-rutas">✕</button>
+    </div>
+    <div class="side-panel-body">
+      <div class="max-h-[calc(100vh-180px)] overflow-y-auto border border-slate-200 rounded-xl">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-100 text-slate-600 sticky top-0 z-10">
+            <tr>
+              <th class="px-3 py-2 text-left sticky top-0 bg-slate-100">Ruta</th>
+              <th class="px-3 py-2 text-center sticky top-0 bg-slate-100">Vehículo</th>
+              <th class="px-3 py-2 text-center sticky top-0 bg-slate-100">Clasificación</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100" id="tablaClasificacionRutas">
+          <?php foreach($rutasUnicas as $info): 
+            $clasificacion_actual = $info['clasificacion'] ?? '';
+            $estilo = obtenerEstiloClasificacion($clasificacion_actual);
+            $clase_fila = $clasificacion_actual ? 'fila-clasificada-' . $clasificacion_actual : '';
+          ?>
+            <tr class="fila-ruta hover:bg-slate-50 <?= $clase_fila ?>"
+                data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
+                data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>"
+                data-clasificacion="<?= htmlspecialchars($clasificacion_actual) ?>">
+              <td class="px-3 py-2 whitespace-nowrap text-left font-medium">
+                <?= htmlspecialchars($info['ruta']) ?>
+              </td>
+              <td class="px-3 py-2 text-center">
+                <?php 
+                  $color_vehiculo = obtenerColorVehiculo($info['vehiculo']);
+                ?>
+                <span class="inline-block px-2 py-1 rounded-md text-xs font-medium <?= $color_vehiculo['bg'] ?> <?= $color_vehiculo['text'] ?> border <?= $color_vehiculo['border'] ?>">
+                  <?= htmlspecialchars($info['vehiculo']) ?>
+                </span>
+              </td>
+              <td class="px-3 py-2 text-center">
+                <select class="select-clasif-ruta rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100 w-full transition-all duration-300"
+                        data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
+                        data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>"
+                        onchange="actualizarColorFila(this)">
+                  <option value="">Sin clasificar</option>
+                  <?php foreach ($clasificaciones_disponibles as $clasif): 
+                    $estilo_opcion = obtenerEstiloClasificacion($clasif);
+                  ?>
+                  <option value="<?= htmlspecialchars($clasif) ?>" 
+                          <?= $info['clasificacion']===$clasif ? 'selected' : '' ?>
+                          style="background-color: <?= str_replace('bg-', '#', $estilo_opcion['bg']) ?>20; color: <?= str_replace('text-', '#', $estilo_opcion['text']) ?>; font-weight: 600;">
+                    <?= htmlspecialchars(ucfirst($clasif)) ?>
+                  </option>
+                  <?php endforeach; ?>
+                </select>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="text-xs text-slate-500 mt-4">
+        Selecciona una clasificación para cada ruta. Los cambios se guardan automáticamente y la fila cambiará de color.
+      </p>
+    </div>
+  </div>
+
+  <!-- ===== OVERLAY PARA PANELES ORIGINAL ===== -->
+  <div class="side-panel-overlay" id="sidePanelOverlay"></div>
+
   <!-- Contenido principal -->
   <main class="max-w-[1800px] mx-auto px-3 md:px-4 py-6">
-    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+    <div class="table-container-wrapper" id="tableContainerWrapper">
       
-      <!-- ===== SELECTOR DE COLUMNAS VISIBLE DIRECTO ===== -->
-      <div class="selector-columnas-fijo">
+      <!-- ===== SELECTOR DE COLUMNAS NUEVO (INTEGRADO) ===== -->
+      <div class="selector-columnas-fijo mb-4">
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-3">
           <div>
             <h3 class="text-lg font-semibold">📊 Seleccionar Columnas a Mostrar</h3>
@@ -881,7 +1480,7 @@ if ($empresaFiltro !== "") {
         </div>
         
         <!-- Lista de columnas en una fila horizontal -->
-        <div class="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-1">
+        <div class="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-1">
           <?php foreach ($clasificaciones_disponibles as $clasif): 
             $estilo = obtenerEstiloClasificacion($clasif);
             $seleccionada = in_array($clasif, $columnas_seleccionadas);
@@ -894,8 +1493,8 @@ if ($empresaFiltro !== "") {
                  id="checkbox-<?= htmlspecialchars($clasif) ?>"></div>
             <span class="text-xs font-medium whitespace-nowrap <?= $estilo['text'] ?>">
               <?php 
-                // Abreviatura
-                $abreviaturas = [
+                // Nombre completo para mejor legibilidad
+                $nombres = [
                     'completo' => 'Completo',
                     'medio' => 'Medio', 
                     'extra' => 'Extra',
@@ -905,7 +1504,7 @@ if ($empresaFiltro !== "") {
                     'pru' => 'Pru',
                     'maco' => 'Maco'
                 ];
-                echo $abreviaturas[$clasif] ?? ucfirst($clasif);
+                echo $nombres[$clasif] ?? ucfirst($clasif);
               ?>
             </span>
           </div>
@@ -913,276 +1512,279 @@ if ($empresaFiltro !== "") {
         </div>
       </div>
       
-      <!-- Encabezado del panel central -->
-      <div class="p-5 border-b border-slate-200">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h3 class="text-xl font-semibold">🧑‍✈️ Resumen por Conductor</h3>
-            <div id="contador-conductores" class="text-sm text-slate-500 mt-1">
-              Mostrando <?= count($datos) ?> conductores
-            </div>
-          </div>
-          <div class="flex items-center gap-2">
-            <!-- Botón para mostrar resumen de rutas sin clasificar -->
-            <button onclick="mostrarResumenRutasSinClasificar()" 
-                    class="text-sm px-4 py-2 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600 transition flex items-center gap-2 shadow-md hover:shadow-lg">
-              ⚠️ Ver rutas sin clasificar
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Contenido del panel central -->
-      <div class="p-5">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-          <div class="flex flex-col md:flex-row gap-4 w-full md:w-auto">
-            <!-- BUSCADOR -->
-            <div class="buscar-container w-full md:w-64">
-              <input id="buscadorConductores" type="text" 
-                     placeholder="Buscar conductor..." 
-                     class="w-full rounded-xl border border-slate-300 px-4 py-3 pl-4 pr-10 text-sm">
-              <button id="clearBuscar" class="buscar-clear">✕</button>
-            </div>
-
-            <div id="total_chip_container" class="flex flex-wrap items-center gap-3">
-              <span class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 font-semibold text-sm">
-                🔢 Viajes: <span id="total_viajes">0</span>
-              </span>
-              <span class="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-4 py-2 text-purple-700 font-semibold text-sm">
-                💰 Total: <span id="total_general">0</span>
-              </span>
-              <span class="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-emerald-700 font-semibold text-sm">
-                ✅ Pagado: <span id="total_pagado">0</span>
-              </span>
-              <span class="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-rose-700 font-semibold text-sm">
-                ⏳ Faltante: <span id="total_faltante">0</span>
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <!-- NUEVO: Resumen de rutas sin clasificar -->
-        <div id="resumenRutasSinClasificar" class="hidden mb-6">
-          <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
-            <div class="flex items-center justify-between mb-4">
-              <div class="flex items-center gap-2">
-                <span class="text-amber-600 font-bold text-lg">⚠️</span>
-                <h4 class="font-semibold text-amber-800">Rutas sin clasificar encontradas</h4>
+      <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+        <!-- Encabezado del panel central -->
+        <div class="p-5 border-b border-slate-200">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h3 class="text-xl font-semibold">🧑‍✈️ Resumen por Conductor</h3>
+              <div id="contador-conductores" class="text-sm text-slate-500 mt-1">
+                Mostrando <?= count($datos) ?> conductores • 
+                <span id="contador-columnas-visibles-header"><?= count($columnas_seleccionadas) ?></span> columnas visibles
               </div>
-              <span id="contadorRutasSinClasificarGlobal" class="px-3 py-1 bg-amber-500 text-white text-sm font-bold rounded-full">0</span>
             </div>
-            
-            <div id="listaRutasSinClasificarGlobal" class="space-y-2 max-h-60 overflow-y-auto">
-              <!-- Aquí se cargarán las rutas dinámicamente -->
-            </div>
-            
-            <div class="mt-4 pt-4 border-t border-amber-100">
-              <button onclick="irAClasificacionRutas()" 
-                      class="w-full py-3 bg-amber-100 text-amber-700 hover:bg-amber-200 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2">
-                🧭 Ir a clasificar rutas
+            <div class="flex items-center gap-2">
+              <!-- Botón para mostrar resumen de rutas sin clasificar -->
+              <button onclick="mostrarResumenRutasSinClasificar()" 
+                      class="text-sm px-4 py-2 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600 transition flex items-center gap-2 shadow-md hover:shadow-lg">
+                ⚠️ Ver rutas sin clasificar
               </button>
             </div>
           </div>
         </div>
 
-        <!-- CONTENEDOR DE TABLA CON ENCABEZADOS FIJOS -->
-        <div id="tableContainer" class="overflow-x-auto rounded-xl border border-slate-200 max-h-[70vh]">
-          <table id="tabla_conductores" class="w-full text-sm">
-            <thead class="bg-blue-600 text-white sticky top-0 z-20">
-              <tr>
-                <!-- NUEVA COLUMNA PARA ALERTAS VISUALES -->
-                <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 70px;">
-                  Estado
-                </th>
-                <th class="px-4 py-3 text-left sticky top-0 bg-blue-600" style="min-width: 220px;">
-                  Conductor
-                </th>
-                <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 120px;">
-                  Tipo
-                </th>
-                
-                <?php foreach ($clasificaciones_disponibles as $index => $clasif): 
-                  $estilo = obtenerEstiloClasificacion($clasif);
-                  // Definir abreviaturas
-                  $abreviaturas = [
-                      'completo' => 'COM',
-                      'medio' => 'MED', 
-                      'extra' => 'EXT',
-                      'carrotanque' => 'CTK',
-                      'siapana' => 'SIA',
-                      'riohacha' => 'RIO',
-                      'pru' => 'PRU',
-                      'maco' => 'MAC'
-                  ];
-                  $abreviatura = $abreviaturas[$clasif] ?? strtoupper(substr($clasif, 0, 3));
+        <!-- Contenido del panel central -->
+        <div class="p-5">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+            <div class="flex flex-col md:flex-row gap-4 w-full md:w-auto">
+              <!-- BUSCADOR -->
+              <div class="buscar-container w-full md:w-64">
+                <input id="buscadorConductores" type="text" 
+                       placeholder="Buscar conductor..." 
+                       class="w-full rounded-xl border border-slate-300 px-4 py-3 pl-4 pr-10 text-sm">
+                <button id="clearBuscar" class="buscar-clear">✕</button>
+              </div>
+
+              <div id="total_chip_container" class="flex flex-wrap items-center gap-3">
+                <span class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 font-semibold text-sm">
+                  🔢 Viajes: <span id="total_viajes">0</span>
+                </span>
+                <span class="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-4 py-2 text-purple-700 font-semibold text-sm">
+                  💰 Total: <span id="total_general">0</span>
+                </span>
+                <span class="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-emerald-700 font-semibold text-sm">
+                  ✅ Pagado: <span id="total_pagado">0</span>
+                </span>
+                <span class="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-rose-700 font-semibold text-sm">
+                  ⏳ Faltante: <span id="total_faltante">0</span>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- NUEVO: Resumen de rutas sin clasificar -->
+          <div id="resumenRutasSinClasificar" class="hidden mb-6">
+            <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+              <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-2">
+                  <span class="text-amber-600 font-bold text-lg">⚠️</span>
+                  <h4 class="font-semibold text-amber-800">Rutas sin clasificar encontradas</h4>
+                </div>
+                <span id="contadorRutasSinClasificarGlobal" class="px-3 py-1 bg-amber-500 text-white text-sm font-bold rounded-full">0</span>
+              </div>
+              
+              <div id="listaRutasSinClasificarGlobal" class="space-y-2 max-h-60 overflow-y-auto">
+                <!-- Aquí se cargarán las rutas dinámicamente -->
+              </div>
+              
+              <div class="mt-4 pt-4 border-t border-amber-100">
+                <button onclick="irAClasificacionRutas()" 
+                        class="w-full py-3 bg-amber-100 text-amber-700 hover:bg-amber-200 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2">
+                  🧭 Ir a clasificar rutas
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- CONTENEDOR DE TABLA CON ENCABEZADOS FIJOS -->
+          <div id="tableContainer" class="overflow-x-auto rounded-xl border border-slate-200 max-h-[70vh]">
+            <table id="tabla_conductores" class="w-full text-sm">
+              <thead class="bg-blue-600 text-white sticky top-0 z-20">
+                <tr>
+                  <!-- NUEVA COLUMNA PARA ALERTAS VISUALES -->
+                  <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 70px;">
+                    Estado
+                  </th>
+                  <th class="px-4 py-3 text-left sticky top-0 bg-blue-600" style="min-width: 220px;">
+                    Conductor
+                  </th>
+                  <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 120px;">
+                    Tipo
+                  </th>
                   
-                  // Determinar si la columna está visible
-                  $visible = in_array($clasif, $columnas_seleccionadas);
-                  $clase_visibilidad = $visible ? 'columna-visualizada' : 'columna-oculta';
-                  
-                  // Mapear colores Tailwind a colores HEX para CSS inline
-                  $colorMap = [
-                      'bg-emerald-100' => '#d1fae5', 'text-emerald-700' => '#047857', 'border-emerald-200' => '#a7f3d0',
-                      'bg-amber-100' => '#fef3c7', 'text-amber-800' => '#92400e', 'border-amber-200' => '#fcd34d',
-                      'bg-slate-200' => '#e2e8f0', 'text-slate-800' => '#1e293b', 'border-slate-300' => '#cbd5e1',
-                      'bg-fuchsia-100' => '#fae8ff', 'text-fuchsia-700' => '#a21caf', 'border-fuchsia-200' => '#f5d0fe',
-                      'bg-cyan-100' => '#cffafe', 'text-cyan-800' => '#155e75', 'border-cyan-200' => '#a5f3fc',
-                      'bg-indigo-100' => '#e0e7ff', 'text-indigo-700' => '#4338ca', 'border-indigo-200' => '#c7d2fe',
-                      'bg-teal-100' => '#ccfbf1', 'text-teal-700' => '#0f766e', 'border-teal-200' => '#99f6e4',
-                      'bg-rose-100' => '#ffe4e6', 'text-rose-700' => '#be123c', 'border-rose-200' => '#fecdd3',
-                      'bg-violet-100' => '#ede9fe', 'text-violet-700' => '#6d28d9', 'border-violet-200' => '#ddd6fe',
-                      'bg-orange-100' => '#ffedd5', 'text-orange-700' => '#c2410c', 'border-orange-200' => '#fdba74',
-                      'bg-lime-100' => '#ecfccb', 'text-lime-700' => '#4d7c0f', 'border-lime-200' => '#d9f99d',
-                      'bg-sky-100' => '#e0f2fe', 'text-sky-700' => '#0369a1', 'border-sky-200' => '#bae6fd',
-                      'bg-pink-100' => '#fce7f3', 'text-pink-700' => '#be185d', 'border-pink-200' => '#fbcfe8',
-                      'bg-purple-100' => '#f3e8ff', 'text-purple-700' => '#7e22ce', 'border-purple-200' => '#e9d5ff',
-                      'bg-yellow-100' => '#fef9c3', 'text-yellow-700' => '#a16207', 'border-yellow-200' => '#fde68a',
-                      'bg-red-100' => '#fee2e2', 'text-red-700' => '#b91c1c', 'border-red-200' => '#fecaca'
-                  ];
-                  
-                  $bg_color = $colorMap[$estilo['bg']] ?? '#f1f5f9';
-                  $text_color = $colorMap[$estilo['text']] ?? '#1e293b';
-                ?>
-                <th class="px-4 py-3 text-center sticky top-0 <?= $clase_visibilidad ?> columna-tabla" 
-                    data-columna="<?= htmlspecialchars($clasif) ?>"
-                    title="<?= htmlspecialchars($clasif) ?>"
-                    style="min-width: 80px; background-color: <?= $bg_color ?>; color: <?= $text_color ?>; border-bottom: 2px solid <?= $colorMap[$estilo['border']] ?? '#cbd5e1' ?>; z-index: 19;">
-                  <?= htmlspecialchars($abreviatura) ?>
-                </th>
-                <?php endforeach; ?>
-                <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 140px; z-index: 20;">
-                  Total
-                </th>
-                <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 120px; z-index: 20;">
-                  Pagado
-                </th>
-                <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 100px; z-index: 20;">
-                  Faltante
-                </th>
-              </tr>
-            </thead>
-            <tbody id="tabla_conductores_body" class="divide-y divide-slate-100 bg-white">
-            <?php foreach ($datos as $conductor => $info): 
-              $esMensual = (stripos($info['vehiculo'], 'mensual') !== false);
-              $claseVehiculo = $esMensual ? 'vehiculo-mensual' : '';
-              $rutasSinClasificar = $info['rutas_sin_clasificar'] ?? 0;
-              $color_vehiculo = obtenerColorVehiculo($info['vehiculo']);
-            ?>
-              <tr data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>" 
-                  data-conductor="<?= htmlspecialchars($conductor) ?>" 
-                  data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
-                  data-pagado="<?= (int)($info['pagado'] ?? 0) ?>"
-                  data-sin-clasificar="<?= $rutasSinClasificar ?>"
-                  class="hover:bg-blue-50/40 transition-colors <?php echo $rutasSinClasificar > 0 ? 'alerta-sin-clasificar' : ''; ?>">
-                <!-- NUEVA CELDA: Indicador visual de rutas sin clasificar -->
-                <td class="px-4 py-3 text-center" style="min-width: 70px;">
-                  <?php if ($rutasSinClasificar > 0): ?>
-                    <div class="flex flex-col items-center justify-center gap-1" title="<?= $rutasSinClasificar ?> ruta(s) sin clasificar">
-                      <span class="text-amber-600 font-bold animate-pulse">⚠️</span>
-                      <span class="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded-full font-bold">
-                        <?= $rutasSinClasificar ?>
-                      </span>
-                    </div>
-                  <?php else: ?>
-                    <div class="flex flex-col items-center justify-center gap-1" title="Todas las rutas están clasificadas">
-                      <span class="text-emerald-600">✅</span>
-                      <span class="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full font-bold">
-                        0
-                      </span>
-                    </div>
-                  <?php endif; ?>
-                </td>
-                
-                <td class="px-4 py-3" style="min-width: 220px;">
-                  <button type="button"
-                          class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition flex items-center gap-2"
-                          title="Ver viajes">
+                  <?php foreach ($clasificaciones_disponibles as $index => $clasif): 
+                    $estilo = obtenerEstiloClasificacion($clasif);
+                    // Definir abreviaturas
+                    $abreviaturas = [
+                        'completo' => 'COM',
+                        'medio' => 'MED', 
+                        'extra' => 'EXT',
+                        'carrotanque' => 'CTK',
+                        'siapana' => 'SIA',
+                        'riohacha' => 'RIO',
+                        'pru' => 'PRU',
+                        'maco' => 'MAC'
+                    ];
+                    $abreviatura = $abreviaturas[$clasif] ?? strtoupper(substr($clasif, 0, 3));
+                    
+                    // Determinar si la columna está visible
+                    $visible = in_array($clasif, $columnas_seleccionadas);
+                    $clase_visibilidad = $visible ? 'columna-visualizada' : 'columna-oculta';
+                    
+                    // Mapear colores Tailwind a colores HEX para CSS inline
+                    $colorMap = [
+                        'bg-emerald-100' => '#d1fae5', 'text-emerald-700' => '#047857', 'border-emerald-200' => '#a7f3d0',
+                        'bg-amber-100' => '#fef3c7', 'text-amber-800' => '#92400e', 'border-amber-200' => '#fcd34d',
+                        'bg-slate-200' => '#e2e8f0', 'text-slate-800' => '#1e293b', 'border-slate-300' => '#cbd5e1',
+                        'bg-fuchsia-100' => '#fae8ff', 'text-fuchsia-700' => '#a21caf', 'border-fuchsia-200' => '#f5d0fe',
+                        'bg-cyan-100' => '#cffafe', 'text-cyan-800' => '#155e75', 'border-cyan-200' => '#a5f3fc',
+                        'bg-indigo-100' => '#e0e7ff', 'text-indigo-700' => '#4338ca', 'border-indigo-200' => '#c7d2fe',
+                        'bg-teal-100' => '#ccfbf1', 'text-teal-700' => '#0f766e', 'border-teal-200' => '#99f6e4',
+                        'bg-rose-100' => '#ffe4e6', 'text-rose-700' => '#be123c', 'border-rose-200' => '#fecdd3',
+                        'bg-violet-100' => '#ede9fe', 'text-violet-700' => '#6d28d9', 'border-violet-200' => '#ddd6fe',
+                        'bg-orange-100' => '#ffedd5', 'text-orange-700' => '#c2410c', 'border-orange-200' => '#fdba74',
+                        'bg-lime-100' => '#ecfccb', 'text-lime-700' => '#4d7c0f', 'border-lime-200' => '#d9f99d',
+                        'bg-sky-100' => '#e0f2fe', 'text-sky-700' => '#0369a1', 'border-sky-200' => '#bae6fd',
+                        'bg-pink-100' => '#fce7f3', 'text-pink-700' => '#be185d', 'border-pink-200' => '#fbcfe8',
+                        'bg-purple-100' => '#f3e8ff', 'text-purple-700' => '#7e22ce', 'border-purple-200' => '#e9d5ff',
+                        'bg-yellow-100' => '#fef9c3', 'text-yellow-700' => '#a16207', 'border-yellow-200' => '#fde68a',
+                        'bg-red-100' => '#fee2e2', 'text-red-700' => '#b91c1c', 'border-red-200' => '#fecaca'
+                    ];
+                    
+                    $bg_color = $colorMap[$estilo['bg']] ?? '#f1f5f9';
+                    $text_color = $colorMap[$estilo['text']] ?? '#1e293b';
+                  ?>
+                  <th class="px-4 py-3 text-center sticky top-0 <?= $clase_visibilidad ?> columna-tabla" 
+                      data-columna="<?= htmlspecialchars($clasif) ?>"
+                      title="<?= htmlspecialchars($clasif) ?>"
+                      style="min-width: 80px; background-color: <?= $bg_color ?>; color: <?= $text_color ?>; border-bottom: 2px solid <?= $colorMap[$estilo['border']] ?? '#cbd5e1' ?>; z-index: 19;">
+                    <?= htmlspecialchars($abreviatura) ?>
+                  </th>
+                  <?php endforeach; ?>
+                  <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 140px; z-index: 20;">
+                    Total
+                  </th>
+                  <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 120px; z-index: 20;">
+                    Pagado
+                  </th>
+                  <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 100px; z-index: 20;">
+                    Faltante
+                  </th>
+                </tr>
+              </thead>
+              <tbody id="tabla_conductores_body" class="divide-y divide-slate-100 bg-white">
+              <?php foreach ($datos as $conductor => $info): 
+                $esMensual = (stripos($info['vehiculo'], 'mensual') !== false);
+                $claseVehiculo = $esMensual ? 'vehiculo-mensual' : '';
+                $rutasSinClasificar = $info['rutas_sin_clasificar'] ?? 0;
+                $color_vehiculo = obtenerColorVehiculo($info['vehiculo']);
+              ?>
+                <tr data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>" 
+                    data-conductor="<?= htmlspecialchars($conductor) ?>" 
+                    data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
+                    data-pagado="<?= (int)($info['pagado'] ?? 0) ?>"
+                    data-sin-clasificar="<?= $rutasSinClasificar ?>"
+                    class="hover:bg-blue-50/40 transition-colors <?php echo $rutasSinClasificar > 0 ? 'alerta-sin-clasificar' : ''; ?>">
+                  <!-- NUEVA CELDA: Indicador visual de rutas sin clasificar -->
+                  <td class="px-4 py-3 text-center" style="min-width: 70px;">
                     <?php if ($rutasSinClasificar > 0): ?>
-                      <span class="text-amber-600">⚠️</span>
+                      <div class="flex flex-col items-center justify-center gap-1" title="<?= $rutasSinClasificar ?> ruta(s) sin clasificar">
+                        <span class="text-amber-600 font-bold animate-pulse">⚠️</span>
+                        <span class="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded-full font-bold">
+                          <?= $rutasSinClasificar ?>
+                        </span>
+                      </div>
+                    <?php else: ?>
+                      <div class="flex flex-col items-center justify-center gap-1" title="Todas las rutas están clasificadas">
+                        <span class="text-emerald-600">✅</span>
+                        <span class="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full font-bold">
+                          0
+                        </span>
+                      </div>
                     <?php endif; ?>
-                    <?= htmlspecialchars($conductor) ?>
-                  </button>
-                </td>
-                <td class="px-4 py-3 text-center" style="min-width: 120px;">
-                  <span class="inline-block <?= $claseVehiculo ?> px-3 py-1.5 rounded-lg text-xs font-medium border <?= $color_vehiculo['border'] ?> <?= $color_vehiculo['text'] ?> <?= $color_vehiculo['bg'] ?>">
-                    <?= htmlspecialchars($info['vehiculo']) ?>
-                    <?php if ($esMensual): ?>
-                      <span class="ml-1">📅</span>
-                    <?php endif; ?>
-                  </span>
-                </td>
-                
-                <?php foreach ($clasificaciones_disponibles as $clasif): 
-                  $estilo = obtenerEstiloClasificacion($clasif);
-                  $cantidad = (int)($info[$clasif] ?? 0);
+                  </td>
                   
-                  // Determinar si la columna está visible
-                  $visible = in_array($clasif, $columnas_seleccionadas);
-                  $clase_visibilidad = $visible ? 'columna-visualizada' : 'columna-oculta';
+                  <td class="px-4 py-3" style="min-width: 220px;">
+                    <button type="button"
+                            class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition flex items-center gap-2"
+                            title="Ver viajes">
+                      <?php if ($rutasSinClasificar > 0): ?>
+                        <span class="text-amber-600">⚠️</span>
+                      <?php endif; ?>
+                      <?= htmlspecialchars($conductor) ?>
+                    </button>
+                  </td>
+                  <td class="px-4 py-3 text-center" style="min-width: 120px;">
+                    <span class="inline-block <?= $claseVehiculo ?> px-3 py-1.5 rounded-lg text-xs font-medium border <?= $color_vehiculo['border'] ?> <?= $color_vehiculo['text'] ?> <?= $color_vehiculo['bg'] ?>">
+                      <?= htmlspecialchars($info['vehiculo']) ?>
+                      <?php if ($esMensual): ?>
+                        <span class="ml-1">📅</span>
+                      <?php endif; ?>
+                    </span>
+                  </td>
                   
-                  // Mapear colores para fondo de celdas
-                  $colorMap = [
-                      'bg-emerald-100' => '#f0fdf4', 'text-emerald-700' => '#047857',
-                      'bg-amber-100' => '#fffbeb', 'text-amber-800' => '#92400e',
-                      'bg-slate-200' => '#f8fafc', 'text-slate-800' => '#1e293b',
-                      'bg-fuchsia-100' => '#fdf4ff', 'text-fuchsia-700' => '#a21caf',
-                      'bg-cyan-100' => '#ecfeff', 'text-cyan-800' => '#155e75',
-                      'bg-indigo-100' => '#eef2ff', 'text-indigo-700' => '#4338ca',
-                      'bg-teal-100' => '#f0fdfa', 'text-teal-700' => '#0f766e',
-                      'bg-rose-100' => '#fff1f2', 'text-rose-700' => '#be123c',
-                      'bg-violet-100' => '#f5f3ff', 'text-violet-700' => '#6d28d9',
-                      'bg-orange-100' => '#fff7ed', 'text-orange-700' => '#c2410c',
-                      'bg-lime-100' => '#f7fee7', 'text-lime-700' => '#4d7c0f',
-                      'bg-sky-100' => '#f0f9ff', 'text-sky-700' => '#0369a1',
-                      'bg-pink-100' => '#fdf2f8', 'text-pink-700' => '#be185d',
-                      'bg-purple-100' => '#faf5ff', 'text-purple-700' => '#7e22ce',
-                      'bg-yellow-100' => '#fefce8', 'text-yellow-700' => '#a16207',
-                      'bg-red-100' => '#fef2f2', 'text-red-700' => '#b91c1c'
-                  ];
-                  
-                  $bg_cell_color = $colorMap[$estilo['bg']] ?? '#f8fafc';
-                  $text_cell_color = $colorMap[$estilo['text']] ?? '#1e293b';
-                ?>
-                <td class="px-4 py-3 text-center font-medium <?= $clase_visibilidad ?> columna-tabla" 
-                    data-columna="<?= htmlspecialchars($clasif) ?>"
-                    style="min-width: 80px; background-color: <?= $bg_cell_color ?>; color: <?= $text_cell_color ?>; border-left: 1px solid <?= str_replace('bg-', '#', $estilo['bg']) ?>30; border-right: 1px solid <?= str_replace('bg-', '#', $estilo['bg']) ?>30;">
-                  <?= $cantidad ?>
-                </td>
-                <?php endforeach; ?>
+                  <?php foreach ($clasificaciones_disponibles as $clasif): 
+                    $estilo = obtenerEstiloClasificacion($clasif);
+                    $cantidad = (int)($info[$clasif] ?? 0);
+                    
+                    // Determinar si la columna está visible
+                    $visible = in_array($clasif, $columnas_seleccionadas);
+                    $clase_visibilidad = $visible ? 'columna-visualizada' : 'columna-oculta';
+                    
+                    // Mapear colores para fondo de celdas
+                    $colorMap = [
+                        'bg-emerald-100' => '#f0fdf4', 'text-emerald-700' => '#047857',
+                        'bg-amber-100' => '#fffbeb', 'text-amber-800' => '#92400e',
+                        'bg-slate-200' => '#f8fafc', 'text-slate-800' => '#1e293b',
+                        'bg-fuchsia-100' => '#fdf4ff', 'text-fuchsia-700' => '#a21caf',
+                        'bg-cyan-100' => '#ecfeff', 'text-cyan-800' => '#155e75',
+                        'bg-indigo-100' => '#eef2ff', 'text-indigo-700' => '#4338ca',
+                        'bg-teal-100' => '#f0fdfa', 'text-teal-700' => '#0f766e',
+                        'bg-rose-100' => '#fff1f2', 'text-rose-700' => '#be123c',
+                        'bg-violet-100' => '#f5f3ff', 'text-violet-700' => '#6d28d9',
+                        'bg-orange-100' => '#fff7ed', 'text-orange-700' => '#c2410c',
+                        'bg-lime-100' => '#f7fee7', 'text-lime-700' => '#4d7c0f',
+                        'bg-sky-100' => '#f0f9ff', 'text-sky-700' => '#0369a1',
+                        'bg-pink-100' => '#fdf2f8', 'text-pink-700' => '#be185d',
+                        'bg-purple-100' => '#faf5ff', 'text-purple-700' => '#7e22ce',
+                        'bg-yellow-100' => '#fefce8', 'text-yellow-700' => '#a16207',
+                        'bg-red-100' => '#fef2f2', 'text-red-700' => '#b91c1c'
+                    ];
+                    
+                    $bg_cell_color = $colorMap[$estilo['bg']] ?? '#f8fafc';
+                    $text_cell_color = $colorMap[$estilo['text']] ?? '#1e293b';
+                  ?>
+                  <td class="px-4 py-3 text-center font-medium <?= $clase_visibilidad ?> columna-tabla" 
+                      data-columna="<?= htmlspecialchars($clasif) ?>"
+                      style="min-width: 80px; background-color: <?= $bg_cell_color ?>; color: <?= $text_cell_color ?>; border-left: 1px solid <?= str_replace('bg-', '#', $estilo['bg']) ?>30; border-right: 1px solid <?= str_replace('bg-', '#', $estilo['bg']) ?>30;">
+                    <?= $cantidad ?>
+                  </td>
+                  <?php endforeach; ?>
 
-                <!-- Total -->
-                <td class="px-4 py-3" style="min-width: 140px;">
-                  <input type="text"
-                         class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none whitespace-nowrap tabular-nums"
-                         readonly dir="ltr">
-                </td>
+                  <!-- Total -->
+                  <td class="px-4 py-3" style="min-width: 140px;">
+                    <input type="text"
+                           class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none whitespace-nowrap tabular-nums"
+                           readonly dir="ltr">
+                  </td>
 
-                <!-- Pagado -->
-                <td class="px-4 py-3" style="min-width: 120px;">
-                  <input type="text"
-                         class="pagado w-full rounded-xl border border-emerald-200 px-3 py-2 text-right bg-emerald-50 outline-none whitespace-nowrap tabular-nums"
-                         readonly dir="ltr"
-                         value="<?= number_format((int)($info['pagado'] ?? 0), 0, ',', '.') ?>">
-                </td>
+                  <!-- Pagado -->
+                  <td class="px-4 py-3" style="min-width: 120px;">
+                    <input type="text"
+                           class="pagado w-full rounded-xl border border-emerald-200 px-3 py-2 text-right bg-emerald-50 outline-none whitespace-nowrap tabular-nums"
+                           readonly dir="ltr"
+                           value="<?= number_format((int)($info['pagado'] ?? 0), 0, ',', '.') ?>">
+                  </td>
 
-                <!-- Faltante -->
-                <td class="px-4 py-3" style="min-width: 100px;">
-                  <input type="text"
-                         class="faltante w-full rounded-xl border border-rose-200 px-3 py-2 text-right bg-rose-50 outline-none whitespace-nowrap tabular-nums"
-                         readonly dir="ltr"
-                         value="0">
-                </td>
+                  <!-- Faltante -->
+                  <td class="px-4 py-3" style="min-width: 100px;">
+                    <input type="text"
+                           class="faltante w-full rounded-xl border border-rose-200 px-3 py-2 text-right bg-rose-50 outline-none whitespace-nowrap tabular-nums"
+                           readonly dir="ltr"
+                           value="0">
+                  </td>
 
-              </tr>
-            <?php endforeach; ?>
-            </tbody>
-          </table>
+                </tr>
+              <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
   </main>
 
-  <!-- ===== Modal VIAJES ===== -->
+  <!-- ===== Modal VIAJES ORIGINAL ===== -->
   <div id="viajesModal" class="viajes-backdrop">
     <div class="viajes-card">
       <div class="viajes-header">
@@ -1214,7 +1816,168 @@ if ($empresaFiltro !== "") {
   </div>
 
   <script>
-    // ===== SISTEMA DE SELECCIÓN DE COLUMNAS =====
+    // ===== SISTEMA DE BOLITAS Y PANELES ORIGINAL =====
+    let activePanel = null;
+    const panels = ['tarifas', 'crear-clasif', 'clasif-rutas'];
+    
+    // Inicializar sistema de bolitas ORIGINAL
+    document.addEventListener('DOMContentLoaded', function() {
+      // Configurar eventos para cada bolita ORIGINAL
+      panels.forEach(panelId => {
+        const ball = document.getElementById(`ball-${panelId}`);
+        const panel = document.getElementById(`panel-${panelId}`);
+        const closeBtn = panel.querySelector('.side-panel-close');
+        const overlay = document.getElementById('sidePanelOverlay');
+        const tableWrapper = document.getElementById('tableContainerWrapper');
+        
+        // Abrir panel al hacer clic en la bolita ORIGINAL
+        ball.addEventListener('click', () => togglePanel(panelId));
+        
+        // Cerrar panel con el botón X ORIGINAL
+        closeBtn.addEventListener('click', () => togglePanel(panelId));
+        
+        // Cerrar panel al hacer clic en el overlay ORIGINAL
+        overlay.addEventListener('click', () => {
+          if (activePanel === panelId) {
+            togglePanel(panelId);
+          }
+        });
+      });
+      
+      // Cerrar panel con tecla ESC ORIGINAL
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && activePanel) {
+          togglePanel(activePanel);
+        }
+      });
+      
+      // Inicializar acordeón de tarifas (todos colapsados inicialmente) ORIGINAL
+      colapsarTodosTarifas();
+      
+      // Inicializar colores de las filas de clasificación ORIGINAL
+      inicializarColoresClasificacion();
+      
+      // Inicializar sistema de selección de columnas NUEVO
+      inicializarSeleccionColumnas();
+    });
+    
+    // Función para abrir/cerrar paneles ORIGINAL
+    function togglePanel(panelId) {
+      const ball = document.getElementById(`ball-${panelId}`);
+      const panel = document.getElementById(`panel-${panelId}`);
+      const overlay = document.getElementById('sidePanelOverlay');
+      const tableWrapper = document.getElementById('tableContainerWrapper');
+      
+      if (activePanel === panelId) {
+        // Cerrar panel actual
+        panel.classList.remove('active');
+        ball.classList.remove('ball-active');
+        overlay.classList.remove('active');
+        tableWrapper.classList.remove('with-panel');
+        activePanel = null;
+      } else {
+        // Cerrar panel anterior si hay uno abierto
+        if (activePanel) {
+          document.getElementById(`panel-${activePanel}`).classList.remove('active');
+          document.getElementById(`ball-${activePanel}`).classList.remove('ball-active');
+        }
+        
+        // Abrir nuevo panel
+        panel.classList.add('active');
+        ball.classList.add('ball-active');
+        overlay.classList.add('active');
+        tableWrapper.classList.add('with-panel');
+        activePanel = panelId;
+        
+        // Asegurar que el panel esté visible
+        setTimeout(() => {
+          panel.scrollTop = 0;
+        }, 100);
+      }
+    }
+    
+    // ===== FUNCIONES PARA EL ACORDEÓN DE TARIFAS ORIGINAL =====
+    
+    function toggleAcordeon(vehiculoId) {
+      const content = document.getElementById('content-' + vehiculoId);
+      const icon = document.getElementById('icon-' + vehiculoId);
+      
+      if (content.classList.contains('expanded')) {
+        // Colapsar
+        content.classList.remove('expanded');
+        icon.classList.remove('expanded');
+        content.style.maxHeight = '0';
+      } else {
+        // Expandir
+        content.classList.add('expanded');
+        icon.classList.add('expanded');
+        content.style.maxHeight = content.scrollHeight + 'px';
+      }
+    }
+    
+    function expandirTodosTarifas() {
+      document.querySelectorAll('.acordeon-content').forEach(content => {
+        if (!content.classList.contains('expanded')) {
+          content.classList.add('expanded');
+          content.style.maxHeight = content.scrollHeight + 'px';
+          
+          const vehiculoId = content.id.replace('content-', '');
+          const icon = document.getElementById('icon-' + vehiculoId);
+          if (icon) icon.classList.add('expanded');
+        }
+      });
+    }
+    
+    function colapsarTodosTarifas() {
+      document.querySelectorAll('.acordeon-content').forEach(content => {
+        if (content.classList.contains('expanded')) {
+          content.classList.remove('expanded');
+          content.style.maxHeight = '0';
+          
+          const vehiculoId = content.id.replace('content-', '');
+          const icon = document.getElementById('icon-' + vehiculoId);
+          if (icon) icon.classList.remove('expanded');
+        }
+      });
+    }
+    
+    // ===== FUNCIONES PARA COLORES DE CLASIFICACIÓN DE RUTAS ORIGINAL =====
+    
+    function inicializarColoresClasificacion() {
+      const filas = document.querySelectorAll('.fila-ruta');
+      filas.forEach(fila => {
+        const select = fila.querySelector('.select-clasif-ruta');
+        actualizarColorFila(select);
+      });
+    }
+    
+    function actualizarColorFila(selectElement) {
+      const fila = selectElement.closest('tr');
+      const clasificacion = selectElement.value.toLowerCase();
+      const ruta = fila.dataset.ruta;
+      const vehiculo = fila.dataset.vehiculo;
+      
+      // Limpiar clases de color anteriores
+      fila.classList.forEach(className => {
+        if (className.startsWith('fila-clasificada-')) {
+          fila.classList.remove(className);
+        }
+      });
+      
+      // Actualizar dataset
+      fila.dataset.clasificacion = clasificacion;
+      
+      // Aplicar nueva clase de color si hay clasificación
+      if (clasificacion) {
+        fila.classList.add('fila-clasificada-' + clasificacion);
+      }
+      
+      // Guardar la clasificación en la base de datos
+      guardarClasificacionRuta(ruta, vehiculo, clasificacion);
+    }
+    
+    // ===== SISTEMA DE SELECCIÓN DE COLUMNAS NUEVO =====
+    
     let columnasSeleccionadas = <?= json_encode($columnas_seleccionadas) ?>;
     
     function inicializarSeleccionColumnas() {
@@ -1293,6 +2056,7 @@ if ($empresaFiltro !== "") {
     function actualizarContadorColumnas() {
       const contadorSeleccionadas = document.getElementById('contador-seleccionadas');
       const contadorVisibles = document.getElementById('contador-columnas-visibles');
+      const contadorHeader = document.getElementById('contador-columnas-visibles-header');
       
       if (contadorSeleccionadas) {
         contadorSeleccionadas.textContent = columnasSeleccionadas.length;
@@ -1300,6 +2064,10 @@ if ($empresaFiltro !== "") {
       
       if (contadorVisibles) {
         contadorVisibles.textContent = columnasSeleccionadas.length;
+      }
+      
+      if (contadorHeader) {
+        contadorHeader.textContent = columnasSeleccionadas.length;
       }
     }
     
@@ -1370,7 +2138,7 @@ if ($empresaFiltro !== "") {
       }, 3000);
     }
     
-    // ===== FUNCIONALIDAD PARA RUTAS SIN CLASIFICAR =====
+    // ===== FUNCIONALIDAD PARA RUTAS SIN CLASIFICAR ORIGINAL =====
     
     function mostrarResumenRutasSinClasificar() {
       const resumenDiv = document.getElementById('resumenRutasSinClasificar');
@@ -1431,13 +2199,13 @@ if ($empresaFiltro !== "") {
     }
     
     function irAClasificacionRutas() {
-      // Para ir a clasificar rutas necesitarías el panel lateral original
-      // Por ahora solo cerramos el resumen
+      // Abrir el panel de clasificación de rutas
+      togglePanel('clasif-rutas');
+      
       document.getElementById('resumenRutasSinClasificar').classList.add('hidden');
-      alert('Para clasificar rutas, usa la funcionalidad original del sistema.');
     }
     
-    // ===== BUSCADOR DE CONDUCTORES =====
+    // ===== BUSCADOR DE CONDUCTORES ORIGINAL =====
     const buscadorConductores = document.getElementById('buscadorConductores');
     const clearBuscar = document.getElementById('clearBuscar');
     const contadorConductores = document.getElementById('contador-conductores');
@@ -1485,14 +2253,25 @@ if ($empresaFiltro !== "") {
       buscadorConductores.focus();
     });
 
-    // ===== FUNCIONES DE CÁLCULO =====
+    // ===== FUNCIONES DE CÁLCULO ORIGINAL (MODIFICADA PARA COLUMNAS SELECCIONADAS) =====
     function getTarifas(){
       const tarifas = {};
-      
-      // Necesitarías obtener las tarifas de algún lugar
-      // Por ahora asumiremos que están en inputs ocultos o en una variable global
-      // Esta función debería adaptarse a tu estructura real
-      return {};
+      document.querySelectorAll('.tarjeta-tarifa-acordeon').forEach(card=>{
+        const veh = card.dataset.vehiculo;
+        tarifas[veh] = {};
+        
+        // Obtener todas las columnas dinámicas (solo las seleccionadas)
+        card.querySelectorAll('input[data-campo]').forEach(input=>{
+          const campo = input.dataset.campo.toLowerCase();
+          
+          // Solo incluir si la columna está seleccionada
+          if (columnasSeleccionadas.includes(campo)) {
+            const valor = parseFloat(input.value) || 0;
+            tarifas[veh][campo] = valor;
+          }
+        });
+      });
+      return tarifas;
     }
 
     function formatNumber(num){ 
@@ -1500,9 +2279,7 @@ if ($empresaFiltro !== "") {
     }
 
     function recalcular(){
-      // Esta función necesita adaptarse para usar las columnas seleccionadas
-      // Por ahora solo actualiza los totales con las columnas visibles
-      
+      const tarifas = getTarifas();
       const filas = document.querySelectorAll('#tabla_conductores_body tr');
       
       let totalViajes = 0;
@@ -1514,17 +2291,18 @@ if ($empresaFiltro !== "") {
 
         const veh = fila.dataset.vehiculo;
         const celdas = fila.querySelectorAll('td.columna-tabla.columna-visualizada');
-        
-        // Aquí deberías obtener las tarifas para este vehículo
-        // Por ahora solo contamos las celdas visibles
+        const tarifasVeh = tarifas[veh] || {};
+
         let totalFila = 0;
         
+        // Calcular por cada columna visible
         celdas.forEach(celda => {
           if (!celda.classList.contains('columna-tabla')) return;
           
+          const columna = celda.dataset.columna;
           const cantidad = parseInt(celda.textContent || 0);
-          // Aquí deberías multiplicar por la tarifa correspondiente
-          totalFila += cantidad * 1000; // Ejemplo: 1000 por viaje
+          const tarifa = tarifasVeh[columna] || 0;
+          totalFila += cantidad * tarifa;
         });
 
         const pagado = parseInt(fila.dataset.pagado || '0') || 0;
@@ -1548,7 +2326,142 @@ if ($empresaFiltro !== "") {
       document.getElementById('total_faltante').innerText = formatNumber(totalFaltante);
     }
 
-    // ===== MODAL DE VIAJES =====
+    // ===== CREAR NUEVA CLASIFICACIÓN ORIGINAL =====
+    function crearYAsignarClasificacion() {
+      const nombreClasif = document.getElementById('txt_nueva_clasificacion').value.trim();
+      const patronRuta = document.getElementById('txt_patron_ruta').value.trim().toLowerCase();
+      
+      if (!nombreClasif) {
+        alert('Escribe el nombre de la nueva clasificación.');
+        return;
+      }
+
+      // 1. Crear nueva columna en tarifas (normalizada a minúsculas)
+      fetch('<?= basename(__FILE__) ?>', {
+        method:'POST',
+        headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:new URLSearchParams({
+          crear_clasificacion:1,
+          nombre_clasificacion:nombreClasif
+        })
+      })
+      .then(r=>r.text())
+      .then(respuesta=>{
+        if (respuesta.trim() === 'ok') {
+          
+          // 2. Si hay patrón, asignar a rutas
+          if (patronRuta) {
+            const filas = document.querySelectorAll('.fila-ruta');
+            let contador = 0;
+            
+            filas.forEach(row => {
+              const ruta = row.dataset.ruta.toLowerCase();
+              const vehiculo = row.dataset.vehiculo;
+              if (ruta.includes(patronRuta)) {
+                const sel = row.querySelector('.select-clasif-ruta');
+                sel.value = nombreClasif.toLowerCase();
+                
+                // Actualizar color de la fila
+                actualizarColorFila(sel);
+                contador++;
+              }
+            });
+            
+            if (contador > 0) {
+              alert('✅ Se creó "' + nombreClasif + '" y se aplicó a ' + contador + ' rutas. Recarga la página para ver los cambios.');
+            } else {
+              alert('✅ Se creó "' + nombreClasif + '". No se encontraron rutas con "' + patronRuta + '". Recarga la página.');
+            }
+          } else {
+            alert('✅ Se creó la clasificación "' + nombreClasif + '". Recarga la página para verla en los selectores.');
+          }
+          
+          // Limpiar campos
+          document.getElementById('txt_nueva_clasificacion').value = '';
+          document.getElementById('txt_patron_ruta').value = '';
+          
+        } else {
+          alert('❌ Error: ' + respuesta);
+        }
+      })
+      .catch(error=>{
+        alert('❌ Error de conexión: ' + error);
+      });
+    }
+
+    // ===== GUARDAR TARIFAS DINÁMICAMENTE ORIGINAL =====
+    function configurarEventosTarifas() {
+        // Usar delegación de eventos para manejar inputs dinámicos
+        document.addEventListener('change', function(e) {
+            if (e.target.matches('.tarifa-input')) {
+                const input = e.target;
+                const card = input.closest('.tarjeta-tarifa-acordeon');
+                const tipoVehiculo = card.dataset.vehiculo;
+                const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
+                const campo = input.dataset.campo.toLowerCase(); // NORMALIZAR A MINÚSCULAS
+                const valor = parseFloat(input.value) || 0;
+                
+                console.log('Guardando tarifa:', { empresa, tipoVehiculo, campo, valor });
+                
+                // Guardar via AJAX
+                fetch('<?= basename(__FILE__) ?>', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        guardar_tarifa: 1,
+                        empresa: empresa,
+                        tipo_vehiculo: tipoVehiculo,
+                        campo: campo,
+                        valor: valor
+                    })
+                })
+                .then(r => r.text())
+                .then(t => {
+                    const respuesta = t.trim();
+                    if (respuesta === 'ok') {
+                        console.log('Tarifa guardada exitosamente');
+                        // Guardar el valor como el nuevo default
+                        input.defaultValue = input.value;
+                    } else {
+                        console.error('Error guardando tarifa:', respuesta);
+                        // Restaurar el valor anterior
+                        input.value = input.defaultValue;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error de conexión:', error);
+                    // Restaurar el valor anterior
+                    input.value = input.defaultValue;
+                });
+            }
+        });
+        
+        // Configurar valor por defecto para todos los inputs
+        document.querySelectorAll('.tarifa-input').forEach(input => {
+            input.defaultValue = input.value;
+        });
+    }
+
+    // ===== CLASIFICACIONES INDIVIDUALES ORIGINAL =====
+    function guardarClasificacionRuta(ruta, vehiculo, clasificacion) {
+      if (!clasificacion) return;
+      fetch('<?= basename(__FILE__) ?>', {
+        method:'POST',
+        headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:new URLSearchParams({
+          guardar_clasificacion:1,
+          ruta:ruta,
+          tipo_vehiculo:vehiculo,
+          clasificacion:clasificacion.toLowerCase() // NORMALIZAR A MINÚSCULAS
+        })
+      })
+      .then(r=>r.text())
+      .then(t=>{
+        if (t.trim() !== 'ok') console.error('Error guardando clasificación:', t);
+      });
+    }
+
+    // ===== MODAL DE VIAJES ORIGINAL =====
     const RANGO_DESDE = <?= json_encode($desde) ?>;
     const RANGO_HASTA = <?= json_encode($hasta) ?>;
     const RANGO_EMP   = <?= json_encode($empresaFiltro) ?>;
@@ -1668,17 +2581,24 @@ if ($empresaFiltro !== "") {
         loadViajes(nuevo);
     });
 
-    // ===== INICIALIZACIÓN =====
+    // ===== INICIALIZACIÓN COMPLETA =====
     document.addEventListener('DOMContentLoaded', function() {
-      // Inicializar selección de columnas
-      inicializarSeleccionColumnas();
+      // Configurar eventos de tarifas ORIGINAL
+      configurarEventosTarifas();
       
-      // Click en conductor → abre modal de viajes
+      // Click en conductor → abre modal de viajes ORIGINAL
       document.querySelectorAll('.conductor-link').forEach(btn=>{
         btn.addEventListener('click', (e)=>{
           e.preventDefault();
           const nombre = btn.textContent.trim().replace('⚠️', '').trim();
           abrirModalViajes(nombre);
+        });
+      });
+
+      // Cambio clasificación ruta individual ORIGINAL
+      document.querySelectorAll('.select-clasif-ruta').forEach(sel=>{
+        sel.addEventListener('change', function() {
+          actualizarColorFila(this);
         });
       });
 
