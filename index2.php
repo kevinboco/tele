@@ -58,7 +58,6 @@ if (isset($_POST['restablecer_columnas'])) {
 }
 
 // ================== MANEJO DE SELECCIÓN ==================
-// ... (TODO EL RESTO DEL CÓDIGO DE MANEJO DE SELECCIÓN SE MANTIENE IGUAL)
 // Agregar/eliminar IDs de la selección (checkbox individual)
 if (isset($_POST['toggle_seleccion'])) {
     $id_toggle = (int)$_POST['toggle_seleccion'];
@@ -177,7 +176,7 @@ function normalizarPagoParcial($conexion, $valorRaw) {
 
 // ================== PROCESAR ACCIONES ==================
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    // ... (TODO EL RESTO DEL CÓDIGO DE PROCESAMIENTO POST SE MANTIENE IGUAL)
+
     // CREAR NUEVO VIAJE
     if (isset($_POST['crear'])) {
         $nombre = $conexion->real_escape_string($_POST['nombre'] ?? '');
@@ -524,3 +523,1006 @@ $listas    = obtenerListas($conexion);
 $error_msg = $_SESSION['error'] ?? null;
 if (isset($_SESSION['error'])) unset($_SESSION['error']);
 ?>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Gestión de Viajes</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/css/select2.min.css" rel="stylesheet">
+    <style>
+        .table-hover tbody tr:hover { background-color: rgba(0,0,0,.025); }
+        .img-thumb { max-width: 70px; height: auto; }
+        .required:after { content: " *"; color: red; }
+        .seleccionado { background-color: rgba(25, 135, 84, 0.1) !important; }
+        .checkbox-seleccion { cursor: pointer; }
+        .sticky-actions { position: sticky; top: 0; z-index: 1000; background: white; padding: 15px; margin: -15px -15px 15px -15px; border-bottom: 1px solid #dee2e6; box-shadow: 0 2px 4px rgba(0,0,0,.1); }
+        .table-container { max-height: 600px; overflow-y: auto; }
+        .form-control-sm { padding: 0.25rem 0.5rem; font-size: 0.875rem; }
+        .select2-container--default .select2-selection--multiple { min-height: 38px; }
+        .select2-container .select2-selection--single { height: 38px; }
+        .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 38px; }
+        .select2-container--default .select2-selection--single .select2-selection__arrow { height: 36px; }
+        .columnas-config { position: relative; }
+        .columnas-dropdown { position: absolute; top: 100%; right: 0; z-index: 1000; background: white; border: 1px solid #dee2e6; border-radius: 0.375rem; box-shadow: 0 0.5rem 1rem rgba(0,0,0,.15); min-width: 300px; padding: 1rem; display: none; }
+        .columnas-dropdown.show { display: block; }
+        .columna-checkbox { display: block; margin-bottom: 0.5rem; }
+        .columna-checkbox input { margin-right: 0.5rem; }
+        .badge-columna { background-color: #6c757d; cursor: pointer; }
+        .badge-columna:hover { background-color: #5a6268; }
+    </style>
+</head>
+<body class="bg-light">
+
+<?php
+// AHORA sí incluimos el menú lateral / nav personalizado
+include("nav.php");
+?>
+
+<!-- NAVEGACIÓN SUPERIOR -->
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top">
+    <div class="container">
+        <a class="navbar-brand" href="?">🚗 Sistema de Viajes</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav ms-auto">
+                <li class="nav-item">
+                    <a class="nav-link <?= $accion == 'listar' ? 'active' : '' ?>" href="?">📋 Listado</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link <?= $accion == 'crear' ? 'active' : '' ?>" href="?accion=crear">➕ Nuevo Viaje</a>
+                </li>
+            </ul>
+        </div>
+    </div>
+</nav>
+
+<div class="container py-4">
+    <!-- MENSAJES -->
+    <?php if ($mensaje): ?>
+        <div class="alert alert-success alert-dismissible fade show">
+            <?php
+            switch($mensaje) {
+                case 'creado': echo "✅ Viaje creado exitosamente."; break;
+                case 'editado': echo "✏ Viaje editado exitosamente."; break;
+                case 'editado_con_cedula': 
+                    $afectados = $_GET['afectados'] ?? 0;
+                    $nombre = $_GET['nombre'] ?? '';
+                    echo "✏ Viaje editado exitosamente. <br>✅ La cédula se actualizó en <b>$afectados</b> registros adicionales de <b>" . htmlspecialchars($nombre) . "</b>."; 
+                    break;
+                case 'eliminado': echo "🗑 Viaje eliminado exitosamente."; break;
+                case 'multi_eliminado': 
+                    $count = $_GET['count'] ?? 0;
+                    echo "🗑 $count viaje(s) eliminado(s) exitosamente."; 
+                    break;
+                case 'multi_editado': 
+                    $count = $_GET['count'] ?? 0;
+                    echo "✏ $count viaje(s) editado(s) exitosamente."; 
+                    break;
+                default: echo htmlspecialchars($mensaje);
+            }
+            ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    <?php endif; ?>
+    
+    <?php if ($error): ?>
+        <div class="alert alert-danger alert-dismissible fade show">
+            <?php
+            switch($error) {
+                case 'no_ids': echo "⚠ No se seleccionaron registros."; break;
+                case 'eliminar': echo "❌ Error al eliminar el registro."; break;
+                default: echo htmlspecialchars($error);
+            }
+            ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    <?php endif; ?>
+    
+    <?php if ($error_msg): ?>
+        <div class="alert alert-danger alert-dismissible fade show">
+            <?= htmlspecialchars($error_msg) ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    <?php endif; ?>
+
+    <!-- ================== FORMULARIO CREAR/EDITAR ================== -->
+    <?php if ($accion == 'crear' || ($accion == 'editar' && $viaje)): ?>
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card shadow">
+                    <div class="card-header <?= $accion == 'crear' ? 'bg-success' : 'bg-warning' ?> text-white">
+                        <h3 class="mb-0">
+                            <?= $accion == 'crear' ? '➕ Nuevo Viaje' : '✏ Editar Viaje' ?>
+                        </h3>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" enctype="multipart/form-data">
+                            <?php if ($accion == 'editar'): ?>
+                                <input type="hidden" name="id" value="<?= (int)$id ?>">
+                                <input type="hidden" name="editar" value="1">
+                            <?php else: ?>
+                                <input type="hidden" name="crear" value="1">
+                            <?php endif; ?>
+                            
+                            <!-- Nombre -->
+                            <div class="mb-3">
+                                <label class="form-label required">Nombre</label>
+                                <input type="text" name="nombre" class="form-control" 
+                                       value="<?= htmlspecialchars($viaje['nombre'] ?? '') ?>" required>
+                            </div>
+                            
+                            <!-- Cédula (opcional) -->
+                            <div class="mb-3">
+                                <label class="form-label">Cédula</label>
+                                <input type="text" name="cedula" class="form-control" 
+                                       value="<?= htmlspecialchars($viaje['cedula'] ?? '') ?>"
+                                       placeholder="Opcional - puede estar vacío">
+                                <small class="text-muted">
+                                    <?php if ($accion == 'editar'): ?>
+                                        <strong>NOTA:</strong> Si solo modifica la cédula y los demás campos quedan igual, 
+                                        esta cédula se asignará automáticamente a <strong>TODOS</strong> los registros con el mismo nombre.
+                                    <?php endif; ?>
+                                </small>
+                            </div>
+
+                            <!-- NUEVO: Pago parcial -->
+                            <div class="mb-3">
+                                <label class="form-label">Pago parcial</label>
+                                <input type="number" min="0" step="1" name="pago_parcial" class="form-control"
+                                       value="<?= htmlspecialchars($viaje['pago_parcial'] ?? '') ?>"
+                                       placeholder="Opcional - dejar vacío si no aplica">
+                                <small class="text-muted">Monto entregado como anticipo / pago parcial (si aplica).</small>
+                            </div>
+                            
+                            <!-- Fecha -->
+                            <div class="mb-3">
+                                <label class="form-label required">Fecha</label>
+                                <input type="date" name="fecha" class="form-control" 
+                                       value="<?= htmlspecialchars($viaje['fecha'] ?? '') ?>" required>
+                            </div>
+                            
+                            <!-- Ruta -->
+                            <div class="mb-3">
+                                <label class="form-label required">Ruta</label>
+                                <select name="ruta" class="form-select select2-single" required>
+                                    <option value="">-- Seleccionar --</option>
+                                    <?php foreach($listas['rutas'] as $rutaItem): ?>
+                                        <option value="<?= htmlspecialchars($rutaItem) ?>"
+                                            <?= (isset($viaje['ruta']) && $rutaItem == $viaje['ruta']) ? 'selected' : '' ?>>
+                                            <?= htmlspecialchars($rutaItem) ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            
+                            <!-- Tipo de Vehículo -->
+                            <div class="mb-3">
+                                <label class="form-label required">Tipo de Vehículo</label>
+                                <select name="tipo_vehiculo" class="form-select select2-single" required>
+                                    <option value="">-- Seleccionar --</option>
+                                    <?php foreach($listas['vehiculos'] as $vehItem): ?>
+                                        <option value="<?= htmlspecialchars($vehItem) ?>"
+                                            <?= (isset($viaje['tipo_vehiculo']) && $vehItem == $viaje['tipo_vehiculo']) ? 'selected' : '' ?>>
+                                            <?= htmlspecialchars($vehItem) ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            
+                            <!-- Empresa -->
+                            <div class="mb-3">
+                                <label class="form-label">Empresa</label>
+                                <select name="empresa" class="form-select select2-single">
+                                    <option value="">-- Ninguna --</option>
+                                    <?php foreach($listas['empresas'] as $empItem): ?>
+                                        <option value="<?= htmlspecialchars($empItem) ?>"
+                                            <?= (isset($viaje['empresa']) && $empItem == $viaje['empresa']) ? 'selected' : '' ?>>
+                                            <?= htmlspecialchars($empItem) ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            
+                            <!-- Imagen actual (solo en edición) -->
+                            <?php if ($accion == 'editar' && isset($viaje['imagen']) && !empty($viaje['imagen'])): ?>
+                                <div class="mb-3">
+                                    <label class="form-label">Imagen actual</label>
+                                    <div class="mb-2">
+                                        <img src="uploads/<?= htmlspecialchars($viaje['imagen']) ?>" 
+                                             class="img-thumbnail img-thumb">
+                                        <div class="form-check mt-2">
+                                            <input class="form-check-input" type="checkbox" 
+                                                   name="eliminar_imagen" value="1" id="eliminarImg">
+                                            <label class="form-check-label" for="eliminarImg">
+                                                Eliminar imagen actual
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
+                            
+                            <!-- Nueva imagen -->
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    <?= $accion == 'crear' ? 'Imagen (opcional)' : 'Nueva imagen (opcional)' ?>
+                                </label>
+                                <input type="file" name="imagen" class="form-control" accept="image/*">
+                                <small class="text-muted">
+                                    <?= $accion == 'editar' ? 'Dejar en blanco para mantener la imagen actual' : '' ?>
+                                </small>
+                            </div>
+                            
+                            <!-- Botones -->
+                            <div class="d-flex justify-content-between">
+                                <a href="?" class="btn btn-secondary">Cancelar</a>
+                                <button type="submit" class="btn <?= $accion == 'crear' ? 'btn-success' : 'btn-warning' ?>">
+                                    <?= $accion == 'crear' ? 'Crear Viaje' : 'Guardar Cambios' ?>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    <!-- ================== EDITAR MÚLTIPLES VIAJES (COMPLETO) ================== -->
+    <?php elseif ($accion == 'editar_multiple' && !empty($_SESSION['seleccionados'])): ?>
+        <?php $total_seleccionados = count($_SESSION['seleccionados']); ?>
+        <div class="row">
+            <div class="col-12">
+                <div class="card shadow">
+                    <div class="card-header bg-warning text-dark">
+                        <h3 class="mb-0">✏ Editar Múltiples Viajes (<?= (int)$total_seleccionados ?> seleccionados)</h3>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" id="formEditarMultiple">
+                            <input type="hidden" name="editar_multiple_completo" value="1">
+                            
+                            <div class="alert alert-info">
+                                <strong>Instrucciones:</strong> 
+                                <ul class="mb-0">
+                                    <li>Puedes editar campos individuales para cada registro</li>
+                                    <li>También puedes usar los campos "Aplicar a todos" para cambiar un campo en todos los registros</li>
+                                    <li>Los campos con <span class="required"></span> son obligatorios</li>
+                                    <li>Dejar un campo en blanco mantiene su valor actual (y en pago parcial no lo pisa)</li>
+                                </ul>
+                            </div>
+                            
+                            <!-- CAMPOS GENERALES (APLICAR A TODOS) -->
+                            <div class="card mb-4">
+                                <div class="card-header bg-light">
+                                    <h5 class="mb-0">🔧 Campos generales (aplicar a todos)</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row g-3">
+                                        <div class="col-md-4">
+                                            <label class="form-label">Nombre (general)</label>
+                                            <input type="text" name="nombre_general" class="form-control form-control-sm" 
+                                                   placeholder="Dejar vacío para no cambiar">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Cédula (general)</label>
+                                            <input type="text" name="cedula_general" class="form-control form-control-sm" 
+                                                   placeholder="Dejar vacío para no cambiar">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Fecha (general)</label>
+                                            <input type="date" name="fecha_general" class="form-control form-control-sm">
+                                        </div>
+
+                                        <!-- NUEVO: Pago parcial general -->
+                                        <div class="col-md-4">
+                                            <label class="form-label">Pago parcial (general)</label>
+                                            <input type="number" min="0" step="1" name="pago_parcial_general"
+                                                   class="form-control form-control-sm"
+                                                   placeholder="Dejar vacío para no cambiar">
+                                        </div>
+
+                                        <div class="col-md-4">
+                                            <label class="form-label">Ruta (general)</label>
+                                            <select name="ruta_general" class="form-select form-select-sm select2-single">
+                                                <option value="">-- No cambiar --</option>
+                                                <?php foreach($listas['rutas'] as $rutaItem): ?>
+                                                    <option value="<?= htmlspecialchars($rutaItem) ?>">
+                                                        <?= htmlspecialchars($rutaItem) ?>
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Vehículo (general)</label>
+                                            <select name="tipo_vehiculo_general" class="form-select form-select-sm select2-single">
+                                                <option value="">-- No cambiar --</option>
+                                                <?php foreach($listas['vehiculos'] as $vehItem): ?>
+                                                    <option value="<?= htmlspecialchars($vehItem) ?>">
+                                                        <?= htmlspecialchars($vehItem) ?>
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Empresa (general)</label>
+                                            <select name="empresa_general" class="form-select form-select-sm select2-single">
+                                                <option value="">-- No cambiar --</option>
+                                                <?php foreach($listas['empresas'] as $empItem): ?>
+                                                    <option value="<?= htmlspecialchars($empItem) ?>">
+                                                        <?= htmlspecialchars($empItem) ?>
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- TABLA DE EDICIÓN INDIVIDUAL -->
+                            <div class="table-container mb-4">
+                                <table class="table table-bordered table-striped table-sm align-middle">
+                                    <thead class="table-dark sticky-top" style="top: 0;">
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Nombre</th>
+                                            <th>Cédula</th>
+                                            <th>Fecha</th>
+                                            <th>Ruta</th>
+                                            <th>Vehículo</th>
+                                            <th>Empresa</th>
+                                            <th>Pago parcial</th>
+                                            <th>Imagen</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach($viajes_seleccionados as $viaje_multi): 
+                                            $id_multi = (int)$viaje_multi['id'];
+                                        ?>
+                                            <tr>
+                                                <td class="fw-bold"><?= $id_multi ?></td>
+                                                <td>
+                                                    <input type="text" name="nombre_<?= $id_multi ?>" 
+                                                           class="form-control form-control-sm" 
+                                                           value="<?= htmlspecialchars($viaje_multi['nombre']) ?>">
+                                                </td>
+                                                <td>
+                                                    <input type="text" name="cedula_<?= $id_multi ?>" 
+                                                           class="form-control form-control-sm" 
+                                                           value="<?= htmlspecialchars($viaje_multi['cedula'] ?? '') ?>">
+                                                </td>
+                                                <td>
+                                                    <input type="date" name="fecha_<?= $id_multi ?>" 
+                                                           class="form-control form-control-sm" 
+                                                           value="<?= htmlspecialchars($viaje_multi['fecha']) ?>">
+                                                </td>
+                                                <td>
+                                                    <select name="ruta_<?= $id_multi ?>" class="form-select form-select-sm select2-single">
+                                                        <option value="">-- Seleccionar --</option>
+                                                        <?php foreach($listas['rutas'] as $rutaItem): ?>
+                                                            <option value="<?= htmlspecialchars($rutaItem) ?>"
+                                                                <?= ($rutaItem == $viaje_multi['ruta']) ? 'selected' : '' ?>>
+                                                                <?= htmlspecialchars($rutaItem) ?>
+                                                            </option>
+                                                        <?php endforeach; ?>
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <select name="tipo_vehiculo_<?= $id_multi ?>" class="form-select form-select-sm select2-single">
+                                                        <option value="">-- Seleccionar --</option>
+                                                        <?php foreach($listas['vehiculos'] as $vehItem): ?>
+                                                            <option value="<?= htmlspecialchars($vehItem) ?>"
+                                                                <?= ($vehItem == $viaje_multi['tipo_vehiculo']) ? 'selected' : '' ?>>
+                                                                <?= htmlspecialchars($vehItem) ?>
+                                                            </option>
+                                                        <?php endforeach; ?>
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <select name="empresa_<?= $id_multi ?>" class="form-select form-select-sm select2-single">
+                                                        <option value="">-- Ninguna --</option>
+                                                        <?php foreach($listas['empresas'] as $empItem): ?>
+                                                            <option value="<?= htmlspecialchars($empItem) ?>"
+                                                                <?= (isset($viaje_multi['empresa']) && $empItem == $viaje_multi['empresa']) ? 'selected' : '' ?>>
+                                                                <?= htmlspecialchars($empItem) ?>
+                                                            </option>
+                                                        <?php endforeach; ?>
+                                                    </select>
+                                                </td>
+
+                                                <!-- NUEVO: pago parcial por registro -->
+                                                <td>
+                                                    <input type="number" min="0" step="1"
+                                                           name="pago_parcial_<?= $id_multi ?>"
+                                                           class="form-control form-control-sm"
+                                                           value="<?= htmlspecialchars($viaje_multi['pago_parcial'] ?? '') ?>"
+                                                           placeholder="(vacío = no cambia)">
+                                                </td>
+
+                                                <td class="text-center">
+                                                    <?php if(!empty($viaje_multi['imagen'])): ?>
+                                                        <img src="uploads/<?= htmlspecialchars($viaje_multi['imagen']) ?>" 
+                                                             width="50" class="rounded img-thumb"
+                                                             data-bs-toggle="tooltip" title="<?= htmlspecialchars($viaje_multi['imagen']) ?>">
+                                                    <?php else: ?>
+                                                        <span class="text-muted">—</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                            
+                            <!-- Botones -->
+                            <div class="d-flex justify-content-between">
+                                <a href="?" class="btn btn-secondary">Cancelar</a>
+                                <button type="submit" class="btn btn-warning">
+                                    Guardar Cambios en <?= (int)$total_seleccionados ?> Registros
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    <!-- ================== LISTADO PRINCIPAL ================== -->
+    <?php else: ?>
+        <!-- CONTADOR DE SELECCIONADOS -->
+        <?php if (!empty($_SESSION['seleccionados'])): ?>
+            <div class="alert alert-info alert-dismissible fade show">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>✅ Seleccionados:</strong> <?= count($_SESSION['seleccionados']) ?> viaje(s)
+                        <span class="ms-3">IDs: <?= implode(', ', $_SESSION['seleccionados']) ?></span>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <form method="POST" class="d-inline">
+                            <input type="hidden" name="limpiar_seleccion" value="1">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Limpiar selección</button>
+                        </form>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                </div>
+            </div>
+        <?php endif; ?>
+
+        <!-- BOTÓN DE CONFIGURACIÓN DE COLUMNAS (NUEVO) -->
+        <div class="d-flex justify-content-end mb-3">
+            <div class="columnas-config position-relative">
+                <button type="button" class="btn btn-outline-primary" id="btnConfigColumnas">
+                    📊 Configurar Columnas
+                </button>
+                <div class="columnas-dropdown" id="dropdownColumnas">
+                    <h6 class="mb-3">Seleccionar columnas a mostrar:</h6>
+                    <form method="POST" id="formColumnas">
+                        <?php foreach($_SESSION['columnas_visibles'] as $key => $columna): ?>
+                            <div class="form-check columna-checkbox">
+                                <input class="form-check-input" type="checkbox" 
+                                       name="columnas[]" value="<?= htmlspecialchars($key) ?>" 
+                                       id="col_<?= htmlspecialchars($key) ?>"
+                                       <?= $columna['visible'] ? 'checked' : '' ?>>
+                                <label class="form-check-label" for="col_<?= htmlspecialchars($key) ?>">
+                                    <?= htmlspecialchars($columna['nombre']) ?>
+                                </label>
+                            </div>
+                        <?php endforeach; ?>
+                        
+                        <div class="mt-3 d-flex justify-content-between">
+                            <button type="submit" name="actualizar_columnas" class="btn btn-sm btn-primary">
+                                Aplicar cambios
+                            </button>
+                            <button type="submit" name="restablecer_columnas" class="btn btn-sm btn-secondary">
+                                Restablecer todas
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- FILTROS (MULTISELECT) - EXACTAMENTE IGUAL A COMO ESTABAN -->
+        <div class="card shadow mb-4">
+            <div class="card-header bg-primary text-white">
+                <h3 class="mb-0">🔍 Filtros de búsqueda (multiselect)</h3>
+                <small class="text-light">Presiona Ctrl+Click o arrastra para seleccionar múltiples opciones</small>
+            </div>
+            <div class="card-body">
+                <form method="GET" class="row g-3" id="filtrosForm">
+                    <!-- NOMBRE (multiselect) -->
+                    <div class="col-md-3">
+                        <label class="form-label">Nombre</label>
+                        <select name="nombre[]" class="form-select select2-multiple" multiple data-placeholder="Todos los nombres">
+                            <?php
+                            $nombresSeleccionados = $_GET['nombre'] ?? [];
+                            if (!is_array($nombresSeleccionados)) {
+                                $nombresSeleccionados = [];
+                            }
+                            foreach($listas['nombres'] as $nom):
+                                $sel = in_array($nom, $nombresSeleccionados) ? 'selected' : '';
+                            ?>
+                                <option value="<?= htmlspecialchars($nom) ?>" <?= $sel ?>>
+                                    <?= htmlspecialchars($nom) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <!-- CÉDULA (multiselect) -->
+                    <div class="col-md-3">
+                        <label class="form-label">Cédula</label>
+                        <select name="cedula[]" class="form-select select2-multiple" multiple data-placeholder="Todas las cédulas">
+                            <?php
+                            $cedulasSeleccionadas = $_GET['cedula'] ?? [];
+                            if (!is_array($cedulasSeleccionadas)) {
+                                $cedulasSeleccionadas = [];
+                            }
+                            foreach($listas['cedulas'] as $ced):
+                                $sel = in_array($ced, $cedulasSeleccionadas) ? 'selected' : '';
+                            ?>
+                                <option value="<?= htmlspecialchars($ced) ?>" <?= $sel ?>>
+                                    <?= htmlspecialchars($ced) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <!-- FECHA DESDE/HASTA -->
+                    <div class="col-md-2">
+                        <label class="form-label">Fecha desde</label>
+                        <input type="date" name="desde" value="<?= htmlspecialchars($_GET['desde'] ?? '') ?>" class="form-control">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Fecha hasta</label>
+                        <input type="date" name="hasta" value="<?= htmlspecialchars($_GET['hasta'] ?? '') ?>" class="form-control">
+                    </div>
+
+                    <!-- RUTA (multiselect) -->
+                    <div class="col-md-3">
+                        <label class="form-label">Ruta</label>
+                        <select name="ruta[]" class="form-select select2-multiple" multiple data-placeholder="Todas las rutas">
+                            <?php
+                            $rutasSeleccionadas = $_GET['ruta'] ?? [];
+                            if (!is_array($rutasSeleccionadas)) {
+                                $rutasSeleccionadas = [];
+                            }
+                            foreach($listas['rutas'] as $ruta):
+                                $sel = in_array($ruta, $rutasSeleccionadas) ? 'selected' : '';
+                            ?>
+                                <option value="<?= htmlspecialchars($ruta) ?>" <?= $sel ?>>
+                                    <?= htmlspecialchars($ruta) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <!-- VEHÍCULO (multiselect) -->
+                    <div class="col-md-3">
+                        <label class="form-label">Vehículo</label>
+                        <select name="vehiculo[]" class="form-select select2-multiple" multiple data-placeholder="Todos los vehículos">
+                            <?php
+                            $vehiculosSeleccionados = $_GET['vehiculo'] ?? [];
+                            if (!is_array($vehiculosSeleccionados)) {
+                                $vehiculosSeleccionados = [];
+                            }
+                            foreach($listas['vehiculos'] as $veh):
+                                $sel = in_array($veh, $vehiculosSeleccionados) ? 'selected' : '';
+                            ?>
+                                <option value="<?= htmlspecialchars($veh) ?>" <?= $sel ?>>
+                                    <?= htmlspecialchars($veh) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <!-- EMPRESA (multiselect) -->
+                    <div class="col-md-3">
+                        <label class="form-label">Empresa</label>
+                        <select name="empresa[]" class="form-select select2-multiple" multiple data-placeholder="Todas las empresas">
+                            <?php
+                            $empresasSeleccionadas = $_GET['empresa'] ?? [];
+                            if (!is_array($empresasSeleccionadas)) {
+                                $empresasSeleccionadas = [];
+                            }
+                            foreach($listas['empresas'] as $emp):
+                                $sel = in_array($emp, $empresasSeleccionadas) ? 'selected' : '';
+                            ?>
+                                <option value="<?= htmlspecialchars($emp) ?>" <?= $sel ?>>
+                                    <?= htmlspecialchars($emp) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <!-- BOTONES -->
+                    <div class="col-md-2 align-self-end">
+                        <button type="submit" class="btn btn-success w-100">🔎 Buscar</button>
+                    </div>
+                    <div class="col-md-2 align-self-end">
+                        <a href="?" class="btn btn-secondary w-100">❌ Limpiar filtros</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <?php
+        // ================== CONSTRUIR CONSULTA CON FILTROS (MULTISELECT) ==================
+        $where        = [];
+        $ids_visibles = []; // Para guardar los IDs visibles actualmente
+
+        // Nombre (array)
+        if (!empty($_GET['nombre']) && is_array($_GET['nombre'])) {
+            $nombres = array_map([$conexion, 'real_escape_string'], $_GET['nombre']);
+            $nombres = array_filter($nombres, function($val) { return trim($val) !== ''; });
+            if (!empty($nombres)) {
+                $where[] = "nombre IN ('" . implode("','", $nombres) . "')";
+            }
+        }
+
+        // Cédula (array)
+        if (!empty($_GET['cedula']) && is_array($_GET['cedula'])) {
+            $cedulas = array_map([$conexion, 'real_escape_string'], $_GET['cedula']);
+            $cedulas = array_filter($cedulas, function($val) { return trim($val) !== ''; });
+            if (!empty($cedulas)) {
+                $where[] = "cedula IN ('" . implode("','", $cedulas) . "')";
+            }
+        }
+
+        // Fechas
+        if (!empty($_GET['desde']) && !empty($_GET['hasta'])) {
+            $desde = $conexion->real_escape_string($_GET['desde']);
+            $hasta = $conexion->real_escape_string($_GET['hasta']);
+            $where[] = "fecha BETWEEN '$desde' AND '$hasta'";
+        } elseif (!empty($_GET['desde'])) {
+            $desde = $conexion->real_escape_string($_GET['desde']);
+            $where[] = "fecha >= '$desde'";
+        } elseif (!empty($_GET['hasta'])) {
+            $hasta = $conexion->real_escape_string($_GET['hasta']);
+            $where[] = "fecha <= '$hasta'";
+        }
+
+        // Ruta (array)
+        if (!empty($_GET['ruta']) && is_array($_GET['ruta'])) {
+            $rutas = array_map([$conexion, 'real_escape_string'], $_GET['ruta']);
+            $rutas = array_filter($rutas, function($val) { return trim($val) !== ''; });
+            if (!empty($rutas)) {
+                $where[] = "ruta IN ('" . implode("','", $rutas) . "')";
+            }
+        }
+
+        // Vehículo (array)
+        if (!empty($_GET['vehiculo']) && is_array($_GET['vehiculo'])) {
+            $vehiculos = array_map([$conexion, 'real_escape_string'], $_GET['vehiculo']);
+            $vehiculos = array_filter($vehiculos, function($val) { return trim($val) !== ''; });
+            if (!empty($vehiculos)) {
+                $where[] = "tipo_vehiculo IN ('" . implode("','", $vehiculos) . "')";
+            }
+        }
+
+        // Empresa (array)
+        if (!empty($_GET['empresa']) && is_array($_GET['empresa'])) {
+            $empresas = array_map([$conexion, 'real_escape_string'], $_GET['empresa']);
+            $empresas = array_filter($empresas, function($val) { return trim($val) !== ''; });
+            if (!empty($empresas)) {
+                $where[] = "empresa IN ('" . implode("','", $empresas) . "')";
+            }
+        }
+
+        $sql = "SELECT * FROM viajes";
+        if (count($where) > 0) {
+            $sql .= " WHERE " . implode(" AND ", $where);
+        }
+        $sql .= " ORDER BY fecha DESC, id DESC";
+        
+        $resultado = $conexion->query($sql);
+
+        // Mostrar conteo si hay filtro de nombres
+        if (!empty($_GET['nombre']) && is_array($_GET['nombre']) && count($_GET['nombre']) > 0):
+            $nombresFiltro = array_map([$conexion, 'real_escape_string'], $_GET['nombre']);
+            $totalViajes = 0;
+            ?>
+            <div class="alert alert-info">
+                <strong>Filtro activo:</strong> 
+                <?php 
+                foreach($nombresFiltro as $nombreFiltro):
+                    $sqlContar = "SELECT COUNT(*) AS total FROM viajes WHERE nombre = '$nombreFiltro'";
+                    $resContar = $conexion->query($sqlContar);
+                    $count = $resContar ? (int)$resContar->fetch_assoc()['total'] : 0;
+                    $totalViajes += $count;
+                ?>
+                    <span class="badge bg-primary me-2"><?= htmlspecialchars($nombreFiltro) ?> (<?= $count ?>)</span>
+                <?php endforeach; ?>
+                <br><strong>Total viajes:</strong> <?= $totalViajes ?>
+            </div>
+        <?php endif; ?>
+
+        <!-- LISTADO -->
+        <div class="card shadow">
+            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                <div>
+                    <h3 class="mb-0">📋 Listado de Viajes</h3>
+                    <?php if ($resultado): ?>
+                        <small class="text-light">Mostrando <?= $resultado->num_rows ?> resultado(s)</small>
+                    <?php endif; ?>
+                </div>
+                <div class="d-flex gap-2">
+                    <?php if (!empty($_SESSION['seleccionados'])): ?>
+                        <span class="badge bg-success align-self-center">
+                            ✅ <?= count($_SESSION['seleccionados']) ?> seleccionado(s)
+                        </span>
+                    <?php endif; ?>
+                    <a href="?accion=crear" class="btn btn-success">➕ Nuevo Viaje</a>
+                </div>
+            </div>
+            
+            <!-- ACCIONES MÚLTIPLES STICKY (ARRIBA) -->
+            <?php if (!empty($_SESSION['seleccionados'])): ?>
+                <div class="sticky-actions">
+                    <h5>📋 Acciones para los <?= count($_SESSION['seleccionados']) ?> viajes seleccionados:</h5>
+                    <div class="d-flex gap-2 mt-2">
+                        <form method="POST">
+                            <button type="submit" name="accion_multiple" value="editar" class="btn btn-warning">
+                                ✏ Editar Seleccionados (Completo)
+                            </button>
+                        </form>
+                        <form method="POST">
+                            <button type="submit" name="accion_multiple" value="eliminar" class="btn btn-danger"
+                                    onclick="return confirm('¿Eliminar los <?= count($_SESSION['seleccionados']) ?> registros seleccionados?')">
+                                🗑 Eliminar Seleccionados
+                            </button>
+                        </form>
+                        <form method="POST" class="ms-auto">
+                            <input type="hidden" name="limpiar_seleccion" value="1">
+                            <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                Limpiar selección
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            <?php endif; ?>
+            
+            <div class="card-body">
+                <!-- CONTROLES DE SELECCIÓN -->
+                <div class="mb-3 d-flex justify-content-between align-items-center bg-light p-3 rounded">
+                    <div>
+                        <strong>Selección múltiple:</strong>
+                        <form method="POST" class="d-inline ms-2">
+                            <input type="hidden" name="seleccionar_todos" value="1">
+                            <input type="hidden" name="ids_visibles" id="idsVisibles" value="">
+                            <button type="submit" class="btn btn-sm btn-outline-primary">
+                                ✅ Seleccionar todos los visibles
+                            </button>
+                        </form>
+                        <form method="POST" class="d-inline ms-2">
+                            <input type="hidden" name="seleccionar_todos" value="0">
+                            <input type="hidden" name="ids_visibles" id="idsVisibles2" value="">
+                            <button type="submit" class="btn btn-sm btn-outline-secondary">
+                                ❌ Deseleccionar todos los visibles
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table class="table table-bordered table-striped table-hover align-middle">
+                        <thead class="table-dark">
+                            <tr>
+                                <th style="width:32px;">Sel.</th>
+                                
+                                <!-- Columnas dinámicas según configuración -->
+                                <?php 
+                                // Ordenar columnas por el campo 'orden'
+                                $columnas_ordenadas = $_SESSION['columnas_visibles'];
+                                uasort($columnas_ordenadas, function($a, $b) {
+                                    return $a['orden'] <=> $b['orden'];
+                                });
+                                
+                                foreach($columnas_ordenadas as $key => $columna):
+                                    // Solo mostrar si está marcada como visible
+                                    if (!$columna['visible']) continue;
+                                    
+                                    // Definir anchos específicos para algunas columnas
+                                    $width = '';
+                                    switch($key) {
+                                        case 'id': $width = 'width: 60px;'; break;
+                                        case 'imagen': $width = 'width: 100px;'; break;
+                                    }
+                                ?>
+                                    <th style="<?= $width ?>"><?= htmlspecialchars($columna['nombre']) ?></th>
+                                <?php endforeach; ?>
+                                
+                                <!-- Columna de acciones (siempre visible) -->
+                                <th style="width:160px;">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        <?php if ($resultado && $resultado->num_rows > 0): ?>
+                            <?php while($row = $resultado->fetch_assoc()): 
+                                $id_registro       = (int)$row['id'];
+                                $ids_visibles[]    = $id_registro;
+                                $esta_seleccionado = in_array($id_registro, $_SESSION['seleccionados']);
+                                $pagoParcial = $row['pago_parcial'];
+                            ?>
+                                <tr id="fila_<?= $id_registro ?>" class="<?= $esta_seleccionado ? 'seleccionado' : '' ?>">
+                                    <td>
+                                        <form method="POST" class="d-inline">
+                                            <input type="hidden" name="toggle_seleccion" value="<?= $id_registro ?>">
+                                            <input type="checkbox" 
+                                                   class="form-check-input checkbox-seleccion" 
+                                                   onchange="this.form.submit()"
+                                                   <?= $esta_seleccionado ? 'checked' : '' ?>>
+                                        </form>
+                                    </td>
+                                    
+                                    <!-- Renderizar celdas dinámicamente según columnas visibles -->
+                                    <?php foreach($columnas_ordenadas as $key => $columna): 
+                                        if (!$columna['visible']) continue;
+                                        
+                                        switch($key):
+                                            case 'id': ?>
+                                                <td><?= $id_registro; ?></td>
+                                                <?php break;
+                                                
+                                            case 'nombre': ?>
+                                                <td><?= htmlspecialchars($row['nombre']); ?></td>
+                                                <?php break;
+                                                
+                                            case 'cedula': ?>
+                                                <td><?= !empty($row['cedula']) ? htmlspecialchars($row['cedula']) : '<span class="text-muted">—</span>'; ?></td>
+                                                <?php break;
+                                                
+                                            case 'fecha': ?>
+                                                <td><?= htmlspecialchars($row['fecha']); ?></td>
+                                                <?php break;
+                                                
+                                            case 'ruta': ?>
+                                                <td><?= htmlspecialchars($row['ruta']); ?></td>
+                                                <?php break;
+                                                
+                                            case 'tipo_vehiculo': ?>
+                                                <td><?= htmlspecialchars($row['tipo_vehiculo']); ?></td>
+                                                <?php break;
+                                                
+                                            case 'empresa': ?>
+                                                <td><?= !empty($row['empresa']) ? htmlspecialchars($row['empresa']) : '<span class="text-muted">—</span>'; ?></td>
+                                                <?php break;
+                                                
+                                            case 'pago_parcial': ?>
+                                                <td>
+                                                    <?php if ($pagoParcial !== null && $pagoParcial !== ''): ?>
+                                                        <span class="badge bg-info text-dark">
+                                                            $<?= number_format((int)$pagoParcial, 0, ',', '.') ?>
+                                                        </span>
+                                                    <?php else: ?>
+                                                        <span class="text-muted">—</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <?php break;
+                                                
+                                            case 'imagen': ?>
+                                                <td>
+                                                    <?php if(!empty($row['imagen'])): ?>
+                                                        <a href="#" data-bs-toggle="modal" data-bs-target="#imgModal<?= $id_registro; ?>">
+                                                            <img src="uploads/<?= htmlspecialchars($row['imagen']); ?>" width="70" class="rounded img-thumb">
+                                                        </a>
+                                                        <div class="modal fade" id="imgModal<?= $id_registro; ?>" tabindex="-1">
+                                                            <div class="modal-dialog modal-dialog-centered">
+                                                                <div class="modal-content">
+                                                                    <div class="modal-body text-center">
+                                                                        <img src="uploads/<?= htmlspecialchars($row['imagen']); ?>" class="img-fluid rounded">
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    <?php else: ?>
+                                                        <span class="text-muted">—</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <?php break;
+                                        endswitch;
+                                    endforeach; ?>
+                                    
+                                    <td>
+                                        <a href="?accion=editar&id=<?= $id_registro; ?>" class="btn btn-warning btn-sm">✏ Editar</a>
+                                        <a href="?accion=eliminar&id=<?= $id_registro; ?>" class="btn btn-danger btn-sm" onclick="return confirm('¿Seguro de eliminar?')">🗑 Eliminar</a>
+                                    </td>
+                                </tr>
+                            <?php endwhile; ?>
+                        <?php else: ?>
+                            <?php 
+                            // Calcular colspan dinámicamente
+                            $columnas_visibles_count = count(array_filter($columnas_ordenadas, fn($c) => $c['visible']));
+                            // +2 por las columnas fijas (Selección y Acciones)
+                            $total_columnas = $columnas_visibles_count + 2;
+                            ?>
+                            <tr>
+                                <td colspan="<?= $total_columnas ?>" class="text-center py-4">No se encontraron resultados.</td>
+                            </tr>
+                        <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    <?php endif; ?>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/select2.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/i18n/es.min.js"></script>
+<script>
+// Pasar los IDs visibles a los formularios de selección
+document.addEventListener('DOMContentLoaded', function() {
+    const idsVisiblesArray = <?= json_encode($ids_visibles ?? []) ?>;
+    
+    const input1 = document.getElementById('idsVisibles');
+    const input2 = document.getElementById('idsVisibles2');
+    if (input1) input1.value = idsVisiblesArray.join(',');
+    if (input2) input2.value = idsVisiblesArray.join(',');
+    
+    // Inicializar tooltips de Bootstrap
+    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
+    
+    // Inicializar Select2 para multiselect
+    $('.select2-multiple').select2({
+        width: '100%',
+        placeholder: function() {
+            return $(this).data('placeholder');
+        },
+        allowClear: true,
+        language: 'es'
+    });
+    
+    // Inicializar Select2 para select simples
+    $('.select2-single').select2({
+        width: '100%',
+        placeholder: '-- Seleccionar --',
+        allowClear: true,
+        language: 'es'
+    });
+    
+    // Toggle del dropdown de columnas (NUEVO)
+    const btnConfig = document.getElementById('btnConfigColumnas');
+    const dropdown = document.getElementById('dropdownColumnas');
+    
+    if (btnConfig && dropdown) {
+        btnConfig.addEventListener('click', function(e) {
+            e.stopPropagation();
+            dropdown.classList.toggle('show');
+        });
+        
+        // Cerrar dropdown al hacer clic fuera
+        document.addEventListener('click', function(e) {
+            if (!dropdown.contains(e.target) && !btnConfig.contains(e.target)) {
+                dropdown.classList.remove('show');
+            }
+        });
+        
+        // Evitar que se cierre al hacer clic dentro
+        dropdown.addEventListener('click', function(e) {
+            e.stopPropagation();
+        });
+    }
+});
+
+// Validación para edición múltiple
+document.getElementById('formEditarMultiple')?.addEventListener('submit', function(e) {
+    const totalRegistros = <?= count($viajes_seleccionados ?? []) ?>;
+    if (totalRegistros === 0) {
+        e.preventDefault();
+        alert('No hay registros para editar.');
+        return false;
+    }
+    
+    if (!confirm(`¿Estás segura de editar ${totalRegistros} registros?`)) {
+        e.preventDefault();
+        return false;
+    }
+});
+</script>
+</body>
+</html>
