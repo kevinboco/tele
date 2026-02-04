@@ -803,6 +803,11 @@ if ($empresaFiltro !== "") {
     background: linear-gradient(135deg, #f59e0b, #d97706);
   }
   
+  /* NUEVO COLOR PARA LA CUARTA BOLITA */
+  .ball-selector-columnas {
+    background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+  }
+  
   /* ===== PANELES DESLIZANTES ORIGINALES ===== */
   .side-panel-overlay {
     position: fixed;
@@ -1038,18 +1043,7 @@ if ($empresaFiltro !== "") {
     border-left: 4px solid #f43f5e !important;
   }
   
-  /* ===== NUEVOS ESTILOS PARA SELECTOR DE COLUMNAS ===== */
-  .selector-columnas-fijo {
-    position: sticky;
-    top: 0;
-    z-index: 25;
-    background: white;
-    border-bottom: 1px solid #e2e8f0;
-    padding: 1rem;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    margin-bottom: 1rem;
-  }
-  
+  /* ===== NUEVOS ESTILOS PARA SELECTOR DE COLUMNAS (DENTRO DEL PANEL) ===== */
   .columna-checkbox-item {
     transition: all 0.2s ease;
   }
@@ -1129,11 +1123,6 @@ if ($empresaFiltro !== "") {
     .ball-tooltip {
       display: none;
     }
-    
-    .selector-columnas-fijo {
-      position: relative;
-      top: 0;
-    }
   }
 </style>
 </head>
@@ -1208,7 +1197,7 @@ if ($empresaFiltro !== "") {
     </div>
   </header>
 
-  <!-- ===== BOLITAS FLOTANTES ORIGINALES (3 BOLITAS) ===== -->
+  <!-- ===== BOLITAS FLOTANTES ORIGINALES (AHORA 4 BOLITAS) ===== -->
   <div class="floating-balls-container">
     <!-- Bolita 1: Tarifas por tipo de vehículo (ORIGINAL) -->
     <div class="floating-ball ball-tarifas" id="ball-tarifas" data-panel="tarifas">
@@ -1226,6 +1215,12 @@ if ($empresaFiltro !== "") {
     <div class="floating-ball ball-clasif-rutas" id="ball-clasif-rutas" data-panel="clasif-rutas">
       <div class="ball-content">🧭</div>
       <div class="ball-tooltip">Clasificar rutas existentes</div>
+    </div>
+    
+    <!-- BOLITA 4: NUEVA - Seleccionar columnas de la tabla -->
+    <div class="floating-ball ball-selector-columnas" id="ball-selector-columnas" data-panel="selector-columnas">
+      <div class="ball-content">📊</div>
+      <div class="ball-tooltip">Seleccionar columnas</div>
     </div>
   </div>
 
@@ -1445,6 +1440,84 @@ if ($empresaFiltro !== "") {
     </div>
   </div>
 
+  <!-- ===== NUEVO PANEL: SELECTOR DE COLUMNAS ===== -->
+  <div class="side-panel" id="panel-selector-columnas">
+    <div class="side-panel-header">
+      <h3 class="text-lg font-semibold flex items-center gap-2">
+        <span>📊 Seleccionar Columnas</span>
+        <span class="text-xs text-slate-500">Personalizar tabla</span>
+      </h3>
+      <button class="side-panel-close" data-panel="selector-columnas">✕</button>
+    </div>
+    <div class="side-panel-body">
+      <div class="flex flex-col gap-4">
+        <div>
+          <p class="text-sm text-slate-600 mb-3">
+            Marca/desmarca las columnas que quieres ver en la tabla principal.
+            <span id="contador-seleccionadas-panel" class="font-semibold text-blue-600"><?= count($columnas_seleccionadas) ?></span> de 
+            <?= count($clasificaciones_disponibles) ?> seleccionadas
+          </p>
+        </div>
+        
+        <!-- Botones de acción -->
+        <div class="flex flex-wrap gap-2">
+          <button onclick="seleccionarTodasColumnas()" 
+                  class="text-xs px-3 py-1.5 rounded-lg border border-green-300 bg-green-50 text-green-700 hover:bg-green-100 transition whitespace-nowrap">
+            ✅ Seleccionar todas
+          </button>
+          <button onclick="deseleccionarTodasColumnas()" 
+                  class="text-xs px-3 py-1.5 rounded-lg border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 transition whitespace-nowrap">
+            ❌ Deseleccionar todas
+          </button>
+          <button onclick="guardarSeleccionColumnas()" 
+                  class="text-xs px-3 py-1.5 rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 transition whitespace-nowrap">
+            💾 Guardar selección
+          </button>
+        </div>
+        
+        <!-- Lista de columnas -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[60vh] overflow-y-auto p-2 border border-slate-200 rounded-lg">
+          <?php foreach ($clasificaciones_disponibles as $clasif): 
+            $estilo = obtenerEstiloClasificacion($clasif);
+            $seleccionada = in_array($clasif, $columnas_seleccionadas);
+          ?>
+          <div class="columna-checkbox-item flex items-center gap-2 p-3 border border-slate-200 rounded-lg cursor-pointer transition <?= $seleccionada ? 'selected' : '' ?>"
+               data-columna="<?= htmlspecialchars($clasif) ?>"
+               onclick="toggleColumna('<?= htmlspecialchars($clasif) ?>')"
+               title="<?= htmlspecialchars(ucfirst($clasif)) ?>">
+            <div class="checkbox-columna <?= $seleccionada ? 'checked' : '' ?>" 
+                 id="checkbox-<?= htmlspecialchars($clasif) ?>"></div>
+            <div class="flex-1 flex flex-col">
+              <span class="text-sm font-medium whitespace-nowrap <?= $estilo['text'] ?>">
+                <?php 
+                  // Nombre completo para mejor legibilidad
+                  $nombres = [
+                      'completo' => 'Viaje Completo',
+                      'medio' => 'Viaje Medio', 
+                      'extra' => 'Viaje Extra',
+                      'carrotanque' => 'Carrotanque',
+                      'siapana' => 'Siapana',
+                      'riohacha' => 'Riohacha',
+                      'pru' => 'Pru',
+                      'maco' => 'Maco'
+                  ];
+                  echo $nombres[$clasif] ?? ucfirst($clasif);
+                ?>
+              </span>
+              <span class="text-xs text-slate-500 mt-0.5">Columna: <?= htmlspecialchars($clasif) ?></span>
+            </div>
+            <div class="w-3 h-3 rounded-full" style="background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>;"></div>
+          </div>
+          <?php endforeach; ?>
+        </div>
+        
+        <p class="text-xs text-slate-500 mt-2">
+          La selección se aplica inmediatamente. Usa "Guardar selección" para recordarla en futuras visitas.
+        </p>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== OVERLAY PARA PANELES ORIGINAL ===== -->
   <div class="side-panel-overlay" id="sidePanelOverlay"></div>
 
@@ -1452,66 +1525,15 @@ if ($empresaFiltro !== "") {
   <main class="max-w-[1800px] mx-auto px-3 md:px-4 py-6">
     <div class="table-container-wrapper" id="tableContainerWrapper">
       
-      <!-- ===== SELECTOR DE COLUMNAS NUEVO (INTEGRADO) ===== -->
-      <div class="selector-columnas-fijo mb-4">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-3">
-          <div>
-            <h3 class="text-lg font-semibold">📊 Seleccionar Columnas a Mostrar</h3>
-            <div class="text-sm text-slate-500 mt-1">
-              Marca/desmarca las columnas que quieres ver en la tabla. 
-              <span id="contador-seleccionadas" class="font-semibold"><?= count($columnas_seleccionadas) ?></span> de 
-              <?= count($clasificaciones_disponibles) ?> seleccionadas
-            </div>
-          </div>
-          <div class="flex flex-wrap gap-2">
-            <button onclick="seleccionarTodasColumnas()" 
-                    class="text-xs px-3 py-1.5 rounded-lg border border-green-300 bg-green-50 text-green-700 hover:bg-green-100 transition whitespace-nowrap">
-              ✅ Seleccionar todas
-            </button>
-            <button onclick="deseleccionarTodasColumnas()" 
-                    class="text-xs px-3 py-1.5 rounded-lg border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 transition whitespace-nowrap">
-              ❌ Deseleccionar todas
-            </button>
-            <button onclick="guardarSeleccionColumnas()" 
-                    class="text-xs px-3 py-1.5 rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 transition whitespace-nowrap">
-              💾 Guardar selección
-            </button>
-          </div>
-        </div>
-        
-        <!-- Lista de columnas en una fila horizontal -->
-        <div class="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-1">
-          <?php foreach ($clasificaciones_disponibles as $clasif): 
-            $estilo = obtenerEstiloClasificacion($clasif);
-            $seleccionada = in_array($clasif, $columnas_seleccionadas);
-          ?>
-          <div class="columna-checkbox-item flex items-center gap-2 p-2 border border-slate-200 rounded-lg cursor-pointer transition <?= $seleccionada ? 'selected' : '' ?>"
-               data-columna="<?= htmlspecialchars($clasif) ?>"
-               onclick="toggleColumna('<?= htmlspecialchars($clasif) ?>')"
-               title="<?= htmlspecialchars(ucfirst($clasif)) ?>">
-            <div class="checkbox-columna <?= $seleccionada ? 'checked' : '' ?>" 
-                 id="checkbox-<?= htmlspecialchars($clasif) ?>"></div>
-            <span class="text-xs font-medium whitespace-nowrap <?= $estilo['text'] ?>">
-              <?php 
-                // Nombre completo para mejor legibilidad
-                $nombres = [
-                    'completo' => 'Completo',
-                    'medio' => 'Medio', 
-                    'extra' => 'Extra',
-                    'carrotanque' => 'Carrotanque',
-                    'siapana' => 'Siapana',
-                    'riohacha' => 'Riohacha',
-                    'pru' => 'Pru',
-                    'maco' => 'Maco'
-                ];
-                echo $nombres[$clasif] ?? ucfirst($clasif);
-              ?>
-            </span>
-          </div>
-          <?php endforeach; ?>
-        </div>
+      <!-- Botón para abrir selector de columnas (opcional, para acceso rápido) -->
+      <div class="mb-4 flex justify-end">
+        <button onclick="togglePanel('selector-columnas')" 
+                class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500 text-white hover:from-purple-600 hover:to-indigo-600 transition shadow-md hover:shadow-lg">
+          <span>📊</span>
+          <span class="text-sm font-medium">Seleccionar columnas</span>
+        </button>
       </div>
-      
+
       <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
         <!-- Encabezado del panel central -->
         <div class="p-5 border-b border-slate-200">
@@ -1818,7 +1840,7 @@ if ($empresaFiltro !== "") {
   <script>
     // ===== SISTEMA DE BOLITAS Y PANELES ORIGINAL =====
     let activePanel = null;
-    const panels = ['tarifas', 'crear-clasif', 'clasif-rutas'];
+    const panels = ['tarifas', 'crear-clasif', 'clasif-rutas', 'selector-columnas']; // AGREGADO selector-columnas
     
     // Inicializar sistema de bolitas ORIGINAL
     document.addEventListener('DOMContentLoaded', function() {
@@ -2054,7 +2076,7 @@ if ($empresaFiltro !== "") {
     }
     
     function actualizarContadorColumnas() {
-      const contadorSeleccionadas = document.getElementById('contador-seleccionadas');
+      const contadorSeleccionadas = document.getElementById('contador-seleccionadas-panel');
       const contadorVisibles = document.getElementById('contador-columnas-visibles');
       const contadorHeader = document.getElementById('contador-columnas-visibles-header');
       
