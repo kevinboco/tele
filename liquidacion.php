@@ -225,6 +225,45 @@ if (isset($_POST['guardar_clasificacion'])) {
 }
 
 /* =======================================================
+   🔹 Guardar columnas seleccionadas (AJAX)
+======================================================= */
+if (isset($_POST['guardar_columnas_seleccionadas'])) {
+    $columnas = $_POST['columnas'] ?? [];
+    $empresa = $_GET['empresa'] ?? "";
+    $desde = $_GET['desde'] ?? "";
+    $hasta = $_GET['hasta'] ?? "";
+    
+    // Crear clave única para esta sesión/filtro
+    $session_key = "columnas_seleccionadas_" . md5($empresa . $desde . $hasta);
+    
+    // Guardar en sesión (puedes usar cookies o localStorage en el cliente)
+    setcookie($session_key, json_encode($columnas), time() + (86400 * 7), "/"); // 7 días
+    
+    echo "ok";
+    exit;
+}
+
+/* =======================================================
+   🔹 Obtener columnas seleccionadas (AJAX)
+======================================================= */
+if (isset($_GET['obtener_columnas_seleccionadas'])) {
+    $empresa = $_GET['empresa'] ?? "";
+    $desde = $_GET['desde'] ?? "";
+    $hasta = $_GET['hasta'] ?? "";
+    
+    $session_key = "columnas_seleccionadas_" . md5($empresa . $desde . $hasta);
+    
+    if (isset($_COOKIE[$session_key])) {
+        echo $_COOKIE[$session_key];
+    } else {
+        // Por defecto, mostrar todas las columnas
+        $columnas_tarifas = obtenerColumnasTarifas($conn);
+        echo json_encode($columnas_tarifas);
+    }
+    exit;
+}
+
+/* =======================================================
    🔹 Endpoint AJAX: viajes por conductor - ACTUALIZADO
 ======================================================= */
 if (isset($_GET['viajes_conductor'])) {
@@ -524,6 +563,17 @@ $empresaFiltro = $_GET['empresa'] ?? "";
 $columnas_tarifas = obtenerColumnasTarifas($conn);
 $clasificaciones_disponibles = obtenerClasificacionesDisponibles($conn);
 
+// Cargar columnas seleccionadas desde cookie
+$session_key = "columnas_seleccionadas_" . md5($empresaFiltro . $desde . $hasta);
+$columnas_seleccionadas = [];
+
+if (isset($_COOKIE[$session_key])) {
+    $columnas_seleccionadas = json_decode($_COOKIE[$session_key], true);
+} else {
+    // Por defecto, mostrar todas las columnas
+    $columnas_seleccionadas = $clasificaciones_disponibles;
+}
+
 // Cargar clasificaciones de rutas desde BD
 $clasif_rutas = [];
 $resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
@@ -647,6 +697,7 @@ if ($empresaFiltro !== "") {
 <title>Liquidación de Conductores</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
+  /* Estilos anteriores... */
   ::-webkit-scrollbar{height:10px;width:10px}
   ::-webkit-slider-thumb{background:#d1d5db;border-radius:999px}
   ::-webkit-slider-thumb:hover{background:#9ca3af}
@@ -770,6 +821,11 @@ if ($empresaFiltro !== "") {
   
   .ball-clasif-rutas {
     background: linear-gradient(135deg, #f59e0b, #d97706);
+  }
+  
+  /* NUEVO: BOLITA PARA SELECCIÓN DE COLUMNAS */
+  .ball-seleccionar-columnas {
+    background: linear-gradient(135deg, #8b5cf6, #7c3aed);
   }
   
   /* ===== PANELES DESLIZANTES ===== */
@@ -1007,6 +1063,53 @@ if ($empresaFiltro !== "") {
     border-left: 4px solid #f43f5e !important;
   }
   
+  /* Estilos para checkboxes de selección de columnas */
+  .columna-checkbox-item {
+    transition: all 0.2s ease;
+  }
+  
+  .columna-checkbox-item:hover {
+    background-color: #f8fafc;
+  }
+  
+  .columna-checkbox-item.selected {
+    background-color: #eff6ff;
+    border-color: #3b82f6;
+  }
+  
+  .checkbox-columna {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 2px solid #cbd5e1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+  }
+  
+  .checkbox-columna.checked {
+    background-color: #3b82f6;
+    border-color: #3b82f6;
+  }
+  
+  .checkbox-columna.checked::after {
+    content: "✓";
+    color: white;
+    font-size: 12px;
+    font-weight: bold;
+  }
+  
+  /* Estilo para columnas ocultas en la tabla */
+  .columna-oculta {
+    display: none !important;
+  }
+  
+  .columna-visualizada {
+    display: table-cell !important;
+  }
+  
   /* Responsive */
   @media (max-width: 768px) {
     .floating-balls-container {
@@ -1105,6 +1208,11 @@ if ($empresaFiltro !== "") {
         <span class="bg-slate-100 px-2 py-1 rounded-lg font-semibold">
           <?= count($datos) ?>
         </span>
+        <span class="mx-2">•</span>
+        <span class="font-medium">Columnas visibles:</span>
+        <span class="bg-slate-100 px-2 py-1 rounded-lg font-semibold">
+          <span id="contador-columnas-visibles"><?= count($columnas_seleccionadas) ?></span>/<?= count($clasificaciones_disponibles) ?>
+        </span>
       </div>
     </div>
   </header>
@@ -1128,10 +1236,13 @@ if ($empresaFiltro !== "") {
       <div class="ball-content">🧭</div>
       <div class="ball-tooltip">Clasificar rutas existentes</div>
     </div>
+    
+    <!-- NUEVO: Bolita 4: Seleccionar columnas a mostrar -->
+    <div class="floating-ball ball-seleccionar-columnas" id="ball-seleccionar-columnas" data-panel="seleccionar-columnas">
+      <div class="ball-content">📊</div>
+      <div class="ball-tooltip">Seleccionar columnas visibles</div>
+    </div>
   </div>
-
-  <!-- ===== OVERLAY PARA PANELES ===== -->
-  <div class="side-panel-overlay" id="sidePanelOverlay"></div>
 
   <!-- ===== PANEL DE TARIFAS CON ACORDEÓN Y COLORES ===== -->
   <div class="side-panel" id="panel-tarifas">
@@ -1349,6 +1460,105 @@ if ($empresaFiltro !== "") {
     </div>
   </div>
 
+  <!-- ===== NUEVO PANEL: SELECCIÓN DE COLUMNAS ===== -->
+  <div class="side-panel" id="panel-seleccionar-columnas">
+    <div class="side-panel-header">
+      <h3 class="text-lg font-semibold flex items-center gap-2">
+        <span>📊 Seleccionar Columnas Visibles</span>
+        <span class="text-xs text-slate-500">Personaliza tu vista</span>
+      </h3>
+      <button class="side-panel-close" data-panel="seleccionar-columnas">✕</button>
+    </div>
+    <div class="side-panel-body">
+      <div class="mb-4">
+        <p class="text-sm text-slate-600 mb-3">
+          Selecciona qué columnas quieres mostrar en la tabla de conductores. 
+          Solo se calcularán totales para las columnas visibles.
+        </p>
+        
+        <!-- Botones de acción rápida -->
+        <div class="flex flex-wrap gap-2 mb-4">
+          <button onclick="seleccionarTodasColumnas()" 
+                  class="text-xs px-3 py-1.5 rounded-lg border border-green-300 bg-green-50 text-green-700 hover:bg-green-100 transition">
+            Seleccionar todas
+          </button>
+          <button onclick="deseleccionarTodasColumnas()" 
+                  class="text-xs px-3 py-1.5 rounded-lg border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 transition">
+            Deseleccionar todas
+          </button>
+          <button onclick="guardarSeleccionColumnas()" 
+                  class="text-xs px-3 py-1.5 rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 transition">
+            Guardar selección
+          </button>
+        </div>
+      </div>
+      
+      <!-- Lista de columnas disponibles -->
+      <div class="space-y-2 max-h-[60vh] overflow-y-auto pr-2" id="listaColumnas">
+        <?php foreach ($clasificaciones_disponibles as $clasif): 
+          $estilo = obtenerEstiloClasificacion($clasif);
+          $seleccionada = in_array($clasif, $columnas_seleccionadas);
+        ?>
+        <div class="columna-checkbox-item flex items-center gap-3 p-3 border border-slate-200 rounded-lg cursor-pointer transition <?= $seleccionada ? 'selected' : '' ?>"
+             data-columna="<?= htmlspecialchars($clasif) ?>"
+             onclick="toggleColumna('<?= htmlspecialchars($clasif) ?>')">
+          <div class="checkbox-columna <?= $seleccionada ? 'checked' : '' ?>" 
+               id="checkbox-<?= htmlspecialchars($clasif) ?>"></div>
+          <div class="flex-1">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-medium <?= $estilo['text'] ?>">
+                <?= htmlspecialchars(ucfirst($clasif)) ?>
+              </span>
+              <span class="text-xs px-2 py-0.5 rounded-full <?= $estilo['bg'] ?> <?= $estilo['text'] ?> border <?= $estilo['border'] ?>">
+                <?php 
+                  // Abreviatura
+                  $abreviaturas = [
+                      'completo' => 'COM',
+                      'medio' => 'MED', 
+                      'extra' => 'EXT',
+                      'carrotanque' => 'CTK',
+                      'siapana' => 'SIA',
+                      'riohacha' => 'RIO',
+                      'pru' => 'PRU',
+                      'maco' => 'MAC'
+                  ];
+                  echo $abreviaturas[$clasif] ?? strtoupper(substr($clasif, 0, 3));
+                ?>
+              </span>
+            </div>
+            <div class="text-xs text-slate-500 mt-1">
+              <?php 
+                // Descripción según el tipo
+                $descripciones = [
+                    'completo' => 'Viajes completos de ida y vuelta',
+                    'medio' => 'Viajes de medio recorrido',
+                    'extra' => 'Viajes adicionales o especiales',
+                    'carrotanque' => 'Transporte de líquidos',
+                    'siapana' => 'Ruta específica Siapana',
+                    'riohacha' => 'Ruta específica Riohacha',
+                    'pru' => 'Ruta específica Pru',
+                    'maco' => 'Ruta específica Maco'
+                ];
+                echo $descripciones[$clasif] ?? 'Clasificación personalizada';
+              ?>
+            </div>
+          </div>
+        </div>
+        <?php endforeach; ?>
+      </div>
+      
+      <div class="mt-4 pt-4 border-t border-slate-200">
+        <div class="text-sm text-slate-600">
+          <span id="contador-seleccionadas"><?= count($columnas_seleccionadas) ?></span> de 
+          <?= count($clasificaciones_disponibles) ?> columnas seleccionadas
+        </div>
+        <p class="text-xs text-slate-500 mt-2">
+          Los cambios se aplicarán inmediatamente. La selección se guardará para esta empresa y periodo.
+        </p>
+      </div>
+    </div>
+  </div>
+
   <!-- Contenido principal -->
   <main class="max-w-[1800px] mx-auto px-3 md:px-4 py-6">
     <div class="table-container-wrapper" id="tableContainerWrapper">
@@ -1359,7 +1569,8 @@ if ($empresaFiltro !== "") {
             <div>
               <h3 class="text-xl font-semibold">🧑‍✈️ Resumen por Conductor</h3>
               <div id="contador-conductores" class="text-sm text-slate-500 mt-1">
-                Mostrando <?= count($datos) ?> conductores
+                Mostrando <?= count($datos) ?> conductores • 
+                <span id="contador-columnas-visibles-header"><?= count($columnas_seleccionadas) ?></span> columnas visibles
               </div>
             </div>
             <div class="flex items-center gap-2">
@@ -1367,6 +1578,12 @@ if ($empresaFiltro !== "") {
               <button onclick="mostrarResumenRutasSinClasificar()" 
                       class="text-sm px-4 py-2 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600 transition flex items-center gap-2 shadow-md hover:shadow-lg">
                 ⚠️ Ver rutas sin clasificar
+              </button>
+              
+              <!-- NUEVO: Botón rápido para seleccionar columnas -->
+              <button onclick="togglePanel('seleccionar-columnas')" 
+                      class="text-sm px-4 py-2 rounded-full bg-gradient-to-r from-purple-500 to-violet-600 text-white hover:from-purple-600 hover:to-violet-700 transition flex items-center gap-2 shadow-md hover:shadow-lg">
+                📊 Seleccionar columnas
               </button>
             </div>
           </div>
@@ -1456,6 +1673,10 @@ if ($empresaFiltro !== "") {
                     ];
                     $abreviatura = $abreviaturas[$clasif] ?? strtoupper(substr($clasif, 0, 3));
                     
+                    // Determinar si la columna está visible
+                    $visible = in_array($clasif, $columnas_seleccionadas);
+                    $clase_visibilidad = $visible ? 'columna-visualizada' : 'columna-oculta';
+                    
                     // Mapear colores Tailwind a colores HEX para CSS inline
                     $colorMap = [
                         'bg-emerald-100' => '#d1fae5', 'text-emerald-700' => '#047857', 'border-emerald-200' => '#a7f3d0',
@@ -1479,7 +1700,8 @@ if ($empresaFiltro !== "") {
                     $bg_color = $colorMap[$estilo['bg']] ?? '#f1f5f9';
                     $text_color = $colorMap[$estilo['text']] ?? '#1e293b';
                   ?>
-                  <th class="px-4 py-3 text-center sticky top-0" 
+                  <th class="px-4 py-3 text-center sticky top-0 <?= $clase_visibilidad ?> columna-tabla" 
+                      data-columna="<?= htmlspecialchars($clasif) ?>"
                       title="<?= htmlspecialchars($clasif) ?>"
                       style="min-width: 80px; background-color: <?= $bg_color ?>; color: <?= $text_color ?>; border-bottom: 2px solid <?= $colorMap[$estilo['border']] ?? '#cbd5e1' ?>; z-index: 19;">
                     <?= htmlspecialchars($abreviatura) ?>
@@ -1551,6 +1773,10 @@ if ($empresaFiltro !== "") {
                     $estilo = obtenerEstiloClasificacion($clasif);
                     $cantidad = (int)($info[$clasif] ?? 0);
                     
+                    // Determinar si la columna está visible
+                    $visible = in_array($clasif, $columnas_seleccionadas);
+                    $clase_visibilidad = $visible ? 'columna-visualizada' : 'columna-oculta';
+                    
                     // Mapear colores para fondo de celdas
                     $colorMap = [
                         'bg-emerald-100' => '#f0fdf4', 'text-emerald-700' => '#047857',
@@ -1574,7 +1800,8 @@ if ($empresaFiltro !== "") {
                     $bg_cell_color = $colorMap[$estilo['bg']] ?? '#f8fafc';
                     $text_cell_color = $colorMap[$estilo['text']] ?? '#1e293b';
                   ?>
-                  <td class="px-4 py-3 text-center font-medium" 
+                  <td class="px-4 py-3 text-center font-medium <?= $clase_visibilidad ?> columna-tabla" 
+                      data-columna="<?= htmlspecialchars($clasif) ?>"
                       style="min-width: 80px; background-color: <?= $bg_cell_color ?>; color: <?= $text_cell_color ?>; border-left: 1px solid <?= str_replace('bg-', '#', $estilo['bg']) ?>30; border-right: 1px solid <?= str_replace('bg-', '#', $estilo['bg']) ?>30;">
                     <?= $cantidad ?>
                   </td>
@@ -1647,7 +1874,7 @@ if ($empresaFiltro !== "") {
   <script>
     // ===== SISTEMA DE BOLITAS Y PANELES =====
     let activePanel = null;
-    const panels = ['tarifas', 'crear-clasif', 'clasif-rutas'];
+    const panels = ['tarifas', 'crear-clasif', 'clasif-rutas', 'seleccionar-columnas'];
     
     // Inicializar sistema de bolitas
     document.addEventListener('DOMContentLoaded', function() {
@@ -1685,6 +1912,9 @@ if ($empresaFiltro !== "") {
       
       // Inicializar colores de las filas de clasificación
       inicializarColoresClasificacion();
+      
+      // Inicializar sistema de selección de columnas
+      inicializarSeleccionColumnas();
     });
     
     // Función para abrir/cerrar paneles
@@ -1800,6 +2030,169 @@ if ($empresaFiltro !== "") {
       
       // Guardar la clasificación en la base de datos
       guardarClasificacionRuta(ruta, vehiculo, clasificacion);
+    }
+    
+    // ===== SISTEMA DE SELECCIÓN DE COLUMNAS =====
+    
+    let columnasSeleccionadas = <?= json_encode($columnas_seleccionadas) ?>;
+    
+    function inicializarSeleccionColumnas() {
+      // Actualizar checkboxes iniciales
+      columnasSeleccionadas.forEach(columna => {
+        const checkbox = document.getElementById('checkbox-' + columna);
+        if (checkbox) {
+          checkbox.classList.add('checked');
+        }
+        const item = document.querySelector('[data-columna="' + columna + '"]');
+        if (item) {
+          item.classList.add('selected');
+        }
+      });
+      
+      actualizarContadorColumnas();
+      actualizarColumnasTabla();
+    }
+    
+    function toggleColumna(columna) {
+      const checkbox = document.getElementById('checkbox-' + columna);
+      const item = document.querySelector('[data-columna="' + columna + '"]');
+      
+      if (columnasSeleccionadas.includes(columna)) {
+        // Deseleccionar
+        columnasSeleccionadas = columnasSeleccionadas.filter(c => c !== columna);
+        checkbox.classList.remove('checked');
+        item.classList.remove('selected');
+      } else {
+        // Seleccionar
+        columnasSeleccionadas.push(columna);
+        checkbox.classList.add('checked');
+        item.classList.add('selected');
+      }
+      
+      actualizarContadorColumnas();
+      actualizarColumnasTabla();
+      recalcular();
+    }
+    
+    function seleccionarTodasColumnas() {
+      const todasColumnas = document.querySelectorAll('.columna-checkbox-item');
+      columnasSeleccionadas = [];
+      
+      todasColumnas.forEach(item => {
+        const columna = item.dataset.columna;
+        columnasSeleccionadas.push(columna);
+        
+        const checkbox = document.getElementById('checkbox-' + columna);
+        checkbox.classList.add('checked');
+        item.classList.add('selected');
+      });
+      
+      actualizarContadorColumnas();
+      actualizarColumnasTabla();
+      recalcular();
+    }
+    
+    function deseleccionarTodasColumnas() {
+      const todasColumnas = document.querySelectorAll('.columna-checkbox-item');
+      columnasSeleccionadas = [];
+      
+      todasColumnas.forEach(item => {
+        const columna = item.dataset.columna;
+        
+        const checkbox = document.getElementById('checkbox-' + columna);
+        checkbox.classList.remove('checked');
+        item.classList.remove('selected');
+      });
+      
+      actualizarContadorColumnas();
+      actualizarColumnasTabla();
+      recalcular();
+    }
+    
+    function actualizarContadorColumnas() {
+      const contadorSeleccionadas = document.getElementById('contador-seleccionadas');
+      const contadorVisibles = document.getElementById('contador-columnas-visibles');
+      const contadorHeader = document.getElementById('contador-columnas-visibles-header');
+      
+      if (contadorSeleccionadas) {
+        contadorSeleccionadas.textContent = columnasSeleccionadas.length;
+      }
+      
+      if (contadorVisibles) {
+        contadorVisibles.textContent = columnasSeleccionadas.length;
+      }
+      
+      if (contadorHeader) {
+        contadorHeader.textContent = columnasSeleccionadas.length;
+      }
+    }
+    
+    function actualizarColumnasTabla() {
+      // Ocultar/mostrar columnas en el encabezado
+      document.querySelectorAll('.columna-tabla').forEach(columna => {
+        const nombreColumna = columna.dataset.columna;
+        
+        if (columnasSeleccionadas.includes(nombreColumna)) {
+          columna.classList.remove('columna-oculta');
+          columna.classList.add('columna-visualizada');
+        } else {
+          columna.classList.remove('columna-visualizada');
+          columna.classList.add('columna-oculta');
+        }
+      });
+    }
+    
+    function guardarSeleccionColumnas() {
+      const desde = "<?= htmlspecialchars($desde) ?>";
+      const hasta = "<?= htmlspecialchars($hasta) ?>";
+      const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
+      
+      fetch('<?= basename(__FILE__) ?>', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          guardar_columnas_seleccionadas: 1,
+          columnas: JSON.stringify(columnasSeleccionadas),
+          desde: desde,
+          hasta: hasta,
+          empresa: empresa
+        })
+      })
+      .then(r => r.text())
+      .then(respuesta => {
+        if (respuesta.trim() === 'ok') {
+          // Mostrar notificación de éxito
+          mostrarNotificacion('✅ Selección de columnas guardada', 'success');
+        } else {
+          mostrarNotificacion('❌ Error al guardar selección', 'error');
+        }
+      })
+      .catch(error => {
+        console.error('Error:', error);
+        mostrarNotificacion('❌ Error de conexión', 'error');
+      });
+    }
+    
+    function mostrarNotificacion(mensaje, tipo) {
+      // Crear elemento de notificación
+      const notificacion = document.createElement('div');
+      notificacion.className = `fixed top-4 right-4 px-4 py-3 rounded-lg shadow-lg z-[10001] animate-fade-in-down ${
+        tipo === 'success' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 
+        'bg-rose-100 text-rose-800 border border-rose-200'
+      }`;
+      notificacion.innerHTML = `
+        <div class="flex items-center gap-2">
+          <span class="text-lg">${tipo === 'success' ? '✅' : '❌'}</span>
+          <span class="font-medium">${mensaje}</span>
+        </div>
+      `;
+      
+      document.body.appendChild(notificacion);
+      
+      // Remover después de 3 segundos
+      setTimeout(() => {
+        notificacion.remove();
+      }, 3000);
     }
     
     // ===== FUNCIONALIDAD PARA RUTAS SIN CLASIFICAR =====
@@ -1930,11 +2323,15 @@ if ($empresaFiltro !== "") {
         const veh = card.dataset.vehiculo;
         tarifas[veh] = {};
         
-        // Obtener todas las columnas dinámicas
+        // Obtener todas las columnas dinámicas (solo las seleccionadas)
         card.querySelectorAll('input[data-campo]').forEach(input=>{
-          const campo = input.dataset.campo.toLowerCase(); // IMPORTANTE: Normalizar a minúsculas
-          const valor = parseFloat(input.value) || 0;
-          tarifas[veh][campo] = valor;
+          const campo = input.dataset.campo.toLowerCase();
+          
+          // Solo incluir si la columna está seleccionada
+          if (columnasSeleccionadas.includes(campo)) {
+            const valor = parseFloat(input.value) || 0;
+            tarifas[veh][campo] = valor;
+          }
         });
       });
       return tarifas;
@@ -1948,12 +2345,6 @@ if ($empresaFiltro !== "") {
       const tarifas = getTarifas();
       const filas = document.querySelectorAll('#tabla_conductores_body tr');
       
-      // Obtener clasificaciones desde los encabezados (en minúsculas)
-      const clasificaciones = [];
-      document.querySelectorAll('#tabla_conductores thead th[title]').forEach(th => {
-        clasificaciones.push(th.getAttribute('title').toLowerCase());
-      });
-
       let totalViajes = 0;
       let totalPagado = 0;
       let totalFaltante = 0;
@@ -1962,18 +2353,19 @@ if ($empresaFiltro !== "") {
         if (fila.style.display === 'none') return;
 
         const veh = fila.dataset.vehiculo;
-        const celdas = fila.querySelectorAll('td');
+        const celdas = fila.querySelectorAll('td.columna-tabla.columna-visualizada');
         const tarifasVeh = tarifas[veh] || {};
 
         let totalFila = 0;
-        let columnaIndex = 3; // Empieza después de estado, conductor y tipo
         
-        // Calcular por cada clasificación
-        clasificaciones.forEach(clasif => {
-          const cantidad = parseInt(celdas[columnaIndex]?.textContent || 0);
-          const tarifa = tarifasVeh[clasif] || 0;
+        // Calcular por cada columna visible
+        celdas.forEach(celda => {
+          if (!celda.classList.contains('columna-tabla')) return;
+          
+          const columna = celda.dataset.columna;
+          const cantidad = parseInt(celda.textContent || 0);
+          const tarifa = tarifasVeh[columna] || 0;
           totalFila += cantidad * tarifa;
-          columnaIndex++;
         });
 
         const pagado = parseInt(fila.dataset.pagado || '0') || 0;
