@@ -1007,77 +1007,6 @@ if ($empresaFiltro !== "") {
     border-left: 4px solid #f43f5e !important;
   }
   
-  /* ===== COLUMNA CONDUCTOR FIJA - SOLUCIÓN PARA TELÉFONO ===== */
-  /* Para todos los dispositivos - Columna del conductor fija */
-  #tabla_conductores thead th:nth-child(2),
-  #tabla_conductores_body tr td:nth-child(2) {
-    position: sticky;
-    left: 0;
-    z-index: 18; /* Más alto que las otras celdas */
-    background: white;
-    box-shadow: 2px 0 8px rgba(0,0,0,0.1);
-    min-width: 220px !important; /* Asegurar ancho fijo */
-  }
-
-  /* Encabezado de conductor fijo (arriba) */
-  #tabla_conductores thead th:nth-child(2) {
-    background: #2563eb !important; /* Color del header azul */
-    color: white !important;
-    border-right: 2px solid #1d4ed8;
-    z-index: 25; /* Más alto que el body */
-  }
-
-  /* Celdas del body - conductor fijo */
-  #tabla_conductores_body tr td:nth-child(2) {
-    background: inherit;
-    border-right: 2px solid #e5e7eb;
-  }
-
-  /* Asegurar que las celdas sticky tengan background en hover */
-  #tabla_conductores_body tr:hover td:nth-child(2) {
-    background-color: #f0f9ff !important; /* Color azul claro en hover */
-  }
-
-  /* Para el estado (primera columna) - también sticky pero después del conductor */
-  #tabla_conductores thead th:first-child,
-  #tabla_conductores_body tr td:first-child {
-    position: sticky;
-    left: 220px; /* Después del ancho del conductor */
-    z-index: 17; /* Un nivel menos que el conductor */
-    background: white;
-    box-shadow: 2px 0 5px rgba(0,0,0,0.05);
-  }
-
-  /* Encabezado de estado fijo */
-  #tabla_conductores thead th:first-child {
-    background: #2563eb !important;
-    color: white !important;
-    border-right: 2px solid #1d4ed8;
-    z-index: 24;
-  }
-
-  /* Celdas del body - estado fijo */
-  #tabla_conductores_body tr td:first-child {
-    background: inherit;
-    border-right: 1px solid #e5e7eb;
-  }
-
-  /* Ajustar para que la columna Tipo también sea sticky si quieres */
-  #tabla_conductores thead th:nth-child(3),
-  #tabla_conductores_body tr td:nth-child(3) {
-    position: sticky;
-    left: 290px; /* Después del estado (70px) y conductor (220px) */
-    z-index: 16;
-    background: white;
-    border-right: 1px solid #e5e7eb;
-  }
-
-  #tabla_conductores thead th:nth-child(3) {
-    background: #2563eb !important;
-    color: white !important;
-    z-index: 23;
-  }
-
   /* Responsive */
   @media (max-width: 768px) {
     .floating-balls-container {
@@ -1110,25 +1039,6 @@ if ($empresaFiltro !== "") {
     
     .ball-tooltip {
       display: none;
-    }
-    
-    /* Ajustes para móvil - reducir ancho de columnas sticky */
-    #tabla_conductores thead th:nth-child(2),
-    #tabla_conductores_body tr td:nth-child(2) {
-      min-width: 180px !important;
-      left: 0;
-    }
-    
-    #tabla_conductores thead th:first-child,
-    #tabla_conductores_body tr td:first-child {
-      min-width: 70px !important;
-      left: 180px; /* Después del conductor reducido */
-    }
-    
-    #tabla_conductores thead th:nth-child(3),
-    #tabla_conductores_body tr td:nth-child(3) {
-      min-width: 100px !important;
-      left: 250px; /* Después del estado y conductor */
     }
   }
 </style>
