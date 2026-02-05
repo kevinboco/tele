@@ -1,20 +1,14 @@
 <?php
-// =======================================================
-// 🔹 CONFIGURACIÓN INICIAL Y SESIÓN
-// =======================================================
-session_start();
-
-
+include("nav.php");
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
 if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); }
 $conn->set_charset("utf8mb4");
 
 /* =======================================================
-   🔹 CONFIGURACIÓN DE COLUMNAS VISIBLES DE CLASIFICACIONES
-   🔹 ESTO DEBE IR ANTES DE CUALQUIER SALIDA HTML
+   🔹 FUNCIONES DINÁMICAS
 ======================================================= */
 
-// Función para obtener columnas de tarifas dinámicamente
+// Obtener columnas de tarifas dinámicamente
 function obtenerColumnasTarifas($conn) {
     $columnas = [];
     $res = $conn->query("SHOW COLUMNS FROM tarifas");
@@ -31,69 +25,6 @@ function obtenerColumnasTarifas($conn) {
     return $columnas;
 }
 
-// 1. PRIMERO: Procesar cambios en las columnas visibles (POST) - DEBE SER LO PRIMERO
-if (isset($_POST['actualizar_columnas_clasificaciones'])) {
-    // Recibir las columnas seleccionadas
-    $columnas_seleccionadas = $_POST['columnas_clasificaciones'] ?? [];
-    
-    // Obtener todas las columnas de tarifas
-    $columnas_tarifas = obtenerColumnasTarifas($conn);
-    
-    // Inicializar el array si no existe
-    if (!isset($_SESSION['columnas_clasificaciones_visibles'])) {
-        $_SESSION['columnas_clasificaciones_visibles'] = [];
-    }
-    
-    // Actualizar el estado de cada columna
-    foreach ($columnas_tarifas as $columna) {
-        $_SESSION['columnas_clasificaciones_visibles'][$columna] = in_array($columna, $columnas_seleccionadas);
-    }
-    
-    // Respuesta limpia
-    header('Content-Type: text/plain; charset=utf-8');
-    echo "ok";
-    exit();
-}
-
-// 2. Restablecer todas las columnas
-if (isset($_POST['restablecer_columnas_clasificaciones'])) {
-    $columnas_tarifas = obtenerColumnasTarifas($conn);
-    
-    if (!isset($_SESSION['columnas_clasificaciones_visibles'])) {
-        $_SESSION['columnas_clasificaciones_visibles'] = [];
-    }
-    
-    foreach ($columnas_tarifas as $columna) {
-        $_SESSION['columnas_clasificaciones_visibles'][$columna] = true;
-    }
-    
-    header('Content-Type: text/plain; charset=utf-8');
-    echo "ok";
-    exit();
-}
-
-// 3. Inicializar configuración de columnas visibles en sesión si no existe
-if (!isset($_SESSION['columnas_clasificaciones_visibles'])) {
-    $_SESSION['columnas_clasificaciones_visibles'] = [];
-    
-    // Obtener todas las columnas de tarifas
-    $columnas_tarifas = obtenerColumnasTarifas($conn);
-    
-    // Marcar todas como visibles por defecto
-    foreach ($columnas_tarifas as $columna) {
-        $_SESSION['columnas_clasificaciones_visibles'][$columna] = true;
-    }
-}
-
-/* =======================================================
-   🔹 FUNCIONES DINÁMICAS
-======================================================= */
-
-// Obtener clasificaciones disponibles (solo de tarifas)
-function obtenerClasificacionesDisponibles($conn) {
-    return obtenerColumnasTarifas($conn);
-}
-
 // Crear nueva columna en tarifas
 function crearNuevaColumnaTarifa($conn, $nombre_columna) {
     $nombre_columna = preg_replace('/[^a-zA-Z0-9_]/', '_', $nombre_columna);
@@ -108,6 +39,11 @@ function crearNuevaColumnaTarifa($conn, $nombre_columna) {
     // Crear nueva columna
     $sql = "ALTER TABLE tarifas ADD COLUMN `$nombre_columna` DECIMAL(10,2) DEFAULT 0.00";
     return $conn->query($sql);
+}
+
+// Obtener clasificaciones disponibles (solo de tarifas)
+function obtenerClasificacionesDisponibles($conn) {
+    return obtenerColumnasTarifas($conn);
 }
 
 // Mapeo de colores para clasificaciones
@@ -208,7 +144,6 @@ if (isset($_POST['crear_clasificacion'])) {
     $nombre_clasificacion = trim($conn->real_escape_string($_POST['nombre_clasificacion']));
     
     if (empty($nombre_clasificacion)) {
-        header('Content-Type: text/plain; charset=utf-8');
         echo "error: nombre vacío";
         exit;
     }
@@ -219,10 +154,8 @@ if (isset($_POST['crear_clasificacion'])) {
     
     // Crear nueva columna
     if (crearNuevaColumnaTarifa($conn, $nombre_columna)) {
-        header('Content-Type: text/plain; charset=utf-8');
         echo "ok";
     } else {
-        header('Content-Type: text/plain; charset=utf-8');
         echo "error: " . $conn->error;
     }
     exit;
@@ -250,7 +183,6 @@ if (isset($_POST['guardar_tarifa'])) {
             // Actualizar lista de columnas después de crearla
             $columnas_tarifas = obtenerColumnasTarifas($conn);
         } else {
-            header('Content-Type: text/plain; charset=utf-8');
             echo "error: no se pudo crear el campo '$campo'";
             exit;
         }
@@ -261,10 +193,8 @@ if (isset($_POST['guardar_tarifa'])) {
     $sql = "UPDATE tarifas SET `$campo` = $valor WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'";
     
     if ($conn->query($sql)) {
-        header('Content-Type: text/plain; charset=utf-8');
         echo "ok";
     } else {
-        header('Content-Type: text/plain; charset=utf-8');
         echo "error: " . $conn->error;
     }
     exit;
@@ -290,13 +220,31 @@ if (isset($_POST['guardar_clasificacion'])) {
                 ON DUPLICATE KEY UPDATE clasificacion = VALUES(clasificacion)";
     }
     
-    header('Content-Type: text/plain; charset=utf-8');
     echo $conn->query($sql) ? "ok" : ("error: " . $conn->error);
     exit;
 }
 
 /* =======================================================
-   🔹 Endpoint AJAX: viajes por conductor
+   🔹 Guardar columnas seleccionadas (AJAX)
+======================================================= */
+if (isset($_POST['guardar_columnas_seleccionadas'])) {
+    $columnas = $_POST['columnas'] ?? [];
+    $empresa = $_GET['empresa'] ?? "";
+    $desde = $_GET['desde'] ?? "";
+    $hasta = $_GET['hasta'] ?? "";
+    
+    // Crear clave única para esta sesión/filtro
+    $session_key = "columnas_seleccionadas_" . md5($empresa . $desde . $hasta);
+    
+    // Guardar en sesión (puedes usar cookies o localStorage en el cliente)
+    setcookie($session_key, json_encode($columnas), time() + (86400 * 7), "/"); // 7 días
+    
+    echo "ok";
+    exit;
+}
+
+/* =======================================================
+   🔹 Endpoint AJAX: viajes por conductor - ACTUALIZADO
 ======================================================= */
 if (isset($_GET['viajes_conductor'])) {
     $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
@@ -346,7 +294,7 @@ if (isset($_GET['viajes_conductor'])) {
         // Contadores dinámicos
         $counts = array_fill_keys(array_keys($legend), 0);
         
-        // Contador de rutas sin clasificar para este conductor
+        // NUEVO: Contador de rutas sin clasificar para este conductor
         $rutas_sin_clasificar = [];
         $total_sin_clasificar = 0;
 
@@ -363,7 +311,7 @@ if (isset($_GET['viajes_conductor'])) {
             // Normalizar a minúsculas
             $cat = strtolower($cat);
             
-            // Contar rutas sin clasificar
+            // NUEVO: Contar rutas sin clasificar
             if ($cat === 'otro' || $cat === '') {
                 $total_sin_clasificar++;
                 $rutas_sin_clasificar[] = [
@@ -410,7 +358,7 @@ if (isset($_GET['viajes_conductor'])) {
         // Generar HTML
         echo "<div class='space-y-3'>";
         
-        // Mostrar alerta de rutas sin clasificar para este conductor
+        // NUEVO: Mostrar alerta de rutas sin clasificar para este conductor
         if ($total_sin_clasificar > 0) {
             echo "<div class='bg-amber-50 border border-amber-200 rounded-xl p-4 mb-3'>
                     <div class='flex items-center gap-2 mb-2'>
@@ -585,7 +533,7 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
 }
 
 /* =======================================================
-   🔹 Cálculo y armado de tablas DINÁMICO
+   🔹 Cálculo y armado de tablas DINÁMICO - MODIFICADO
 ======================================================= */
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
@@ -595,12 +543,15 @@ $empresaFiltro = $_GET['empresa'] ?? "";
 $columnas_tarifas = obtenerColumnasTarifas($conn);
 $clasificaciones_disponibles = obtenerClasificacionesDisponibles($conn);
 
-// Filtrar clasificaciones según configuración de columnas visibles
-$clasificaciones_mostrar = [];
-foreach ($clasificaciones_disponibles as $clasif) {
-    if ($_SESSION['columnas_clasificaciones_visibles'][$clasif] ?? true) {
-        $clasificaciones_mostrar[] = $clasif;
-    }
+// Cargar columnas seleccionadas desde cookie
+$session_key = "columnas_seleccionadas_" . md5($empresaFiltro . $desde . $hasta);
+$columnas_seleccionadas = [];
+
+if (isset($_COOKIE[$session_key])) {
+    $columnas_seleccionadas = json_decode($_COOKIE[$session_key], true);
+} else {
+    // Por defecto, mostrar todas las columnas
+    $columnas_seleccionadas = $clasificaciones_disponibles;
 }
 
 // Cargar clasificaciones de rutas desde BD
@@ -621,8 +572,6 @@ if ($empresaFiltro !== "") {
     $empresaFiltro = $conn->real_escape_string($empresaFiltro);
     $sql .= " AND empresa = '$empresaFiltro'";
 }
-$sql .= " ORDER BY fecha DESC, id DESC";
-
 $res = $conn->query($sql);
 
 $datos = [];
@@ -630,7 +579,7 @@ $vehiculos = [];
 $rutasUnicas = [];
 $pagosConductor = [];
 
-// Contador global de rutas sin clasificar por conductor
+// NUEVO: Contador global de rutas sin clasificar por conductor
 $rutas_sin_clasificar_por_conductor = [];
 
 if ($res) {
@@ -660,7 +609,7 @@ if ($res) {
             $vehiculos[] = $vehiculo;
         }
 
-        // Verificar si la ruta tiene clasificación
+        // NUEVO: Verificar si la ruta tiene clasificación
         $clasificacion_ruta = $clasif_rutas[$keyRuta] ?? '';
         if ($clasificacion_ruta === '' || $clasificacion_ruta === 'otro') {
             if (!isset($rutas_sin_clasificar_por_conductor[$nombre])) {
@@ -701,7 +650,7 @@ if ($res) {
 // Inyectar pago acumulado
 foreach ($datos as $conductor => $info) {
     $datos[$conductor]["pagado"] = (int)($pagosConductor[$conductor] ?? 0);
-    // Inyectar contador de rutas sin clasificar
+    // NUEVO: Inyectar contador de rutas sin clasificar
     $datos[$conductor]["rutas_sin_clasificar"] = count($rutas_sin_clasificar_por_conductor[$conductor] ?? []);
 }
 
@@ -728,6 +677,7 @@ if ($empresaFiltro !== "") {
 <title>Liquidación de Conductores</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
+  /* ===== ESTILOS ORIGINALES DE LAS BOLITAS Y PANELES ===== */
   ::-webkit-scrollbar{height:10px;width:10px}
   ::-webkit-slider-thumb{background:#d1d5db;border-radius:999px}
   ::-webkit-slider-thumb:hover{background:#9ca3af}
@@ -765,7 +715,7 @@ if ($empresaFiltro !== "") {
     50% { opacity: 0.7; }
   }
   
-  /* ===== BOLITAS FLOTANTES ===== */
+  /* ===== BOLITAS FLOTANTES ORIGINALES ===== */
   .floating-balls-container {
     position: fixed;
     left: 20px;
@@ -840,7 +790,7 @@ if ($empresaFiltro !== "") {
     left: 75px;
   }
   
-  /* Colores específicos para cada bolita */
+  /* Colores específicos para cada bolita (ORIGINALES) */
   .ball-tarifas {
     background: linear-gradient(135deg, #3b82f6, #1d4ed8);
   }
@@ -853,12 +803,12 @@ if ($empresaFiltro !== "") {
     background: linear-gradient(135deg, #f59e0b, #d97706);
   }
   
-  /* ===== NUEVA BOLITA: Configurar columnas ===== */
-  .ball-config-columnas {
+  /* NUEVO COLOR PARA LA CUARTA BOLITA */
+  .ball-selector-columnas {
     background: linear-gradient(135deg, #8b5cf6, #7c3aed);
   }
   
-  /* ===== PANELES DESLIZANTES ===== */
+  /* ===== PANELES DESLIZANTES ORIGINALES ===== */
   .side-panel-overlay {
     position: fixed;
     top: 0;
@@ -931,7 +881,7 @@ if ($empresaFiltro !== "") {
     color: #1e293b;
   }
   
-  /* ===== TABLA CENTRAL CON ANIMACIÓN ===== */
+  /* ===== TABLA CENTRAL CON ANIMACIÓN ORIGINAL ===== */
   .table-container-wrapper {
     transition: margin-left 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     margin-left: 0;
@@ -968,7 +918,7 @@ if ($empresaFiltro !== "") {
     animation: fadeInDown 0.3s ease-out;
   }
 
-  /* ===== MODAL VIAJES ===== */
+  /* ===== MODAL VIAJES ORIGINAL ===== */
   .viajes-backdrop{ 
     position:fixed; 
     inset:0; 
@@ -1021,7 +971,7 @@ if ($empresaFiltro !== "") {
   .cat-carrotanque { background-color: rgba(207, 250, 254, 0.1); }
   .cat-otro { background-color: rgba(243, 244, 246, 0.1); }
   
-  /* ===== ACORDEÓN PARA TARIFAS ===== */
+  /* ===== ACORDEÓN PARA TARIFAS ORIGINAL ===== */
   .tarjeta-tarifa-acordeon {
     transition: all 0.3s ease;
   }
@@ -1052,7 +1002,7 @@ if ($empresaFiltro !== "") {
     transform: rotate(90deg);
   }
   
-  /* ===== COLORES PARA FILAS DE CLASIFICACIÓN DE RUTAS ===== */
+  /* ===== COLORES PARA FILAS DE CLASIFICACIÓN DE RUTAS ORIGINALES ===== */
   .fila-clasificada-completo {
     background-color: rgba(209, 250, 229, 0.3) !important;
     border-left: 4px solid #10b981 !important;
@@ -1093,31 +1043,51 @@ if ($empresaFiltro !== "") {
     border-left: 4px solid #f43f5e !important;
   }
   
-  /* Estilos para checkboxes de columnas */
-  .checkbox-columna:checked {
-    background-color: #8b5cf6;
-    border-color: #8b5cf6;
+  /* ===== NUEVOS ESTILOS PARA SELECTOR DE COLUMNAS (DENTRO DEL PANEL) ===== */
+  .columna-checkbox-item {
+    transition: all 0.2s ease;
   }
   
-  /* Indicador visual para columnas ocultas */
+  .columna-checkbox-item:hover {
+    background-color: #f8fafc;
+  }
+  
+  .columna-checkbox-item.selected {
+    background-color: #eff6ff;
+    border-color: #3b82f6;
+  }
+  
+  .checkbox-columna {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 2px solid #cbd5e1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+  }
+  
+  .checkbox-columna.checked {
+    background-color: #3b82f6;
+    border-color: #3b82f6;
+  }
+  
+  .checkbox-columna.checked::after {
+    content: "✓";
+    color: white;
+    font-size: 12px;
+    font-weight: bold;
+  }
+  
+  /* Estilo para columnas ocultas en la tabla */
   .columna-oculta {
-    opacity: 0.5;
-    filter: grayscale(0.7);
+    display: none !important;
   }
   
-  /* Animación para cambios en columnas */
-  @keyframes fadeColumn {
-    0% { opacity: 0; transform: translateX(-10px); }
-    100% { opacity: 1; transform: translateX(0); }
-  }
-  
-  .fade-column-in {
-    animation: fadeColumn 0.3s ease-out;
-  }
-  
-  /* Notificación flotante */
-  #notificacion-flotante {
-    animation: fadeInDown 0.3s ease-out;
+  .columna-visualizada {
+    display: table-cell !important;
   }
   
   /* Responsive */
@@ -1158,37 +1128,103 @@ if ($empresaFiltro !== "") {
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
 
-  <!-- ===== BOLITAS FLOTANTES ===== -->
+  <!-- Encabezado CON FILTRO INTEGRADO -->
+  <header class="max-w-[1800px] mx-auto px-3 md:px-4 pt-6">
+    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm px-5 py-4">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
+        <!-- Título y filtro en la misma línea -->
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between w-full gap-3">
+          <div class="flex items-center gap-3">
+            <h2 class="text-xl md:text-2xl font-bold">🪙 Liquidación de Conductores</h2>
+            <?php if ($empresaFiltro !== ""): ?>
+              <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-sm font-medium">
+                🏢 <?= htmlspecialchars($empresaFiltro) ?>
+              </span>
+            <?php endif; ?>
+          </div>
+          
+          <!-- FILTRO DE FECHA - AHORA EN EL ENCABEZADO -->
+          <form id="headerFilterForm" class="flex flex-col md:flex-row md:items-center gap-2" method="get">
+            <div class="flex flex-col md:flex-row md:items-center gap-2">
+              <label class="flex items-center gap-1">
+                <span class="text-xs font-medium text-slate-600 whitespace-nowrap">Desde:</span>
+                <input type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" required
+                       class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition">
+              </label>
+              <label class="flex items-center gap-1">
+                <span class="text-xs font-medium text-slate-600 whitespace-nowrap">Hasta:</span>
+                <input type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" required
+                       class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition">
+              </label>
+              <label class="flex items-center gap-1">
+                <span class="text-xs font-medium text-slate-600 whitespace-nowrap">Empresa:</span>
+                <select name="empresa"
+                        class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition min-w-[120px]">
+                  <option value="">-- Todas --</option>
+                  <?php foreach($empresas as $e): ?>
+                    <option value="<?= htmlspecialchars($e) ?>" <?= $empresaFiltro==$e?'selected':'' ?>>
+                      <?= htmlspecialchars($e) ?>
+                    </option>
+                  <?php endforeach; ?>
+                </select>
+              </label>
+              <button type="submit" 
+                      class="rounded-lg bg-blue-600 text-white px-4 py-1.5 text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 focus:ring-2 focus:ring-blue-200 transition whitespace-nowrap">
+                🔄 Aplicar
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+      
+      <!-- Información del periodo actual -->
+      <div class="text-sm text-slate-600 flex items-center gap-2">
+        <span class="font-medium">Periodo actual:</span>
+        <span class="bg-slate-100 px-2 py-1 rounded-lg font-semibold">
+          <?= htmlspecialchars($desde) ?> → <?= htmlspecialchars($hasta) ?>
+        </span>
+        <span class="mx-2">•</span>
+        <span class="font-medium">Conductores:</span>
+        <span class="bg-slate-100 px-2 py-1 rounded-lg font-semibold">
+          <?= count($datos) ?>
+        </span>
+        <span class="mx-2">•</span>
+        <span class="font-medium">Columnas visibles:</span>
+        <span class="bg-slate-100 px-2 py-1 rounded-lg font-semibold">
+          <span id="contador-columnas-visibles"><?= count($columnas_seleccionadas) ?></span>/<?= count($clasificaciones_disponibles) ?>
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===== BOLITAS FLOTANTES ORIGINALES (AHORA 4 BOLITAS) ===== -->
   <div class="floating-balls-container">
-    <!-- Bolita 1: Tarifas por tipo de vehículo -->
+    <!-- Bolita 1: Tarifas por tipo de vehículo (ORIGINAL) -->
     <div class="floating-ball ball-tarifas" id="ball-tarifas" data-panel="tarifas">
       <div class="ball-content">🚐</div>
       <div class="ball-tooltip">Tarifas por tipo de vehículo</div>
     </div>
     
-    <!-- Bolita 2: Crear nueva clasificación -->
+    <!-- Bolita 2: Crear nueva clasificación (ORIGINAL) -->
     <div class="floating-ball ball-crear-clasif" id="ball-crear-clasif" data-panel="crear-clasif">
       <div class="ball-content">➕</div>
       <div class="ball-tooltip">Crear nueva clasificación</div>
     </div>
     
-    <!-- Bolita 3: Clasificar rutas existentes -->
+    <!-- Bolita 3: Clasificar rutas existentes (ORIGINAL) -->
     <div class="floating-ball ball-clasif-rutas" id="ball-clasif-rutas" data-panel="clasif-rutas">
       <div class="ball-content">🧭</div>
       <div class="ball-tooltip">Clasificar rutas existentes</div>
     </div>
     
-    <!-- ===== NUEVA BOLITA 4: Configurar columnas de clasificación ===== -->
-    <div class="floating-ball ball-config-columnas" id="ball-config-columnas" data-panel="config-columnas">
+    <!-- BOLITA 4: NUEVA - Seleccionar columnas de la tabla -->
+    <div class="floating-ball ball-selector-columnas" id="ball-selector-columnas" data-panel="selector-columnas">
       <div class="ball-content">📊</div>
-      <div class="ball-tooltip">Configurar columnas visibles</div>
+      <div class="ball-tooltip">Seleccionar columnas</div>
     </div>
   </div>
 
-  <!-- ===== OVERLAY PARA PANELES ===== -->
-  <div class="side-panel-overlay" id="sidePanelOverlay"></div>
-
-  <!-- ===== PANEL DE TARIFAS CON ACORDEÓN Y COLORES ===== -->
+  <!-- ===== PANEL DE TARIFAS ORIGINAL ===== -->
   <div class="side-panel" id="panel-tarifas">
     <div class="side-panel-header">
       <h3 class="text-lg font-semibold flex items-center gap-2">
@@ -1295,7 +1331,7 @@ if ($empresaFiltro !== "") {
     </div>
   </div>
 
-  <!-- ===== PANEL CREAR CLASIFICACIÓN ===== -->
+  <!-- ===== PANEL CREAR CLASIFICACIÓN ORIGINAL ===== -->
   <div class="side-panel" id="panel-crear-clasif">
     <div class="side-panel-header">
       <h3 class="text-lg font-semibold flex items-center gap-2">
@@ -1335,7 +1371,7 @@ if ($empresaFiltro !== "") {
     </div>
   </div>
 
-  <!-- ===== PANEL CLASIFICACIÓN RUTAS CON COLORES Y SCROLL ===== -->
+  <!-- ===== PANEL CLASIFICACIÓN RUTAS ORIGINAL ===== -->
   <div class="side-panel" id="panel-clasif-rutas">
     <div class="side-panel-header">
       <h3 class="text-lg font-semibold flex items-center gap-2">
@@ -1404,167 +1440,100 @@ if ($empresaFiltro !== "") {
     </div>
   </div>
 
-  <!-- ===== PANEL CONFIGURAR COLUMNAS VISIBLES ===== -->
-  <div class="side-panel" id="panel-config-columnas">
+  <!-- ===== NUEVO PANEL: SELECTOR DE COLUMNAS ===== -->
+  <div class="side-panel" id="panel-selector-columnas">
     <div class="side-panel-header">
       <h3 class="text-lg font-semibold flex items-center gap-2">
-        <span>📊 Configurar Columnas Visibles</span>
-        <span class="text-xs text-slate-500">Clasificaciones</span>
+        <span>📊 Seleccionar Columnas</span>
+        <span class="text-xs text-slate-500">Personalizar tabla</span>
       </h3>
-      <button class="side-panel-close" data-panel="config-columnas">✕</button>
+      <button class="side-panel-close" data-panel="selector-columnas">✕</button>
     </div>
     <div class="side-panel-body">
-      <div class="mb-4">
-        <p class="text-sm text-slate-600 mb-3">
-          Selecciona qué clasificaciones mostrar en la tabla principal. 
-          Las columnas ocultas no se mostrarán en los cálculos.
-        </p>
-        
-        <!-- Contador de columnas seleccionadas -->
-        <div class="flex items-center justify-between mb-4 p-3 bg-blue-50 rounded-xl">
-          <span class="text-sm font-medium text-blue-700">Columnas seleccionadas:</span>
-          <span id="contadorColumnasSeleccionadas" class="px-3 py-1 bg-blue-600 text-white text-sm font-bold rounded-full"><?= count($clasificaciones_mostrar) ?></span>
+      <div class="flex flex-col gap-4">
+        <div>
+          <p class="text-sm text-slate-600 mb-3">
+            Marca/desmarca las columnas que quieres ver en la tabla principal.
+            <span id="contador-seleccionadas-panel" class="font-semibold text-blue-600"><?= count($columnas_seleccionadas) ?></span> de 
+            <?= count($clasificaciones_disponibles) ?> seleccionadas
+          </p>
         </div>
-      </div>
-      
-      <!-- Lista de columnas con checkboxes -->
-      <div id="listaColumnasClasificaciones" class="space-y-2 max-h-[calc(100vh-300px)] overflow-y-auto border border-slate-200 rounded-xl p-3">
-        <?php 
-        $seleccionadas = 0;
-        foreach ($clasificaciones_disponibles as $clasif): 
-          $estaVisible = $_SESSION['columnas_clasificaciones_visibles'][$clasif] ?? true;
-          if ($estaVisible) $seleccionadas++;
-          
-          $estilo = obtenerEstiloClasificacion($clasif);
-          
-          // Definir etiqueta legible
-          $etiquetas = [
-              'completo' => 'Viaje Completo',
-              'medio' => 'Viaje Medio', 
-              'extra' => 'Viaje Extra',
-              'carrotanque' => 'Carrotanque',
-              'siapana' => 'Siapana',
-              'riohacha' => 'Riohacha',
-              'pru' => 'PRU',
-              'maco' => 'MACO'
-          ];
-          
-          $etiqueta = $etiquetas[$clasif] ?? ucfirst($clasif);
-        ?>
-        <div class="flex items-center justify-between p-3 rounded-lg border <?= $estilo['border'] ?> hover:bg-slate-50 transition-colors" 
-             style="background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>20;">
-          <div class="flex items-center gap-3">
-            <input type="checkbox" 
-                   id="col_<?= htmlspecialchars($clasif) ?>" 
-                   value="<?= htmlspecialchars($clasif) ?>"
-                   class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 checkbox-columna"
-                   <?= $estaVisible ? 'checked' : '' ?>
-                   onchange="actualizarContadorColumnas()">
-            <label for="col_<?= htmlspecialchars($clasif) ?>" class="flex items-center gap-2 cursor-pointer">
-              <span class="w-3 h-3 rounded-full" style="background-color: <?= str_replace('text-', '#', $estilo['text']) ?>"></span>
-              <span class="font-medium <?= $estilo['text'] ?>"><?= htmlspecialchars($etiqueta) ?></span>
-              <span class="text-xs text-slate-500">(<?= htmlspecialchars($clasif) ?>)</span>
-            </label>
+        
+        <!-- Botones de acción -->
+        <div class="flex flex-wrap gap-2">
+          <button onclick="seleccionarTodasColumnas()" 
+                  class="text-xs px-3 py-1.5 rounded-lg border border-green-300 bg-green-50 text-green-700 hover:bg-green-100 transition whitespace-nowrap">
+            ✅ Seleccionar todas
+          </button>
+          <button onclick="deseleccionarTodasColumnas()" 
+                  class="text-xs px-3 py-1.5 rounded-lg border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 transition whitespace-nowrap">
+            ❌ Deseleccionar todas
+          </button>
+          <button onclick="guardarSeleccionColumnas()" 
+                  class="text-xs px-3 py-1.5 rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 transition whitespace-nowrap">
+            💾 Guardar selección
+          </button>
+        </div>
+        
+        <!-- Lista de columnas -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[60vh] overflow-y-auto p-2 border border-slate-200 rounded-lg">
+          <?php foreach ($clasificaciones_disponibles as $clasif): 
+            $estilo = obtenerEstiloClasificacion($clasif);
+            $seleccionada = in_array($clasif, $columnas_seleccionadas);
+          ?>
+          <div class="columna-checkbox-item flex items-center gap-2 p-3 border border-slate-200 rounded-lg cursor-pointer transition <?= $seleccionada ? 'selected' : '' ?>"
+               data-columna="<?= htmlspecialchars($clasif) ?>"
+               onclick="toggleColumna('<?= htmlspecialchars($clasif) ?>')"
+               title="<?= htmlspecialchars(ucfirst($clasif)) ?>">
+            <div class="checkbox-columna <?= $seleccionada ? 'checked' : '' ?>" 
+                 id="checkbox-<?= htmlspecialchars($clasif) ?>"></div>
+            <div class="flex-1 flex flex-col">
+              <span class="text-sm font-medium whitespace-nowrap <?= $estilo['text'] ?>">
+                <?php 
+                  // Nombre completo para mejor legibilidad
+                  $nombres = [
+                      'completo' => 'Viaje Completo',
+                      'medio' => 'Viaje Medio', 
+                      'extra' => 'Viaje Extra',
+                      'carrotanque' => 'Carrotanque',
+                      'siapana' => 'Siapana',
+                      'riohacha' => 'Riohacha',
+                      'pru' => 'Pru',
+                      'maco' => 'Maco'
+                  ];
+                  echo $nombres[$clasif] ?? ucfirst($clasif);
+                ?>
+              </span>
+              <span class="text-xs text-slate-500 mt-0.5">Columna: <?= htmlspecialchars($clasif) ?></span>
+            </div>
+            <div class="w-3 h-3 rounded-full" style="background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>;"></div>
           </div>
-          <span class="text-xs px-2 py-1 rounded <?= $estilo['bg'] ?> <?= $estilo['text'] ?> border <?= $estilo['border'] ?>">
-            <?= strtoupper(substr($clasif, 0, 3)) ?>
-          </span>
+          <?php endforeach; ?>
         </div>
-        <?php endforeach; ?>
-      </div>
-      
-      <!-- Botones de acción -->
-      <div class="mt-6 space-y-3">
-        <button onclick="aplicarConfiguracionColumnas()" 
-                class="w-full inline-flex items-center justify-center rounded-xl bg-blue-600 text-white px-4 py-3 text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 focus:ring-4 focus:ring-blue-200 transition">
-          ✅ Aplicar cambios
-        </button>
         
-        <button onclick="restablecerColumnasClasificaciones()" 
-                class="w-full inline-flex items-center justify-center rounded-xl bg-slate-200 text-slate-700 px-4 py-3 text-sm font-semibold hover:bg-slate-300 active:bg-slate-400 focus:ring-4 focus:ring-slate-100 transition">
-          🔄 Restablecer todas
-        </button>
+        <p class="text-xs text-slate-500 mt-2">
+          La selección se aplica inmediatamente. Usa "Guardar selección" para recordarla en futuras visitas.
+        </p>
       </div>
-      
-      <p class="text-xs text-slate-500 mt-4">
-        Los cambios se aplicarán inmediatamente a la tabla. 
-        Las columnas ocultas no afectarán los cálculos totales.
-      </p>
     </div>
   </div>
 
-  <!-- Encabezado CON FILTRO INTEGRADO -->
-  <header class="max-w-[1800px] mx-auto px-3 md:px-4 pt-6">
-    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm px-5 py-4">
-      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
-        <!-- Título y filtro en la misma línea -->
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between w-full gap-3">
-          <div class="flex items-center gap-3">
-            <h2 class="text-xl md:text-2xl font-bold">🪙 Liquidación de Conductores</h2>
-            <?php if ($empresaFiltro !== ""): ?>
-              <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-sm font-medium">
-                🏢 <?= htmlspecialchars($empresaFiltro) ?>
-              </span>
-            <?php endif; ?>
-          </div>
-          
-          <!-- FILTRO DE FECHA - AHORA EN EL ENCABEZADO -->
-          <form id="headerFilterForm" class="flex flex-col md:flex-row md:items-center gap-2" method="get">
-            <div class="flex flex-col md:flex-row md:items-center gap-2">
-              <label class="flex items-center gap-1">
-                <span class="text-xs font-medium text-slate-600 whitespace-nowrap">Desde:</span>
-                <input type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" required
-                       class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition">
-              </label>
-              <label class="flex items-center gap-1">
-                <span class="text-xs font-medium text-slate-600 whitespace-nowrap">Hasta:</span>
-                <input type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" required
-                       class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition">
-              </label>
-              <label class="flex items-center gap-1">
-                <span class="text-xs font-medium text-slate-600 whitespace-nowrap">Empresa:</span>
-                <select name="empresa"
-                        class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition min-w-[120px]">
-                  <option value="">-- Todas --</option>
-                  <?php foreach($empresas as $e): ?>
-                    <option value="<?= htmlspecialchars($e) ?>" <?= $empresaFiltro==$e?'selected':'' ?>>
-                      <?= htmlspecialchars($e) ?>
-                    </option>
-                  <?php endforeach; ?>
-                </select>
-              </label>
-              <button type="submit" 
-                      class="rounded-lg bg-blue-600 text-white px-4 py-1.5 text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 focus:ring-2 focus:ring-blue-200 transition whitespace-nowrap">
-                🔄 Aplicar
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-      
-      <!-- Información del periodo actual -->
-      <div class="text-sm text-slate-600 flex items-center gap-2">
-        <span class="font-medium">Periodo actual:</span>
-        <span class="bg-slate-100 px-2 py-1 rounded-lg font-semibold">
-          <?= htmlspecialchars($desde) ?> → <?= htmlspecialchars($hasta) ?>
-        </span>
-        <span class="mx-2">•</span>
-        <span class="font-medium">Conductores:</span>
-        <span class="bg-slate-100 px-2 py-1 rounded-lg font-semibold">
-          <?= count($datos) ?>
-        </span>
-        <span class="mx-2">•</span>
-        <span class="font-medium">Columnas:</span>
-        <span class="bg-slate-100 px-2 py-1 rounded-lg font-semibold">
-          <?= count($clasificaciones_mostrar) ?> de <?= count($clasificaciones_disponibles) ?>
-        </span>
-      </div>
-    </div>
-  </header>
+  <!-- ===== OVERLAY PARA PANELES ORIGINAL ===== -->
+  <div class="side-panel-overlay" id="sidePanelOverlay"></div>
 
   <!-- Contenido principal -->
   <main class="max-w-[1800px] mx-auto px-3 md:px-4 py-6">
     <div class="table-container-wrapper" id="tableContainerWrapper">
+      
+      <!-- Botón para abrir selector de columnas (opcional, para acceso rápido) -->
+      <div class="mb-4 flex justify-end">
+        <button onclick="togglePanel('selector-columnas')" 
+                class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500 text-white hover:from-purple-600 hover:to-indigo-600 transition shadow-md hover:shadow-lg">
+          <span>📊</span>
+          <span class="text-sm font-medium">Seleccionar columnas</span>
+        </button>
+      </div>
+
       <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
         <!-- Encabezado del panel central -->
         <div class="p-5 border-b border-slate-200">
@@ -1572,7 +1541,8 @@ if ($empresaFiltro !== "") {
             <div>
               <h3 class="text-xl font-semibold">🧑‍✈️ Resumen por Conductor</h3>
               <div id="contador-conductores" class="text-sm text-slate-500 mt-1">
-                Mostrando <?= count($datos) ?> conductores
+                Mostrando <?= count($datos) ?> conductores • 
+                <span id="contador-columnas-visibles-header"><?= count($columnas_seleccionadas) ?></span> columnas visibles
               </div>
             </div>
             <div class="flex items-center gap-2">
@@ -1614,7 +1584,7 @@ if ($empresaFiltro !== "") {
             </div>
           </div>
 
-          <!-- Resumen de rutas sin clasificar -->
+          <!-- NUEVO: Resumen de rutas sin clasificar -->
           <div id="resumenRutasSinClasificar" class="hidden mb-6">
             <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
               <div class="flex items-center justify-between mb-4">
@@ -1654,7 +1624,7 @@ if ($empresaFiltro !== "") {
                     Tipo
                   </th>
                   
-                  <?php foreach ($clasificaciones_mostrar as $index => $clasif): 
+                  <?php foreach ($clasificaciones_disponibles as $index => $clasif): 
                     $estilo = obtenerEstiloClasificacion($clasif);
                     // Definir abreviaturas
                     $abreviaturas = [
@@ -1668,6 +1638,10 @@ if ($empresaFiltro !== "") {
                         'maco' => 'MAC'
                     ];
                     $abreviatura = $abreviaturas[$clasif] ?? strtoupper(substr($clasif, 0, 3));
+                    
+                    // Determinar si la columna está visible
+                    $visible = in_array($clasif, $columnas_seleccionadas);
+                    $clase_visibilidad = $visible ? 'columna-visualizada' : 'columna-oculta';
                     
                     // Mapear colores Tailwind a colores HEX para CSS inline
                     $colorMap = [
@@ -1691,11 +1665,11 @@ if ($empresaFiltro !== "") {
                     
                     $bg_color = $colorMap[$estilo['bg']] ?? '#f1f5f9';
                     $text_color = $colorMap[$estilo['text']] ?? '#1e293b';
-                    $border_color = $colorMap[$estilo['border']] ?? '#cbd5e1';
                   ?>
-                  <th class="px-4 py-3 text-center sticky top-0 fade-column-in" 
+                  <th class="px-4 py-3 text-center sticky top-0 <?= $clase_visibilidad ?> columna-tabla" 
+                      data-columna="<?= htmlspecialchars($clasif) ?>"
                       title="<?= htmlspecialchars($clasif) ?>"
-                      style="min-width: 80px; background-color: <?= $bg_color ?>; color: <?= $text_color ?>; border-bottom: 2px solid <?= $border_color ?>; z-index: 19;">
+                      style="min-width: 80px; background-color: <?= $bg_color ?>; color: <?= $text_color ?>; border-bottom: 2px solid <?= $colorMap[$estilo['border']] ?? '#cbd5e1' ?>; z-index: 19;">
                     <?= htmlspecialchars($abreviatura) ?>
                   </th>
                   <?php endforeach; ?>
@@ -1761,9 +1735,13 @@ if ($empresaFiltro !== "") {
                     </span>
                   </td>
                   
-                  <?php foreach ($clasificaciones_mostrar as $clasif): 
+                  <?php foreach ($clasificaciones_disponibles as $clasif): 
                     $estilo = obtenerEstiloClasificacion($clasif);
                     $cantidad = (int)($info[$clasif] ?? 0);
+                    
+                    // Determinar si la columna está visible
+                    $visible = in_array($clasif, $columnas_seleccionadas);
+                    $clase_visibilidad = $visible ? 'columna-visualizada' : 'columna-oculta';
                     
                     // Mapear colores para fondo de celdas
                     $colorMap = [
@@ -1787,10 +1765,10 @@ if ($empresaFiltro !== "") {
                     
                     $bg_cell_color = $colorMap[$estilo['bg']] ?? '#f8fafc';
                     $text_cell_color = $colorMap[$estilo['text']] ?? '#1e293b';
-                    $border_cell_color = str_replace('bg-', '#', $estilo['bg']) . '30';
                   ?>
-                  <td class="px-4 py-3 text-center font-medium fade-column-in" 
-                      style="min-width: 80px; background-color: <?= $bg_cell_color ?>; color: <?= $text_cell_color ?>; border-left: 1px solid <?= $border_cell_color ?>; border-right: 1px solid <?= $border_cell_color ?>;">
+                  <td class="px-4 py-3 text-center font-medium <?= $clase_visibilidad ?> columna-tabla" 
+                      data-columna="<?= htmlspecialchars($clasif) ?>"
+                      style="min-width: 80px; background-color: <?= $bg_cell_color ?>; color: <?= $text_cell_color ?>; border-left: 1px solid <?= str_replace('bg-', '#', $estilo['bg']) ?>30; border-right: 1px solid <?= str_replace('bg-', '#', $estilo['bg']) ?>30;">
                     <?= $cantidad ?>
                   </td>
                   <?php endforeach; ?>
@@ -1828,7 +1806,7 @@ if ($empresaFiltro !== "") {
     </div>
   </main>
 
-  <!-- ===== Modal VIAJES ===== -->
+  <!-- ===== Modal VIAJES ORIGINAL ===== -->
   <div id="viajesModal" class="viajes-backdrop">
     <div class="viajes-card">
       <div class="viajes-header">
@@ -1860,13 +1838,13 @@ if ($empresaFiltro !== "") {
   </div>
 
   <script>
-    // ===== SISTEMA DE BOLITAS Y PANELES =====
+    // ===== SISTEMA DE BOLITAS Y PANELES ORIGINAL =====
     let activePanel = null;
-    const panels = ['tarifas', 'crear-clasif', 'clasif-rutas', 'config-columnas'];
+    const panels = ['tarifas', 'crear-clasif', 'clasif-rutas', 'selector-columnas']; // AGREGADO selector-columnas
     
-    // Inicializar sistema de bolitas
+    // Inicializar sistema de bolitas ORIGINAL
     document.addEventListener('DOMContentLoaded', function() {
-      // Configurar eventos para cada bolita
+      // Configurar eventos para cada bolita ORIGINAL
       panels.forEach(panelId => {
         const ball = document.getElementById(`ball-${panelId}`);
         const panel = document.getElementById(`panel-${panelId}`);
@@ -1874,13 +1852,13 @@ if ($empresaFiltro !== "") {
         const overlay = document.getElementById('sidePanelOverlay');
         const tableWrapper = document.getElementById('tableContainerWrapper');
         
-        // Abrir panel al hacer clic en la bolita
+        // Abrir panel al hacer clic en la bolita ORIGINAL
         ball.addEventListener('click', () => togglePanel(panelId));
         
-        // Cerrar panel con el botón X
+        // Cerrar panel con el botón X ORIGINAL
         closeBtn.addEventListener('click', () => togglePanel(panelId));
         
-        // Cerrar panel al hacer clic en el overlay
+        // Cerrar panel al hacer clic en el overlay ORIGINAL
         overlay.addEventListener('click', () => {
           if (activePanel === panelId) {
             togglePanel(panelId);
@@ -1888,24 +1866,24 @@ if ($empresaFiltro !== "") {
         });
       });
       
-      // Cerrar panel con tecla ESC
+      // Cerrar panel con tecla ESC ORIGINAL
       document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && activePanel) {
           togglePanel(activePanel);
         }
       });
       
-      // Inicializar acordeón de tarifas (todos colapsados inicialmente)
+      // Inicializar acordeón de tarifas (todos colapsados inicialmente) ORIGINAL
       colapsarTodosTarifas();
       
-      // Inicializar colores de las filas de clasificación
+      // Inicializar colores de las filas de clasificación ORIGINAL
       inicializarColoresClasificacion();
       
-      // Inicializar contador de columnas
-      actualizarContadorColumnas();
+      // Inicializar sistema de selección de columnas NUEVO
+      inicializarSeleccionColumnas();
     });
     
-    // Función para abrir/cerrar paneles
+    // Función para abrir/cerrar paneles ORIGINAL
     function togglePanel(panelId) {
       const ball = document.getElementById(`ball-${panelId}`);
       const panel = document.getElementById(`panel-${panelId}`);
@@ -1940,7 +1918,7 @@ if ($empresaFiltro !== "") {
       }
     }
     
-    // ===== FUNCIONES PARA EL ACORDEÓN DE TARIFAS =====
+    // ===== FUNCIONES PARA EL ACORDEÓN DE TARIFAS ORIGINAL =====
     
     function toggleAcordeon(vehiculoId) {
       const content = document.getElementById('content-' + vehiculoId);
@@ -1985,7 +1963,7 @@ if ($empresaFiltro !== "") {
       });
     }
     
-    // ===== FUNCIONES PARA COLORES DE CLASIFICACIÓN DE RUTAS =====
+    // ===== FUNCIONES PARA COLORES DE CLASIFICACIÓN DE RUTAS ORIGINAL =====
     
     function inicializarColoresClasificacion() {
       const filas = document.querySelectorAll('.fila-ruta');
@@ -2020,111 +1998,167 @@ if ($empresaFiltro !== "") {
       guardarClasificacionRuta(ruta, vehiculo, clasificacion);
     }
     
-    // ===== FUNCIONES PARA CONFIGURAR COLUMNAS VISIBLES =====
+    // ===== SISTEMA DE SELECCIÓN DE COLUMNAS NUEVO =====
     
-    // Actualizar contador de columnas seleccionadas
-    function actualizarContadorColumnas() {
-      const checkboxes = document.querySelectorAll('#listaColumnasClasificaciones input[type="checkbox"]:checked');
-      document.getElementById('contadorColumnasSeleccionadas').textContent = checkboxes.length;
-    }
+    let columnasSeleccionadas = <?= json_encode($columnas_seleccionadas) ?>;
     
-    // Aplicar configuración de columnas
-    function aplicarConfiguracionColumnas() {
-      const checkboxes = document.querySelectorAll('#listaColumnasClasificaciones input[type="checkbox"]');
-      const columnasSeleccionadas = [];
-      
-      checkboxes.forEach(checkbox => {
-        if (checkbox.checked) {
-          columnasSeleccionadas.push(checkbox.value);
+    function inicializarSeleccionColumnas() {
+      // Actualizar checkboxes iniciales
+      columnasSeleccionadas.forEach(columna => {
+        const checkbox = document.getElementById('checkbox-' + columna);
+        if (checkbox) {
+          checkbox.classList.add('checked');
+        }
+        const item = document.querySelector('[data-columna="' + columna + '"]');
+        if (item) {
+          item.classList.add('selected');
         }
       });
       
-      // Mostrar indicador de carga
-      const boton = document.querySelector('#panel-config-columnas button:first-child');
-      const textoOriginal = boton.innerHTML;
-      boton.innerHTML = '<span class="animate-spin">⏳</span> Procesando...';
-      boton.disabled = true;
+      actualizarContadorColumnas();
+      actualizarColumnasTabla();
+    }
+    
+    function toggleColumna(columna) {
+      const checkbox = document.getElementById('checkbox-' + columna);
+      const item = document.querySelector('[data-columna="' + columna + '"]');
       
-      // Depuración: ver qué se está enviando
-      console.log('Enviando columnas:', columnasSeleccionadas);
+      if (columnasSeleccionadas.includes(columna)) {
+        // Deseleccionar
+        columnasSeleccionadas = columnasSeleccionadas.filter(c => c !== columna);
+        checkbox.classList.remove('checked');
+        item.classList.remove('selected');
+      } else {
+        // Seleccionar
+        columnasSeleccionadas.push(columna);
+        checkbox.classList.add('checked');
+        item.classList.add('selected');
+      }
       
-      // Enviar configuración al servidor
-      fetch('<?= basename(__FILE__) ?>', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          actualizar_columnas_clasificaciones: 1,
-          columnas_clasificaciones: columnasSeleccionadas
-        })
-      })
-      .then(response => {
-        console.log('Respuesta status:', response.status);
-        console.log('Respuesta ok:', response.ok);
-        return response.text();
-      })
-      .then(respuesta => {
-        console.log('Respuesta completa:', respuesta);
-        const respuestaTrim = respuesta.trim();
+      actualizarContadorColumnas();
+      actualizarColumnasTabla();
+    }
+    
+    function seleccionarTodasColumnas() {
+      const todasColumnas = document.querySelectorAll('.columna-checkbox-item');
+      columnasSeleccionadas = [];
+      
+      todasColumnas.forEach(item => {
+        const columna = item.dataset.columna;
+        columnasSeleccionadas.push(columna);
         
-        if (respuestaTrim === 'ok') {
-          console.log('Configuración guardada exitosamente');
-          // Recargar la página para aplicar cambios
-          location.reload();
+        const checkbox = document.getElementById('checkbox-' + columna);
+        checkbox.classList.add('checked');
+        item.classList.add('selected');
+      });
+      
+      actualizarContadorColumnas();
+      actualizarColumnasTabla();
+    }
+    
+    function deseleccionarTodasColumnas() {
+      const todasColumnas = document.querySelectorAll('.columna-checkbox-item');
+      columnasSeleccionadas = [];
+      
+      todasColumnas.forEach(item => {
+        const columna = item.dataset.columna;
+        
+        const checkbox = document.getElementById('checkbox-' + columna);
+        checkbox.classList.remove('checked');
+        item.classList.remove('selected');
+      });
+      
+      actualizarContadorColumnas();
+      actualizarColumnasTabla();
+    }
+    
+    function actualizarContadorColumnas() {
+      const contadorSeleccionadas = document.getElementById('contador-seleccionadas-panel');
+      const contadorVisibles = document.getElementById('contador-columnas-visibles');
+      const contadorHeader = document.getElementById('contador-columnas-visibles-header');
+      
+      if (contadorSeleccionadas) {
+        contadorSeleccionadas.textContent = columnasSeleccionadas.length;
+      }
+      
+      if (contadorVisibles) {
+        contadorVisibles.textContent = columnasSeleccionadas.length;
+      }
+      
+      if (contadorHeader) {
+        contadorHeader.textContent = columnasSeleccionadas.length;
+      }
+    }
+    
+    function actualizarColumnasTabla() {
+      // Ocultar/mostrar columnas en el encabezado
+      document.querySelectorAll('.columna-tabla').forEach(columna => {
+        const nombreColumna = columna.dataset.columna;
+        
+        if (columnasSeleccionadas.includes(nombreColumna)) {
+          columna.classList.remove('columna-oculta');
+          columna.classList.add('columna-visualizada');
         } else {
-          console.error('Error en respuesta:', respuestaTrim);
-          mostrarNotificacion('❌ Error al guardar configuración: ' + respuestaTrim, 'error');
-          boton.innerHTML = textoOriginal;
-          boton.disabled = false;
+          columna.classList.remove('columna-visualizada');
+          columna.classList.add('columna-oculta');
         }
-      })
-      .catch(error => {
-        console.error('Error de conexión:', error);
-        mostrarNotificacion('❌ Error de conexión: ' + error.message, 'error');
-        boton.innerHTML = textoOriginal;
-        boton.disabled = false;
       });
     }
     
-    // Restablecer todas las columnas
-    function restablecerColumnasClasificaciones() {
-      if (!confirm('¿Restablecer todas las columnas a visibles?')) return;
-      
-      // Mostrar indicador de carga
-      const boton = document.querySelector('#panel-config-columnas button:last-child');
-      const textoOriginal = boton.innerHTML;
-      boton.innerHTML = '<span class="animate-spin">⏳</span> Procesando...';
-      boton.disabled = true;
+    function guardarSeleccionColumnas() {
+      const desde = "<?= htmlspecialchars($desde) ?>";
+      const hasta = "<?= htmlspecialchars($hasta) ?>";
+      const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
       
       fetch('<?= basename(__FILE__) ?>', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
-          restablecer_columnas_clasificaciones: 1
+          guardar_columnas_seleccionadas: 1,
+          columnas: JSON.stringify(columnasSeleccionadas),
+          desde: desde,
+          hasta: hasta,
+          empresa: empresa
         })
       })
       .then(r => r.text())
       .then(respuesta => {
-        const respuestaTrim = respuesta.trim();
-        if (respuestaTrim === 'ok') {
-          // Recargar la página para aplicar cambios
-          location.reload();
+        if (respuesta.trim() === 'ok') {
+          mostrarNotificacion('✅ Selección de columnas guardada', 'success');
         } else {
-          mostrarNotificacion('❌ Error al restablecer: ' + respuestaTrim, 'error');
-          boton.innerHTML = textoOriginal;
-          boton.disabled = false;
+          mostrarNotificacion('❌ Error al guardar selección', 'error');
         }
       })
       .catch(error => {
         console.error('Error:', error);
-        mostrarNotificacion('❌ Error de conexión: ' + error.message, 'error');
-        boton.innerHTML = textoOriginal;
-        boton.disabled = false;
+        mostrarNotificacion('❌ Error de conexión', 'error');
       });
     }
     
-    // ===== FUNCIONALIDAD PARA RUTAS SIN CLASIFICAR =====
+    function mostrarNotificacion(mensaje, tipo) {
+      // Crear elemento de notificación
+      const notificacion = document.createElement('div');
+      notificacion.className = `fixed top-4 right-4 px-4 py-3 rounded-lg shadow-lg z-[10001] animate-fade-in-down ${
+        tipo === 'success' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 
+        'bg-rose-100 text-rose-800 border border-rose-200'
+      }`;
+      notificacion.innerHTML = `
+        <div class="flex items-center gap-2">
+          <span class="text-lg">${tipo === 'success' ? '✅' : '❌'}</span>
+          <span class="font-medium">${mensaje}</span>
+        </div>
+      `;
+      
+      document.body.appendChild(notificacion);
+      
+      // Remover después de 3 segundos
+      setTimeout(() => {
+        notificacion.remove();
+      }, 3000);
+    }
     
-    // Mostrar resumen de rutas sin clasificar
+    // ===== FUNCIONALIDAD PARA RUTAS SIN CLASIFICAR ORIGINAL =====
+    
     function mostrarResumenRutasSinClasificar() {
       const resumenDiv = document.getElementById('resumenRutasSinClasificar');
       const listaDiv = document.getElementById('listaRutasSinClasificarGlobal');
@@ -2139,7 +2173,7 @@ if ($empresaFiltro !== "") {
         const sinClasificar = parseInt(fila.dataset.sinClasificar || '0');
         if (sinClasificar > 0) {
           totalRutasSinClasificar += sinClasificar;
-          const conductor = fila.querySelector('.conductor-link').textContent.replace('⚠️', '').trim();
+          const conductor = fila.querySelector('.conductor-link').textContent;
           contenidoHTML += `
             <div class="flex items-center justify-between p-3 bg-amber-50 rounded-lg border border-amber-100 hover:bg-amber-100 transition">
               <div class="flex items-center gap-2">
@@ -2172,30 +2206,25 @@ if ($empresaFiltro !== "") {
       }
     }
     
-    // Ver viajes de un conductor específico
     function verViajesConductor(nombre) {
-      // Encontrar el botón del conductor y hacer clic
       const botonesConductor = document.querySelectorAll('.conductor-link');
       botonesConductor.forEach(boton => {
-        if (boton.textContent.trim().replace('⚠️', '').trim() === nombre.trim()) {
+        if (boton.textContent.trim() === nombre.trim()) {
           boton.click();
         }
       });
       
-      // Cerrar el resumen
       document.getElementById('resumenRutasSinClasificar').classList.add('hidden');
     }
     
-    // Ir a la sección de clasificación de rutas
     function irAClasificacionRutas() {
       // Abrir el panel de clasificación de rutas
       togglePanel('clasif-rutas');
       
-      // Cerrar el resumen
       document.getElementById('resumenRutasSinClasificar').classList.add('hidden');
     }
     
-    // ===== BUSCADOR DE CONDUCTORES =====
+    // ===== BUSCADOR DE CONDUCTORES ORIGINAL =====
     const buscadorConductores = document.getElementById('buscadorConductores');
     const clearBuscar = document.getElementById('clearBuscar');
     const contadorConductores = document.getElementById('contador-conductores');
@@ -2219,7 +2248,7 @@ if ($empresaFiltro !== "") {
         clearBuscar.style.display = 'none';
       } else {
         filas.forEach(fila => {
-          const nombreConductor = fila.querySelector('.conductor-link').textContent.replace('⚠️', '').trim();
+          const nombreConductor = fila.querySelector('.conductor-link').textContent;
           const nombreNormalizado = normalizarTexto(nombreConductor);
           if (nombreNormalizado.includes(textoBusqueda)) {
             fila.style.display = '';
@@ -2243,16 +2272,19 @@ if ($empresaFiltro !== "") {
       buscadorConductores.focus();
     });
 
-    // ===== FUNCIONES DE CÁLCULO =====
+    // ===== FUNCIONES DE CÁLCULO ORIGINAL (MODIFICADA) =====
+    // CAMBIO IMPORTANTE: Ahora SIEMPRE calcula con TODAS las tarifas, 
+    // sin importar si las columnas están visibles o no
+    
     function getTarifas(){
       const tarifas = {};
       document.querySelectorAll('.tarjeta-tarifa-acordeon').forEach(card=>{
         const veh = card.dataset.vehiculo;
         tarifas[veh] = {};
         
-        // Obtener todas las columnas dinámicas
+        // Obtener TODAS las tarifas, sin filtrar por columnas seleccionadas
         card.querySelectorAll('input[data-campo]').forEach(input=>{
-          const campo = input.dataset.campo.toLowerCase(); // IMPORTANTE: Normalizar a minúsculas
+          const campo = input.dataset.campo.toLowerCase();
           const valor = parseFloat(input.value) || 0;
           tarifas[veh][campo] = valor;
         });
@@ -2268,12 +2300,6 @@ if ($empresaFiltro !== "") {
       const tarifas = getTarifas();
       const filas = document.querySelectorAll('#tabla_conductores_body tr');
       
-      // Obtener clasificaciones desde los encabezados (en minúsculas)
-      const clasificaciones = [];
-      document.querySelectorAll('#tabla_conductores thead th[title]').forEach(th => {
-        clasificaciones.push(th.getAttribute('title').toLowerCase());
-      });
-
       let totalViajes = 0;
       let totalPagado = 0;
       let totalFaltante = 0;
@@ -2282,18 +2308,19 @@ if ($empresaFiltro !== "") {
         if (fila.style.display === 'none') return;
 
         const veh = fila.dataset.vehiculo;
-        const celdas = fila.querySelectorAll('td');
         const tarifasVeh = tarifas[veh] || {};
+        const todasColumnas = <?= json_encode($clasificaciones_disponibles) ?>;
 
         let totalFila = 0;
-        let columnaIndex = 3; // Empieza después de estado, conductor y tipo
         
-        // Calcular por cada clasificación
-        clasificaciones.forEach(clasif => {
-          const cantidad = parseInt(celdas[columnaIndex]?.textContent || 0);
-          const tarifa = tarifasVeh[clasif] || 0;
+        // ✅ CAMBIO CRÍTICO: Calcular con TODAS las columnas, no solo las visibles
+        // Recorrer todas las clasificaciones disponibles
+        todasColumnas.forEach(columna => {
+          // Obtener la cantidad desde la celda correspondiente
+          const celda = fila.querySelector(`td[data-columna="${columna}"]`);
+          const cantidad = parseInt(celda?.textContent || 0);
+          const tarifa = tarifasVeh[columna] || 0;
           totalFila += cantidad * tarifa;
-          columnaIndex++;
         });
 
         const pagado = parseInt(fila.dataset.pagado || '0') || 0;
@@ -2317,7 +2344,7 @@ if ($empresaFiltro !== "") {
       document.getElementById('total_faltante').innerText = formatNumber(totalFaltante);
     }
 
-    // ===== CREAR NUEVA CLASIFICACIÓN =====
+    // ===== CREAR NUEVA CLASIFICACIÓN ORIGINAL =====
     function crearYAsignarClasificacion() {
       const nombreClasif = document.getElementById('txt_nueva_clasificacion').value.trim();
       const patronRuta = document.getElementById('txt_patron_ruta').value.trim().toLowerCase();
@@ -2326,12 +2353,6 @@ if ($empresaFiltro !== "") {
         alert('Escribe el nombre de la nueva clasificación.');
         return;
       }
-
-      // Mostrar indicador de carga
-      const boton = document.querySelector('#panel-crear-clasif button');
-      const textoOriginal = boton.textContent;
-      boton.innerHTML = '<span class="animate-spin">⏳</span> Procesando...';
-      boton.disabled = true;
 
       // 1. Crear nueva columna en tarifas (normalizada a minúsculas)
       fetch('<?= basename(__FILE__) ?>', {
@@ -2365,12 +2386,12 @@ if ($empresaFiltro !== "") {
             });
             
             if (contador > 0) {
-              mostrarNotificacion('✅ Se creó "' + nombreClasif + '" y se aplicó a ' + contador + ' rutas. Recarga la página para ver los cambios.', 'success');
+              alert('✅ Se creó "' + nombreClasif + '" y se aplicó a ' + contador + ' rutas. Recarga la página para ver los cambios.');
             } else {
-              mostrarNotificacion('✅ Se creó "' + nombreClasif + '". No se encontraron rutas con "' + patronRuta + '". Recarga la página.', 'success');
+              alert('✅ Se creó "' + nombreClasif + '". No se encontraron rutas con "' + patronRuta + '". Recarga la página.');
             }
           } else {
-            mostrarNotificacion('✅ Se creó la clasificación "' + nombreClasif + '". Recarga la página para verla en los selectores.', 'success');
+            alert('✅ Se creó la clasificación "' + nombreClasif + '". Recarga la página para verla en los selectores.');
           }
           
           // Limpiar campos
@@ -2378,19 +2399,15 @@ if ($empresaFiltro !== "") {
           document.getElementById('txt_patron_ruta').value = '';
           
         } else {
-          mostrarNotificacion('❌ Error: ' + respuesta, 'error');
+          alert('❌ Error: ' + respuesta);
         }
-        boton.textContent = textoOriginal;
-        boton.disabled = false;
       })
       .catch(error=>{
-        mostrarNotificacion('❌ Error de conexión: ' + error, 'error');
-        boton.textContent = textoOriginal;
-        boton.disabled = false;
+        alert('❌ Error de conexión: ' + error);
       });
     }
 
-    // ===== GUARDAR TARIFAS DINÁMICAMENTE =====
+    // ===== GUARDAR TARIFAS DINÁMICAMENTE ORIGINAL =====
     function configurarEventosTarifas() {
         // Usar delegación de eventos para manejar inputs dinámicos
         document.addEventListener('change', function(e) {
@@ -2423,7 +2440,7 @@ if ($empresaFiltro !== "") {
                         console.log('Tarifa guardada exitosamente');
                         // Guardar el valor como el nuevo default
                         input.defaultValue = input.value;
-                        // Recalcular
+                        // Recalcular sin afectar los cálculos
                         recalcular();
                     } else {
                         console.error('Error guardando tarifa:', respuesta);
@@ -2445,7 +2462,7 @@ if ($empresaFiltro !== "") {
         });
     }
 
-    // ===== CLASIFICACIONES INDIVIDUALES =====
+    // ===== CLASIFICACIONES INDIVIDUALES ORIGINAL =====
     function guardarClasificacionRuta(ruta, vehiculo, clasificacion) {
       if (!clasificacion) return;
       fetch('<?= basename(__FILE__) ?>', {
@@ -2464,7 +2481,7 @@ if ($empresaFiltro !== "") {
       });
     }
 
-    // ===== MODAL DE VIAJES =====
+    // ===== MODAL DE VIAJES ORIGINAL =====
     const RANGO_DESDE = <?= json_encode($desde) ?>;
     const RANGO_HASTA = <?= json_encode($hasta) ?>;
     const RANGO_EMP   = <?= json_encode($empresaFiltro) ?>;
@@ -2510,55 +2527,50 @@ if ($empresaFiltro !== "") {
             .then(html => {
                 viajesContent.innerHTML = html;
                 // Attach filter functionality after content loads
-                setTimeout(attachFiltroViajes, 100);
+                setTimeout(() => {
+                  const pills = viajesContent.querySelectorAll('#legendFilterBar .legend-pill');
+                  const rows  = viajesContent.querySelectorAll('#viajesTableBody .row-viaje');
+                  
+                  if (pills.length && rows.length) {
+                    let activeCat = null;
+                    
+                    pills.forEach(p => {
+                      p.addEventListener('click', () => {
+                        const cat = p.getAttribute('data-tipo');
+                        if (cat === activeCat) {
+                          activeCat = null;
+                        } else {
+                          activeCat = cat;
+                        }
+                        
+                        pills.forEach(p2 => {
+                          const pcat2 = p2.getAttribute('data-tipo');
+                          if (activeCat && pcat2 === activeCat) {
+                            p2.classList.add('ring-2','ring-blue-500','ring-offset-1','ring-offset-white');
+                          } else {
+                            p2.classList.remove('ring-2','ring-blue-500','ring-offset-1','ring-offset-white');
+                          }
+                        });
+                        
+                        rows.forEach(r => {
+                          if (!activeCat) {
+                            r.style.display = '';
+                          } else {
+                            if (r.classList.contains('cat-' + activeCat)) {
+                              r.style.display = '';
+                            } else {
+                              r.style.display = 'none';
+                            }
+                          }
+                        });
+                      });
+                    });
+                  }
+                }, 100);
             })
             .catch(() => {
                 viajesContent.innerHTML = '<p class="text-center text-rose-600">Error cargando viajes.</p>';
             });
-    }
-
-    function attachFiltroViajes(){
-        const pills = viajesContent.querySelectorAll('#legendFilterBar .legend-pill');
-        const rows  = viajesContent.querySelectorAll('#viajesTableBody .row-viaje');
-        if (!pills.length || !rows.length) return;
-
-        let activeCat = null;
-
-        function applyFilter(cat){
-            if (cat === activeCat) {
-                activeCat = null;
-            } else {
-                activeCat = cat;
-            }
-
-            pills.forEach(p => {
-                const pcat = p.getAttribute('data-tipo');
-                if (activeCat && pcat === activeCat) {
-                    p.classList.add('ring-2','ring-blue-500','ring-offset-1','ring-offset-white');
-                } else {
-                    p.classList.remove('ring-2','ring-blue-500','ring-offset-1','ring-offset-white');
-                }
-            });
-
-            rows.forEach(r => {
-                if (!activeCat) {
-                    r.style.display = '';
-                } else {
-                    if (r.classList.contains('cat-' + activeCat)) {
-                        r.style.display = '';
-                    } else {
-                        r.style.display = 'none';
-                    }
-                }
-            });
-        }
-
-        pills.forEach(p => {
-            p.addEventListener('click', ()=>{
-                const cat = p.getAttribute('data-tipo');
-                applyFilter(cat);
-            });
-        });
     }
 
     function abrirModalViajes(nombreInicial){
@@ -2589,42 +2601,12 @@ if ($empresaFiltro !== "") {
         loadViajes(nuevo);
     });
 
-    // ===== FUNCIÓN PARA MOSTRAR NOTIFICACIONES =====
-    function mostrarNotificacion(mensaje, tipo = 'info') {
-      // Eliminar notificación anterior si existe
-      const notifAnterior = document.getElementById('notificacion-flotante');
-      if (notifAnterior) notifAnterior.remove();
-      
-      const colores = {
-        'success': 'bg-emerald-500 border-emerald-600',
-        'error': 'bg-rose-500 border-rose-600',
-        'info': 'bg-blue-500 border-blue-600'
-      };
-      
-      const notificacion = document.createElement('div');
-      notificacion.id = 'notificacion-flotante';
-      notificacion.className = `fixed top-4 right-4 ${colores[tipo]} text-white px-4 py-3 rounded-xl shadow-lg z-[10000] animate-fade-in-down`;
-      notificacion.textContent = mensaje;
-      
-      document.body.appendChild(notificacion);
-      
-      // Auto-eliminar después de 3 segundos
-      setTimeout(() => {
-        if (notificacion.parentNode) {
-          notificacion.classList.add('opacity-0', 'transition-opacity', 'duration-300');
-          setTimeout(() => {
-            if (notificacion.parentNode) notificacion.remove();
-          }, 300);
-        }
-      }, 3000);
-    }
-
-    // ===== INICIALIZACIÓN =====
+    // ===== INICIALIZACIÓN COMPLETA =====
     document.addEventListener('DOMContentLoaded', function() {
-      // Configurar eventos de tarifas
+      // Configurar eventos de tarifas ORIGINAL
       configurarEventosTarifas();
       
-      // Click en conductor → abre modal de viajes
+      // Click en conductor → abre modal de viajes ORIGINAL
       document.querySelectorAll('.conductor-link').forEach(btn=>{
         btn.addEventListener('click', (e)=>{
           e.preventDefault();
@@ -2633,7 +2615,7 @@ if ($empresaFiltro !== "") {
         });
       });
 
-      // Cambio clasificación ruta individual
+      // Cambio clasificación ruta individual ORIGINAL
       document.querySelectorAll('.select-clasif-ruta').forEach(sel=>{
         sel.addEventListener('change', function() {
           actualizarColorFila(this);
