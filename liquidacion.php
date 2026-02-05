@@ -2601,7 +2601,7 @@ if ($empresaFiltro !== "") {
         loadViajes(nuevo);
     });
 
-    // ===== INICIALIZACIÓN COMPLETA =====
+    // ===== INICIALIZACIÓN COMPLETA ====
     document.addEventListener('DOMContentLoaded', function() {
       // Configurar eventos de tarifas ORIGINAL
       configurarEventosTarifas();
