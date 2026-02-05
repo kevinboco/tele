@@ -2101,6 +2101,7 @@ $datos_vista = [
     });
 
     // ===== INICIALIZACIÓN COMPLETA ====
+    
     document.addEventListener('DOMContentLoaded', function() {
       configurarEventosTarifas();
       
