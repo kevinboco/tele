@@ -314,59 +314,6 @@
     display: table-cell !important;
 }
 
-/* ===== ESTILOS PARA ELIMINAR TARIFAS ===== */
-.tarifa-item-container {
-    position: relative;
-    transition: all 0.3s ease;
-}
-
-.tarifa-item-container.eliminando {
-    opacity: 0.5;
-    transform: translateX(-10px);
-}
-
-.btn-eliminar-tarifa {
-    position: absolute;
-    right: -10px;
-    top: -10px;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background: white;
-    border: 2px solid #ef4444;
-    color: #ef4444;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    font-size: 12px;
-    opacity: 0;
-    transform: scale(0.8);
-    transition: all 0.2s ease;
-    z-index: 5;
-}
-
-.tarifa-item-container:hover .btn-eliminar-tarifa {
-    opacity: 1;
-    transform: scale(1);
-}
-
-.btn-eliminar-tarifa:hover {
-    background: #ef4444;
-    color: white;
-    transform: scale(1.1);
-}
-
-/* Estado cuando no hay tarifas */
-.sin-tarifas-mensaje {
-    text-align: center;
-    padding: 2rem 1rem;
-    background: #f8fafc;
-    border-radius: 12px;
-    border: 2px dashed #cbd5e1;
-    margin-top: 1rem;
-}
-
 /* Responsive */
 @media (max-width: 768px) {
     .floating-balls-container {
@@ -399,15 +346,6 @@
     
     .ball-tooltip {
         display: none;
-    }
-    
-    .btn-eliminar-tarifa {
-        opacity: 1;
-        transform: scale(1);
-        right: 5px;
-        top: 5px;
-        width: 28px;
-        height: 28px;
     }
 }
 </style>
@@ -461,9 +399,6 @@
                 $color_vehiculo = obtenerColorVehiculo($veh);
                 $t = $tarifas_guardadas[$veh] ?? [];
                 $veh_id = preg_replace('/[^a-z0-9]/i', '-', strtolower($veh));
-                $tarifas_activas = array_filter($t, function($valor) {
-                    return $valor !== null && $valor !== '' && $valor !== 0;
-                });
             ?>
             <div class="tarjeta-tarifa-acordeon rounded-xl border <?= $color_vehiculo['border'] ?> overflow-hidden shadow-sm"
                  data-vehiculo="<?= htmlspecialchars($veh) ?>"
@@ -479,8 +414,8 @@
                             <div class="text-base font-semibold <?= $color_vehiculo['text'] ?>">
                                 <?= htmlspecialchars($veh) ?>
                             </div>
-                            <div class="text-xs text-slate-500 mt-0.5" id="contador-tarifas-<?= $veh_id ?>">
-                                <?= count($tarifas_activas) ?> tipos de tarifas configurados
+                            <div class="text-xs text-slate-500 mt-0.5">
+                                <?= count($columnas_tarifas) ?> tipos de tarifas configurados
                             </div>
                         </div>
                     </div>
@@ -492,7 +427,7 @@
                 </div>
                 
                 <div class="acordeon-content px-4 py-3 border-t <?= $color_vehiculo['border'] ?> bg-white" id="content-<?= $veh_id ?>">
-                    <div class="space-y-3" id="lista-tarifas-<?= $veh_id ?>">
+                    <div class="space-y-3">
                         <?php foreach ($columnas_tarifas as $columna): 
                             $valor = isset($t[$columna]) ? (float)$t[$columna] : 0;
                             $etiqueta = ucfirst($columna);
@@ -510,38 +445,23 @@
                             
                             $etiqueta_final = $etiquetas_especiales[$columna] ?? $etiqueta;
                             $estilo_clasif = obtenerEstiloClasificacion($columna);
-                            $tarifa_id = 'tarifa-' . $veh_id . '-' . $columna;
                         ?>
-                        <div class="tarifa-item-container relative" id="<?= $tarifa_id ?>">
-                            <button class="btn-eliminar-tarifa" 
-                                    onclick="eliminarTarifa('<?= htmlspecialchars($veh) ?>', '<?= htmlspecialchars($columna) ?>', '<?= $tarifa_id ?>')"
-                                    title="Eliminar esta tarifa">
-                                ✕
-                            </button>
-                            <label class="block">
-                                <span class="block text-sm font-medium mb-1 <?= $estilo_clasif['text'] ?>">
-                                    <?= htmlspecialchars($etiqueta_final) ?>
+                        <label class="block">
+                            <span class="block text-sm font-medium mb-1 <?= $estilo_clasif['text'] ?>">
+                                <?= htmlspecialchars($etiqueta_final) ?>
+                            </span>
+                            <div class="relative">
+                                <input type="number" step="1000" value="<?= $valor ?>"
+                                       data-campo="<?= htmlspecialchars($columna) ?>"
+                                       class="w-full rounded-xl border <?= $estilo_clasif['border'] ?> px-3 py-2 pr-10 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition tarifa-input"
+                                       style="border-color: <?= str_replace('border-', '#', $estilo_clasif['border']) ?>;"
+                                       oninput="recalcular()">
+                                <span class="absolute right-3 top-1/2 transform -translate-y-1/2 text-sm font-semibold <?= $estilo_clasif['text'] ?>">
+                                    $
                                 </span>
-                                <div class="relative">
-                                    <input type="number" step="1000" value="<?= $valor ?>"
-                                           data-campo="<?= htmlspecialchars($columna) ?>"
-                                           class="w-full rounded-xl border <?= $estilo_clasif['border'] ?> px-3 py-2 pr-10 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition tarifa-input"
-                                           style="border-color: <?= str_replace('border-', '#', $estilo_clasif['border']) ?>;"
-                                           oninput="recalcular()">
-                                    <span class="absolute right-3 top-1/2 transform -translate-y-1/2 text-sm font-semibold <?= $estilo_clasif['text'] ?>">
-                                        $
-                                    </span>
-                                </div>
-                            </label>
-                        </div>
+                            </div>
+                        </label>
                         <?php endforeach; ?>
-                    </div>
-                    
-                    <!-- Mensaje cuando no hay tarifas -->
-                    <div class="sin-tarifas-mensaje hidden" id="sin-tarifas-<?= $veh_id ?>">
-                        <div class="text-3xl mb-3">📭</div>
-                        <h4 class="font-semibold text-slate-700 mb-2">No hay tarifas configuradas</h4>
-                        <p class="text-sm text-slate-500">Agrega tarifas usando el botón "Crear nueva clasificación"</p>
                     </div>
                 </div>
             </div>
@@ -550,7 +470,6 @@
         
         <p class="text-xs text-slate-500 mt-4">
             Los cambios se guardan automáticamente al modificar cualquier valor.
-            <span class="block text-amber-600 font-medium mt-1">⚠️ Haz clic en ✕ junto a una tarifa para eliminarla.</span>
         </p>
     </div>
 </div>
@@ -777,7 +696,6 @@ document.addEventListener('DOMContentLoaded', function() {
     inicializarColoresClasificacion();
     inicializarSeleccionColumnas();
     configurarEventosTarifas();
-    actualizarContadoresTarifas();
 });
 
 // ===== FUNCIÓN PRINCIPAL PARA ABRIR/CERRAR PANELES =====
@@ -854,100 +772,6 @@ function colapsarTodosTarifas() {
             const icon = document.getElementById('icon-' + vehiculoId);
             if (icon) icon.classList.remove('expanded');
         }
-    });
-}
-
-// ===== FUNCIÓN PARA ELIMINAR TARIFAS =====
-function eliminarTarifa(tipoVehiculo, campoTarifa, elementoId) {
-    if (!confirm(`¿Estás seguro de eliminar la tarifa "${campoTarifa}" del vehículo "${tipoVehiculo}"?\n\nEsta acción no se puede deshacer.`)) {
-        return;
-    }
-    
-    const elemento = document.getElementById(elementoId);
-    const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
-    
-    // Mostrar estado de eliminación
-    elemento.classList.add('eliminando');
-    
-    fetch(window.location.pathname, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-            eliminar_tarifa: 1,
-            empresa: empresa,
-            tipo_vehiculo: tipoVehiculo,
-            campo: campoTarifa
-        })
-    })
-    .then(r => r.text())
-    .then(respuesta => {
-        if (respuesta.trim() === 'ok') {
-            // Eliminar visualmente con animación
-            setTimeout(() => {
-                elemento.remove();
-                
-                // Actualizar contador de tarifas
-                actualizarContadorTarifasVehiculo(tipoVehiculo);
-                
-                // Verificar si quedan tarifas
-                verificarTarifasRestantes(tipoVehiculo);
-                
-                // Recalcular liquidación
-                if (typeof recalcular === 'function') {
-                    recalcular();
-                }
-                
-                mostrarNotificacion(`✅ Tarifa "${campoTarifa}" eliminada correctamente`, 'success');
-            }, 300);
-        } else {
-            // Revertir estado si hay error
-            elemento.classList.remove('eliminando');
-            mostrarNotificacion(`❌ Error al eliminar tarifa: ${respuesta}`, 'error');
-            console.error('Error eliminando tarifa:', respuesta);
-        }
-    })
-    .catch(error => {
-        // Revertir estado si hay error de conexión
-        elemento.classList.remove('eliminando');
-        mostrarNotificacion('❌ Error de conexión al eliminar tarifa', 'error');
-        console.error('Error de conexión:', error);
-    });
-}
-
-// ===== FUNCIONES AUXILIARES PARA TARIFAS =====
-function actualizarContadorTarifasVehiculo(tipoVehiculo) {
-    const vehiculoId = tipoVehiculo.toLowerCase().replace(/[^a-z0-9]/g, '-');
-    const contador = document.getElementById('contador-tarifas-' + vehiculoId);
-    const listaTarifas = document.getElementById('lista-tarifas-' + vehiculoId);
-    
-    if (contador && listaTarifas) {
-        const tarifasRestantes = listaTarifas.querySelectorAll('.tarifa-item-container').length;
-        contador.textContent = `${tarifasRestantes} tipos de tarifas configurados`;
-    }
-}
-
-function verificarTarifasRestantes(tipoVehiculo) {
-    const vehiculoId = tipoVehiculo.toLowerCase().replace(/[^a-z0-9]/g, '-');
-    const listaTarifas = document.getElementById('lista-tarifas-' + vehiculoId);
-    const mensajeSinTarifas = document.getElementById('sin-tarifas-' + vehiculoId);
-    
-    if (listaTarifas && mensajeSinTarifas) {
-        const tarifasRestantes = listaTarifas.querySelectorAll('.tarifa-item-container').length;
-        
-        if (tarifasRestantes === 0) {
-            listaTarifas.classList.add('hidden');
-            mensajeSinTarifas.classList.remove('hidden');
-        } else {
-            listaTarifas.classList.remove('hidden');
-            mensajeSinTarifas.classList.add('hidden');
-        }
-    }
-}
-
-function actualizarContadoresTarifas() {
-    document.querySelectorAll('.tarjeta-tarifa-acordeon').forEach(tarjeta => {
-        const tipoVehiculo = tarjeta.dataset.vehiculo;
-        actualizarContadorTarifasVehiculo(tipoVehiculo);
     });
 }
 
@@ -1277,6 +1101,7 @@ function configurarEventosTarifas() {
             });
         }
     });
+    
     
     document.querySelectorAll('.tarifa-input').forEach(input => {
         input.defaultValue = input.value;
