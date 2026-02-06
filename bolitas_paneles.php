@@ -314,159 +314,6 @@
     display: table-cell !important;
 }
 
-/* ===== ESTILOS PARA BOTONES DE ACCIÓN EN TARIFAS ===== */
-.tarifa-acciones {
-    position: absolute;
-    right: 10px;
-    top: 50%;
-    transform: translateY(-50%);
-    display: flex;
-    gap: 5px;
-    opacity: 0;
-    transition: opacity 0.2s;
-}
-
-.tarifa-item:hover .tarifa-acciones {
-    opacity: 1;
-}
-
-.btn-editar-tarifa, .btn-eliminar-tarifa {
-    width: 24px;
-    height: 24px;
-    border-radius: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    font-size: 12px;
-    transition: all 0.2s;
-}
-
-.btn-editar-tarifa {
-    background-color: #f0f9ff;
-    color: #0369a1;
-    border: 1px solid #bae6fd;
-}
-
-.btn-editar-tarifa:hover {
-    background-color: #e0f2fe;
-    color: #075985;
-}
-
-.btn-eliminar-tarifa {
-    background-color: #fef2f2;
-    color: #dc2626;
-    border: 1px solid #fecaca;
-}
-
-.btn-eliminar-tarifa:hover {
-    background-color: #fee2e2;
-    color: #b91c1c;
-}
-
-/* ===== MODALES PARA EDITAR/ELIMINAR ===== */
-.modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.5);
-    z-index: 10002;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-}
-
-.modal-overlay.active {
-    display: flex;
-}
-
-.modal-container {
-    background: white;
-    border-radius: 12px;
-    width: 100%;
-    max-width: 400px;
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
-    overflow: hidden;
-    animation: modal-appear 0.3s ease-out;
-}
-
-@keyframes modal-appear {
-    from {
-        opacity: 0;
-        transform: translateY(-20px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-.modal-header {
-    padding: 1.25rem;
-    border-bottom: 1px solid #e2e8f0;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-}
-
-.modal-body {
-    padding: 1.25rem;
-}
-
-.modal-footer {
-    padding: 1rem 1.25rem;
-    border-top: 1px solid #e2e8f0;
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
-}
-
-.btn-modal {
-    padding: 0.5rem 1rem;
-    border-radius: 8px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-    border: 1px solid transparent;
-}
-
-.btn-modal-primary {
-    background-color: #3b82f6;
-    color: white;
-}
-
-.btn-modal-primary:hover {
-    background-color: #2563eb;
-}
-
-.btn-modal-secondary {
-    background-color: #f1f5f9;
-    color: #475569;
-    border-color: #cbd5e1;
-}
-
-.btn-modal-secondary:hover {
-    background-color: #e2e8f0;
-}
-
-.btn-modal-danger {
-    background-color: #ef4444;
-    color: white;
-}
-
-.btn-modal-danger:hover {
-    background-color: #dc2626;
-}
-
-/* Estilo para items de tarifa */
-.tarifa-item {
-    position: relative;
-    padding-right: 70px; /* Espacio para los botones */
-}
-
 /* Responsive */
 @media (max-width: 768px) {
     .floating-balls-container {
@@ -500,10 +347,6 @@
     .ball-tooltip {
         display: none;
     }
-    
-    .tarifa-acciones {
-        opacity: 1; /* Siempre visibles en móvil */
-    }
 }
 </style>
 
@@ -530,59 +373,6 @@
     </div>
 </div>
 
-<!-- ===== MODALES PARA EDITAR/ELIMINAR CLASIFICACIONES ===== -->
-<div class="modal-overlay" id="modalEditarClasificacion">
-    <div class="modal-container">
-        <div class="modal-header">
-            <h3 class="text-lg font-semibold">✏️ Editar Clasificación</h3>
-            <button class="side-panel-close" onclick="cerrarModal('modalEditarClasificacion')">✕</button>
-        </div>
-        <div class="modal-body">
-            <div class="mb-4">
-                <label class="block text-sm font-medium mb-2">Nombre actual</label>
-                <input type="text" id="clasificacionActual" class="w-full rounded-xl border border-slate-300 px-4 py-2 text-sm bg-slate-100" readonly>
-            </div>
-            <div>
-                <label class="block text-sm font-medium mb-2">Nuevo nombre</label>
-                <input type="text" id="nuevoNombreClasificacion" class="w-full rounded-xl border border-slate-300 px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500" placeholder="Ingresa el nuevo nombre">
-            </div>
-        </div>
-        <div class="modal-footer">
-            <button class="btn-modal btn-modal-secondary" onclick="cerrarModal('modalEditarClasificacion')">Cancelar</button>
-            <button class="btn-modal btn-modal-primary" onclick="guardarCambiosClasificacion()">Guardar Cambios</button>
-        </div>
-    </div>
-</div>
-
-<div class="modal-overlay" id="modalEliminarClasificacion">
-    <div class="modal-container">
-        <div class="modal-header">
-            <h3 class="text-lg font-semibold">🗑️ Eliminar Clasificación</h3>
-            <button class="side-panel-close" onclick="cerrarModal('modalEliminarClasificacion')">✕</button>
-        </div>
-        <div class="modal-body">
-            <p class="text-slate-600 mb-4">¿Estás seguro de que deseas eliminar la clasificación <strong id="nombreClasificacionEliminar"></strong>?</p>
-            <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
-                <p class="text-sm text-amber-800">
-                    ⚠️ <strong>Advertencia:</strong> Al eliminar esta clasificación:
-                </p>
-                <ul class="text-sm text-amber-700 mt-2 space-y-1">
-                    <li>• Todas las rutas que tengan esta clasificación quedarán <strong>sin clasificar</strong></li>
-                    <li>• Se eliminará de la lista de columnas seleccionables</li>
-                    <li>• Los valores de tarifa para esta clasificación se perderán</li>
-                </ul>
-            </div>
-            <div class="text-sm text-slate-500">
-                Rutas afectadas: <span id="contadorRutasAfectadas" class="font-semibold">0</span>
-            </div>
-        </div>
-        <div class="modal-footer">
-            <button class="btn-modal btn-modal-secondary" onclick="cerrarModal('modalEliminarClasificacion')">Cancelar</button>
-            <button class="btn-modal btn-modal-danger" onclick="confirmarEliminarClasificacion()">Eliminar Permanentemente</button>
-        </div>
-    </div>
-</div>
-
 <!-- ===== PANEL DE TARIFAS ===== -->
 <div class="side-panel" id="panel-tarifas">
     <div class="side-panel-header">
@@ -593,20 +383,15 @@
         <button class="side-panel-close" data-panel="tarifas">✕</button>
     </div>
     <div class="side-panel-body">
-        <div class="flex justify-between items-center mb-4">
-            <div class="text-sm text-slate-600">
-                <span id="contadorClasificaciones"><?= count($clasificaciones_disponibles) ?></span> clasificaciones disponibles
-            </div>
-            <div class="flex gap-2">
-                <button onclick="expandirTodosTarifas()" 
-                        class="text-xs px-3 py-1.5 rounded-lg border border-green-300 hover:bg-green-50 transition text-green-600">
-                    Expandir todos
-                </button>
-                <button onclick="colapsarTodosTarifas()" 
-                        class="text-xs px-3 py-1.5 rounded-lg border border-amber-300 hover:bg-amber-50 transition text-amber-600">
-                    Colapsar todos
-                </button>
-            </div>
+        <div class="flex justify-end gap-2 mb-4">
+            <button onclick="expandirTodosTarifas()" 
+                    class="text-xs px-3 py-1.5 rounded-lg border border-green-300 hover:bg-green-50 transition text-green-600">
+                Expandir todos
+            </button>
+            <button onclick="colapsarTodosTarifas()" 
+                    class="text-xs px-3 py-1.5 rounded-lg border border-amber-300 hover:bg-amber-50 transition text-amber-600">
+                Colapsar todos
+            </button>
         </div>
         
         <div id="tarifas_grid" class="grid grid-cols-1 gap-3">
@@ -661,35 +446,21 @@
                             $etiqueta_final = $etiquetas_especiales[$columna] ?? $etiqueta;
                             $estilo_clasif = obtenerEstiloClasificacion($columna);
                         ?>
-                        <div class="tarifa-item" data-clasificacion="<?= htmlspecialchars($columna) ?>">
-                            <label class="block">
-                                <span class="block text-sm font-medium mb-1 <?= $estilo_clasif['text'] ?>">
-                                    <?= htmlspecialchars($etiqueta_final) ?>
+                        <label class="block">
+                            <span class="block text-sm font-medium mb-1 <?= $estilo_clasif['text'] ?>">
+                                <?= htmlspecialchars($etiqueta_final) ?>
+                            </span>
+                            <div class="relative">
+                                <input type="number" step="1000" value="<?= $valor ?>"
+                                       data-campo="<?= htmlspecialchars($columna) ?>"
+                                       class="w-full rounded-xl border <?= $estilo_clasif['border'] ?> px-3 py-2 pr-10 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition tarifa-input"
+                                       style="border-color: <?= str_replace('border-', '#', $estilo_clasif['border']) ?>;"
+                                       oninput="recalcular()">
+                                <span class="absolute right-3 top-1/2 transform -translate-y-1/2 text-sm font-semibold <?= $estilo_clasif['text'] ?>">
+                                    $
                                 </span>
-                                <div class="relative">
-                                    <input type="number" step="1000" value="<?= $valor ?>"
-                                           data-campo="<?= htmlspecialchars($columna) ?>"
-                                           class="w-full rounded-xl border <?= $estilo_clasif['border'] ?> px-3 py-2 pr-10 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition tarifa-input"
-                                           style="border-color: <?= str_replace('border-', '#', $estilo_clasif['border']) ?>;"
-                                           oninput="recalcular()">
-                                    <span class="absolute right-3 top-1/2 transform -translate-y-1/2 text-sm font-semibold <?= $estilo_clasif['text'] ?>">
-                                        $
-                                    </span>
-                                </div>
-                            </label>
-                            <div class="tarifa-acciones">
-                                <button class="btn-editar-tarifa" 
-                                        onclick="editarClasificacion('<?= htmlspecialchars($columna) ?>', '<?= htmlspecialchars($etiqueta_final) ?>')"
-                                        title="Editar nombre">
-                                    ✏️
-                                </button>
-                                <button class="btn-eliminar-tarifa" 
-                                        onclick="eliminarClasificacion('<?= htmlspecialchars($columna) ?>', '<?= htmlspecialchars($etiqueta_final) ?>')"
-                                        title="Eliminar clasificación">
-                                    🗑️
-                                </button>
                             </div>
-                        </div>
+                        </label>
                         <?php endforeach; ?>
                     </div>
                 </div>
@@ -846,7 +617,7 @@
                 </button>
             </div>
             
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[60vh] overflow-y-auto p-2 border border-slate-200 rounded-lg" id="listaColumnasSeleccionables">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[60vh] overflow-y-auto p-2 border border-slate-200 rounded-lg">
                 <?php foreach ($clasificaciones_disponibles as $clasif): 
                     $estilo = obtenerEstiloClasificacion($clasif);
                     $seleccionada = in_array($clasif, $columnas_seleccionadas);
@@ -895,7 +666,6 @@
 // ===== SISTEMA DE BOLITAS Y PANELES =====
 let activePanel = null;
 const panels = ['tarifas', 'crear-clasif', 'clasif-rutas', 'selector-columnas'];
-let clasificacionEditando = null; // Variable global para saber qué clasificación estamos editando
 
 document.addEventListener('DOMContentLoaded', function() {
     // Inicializar sistema de paneles
@@ -926,7 +696,6 @@ document.addEventListener('DOMContentLoaded', function() {
     inicializarColoresClasificacion();
     inicializarSeleccionColumnas();
     configurarEventosTarifas();
-    actualizarContadorClasificaciones();
 });
 
 // ===== FUNCIÓN PRINCIPAL PARA ABRIR/CERRAR PANELES =====
@@ -1004,237 +773,6 @@ function colapsarTodosTarifas() {
             if (icon) icon.classList.remove('expanded');
         }
     });
-}
-
-// ===== FUNCIONES PARA EDITAR Y ELIMINAR CLASIFICACIONES =====
-function editarClasificacion(clasificacion, nombreActual) {
-    clasificacionEditando = clasificacion;
-    document.getElementById('clasificacionActual').value = nombreActual;
-    document.getElementById('nuevoNombreClasificacion').value = nombreActual;
-    document.getElementById('nuevoNombreClasificacion').focus();
-    abrirModal('modalEditarClasificacion');
-}
-
-function eliminarClasificacion(clasificacion, nombre) {
-    clasificacionEditando = clasificacion;
-    
-    // Contar rutas afectadas
-    const rutasAfectadas = document.querySelectorAll(`.select-clasif-ruta[value="${clasificacion}"]`);
-    const contador = rutasAfectadas.length;
-    
-    document.getElementById('nombreClasificacionEliminar').textContent = nombre;
-    document.getElementById('contadorRutasAfectadas').textContent = contador;
-    
-    abrirModal('modalEliminarClasificacion');
-}
-
-function abrirModal(modalId) {
-    document.getElementById(modalId).classList.add('active');
-    document.body.style.overflow = 'hidden';
-}
-
-function cerrarModal(modalId) {
-    document.getElementById(modalId).classList.remove('active');
-    document.body.style.overflow = '';
-    clasificacionEditando = null;
-}
-
-function guardarCambiosClasificacion() {
-    const nuevoNombre = document.getElementById('nuevoNombreClasificacion').value.trim();
-    const viejoNombre = clasificacionEditando;
-    
-    if (!nuevoNombre) {
-        alert('El nombre no puede estar vacío.');
-        return;
-    }
-    
-    if (nuevoNombre.toLowerCase() === viejoNombre.toLowerCase()) {
-        cerrarModal('modalEditarClasificacion');
-        return;
-    }
-    
-    fetch(window.location.pathname, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-            renombrar_clasificacion: 1,
-            viejo_nombre: viejoNombre,
-            nuevo_nombre: nuevoNombre.toLowerCase()
-        })
-    })
-    .then(r => r.text())
-    .then(respuesta => {
-        if (respuesta.trim() === 'ok') {
-            // Actualizar en tiempo real en todos los paneles
-            actualizarClasificacionEnPaneles(viejoNombre, nuevoNombre.toLowerCase());
-            cerrarModal('modalEditarClasificacion');
-            mostrarNotificacion('✅ Clasificación renombrada correctamente', 'success');
-            
-            // Recargar la página después de 1 segundo para ver cambios completos
-            setTimeout(() => {
-                location.reload();
-            }, 1000);
-        } else {
-            mostrarNotificacion('❌ Error al renombrar: ' + respuesta, 'error');
-        }
-    })
-    .catch(error => {
-        mostrarNotificacion('❌ Error de conexión', 'error');
-    });
-}
-
-function confirmarEliminarClasificacion() {
-    const clasificacion = clasificacionEditando;
-    
-    fetch(window.location.pathname, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-            eliminar_clasificacion: 1,
-            nombre_clasificacion: clasificacion
-        })
-    })
-    .then(r => r.text())
-    .then(respuesta => {
-        if (respuesta.trim() === 'ok') {
-            // Actualizar en tiempo real en todos los paneles
-            eliminarClasificacionDePaneles(clasificacion);
-            cerrarModal('modalEliminarClasificacion');
-            mostrarNotificacion('✅ Clasificación eliminada correctamente', 'success');
-            
-            // Recargar la página después de 1 segundo para ver cambios completos
-            setTimeout(() => {
-                location.reload();
-            }, 1000);
-        } else {
-            mostrarNotificacion('❌ Error al eliminar: ' + respuesta, 'error');
-        }
-    })
-    .catch(error => {
-        mostrarNotificacion('❌ Error de conexión', 'error');
-    });
-}
-
-// ===== FUNCIONES PARA ACTUALIZAR PANELES EN TIEMPO REAL =====
-function actualizarClasificacionEnPaneles(viejoNombre, nuevoNombre) {
-    // 1. Actualizar en Panel de Tarifas (acordeones)
-    document.querySelectorAll(`[data-clasificacion="${viejoNombre}"]`).forEach(item => {
-        item.dataset.clasificacion = nuevoNombre;
-        
-        // Actualizar el input
-        const input = item.querySelector('input[data-campo]');
-        if (input) {
-            input.dataset.campo = nuevoNombre;
-        }
-        
-        // Actualizar etiqueta
-        const label = item.querySelector('span.font-medium');
-        if (label) {
-            const nombres = {
-                'completo': 'Viaje Completo',
-                'medio': 'Viaje Medio',
-                'extra': 'Viaje Extra',
-                'carrotanque': 'Carrotanque',
-                'siapana': 'Siapana',
-                'riohacha': 'Riohacha',
-                'pru': 'Pru',
-                'maco': 'Maco'
-            };
-            label.textContent = nombres[nuevoNombre] || nuevoNombre.charAt(0).toUpperCase() + nuevoNombre.slice(1);
-        }
-    });
-    
-    // 2. Actualizar en Panel de Clasificación de Rutas (selects)
-    document.querySelectorAll(`.select-clasif-ruta option[value="${viejoNombre}"]`).forEach(option => {
-        option.value = nuevoNombre;
-        option.textContent = nuevoNombre.charAt(0).toUpperCase() + nuevoNombre.slice(1);
-        
-        // Actualizar opciones seleccionadas
-        if (option.selected) {
-            const select = option.closest('select');
-            select.value = nuevoNombre;
-            actualizarColorFila(select);
-        }
-    });
-    
-    // 3. Actualizar en Panel de Selección de Columnas
-    const columnaItem = document.querySelector(`[data-columna="${viejoNombre}"]`);
-    if (columnaItem) {
-        columnaItem.dataset.columna = nuevoNombre;
-        columnaItem.title = nuevoNombre.charAt(0).toUpperCase() + nuevoNombre.slice(1);
-        
-        // Actualizar checkbox
-        const checkbox = columnaItem.querySelector('.checkbox-columna');
-        if (checkbox) {
-            checkbox.id = `checkbox-${nuevoNombre}`;
-        }
-        
-        // Actualizar nombres visuales
-        const spanNombre = columnaItem.querySelector('.font-medium');
-        if (spanNombre) {
-            const nombres = {
-                'completo': 'Viaje Completo',
-                'medio': 'Viaje Medio',
-                'extra': 'Viaje Extra',
-                'carrotanque': 'Carrotanque',
-                'siapana': 'Siapana',
-                'riohacha': 'Riohacha',
-                'pru': 'Pru',
-                'maco': 'Maco'
-            };
-            spanNombre.textContent = nombres[nuevoNombre] || nuevoNombre.charAt(0).toUpperCase() + nuevoNombre.slice(1);
-        }
-        
-        const spanColumna = columnaItem.querySelector('.text-slate-500');
-        if (spanColumna) {
-            spanColumna.textContent = `Columna: ${nuevoNombre}`;
-        }
-    }
-    
-    // Actualizar contador
-    actualizarContadorClasificaciones();
-}
-
-function eliminarClasificacionDePaneles(clasificacion) {
-    // 1. Eliminar del Panel de Tarifas
-    document.querySelectorAll(`[data-clasificacion="${clasificacion}"]`).forEach(item => {
-        item.remove();
-    });
-    
-    // 2. Actualizar rutas afectadas en Panel de Clasificación de Rutas
-    document.querySelectorAll(`.select-clasif-ruta[value="${clasificacion}"]`).forEach(select => {
-        select.value = '';
-        actualizarColorFila(select);
-    });
-    
-    // Eliminar la opción del select
-    document.querySelectorAll(`.select-clasif-ruta option[value="${clasificacion}"]`).forEach(option => {
-        option.remove();
-    });
-    
-    // 3. Eliminar del Panel de Selección de Columnas
-    const columnaItem = document.querySelector(`[data-columna="${clasificacion}"]`);
-    if (columnaItem) {
-        columnaItem.remove();
-    }
-    
-    // 4. Actualizar arrays internos
-    if (columnasSeleccionadas.includes(clasificacion)) {
-        columnasSeleccionadas = columnasSeleccionadas.filter(c => c !== clasificacion);
-        actualizarContadorColumnas();
-        actualizarColumnasTabla();
-    }
-    
-    // Actualizar contador
-    actualizarContadorClasificaciones();
-}
-
-function actualizarContadorClasificaciones() {
-    const contador = document.getElementById('contadorClasificaciones');
-    if (contador) {
-        const items = document.querySelectorAll('.tarifa-item');
-        contador.textContent = items.length;
-    }
 }
 
 // ===== FUNCIONES PARA COLORES DE CLASIFICACIÓN DE RUTAS =====
