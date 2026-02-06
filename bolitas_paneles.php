@@ -1102,7 +1102,7 @@ function configurarEventosTarifas() {
         }
     });
     
-    // Guardar valores iniciales
+    
     document.querySelectorAll('.tarifa-input').forEach(input => {
         input.defaultValue = input.value;
     });
