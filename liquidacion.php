@@ -89,89 +89,7 @@ function obtenerEstiloClasificacion($clasificacion) {
 }
 
 /* =======================================================
-   🔹 NUEVAS FUNCIONES PARA PRESUPUESTO
-======================================================= */
-
-// Obtener presupuesto de un conductor para una empresa específica
-function obtenerPresupuestoConductor($conn, $conductor, $empresa) {
-    $sql = "SELECT presupuesto FROM conductor_presupuesto 
-            WHERE conductor = ? AND empresa = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("ss", $conductor, $empresa);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    if ($row = $result->fetch_assoc()) {
-        return (float)$row['presupuesto'];
-    }
-    return 0.00; // Retorna 0 si no tiene presupuesto asignado
-}
-
-// Guardar o actualizar presupuesto
-function guardarPresupuestoConductor($conn, $conductor, $empresa, $presupuesto) {
-    $sql = "INSERT INTO conductor_presupuesto (conductor, empresa, presupuesto)
-            VALUES (?, ?, ?)
-            ON DUPLICATE KEY UPDATE presupuesto = VALUES(presupuesto)";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("ssd", $conductor, $empresa, $presupuesto);
-    return $stmt->execute();
-}
-
-// Obtener todos los presupuestos (para reporte)
-function obtenerTodosPresupuestos($conn) {
-    $presupuestos = [];
-    $sql = "SELECT conductor, empresa, presupuesto FROM conductor_presupuesto 
-            ORDER BY conductor, empresa";
-    $res = $conn->query($sql);
-    if ($res) {
-        while ($row = $res->fetch_assoc()) {
-            $presupuestos[$row['conductor']][$row['empresa']] = (float)$row['presupuesto'];
-        }
-    }
-    return $presupuestos;
-}
-
-// Registrar excedente en historial
-function registrarExcedente($conn, $conductor, $empresa, $total, $presupuesto, $excedente, $porcentaje) {
-    // Verificar si ya se registró hoy
-    $sql_check = "SELECT id FROM historial_excedentes 
-                  WHERE conductor = ? AND empresa = ? AND fecha_excedente = CURDATE()";
-    $stmt = $conn->prepare($sql_check);
-    $stmt->bind_param("ss", $conductor, $empresa);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    if ($result->num_rows == 0) {
-        // Solo registrar una vez por día
-        $sql = "INSERT INTO historial_excedentes 
-                (conductor, empresa, total, presupuesto, excedente, porcentaje, fecha_excedente)
-                VALUES (?, ?, ?, ?, ?, ?, CURDATE())";
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param("ssdddd", $conductor, $empresa, $total, $presupuesto, $excedente, $porcentaje);
-        return $stmt->execute();
-    }
-    return true;
-}
-
-// Obtener historial de excedentes
-function obtenerHistorialExcedentes($conn, $limit = 50) {
-    $historial = [];
-    $sql = "SELECT * FROM historial_excedentes 
-            ORDER BY fecha_excedente DESC, created_at DESC 
-            LIMIT ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("i", $limit);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    while ($row = $result->fetch_assoc()) {
-        $historial[] = $row;
-    }
-    return $historial;
-}
-
-/* =======================================================
-   🔹 Colores únicos por tipo de vehículo
+   🔹 NUEVA FUNCIÓN: Colores únicos por tipo de vehículo
 ======================================================= */
 function obtenerColorVehiculo($vehiculo) {
     // Paleta de colores vibrantes para vehículos
@@ -318,50 +236,15 @@ if (isset($_POST['guardar_columnas_seleccionadas'])) {
     // Crear clave única para esta sesión/filtro
     $session_key = "columnas_seleccionadas_" . md5($empresa . $desde . $hasta);
     
-    // Guardar en sesión
-    setcookie($session_key, json_encode($columnas), time() + (86400 * 7), "/");
+    // Guardar en sesión (puedes usar cookies o localStorage en el cliente)
+    setcookie($session_key, json_encode($columnas), time() + (86400 * 7), "/"); // 7 días
     
     echo "ok";
     exit;
 }
 
 /* =======================================================
-   🔹 Guardar PRESUPUESTO (AJAX)
-======================================================= */
-if (isset($_POST['guardar_presupuesto'])) {
-    $conductor = $conn->real_escape_string($_POST['conductor']);
-    $empresa = $conn->real_escape_string($_POST['empresa']);
-    $presupuesto = (float)$_POST['presupuesto'];
-    
-    if (guardarPresupuestoConductor($conn, $conductor, $empresa, $presupuesto)) {
-        echo "ok";
-    } else {
-        echo "error: " . $conn->error;
-    }
-    exit;
-}
-
-/* =======================================================
-   🔹 Obtener presupuestos (AJAX)
-======================================================= */
-if (isset($_GET['obtener_presupuestos'])) {
-    $presupuestos = obtenerTodosPresupuestos($conn);
-    echo json_encode($presupuestos);
-    exit;
-}
-
-/* =======================================================
-   🔹 Obtener historial de excedentes (AJAX)
-======================================================= */
-if (isset($_GET['obtener_historial_excedentes'])) {
-    $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 50;
-    $historial = obtenerHistorialExcedentes($conn, $limit);
-    echo json_encode($historial);
-    exit;
-}
-
-/* =======================================================
-   🔹 Endpoint AJAX: viajes por conductor
+   🔹 Endpoint AJAX: viajes por conductor - ACTUALIZADO
 ======================================================= */
 if (isset($_GET['viajes_conductor'])) {
     $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
@@ -411,7 +294,7 @@ if (isset($_GET['viajes_conductor'])) {
         // Contadores dinámicos
         $counts = array_fill_keys(array_keys($legend), 0);
         
-        // Contador de rutas sin clasificar para este conductor
+        // NUEVO: Contador de rutas sin clasificar para este conductor
         $rutas_sin_clasificar = [];
         $total_sin_clasificar = 0;
 
@@ -428,7 +311,7 @@ if (isset($_GET['viajes_conductor'])) {
             // Normalizar a minúsculas
             $cat = strtolower($cat);
             
-            // Contar rutas sin clasificar
+            // NUEVO: Contar rutas sin clasificar
             if ($cat === 'otro' || $cat === '') {
                 $total_sin_clasificar++;
                 $rutas_sin_clasificar[] = [
@@ -475,7 +358,7 @@ if (isset($_GET['viajes_conductor'])) {
         // Generar HTML
         echo "<div class='space-y-3'>";
         
-        // Mostrar alerta de rutas sin clasificar para este conductor
+        // NUEVO: Mostrar alerta de rutas sin clasificar para este conductor
         if ($total_sin_clasificar > 0) {
             echo "<div class='bg-amber-50 border border-amber-200 rounded-xl p-4 mb-3'>
                     <div class='flex items-center gap-2 mb-2'>
@@ -504,7 +387,7 @@ if (isset($_GET['viajes_conductor'])) {
         // Leyenda dinámica con filtro
         echo "<div class='flex flex-wrap gap-2 text-xs' id='legendFilterBar'>";
         foreach (array_keys($legend) as $k) {
-            if ($counts[$k] > 0) {
+            if ($counts[$k] > 0) { // Solo mostrar si hay viajes
                 $l = $legend[$k];
                 $countVal = $counts[$k] ?? 0;
                 $badgeClass = str_replace(['bg-','/40'], ['bg-',''], $l['row']);
@@ -650,7 +533,7 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
 }
 
 /* =======================================================
-   🔹 Cálculo y armado de tablas DINÁMICO
+   🔹 Cálculo y armado de tablas DINÁMICO - MODIFICADO
 ======================================================= */
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
@@ -696,7 +579,7 @@ $vehiculos = [];
 $rutasUnicas = [];
 $pagosConductor = [];
 
-// Contador global de rutas sin clasificar por conductor
+// NUEVO: Contador global de rutas sin clasificar por conductor
 $rutas_sin_clasificar_por_conductor = [];
 
 if ($res) {
@@ -726,7 +609,7 @@ if ($res) {
             $vehiculos[] = $vehiculo;
         }
 
-        // Verificar si la ruta tiene clasificación
+        // NUEVO: Verificar si la ruta tiene clasificación
         $clasificacion_ruta = $clasif_rutas[$keyRuta] ?? '';
         if ($clasificacion_ruta === '' || $clasificacion_ruta === 'otro') {
             if (!isset($rutas_sin_clasificar_por_conductor[$nombre])) {
@@ -764,22 +647,11 @@ if ($res) {
     }
 }
 
-// Cargar presupuestos para todos los conductores
-$presupuestos = obtenerTodosPresupuestos($conn);
-
-// Inyectar pago acumulado y presupuesto
+// Inyectar pago acumulado
 foreach ($datos as $conductor => $info) {
     $datos[$conductor]["pagado"] = (int)($pagosConductor[$conductor] ?? 0);
-    
-    // Inyectar contador de rutas sin clasificar
+    // NUEVO: Inyectar contador de rutas sin clasificar
     $datos[$conductor]["rutas_sin_clasificar"] = count($rutas_sin_clasificar_por_conductor[$conductor] ?? []);
-    
-    // Inyectar presupuesto para esta empresa (si existe)
-    $presupuesto_actual = 0;
-    if ($empresaFiltro !== "" && isset($presupuestos[$conductor][$empresaFiltro])) {
-        $presupuesto_actual = $presupuestos[$conductor][$empresaFiltro];
-    }
-    $datos[$conductor]["presupuesto"] = $presupuesto_actual;
 }
 
 // Empresas y tarifas
@@ -931,11 +803,7 @@ if ($empresaFiltro !== "") {
     background: linear-gradient(135deg, #f59e0b, #d97706);
   }
   
-  /* NUEVA BOLITA PARA PRESUPUESTOS */
-  .ball-presupuestos {
-    background: linear-gradient(135deg, #ec4899, #db2777);
-  }
-  
+  /* NUEVO COLOR PARA LA CUARTA BOLITA */
   .ball-selector-columnas {
     background: linear-gradient(135deg, #8b5cf6, #7c3aed);
   }
@@ -1175,7 +1043,7 @@ if ($empresaFiltro !== "") {
     border-left: 4px solid #f43f5e !important;
   }
   
-  /* ===== NUEVOS ESTILOS PARA SELECTOR DE COLUMNAS ===== */
+  /* ===== NUEVOS ESTILOS PARA SELECTOR DE COLUMNAS (DENTRO DEL PANEL) ===== */
   .columna-checkbox-item {
     transition: all 0.2s ease;
   }
@@ -1220,61 +1088,6 @@ if ($empresaFiltro !== "") {
   
   .columna-visualizada {
     display: table-cell !important;
-  }
-  
-  /* ===== ESTILOS PARA CONTROL DE PRESUPUESTO ===== */
-  .estado-presupuesto-verde {
-    background-color: #dcfce7 !important;
-    border-color: #86efac !important;
-    color: #166534 !important;
-  }
-  
-  .estado-presupuesto-amarillo {
-    background-color: #fef9c3 !important;
-    border-color: #fde047 !important;
-    color: #854d0e !important;
-    animation: pulse-amarillo 2s infinite;
-  }
-  
-  @keyframes pulse-amarillo {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.8; }
-  }
-  
-  .estado-presupuesto-rojo {
-    background-color: #fee2e2 !important;
-    border-color: #fca5a5 !important;
-    color: #991b1b !important;
-    animation: pulse-rojo 2s infinite;
-  }
-  
-  @keyframes pulse-rojo {
-    0%, 100% { 
-      background-color: #fee2e2;
-      box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
-    }
-    50% { 
-      background-color: #fecaca;
-      box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
-    }
-  }
-  
-  .badge-presupuesto {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 8px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 600;
-    white-space: nowrap;
-  }
-  
-  /* Modal de reporte de excedentes */
-  .modal-reporte {
-    max-width: 900px;
-    width: 95%;
-    max-height: 85vh;
   }
   
   /* Responsive */
@@ -1376,48 +1189,42 @@ if ($empresaFiltro !== "") {
           <?= count($datos) ?>
         </span>
         <span class="mx-2">•</span>
-        <span class="font-medium">Presupuestos activos:</span>
+        <span class="font-medium">Columnas visibles:</span>
         <span class="bg-slate-100 px-2 py-1 rounded-lg font-semibold">
-          <span id="contador-presupuestos-activos"><?= count($presupuestos) ?></span>
+          <span id="contador-columnas-visibles"><?= count($columnas_seleccionadas) ?></span>/<?= count($clasificaciones_disponibles) ?>
         </span>
       </div>
     </div>
   </header>
 
-  <!-- ===== BOLITAS FLOTANTES (AHORA 5 BOLITAS) ===== -->
+  <!-- ===== BOLITAS FLOTANTES ORIGINALES (AHORA 4 BOLITAS) ===== -->
   <div class="floating-balls-container">
-    <!-- Bolita 1: Tarifas por tipo de vehículo -->
+    <!-- Bolita 1: Tarifas por tipo de vehículo (ORIGINAL) -->
     <div class="floating-ball ball-tarifas" id="ball-tarifas" data-panel="tarifas">
       <div class="ball-content">🚐</div>
       <div class="ball-tooltip">Tarifas por tipo de vehículo</div>
     </div>
     
-    <!-- Bolita 2: Crear nueva clasificación -->
+    <!-- Bolita 2: Crear nueva clasificación (ORIGINAL) -->
     <div class="floating-ball ball-crear-clasif" id="ball-crear-clasif" data-panel="crear-clasif">
       <div class="ball-content">➕</div>
       <div class="ball-tooltip">Crear nueva clasificación</div>
     </div>
     
-    <!-- Bolita 3: Clasificar rutas existentes -->
+    <!-- Bolita 3: Clasificar rutas existentes (ORIGINAL) -->
     <div class="floating-ball ball-clasif-rutas" id="ball-clasif-rutas" data-panel="clasif-rutas">
       <div class="ball-content">🧭</div>
       <div class="ball-tooltip">Clasificar rutas existentes</div>
     </div>
     
-    <!-- Bolita 4: NUEVA - Presupuestos por conductor -->
-    <div class="floating-ball ball-presupuestos" id="ball-presupuestos" data-panel="presupuestos">
-      <div class="ball-content">💰</div>
-      <div class="ball-tooltip">Presupuestos por conductor</div>
-    </div>
-    
-    <!-- Bolita 5: Seleccionar columnas de la tabla -->
+    <!-- BOLITA 4: NUEVA - Seleccionar columnas de la tabla -->
     <div class="floating-ball ball-selector-columnas" id="ball-selector-columnas" data-panel="selector-columnas">
       <div class="ball-content">📊</div>
       <div class="ball-tooltip">Seleccionar columnas</div>
     </div>
   </div>
 
-  <!-- ===== PANEL DE TARIFAS ===== -->
+  <!-- ===== PANEL DE TARIFAS ORIGINAL ===== -->
   <div class="side-panel" id="panel-tarifas">
     <div class="side-panel-header">
       <h3 class="text-lg font-semibold flex items-center gap-2">
@@ -1524,7 +1331,7 @@ if ($empresaFiltro !== "") {
     </div>
   </div>
 
-  <!-- ===== PANEL CREAR CLASIFICACIÓN ===== -->
+  <!-- ===== PANEL CREAR CLASIFICACIÓN ORIGINAL ===== -->
   <div class="side-panel" id="panel-crear-clasif">
     <div class="side-panel-header">
       <h3 class="text-lg font-semibold flex items-center gap-2">
@@ -1564,7 +1371,7 @@ if ($empresaFiltro !== "") {
     </div>
   </div>
 
-  <!-- ===== PANEL CLASIFICACIÓN RUTAS ===== -->
+  <!-- ===== PANEL CLASIFICACIÓN RUTAS ORIGINAL ===== -->
   <div class="side-panel" id="panel-clasif-rutas">
     <div class="side-panel-header">
       <h3 class="text-lg font-semibold flex items-center gap-2">
@@ -1633,76 +1440,7 @@ if ($empresaFiltro !== "") {
     </div>
   </div>
 
-  <!-- ===== NUEVO PANEL: PRESUPUESTOS POR CONDUCTOR ===== -->
-  <div class="side-panel" id="panel-presupuestos">
-    <div class="side-panel-header">
-      <h3 class="text-lg font-semibold flex items-center gap-2">
-        <span>💰 Presupuestos por Conductor</span>
-        <span class="text-xs text-slate-500">Control de límites</span>
-      </h3>
-      <button class="side-panel-close" data-panel="presupuestos">✕</button>
-    </div>
-    <div class="side-panel-body">
-      <div class="flex flex-col gap-4">
-        <div>
-          <p class="text-sm text-slate-600 mb-3">
-            Asigna presupuestos por conductor y empresa. El sistema alertará cuando se alcance o supere el límite.
-          </p>
-        </div>
-        
-        <!-- Filtros para buscar conductores -->
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs font-medium mb-1 text-slate-600">Conductor</label>
-            <input type="text" id="filtroConductorPresupuesto" 
-                   placeholder="Buscar conductor..."
-                   class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500">
-          </div>
-          <div>
-            <label class="block text-xs font-medium mb-1 text-slate-600">Empresa</label>
-            <select id="filtroEmpresaPresupuesto" 
-                    class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500">
-              <option value="">Todas las empresas</option>
-              <?php foreach($empresas as $e): ?>
-                <option value="<?= htmlspecialchars($e) ?>"><?= htmlspecialchars($e) ?></option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-        </div>
-        
-        <!-- Lista de presupuestos -->
-        <div class="max-h-[60vh] overflow-y-auto border border-slate-200 rounded-lg p-2" id="listaPresupuestos">
-          <!-- Se cargará dinámicamente -->
-          <div class="text-center py-4 text-slate-400">
-            Cargando presupuestos...
-          </div>
-        </div>
-        
-        <!-- Reporte de excedentes -->
-        <div class="mt-4 pt-4 border-t border-slate-200">
-          <div class="flex flex-col gap-2">
-            <button onclick="mostrarReporteExcedentes()" 
-                    class="w-full py-2.5 bg-gradient-to-r from-rose-500 to-pink-500 text-white rounded-lg text-sm font-medium hover:from-rose-600 hover:to-pink-600 transition flex items-center justify-center gap-2">
-              📊 Ver reporte de excedentes
-            </button>
-            <button onclick="exportarPresupuestos()" 
-                    class="w-full py-2.5 bg-gradient-to-r from-emerald-500 to-green-500 text-white rounded-lg text-sm font-medium hover:from-emerald-600 hover:to-green-600 transition flex items-center justify-center gap-2">
-              📁 Exportar presupuestos
-            </button>
-          </div>
-        </div>
-        
-        <p class="text-xs text-slate-500 mt-2">
-          <strong>Indicadores:</strong> 
-          <span class="inline-flex items-center gap-1 ml-2"><span class="w-2 h-2 rounded-full bg-emerald-500"></span> Por debajo del 80%</span>
-          <span class="inline-flex items-center gap-1 ml-2"><span class="w-2 h-2 rounded-full bg-amber-500"></span> 80-100%</span>
-          <span class="inline-flex items-center gap-1 ml-2"><span class="w-2 h-2 rounded-full bg-rose-500"></span> Excedido (≥100%)</span>
-        </p>
-      </div>
-    </div>
-  </div>
-
-  <!-- ===== PANEL: SELECTOR DE COLUMNAS ===== -->
+  <!-- ===== NUEVO PANEL: SELECTOR DE COLUMNAS ===== -->
   <div class="side-panel" id="panel-selector-columnas">
     <div class="side-panel-header">
       <h3 class="text-lg font-semibold flex items-center gap-2">
@@ -1780,55 +1518,15 @@ if ($empresaFiltro !== "") {
     </div>
   </div>
 
-  <!-- ===== OVERLAY PARA PANELES ===== -->
+  <!-- ===== OVERLAY PARA PANELES ORIGINAL ===== -->
   <div class="side-panel-overlay" id="sidePanelOverlay"></div>
-
-  <!-- ===== MODAL PARA REPORTE DE EXCEDENTES ===== -->
-  <div id="modalReporteExcedentes" class="viajes-backdrop">
-    <div class="viajes-card modal-reporte">
-      <div class="viajes-header">
-        <div class="flex flex-col gap-2 w-full">
-          <div class="flex items-center justify-between">
-            <h3 class="text-lg font-semibold flex items-center gap-2">
-              ⚠️ Reporte de Excedentes de Presupuesto
-            </h3>
-            <button class="viajes-close text-slate-600 hover:bg-slate-100 border border-slate-300 px-2 py-1 rounded-lg text-sm" 
-                    onclick="cerrarModalReporte()" title="Cerrar">
-              ✕
-            </button>
-          </div>
-          <div class="text-sm text-slate-500">
-            Historial de conductores que han excedido su presupuesto
-          </div>
-        </div>
-      </div>
-      <div class="viajes-body" id="contenidoReporteExcedentes">
-        <div class="text-center py-8">
-          <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
-          <p class="text-slate-500">Cargando reporte...</p>
-        </div>
-      </div>
-    </div>
-  </div>
 
   <!-- Contenido principal -->
   <main class="max-w-[1800px] mx-auto px-3 md:px-4 py-6">
     <div class="table-container-wrapper" id="tableContainerWrapper">
       
-      <!-- Botón para ver reporte de excedentes -->
-      <div class="mb-4 flex flex-wrap gap-2">
-        <button onclick="togglePanel('presupuestos')" 
-                class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-pink-500 to-rose-500 text-white hover:from-pink-600 hover:to-rose-600 transition shadow-md hover:shadow-lg">
-          <span>💰</span>
-          <span class="text-sm font-medium">Gestionar presupuestos</span>
-        </button>
-        
-        <button onclick="mostrarAlertasExcedentes()" 
-                class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600 transition shadow-md hover:shadow-lg">
-          <span>⚠️</span>
-          <span class="text-sm font-medium" id="contadorAlertasExcedentes">0 alertas</span>
-        </button>
-        
+      <!-- Botón para abrir selector de columnas (opcional, para acceso rápido) -->
+      <div class="mb-4 flex justify-end">
         <button onclick="togglePanel('selector-columnas')" 
                 class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500 text-white hover:from-purple-600 hover:to-indigo-600 transition shadow-md hover:shadow-lg">
           <span>📊</span>
@@ -1844,7 +1542,7 @@ if ($empresaFiltro !== "") {
               <h3 class="text-xl font-semibold">🧑‍✈️ Resumen por Conductor</h3>
               <div id="contador-conductores" class="text-sm text-slate-500 mt-1">
                 Mostrando <?= count($datos) ?> conductores • 
-                <span id="contador-excedidos">0</span> excedieron presupuesto
+                <span id="contador-columnas-visibles-header"><?= count($columnas_seleccionadas) ?></span> columnas visibles
               </div>
             </div>
             <div class="flex items-center gap-2">
@@ -1882,14 +1580,11 @@ if ($empresaFiltro !== "") {
                 <span class="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-rose-700 font-semibold text-sm">
                   ⏳ Faltante: <span id="total_faltante">0</span>
                 </span>
-                <span class="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-amber-700 font-semibold text-sm">
-                  ⚠️ Excedidos: <span id="total_excedidos">0</span>
-                </span>
               </div>
             </div>
           </div>
 
-          <!-- Resumen de rutas sin clasificar -->
+          <!-- NUEVO: Resumen de rutas sin clasificar -->
           <div id="resumenRutasSinClasificar" class="hidden mb-6">
             <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
               <div class="flex items-center justify-between mb-4">
@@ -1918,12 +1613,7 @@ if ($empresaFiltro !== "") {
             <table id="tabla_conductores" class="w-full text-sm">
               <thead class="bg-blue-600 text-white sticky top-0 z-20">
                 <tr>
-                  <!-- COLUMNA PARA ESTADO DE PRESUPUESTO -->
-                  <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 90px;">
-                    Presupuesto
-                  </th>
-                  
-                  <!-- COLUMNA PARA ALERTAS VISUALES -->
+                  <!-- NUEVA COLUMNA PARA ALERTAS VISUALES -->
                   <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 70px;">
                     Estado
                   </th>
@@ -1999,48 +1689,15 @@ if ($empresaFiltro !== "") {
                 $esMensual = (stripos($info['vehiculo'], 'mensual') !== false);
                 $claseVehiculo = $esMensual ? 'vehiculo-mensual' : '';
                 $rutasSinClasificar = $info['rutas_sin_clasificar'] ?? 0;
-                $presupuesto = $info['presupuesto'] ?? 0;
                 $color_vehiculo = obtenerColorVehiculo($info['vehiculo']);
-                
-                // Determinar clase CSS según el estado del presupuesto
-                $clasePresupuesto = '';
-                if ($presupuesto > 0) {
-                  $clasePresupuesto = 'tiene-presupuesto';
-                }
               ?>
                 <tr data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>" 
                     data-conductor="<?= htmlspecialchars($conductor) ?>" 
                     data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
                     data-pagado="<?= (int)($info['pagado'] ?? 0) ?>"
                     data-sin-clasificar="<?= $rutasSinClasificar ?>"
-                    data-presupuesto="<?= $presupuesto ?>"
-                    class="hover:bg-blue-50/40 transition-colors <?= $clasePresupuesto ?> <?= $rutasSinClasificar > 0 ? 'alerta-sin-clasificar' : '' ?>">
-                  
-                  <!-- CELDA: Estado de presupuesto -->
-                  <td class="px-4 py-3 text-center" style="min-width: 90px;">
-                    <?php if ($presupuesto > 0): ?>
-                      <div class="flex flex-col items-center justify-center gap-1" title="Presupuesto: $<?= number_format($presupuesto, 0, ',', '.') ?>">
-                        <div class="text-xs font-semibold bg-gradient-to-r from-cyan-500 to-blue-500 text-white px-2 py-1 rounded-full">
-                          $<?= number_format($presupuesto, 0, ',', '.') ?>
-                        </div>
-                        <div class="text-[10px] text-slate-500">
-                          Asignado
-                        </div>
-                      </div>
-                    <?php else: ?>
-                      <div class="flex flex-col items-center justify-center gap-1" title="Sin presupuesto asignado">
-                        <div class="text-xs font-medium bg-slate-100 text-slate-500 px-2 py-1 rounded-full">
-                          Sin límite
-                        </div>
-                        <button onclick="asignarPresupuestoRapido('<?= htmlspecialchars($conductor) ?>')" 
-                                class="text-[10px] text-blue-600 hover:text-blue-800 hover:underline">
-                          Asignar
-                        </button>
-                      </div>
-                    <?php endif; ?>
-                  </td>
-                  
-                  <!-- CELDA: Indicador visual de rutas sin clasificar -->
+                    class="hover:bg-blue-50/40 transition-colors <?php echo $rutasSinClasificar > 0 ? 'alerta-sin-clasificar' : ''; ?>">
+                  <!-- NUEVA CELDA: Indicador visual de rutas sin clasificar -->
                   <td class="px-4 py-3 text-center" style="min-width: 70px;">
                     <?php if ($rutasSinClasificar > 0): ?>
                       <div class="flex flex-col items-center justify-center gap-1" title="<?= $rutasSinClasificar ?> ruta(s) sin clasificar">
@@ -2120,8 +1777,7 @@ if ($empresaFiltro !== "") {
                   <td class="px-4 py-3" style="min-width: 140px;">
                     <input type="text"
                            class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none whitespace-nowrap tabular-nums"
-                           readonly dir="ltr"
-                           data-presupuesto="<?= $presupuesto ?>">
+                           readonly dir="ltr">
                   </td>
 
                   <!-- Pagado -->
@@ -2150,7 +1806,7 @@ if ($empresaFiltro !== "") {
     </div>
   </main>
 
-  <!-- ===== Modal VIAJES ===== -->
+  <!-- ===== Modal VIAJES ORIGINAL ===== -->
   <div id="viajesModal" class="viajes-backdrop">
     <div class="viajes-card">
       <div class="viajes-header">
@@ -2182,17 +1838,13 @@ if ($empresaFiltro !== "") {
   </div>
 
   <script>
-    // ===== SISTEMA DE BOLITAS Y PANELES =====
+    // ===== SISTEMA DE BOLITAS Y PANELES ORIGINAL =====
     let activePanel = null;
-    const panels = ['tarifas', 'crear-clasif', 'clasif-rutas', 'presupuestos', 'selector-columnas'];
+    const panels = ['tarifas', 'crear-clasif', 'clasif-rutas', 'selector-columnas']; // AGREGADO selector-columnas
     
-    // Datos globales
-    let presupuestosGlobales = <?= json_encode($presupuestos) ?>;
-    let empresaFiltroActual = "<?= htmlspecialchars($empresaFiltro) ?>";
-    
-    // Inicializar sistema de bolitas
+    // Inicializar sistema de bolitas ORIGINAL
     document.addEventListener('DOMContentLoaded', function() {
-      // Configurar eventos para cada bolita
+      // Configurar eventos para cada bolita ORIGINAL
       panels.forEach(panelId => {
         const ball = document.getElementById(`ball-${panelId}`);
         const panel = document.getElementById(`panel-${panelId}`);
@@ -2200,13 +1852,13 @@ if ($empresaFiltro !== "") {
         const overlay = document.getElementById('sidePanelOverlay');
         const tableWrapper = document.getElementById('tableContainerWrapper');
         
-        // Abrir panel al hacer clic en la bolita
+        // Abrir panel al hacer clic en la bolita ORIGINAL
         ball.addEventListener('click', () => togglePanel(panelId));
         
-        // Cerrar panel con el botón X
+        // Cerrar panel con el botón X ORIGINAL
         closeBtn.addEventListener('click', () => togglePanel(panelId));
         
-        // Cerrar panel al hacer clic en el overlay
+        // Cerrar panel al hacer clic en el overlay ORIGINAL
         overlay.addEventListener('click', () => {
           if (activePanel === panelId) {
             togglePanel(panelId);
@@ -2214,34 +1866,24 @@ if ($empresaFiltro !== "") {
         });
       });
       
-      // Cerrar panel con tecla ESC
+      // Cerrar panel con tecla ESC ORIGINAL
       document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && activePanel) {
           togglePanel(activePanel);
         }
       });
       
-      // Inicializar acordeón de tarifas
+      // Inicializar acordeón de tarifas (todos colapsados inicialmente) ORIGINAL
       colapsarTodosTarifas();
       
-      // Inicializar colores de las filas de clasificación
+      // Inicializar colores de las filas de clasificación ORIGINAL
       inicializarColoresClasificacion();
       
-      // Inicializar sistema de selección de columnas
+      // Inicializar sistema de selección de columnas NUEVO
       inicializarSeleccionColumnas();
-      
-      // Cargar presupuestos en el panel
-      cargarPresupuestos();
-      
-      // Configurar eventos para el filtro de presupuestos
-      document.getElementById('filtroConductorPresupuesto').addEventListener('input', filtrarPresupuestos);
-      document.getElementById('filtroEmpresaPresupuesto').addEventListener('change', filtrarPresupuestos);
-      
-      // Recalcular al cargar (incluye control de presupuestos)
-      recalcular();
     });
     
-    // Función para abrir/cerrar paneles
+    // Función para abrir/cerrar paneles ORIGINAL
     function togglePanel(panelId) {
       const ball = document.getElementById(`ball-${panelId}`);
       const panel = document.getElementById(`panel-${panelId}`);
@@ -2269,11 +1911,6 @@ if ($empresaFiltro !== "") {
         tableWrapper.classList.add('with-panel');
         activePanel = panelId;
         
-        // Si es el panel de presupuestos, recargar datos
-        if (panelId === 'presupuestos') {
-          cargarPresupuestos();
-        }
-        
         // Asegurar que el panel esté visible
         setTimeout(() => {
           panel.scrollTop = 0;
@@ -2281,7 +1918,7 @@ if ($empresaFiltro !== "") {
       }
     }
     
-    // ===== FUNCIONES PARA EL ACORDEÓN DE TARIFAS =====
+    // ===== FUNCIONES PARA EL ACORDEÓN DE TARIFAS ORIGINAL =====
     
     function toggleAcordeon(vehiculoId) {
       const content = document.getElementById('content-' + vehiculoId);
@@ -2326,7 +1963,7 @@ if ($empresaFiltro !== "") {
       });
     }
     
-    // ===== FUNCIONES PARA COLORES DE CLASIFICACIÓN DE RUTAS =====
+    // ===== FUNCIONES PARA COLORES DE CLASIFICACIÓN DE RUTAS ORIGINAL =====
     
     function inicializarColoresClasificacion() {
       const filas = document.querySelectorAll('.fila-ruta');
@@ -2361,493 +1998,7 @@ if ($empresaFiltro !== "") {
       guardarClasificacionRuta(ruta, vehiculo, clasificacion);
     }
     
-    // ===== SISTEMA DE PRESUPUESTOS =====
-    
-    function cargarPresupuestos() {
-      const listaPresupuestos = document.getElementById('listaPresupuestos');
-      
-      // Mostrar loading
-      listaPresupuestos.innerHTML = `
-        <div class="text-center py-8">
-          <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
-          <p class="text-slate-500">Cargando presupuestos...</p>
-        </div>
-      `;
-      
-      // Obtener datos actualizados del servidor
-      fetch('<?= basename(__FILE__) ?>?obtener_presupuestos=1')
-        .then(r => r.json())
-        .then(data => {
-          presupuestosGlobales = data;
-          actualizarListaPresupuestos(data);
-        })
-        .catch(error => {
-          console.error('Error cargando presupuestos:', error);
-          listaPresupuestos.innerHTML = `
-            <div class="text-center py-8 text-rose-600">
-              ❌ Error cargando presupuestos
-            </div>
-          `;
-        });
-    }
-    
-    function actualizarListaPresupuestos(presupuestos) {
-      const listaPresupuestos = document.getElementById('listaPresupuestos');
-      const empresaFiltro = document.getElementById('filtroEmpresaPresupuesto').value;
-      const conductorFiltro = document.getElementById('filtroConductorPresupuesto').value.toLowerCase();
-      
-      let html = '';
-      let contador = 0;
-      
-      // Recorrer todos los presupuestos
-      Object.keys(presupuestos).sort().forEach(conductor => {
-        Object.keys(presupuestos[conductor]).sort().forEach(empresa => {
-          const presupuesto = presupuestos[conductor][empresa];
-          
-          // Aplicar filtros
-          if (empresaFiltro && empresa !== empresaFiltro) return;
-          if (conductorFiltro && !conductor.toLowerCase().includes(conductorFiltro)) return;
-          
-          // Obtener estado actual del presupuesto
-          const estado = obtenerEstadoPresupuesto(conductor, empresa, presupuesto);
-          const porcentaje = estado.porcentaje;
-          const excedente = estado.excedente;
-          
-          // Determinar clase CSS según el porcentaje
-          let claseEstado = '';
-          if (porcentaje >= 100) {
-            claseEstado = 'estado-presupuesto-rojo';
-          } else if (porcentaje >= 80) {
-            claseEstado = 'estado-presupuesto-amarillo';
-          } else {
-            claseEstado = 'estado-presupuesto-verde';
-          }
-          
-          html += `
-            <div class="mb-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 transition ${claseEstado}">
-              <div class="flex items-center justify-between mb-2">
-                <div class="flex-1">
-                  <div class="flex items-center gap-2">
-                    <span class="font-semibold text-slate-800">${conductor}</span>
-                    <span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded">${empresa}</span>
-                  </div>
-                  <div class="text-sm text-slate-600 mt-1">
-                    Presupuesto: <span class="font-semibold">$${formatNumber(presupuesto)}</span>
-                  </div>
-                </div>
-                <div class="text-right">
-                  <div class="text-lg font-bold ${porcentaje >= 100 ? 'text-rose-600' : porcentaje >= 80 ? 'text-amber-600' : 'text-emerald-600'}">
-                    ${porcentaje.toFixed(1)}%
-                  </div>
-                  <div class="text-xs text-slate-500">
-                    ${porcentaje >= 100 ? 'EXCEDIDO' : 'Utilizado'}
-                  </div>
-                </div>
-              </div>
-              
-              <div class="flex items-center gap-3 mt-2">
-                <div class="flex-1">
-                  <input type="number" 
-                         value="${presupuesto}"
-                         data-conductor="${conductor}"
-                         data-empresa="${empresa}"
-                         class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition"
-                         onchange="actualizarPresupuesto(this)">
-                </div>
-                <button onclick="eliminarPresupuesto('${conductor}', '${empresa}')" 
-                        class="px-3 py-1.5 rounded-lg bg-rose-100 text-rose-700 hover:bg-rose-200 text-sm transition">
-                  ❌
-                </button>
-              </div>
-              
-              ${porcentaje >= 100 ? `
-                <div class="mt-2 text-xs text-rose-600 font-medium">
-                  ⚠️ Excedente: $${formatNumber(excedente)}
-                </div>
-              ` : ''}
-            </div>
-          `;
-          
-          contador++;
-        });
-      });
-      
-      if (contador === 0) {
-        html = `
-          <div class="text-center py-8 text-slate-400">
-            ${conductorFiltro || empresaFiltro ? 'No se encontraron presupuestos con esos filtros' : 'No hay presupuestos asignados'}
-          </div>
-        `;
-      }
-      
-      listaPresupuestos.innerHTML = html;
-      document.getElementById('contador-presupuestos-activos').textContent = Object.keys(presupuestos).length;
-    }
-    
-    function filtrarPresupuestos() {
-      actualizarListaPresupuestos(presupuestosGlobales);
-    }
-    
-    function obtenerEstadoPresupuesto(conductor, empresa, presupuesto) {
-      // Buscar el conductor en la tabla
-      const fila = document.querySelector(`tr[data-conductor="${conductor}"]`);
-      if (!fila) {
-        return { porcentaje: 0, excedente: 0, total: 0 };
-      }
-      
-      // Obtener el total actual del conductor
-      const inputTotal = fila.querySelector('input.totales');
-      const totalTexto = inputTotal ? inputTotal.value.replace(/[^0-9]/g, '') : '0';
-      const total = parseInt(totalTexto) || 0;
-      
-      // Calcular porcentaje y excedente
-      const porcentaje = presupuesto > 0 ? (total / presupuesto) * 100 : 0;
-      const excedente = total > presupuesto ? total - presupuesto : 0;
-      
-      return { porcentaje, excedente, total };
-    }
-    
-    function actualizarPresupuesto(input) {
-      const conductor = input.dataset.conductor;
-      const empresa = input.dataset.empresa;
-      const presupuesto = parseFloat(input.value) || 0;
-      
-      if (presupuesto < 0) {
-        input.value = 0;
-        mostrarNotificacion('❌ El presupuesto no puede ser negativo', 'error');
-        return;
-      }
-      
-      // Guardar en el servidor
-      fetch('<?= basename(__FILE__) ?>', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          guardar_presupuesto: 1,
-          conductor: conductor,
-          empresa: empresa,
-          presupuesto: presupuesto
-        })
-      })
-      .then(r => r.text())
-      .then(respuesta => {
-        if (respuesta.trim() === 'ok') {
-          // Actualizar datos locales
-          if (!presupuestosGlobales[conductor]) {
-            presupuestosGlobales[conductor] = {};
-          }
-          presupuestosGlobales[conductor][empresa] = presupuesto;
-          
-          // Actualizar la tabla principal
-          const fila = document.querySelector(`tr[data-conductor="${conductor}"]`);
-          if (fila) {
-            fila.dataset.presupuesto = presupuesto;
-            
-            // Actualizar la celda de presupuesto
-            const celdaPresupuesto = fila.querySelector('td:nth-child(1)');
-            if (celdaPresupuesto && presupuesto > 0) {
-              celdaPresupuesto.innerHTML = `
-                <div class="flex flex-col items-center justify-center gap-1" title="Presupuesto: $${formatNumber(presupuesto)}">
-                  <div class="text-xs font-semibold bg-gradient-to-r from-cyan-500 to-blue-500 text-white px-2 py-1 rounded-full">
-                    $${formatNumber(presupuesto)}
-                  </div>
-                  <div class="text-[10px] text-slate-500">
-                    Asignado
-                  </div>
-                </div>
-              `;
-            }
-          }
-          
-          mostrarNotificacion('✅ Presupuesto actualizado', 'success');
-          recalcular(); // Recalcular con nuevos datos
-          
-          // Si estamos en el panel de presupuestos, actualizar la lista
-          if (activePanel === 'presupuestos') {
-            setTimeout(() => {
-              actualizarListaPresupuestos(presupuestosGlobales);
-            }, 100);
-          }
-        } else {
-          mostrarNotificacion('❌ Error actualizando presupuesto', 'error');
-          // Restaurar valor anterior
-          input.value = presupuestosGlobales[conductor]?.[empresa] || 0;
-        }
-      })
-      .catch(error => {
-        console.error('Error:', error);
-        mostrarNotificacion('❌ Error de conexión', 'error');
-      });
-    }
-    
-    function eliminarPresupuesto(conductor, empresa) {
-      if (!confirm(`¿Eliminar presupuesto de ${conductor} para ${empresa}?`)) return;
-      
-      // Establecer presupuesto a 0 (equivalente a eliminarlo)
-      fetch('<?= basename(__FILE__) ?>', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          guardar_presupuesto: 1,
-          conductor: conductor,
-          empresa: empresa,
-          presupuesto: 0
-        })
-      })
-      .then(r => r.text())
-      .then(respuesta => {
-        if (respuesta.trim() === 'ok') {
-          // Eliminar de datos locales
-          if (presupuestosGlobales[conductor]) {
-            delete presupuestosGlobales[conductor][empresa];
-            // Si no quedan más presupuestos para este conductor, eliminar la entrada
-            if (Object.keys(presupuestosGlobales[conductor]).length === 0) {
-              delete presupuestosGlobales[conductor];
-            }
-          }
-          
-          // Actualizar la tabla principal
-          const fila = document.querySelector(`tr[data-conductor="${conductor}"]`);
-          if (fila) {
-            fila.dataset.presupuesto = 0;
-            
-            // Actualizar la celda de presupuesto
-            const celdaPresupuesto = fila.querySelector('td:nth-child(1)');
-            if (celdaPresupuesto) {
-              celdaPresupuesto.innerHTML = `
-                <div class="flex flex-col items-center justify-center gap-1" title="Sin presupuesto asignado">
-                  <div class="text-xs font-medium bg-slate-100 text-slate-500 px-2 py-1 rounded-full">
-                    Sin límite
-                  </div>
-                  <button onclick="asignarPresupuestoRapido('${conductor}')" 
-                          class="text-[10px] text-blue-600 hover:text-blue-800 hover:underline">
-                    Asignar
-                  </button>
-                </div>
-              `;
-            }
-          }
-          
-          mostrarNotificacion('✅ Presupuesto eliminado', 'success');
-          recalcular();
-          
-          // Actualizar lista en panel
-          if (activePanel === 'presupuestos') {
-            actualizarListaPresupuestos(presupuestosGlobales);
-          }
-        } else {
-          mostrarNotificacion('❌ Error eliminando presupuesto', 'error');
-        }
-      })
-      .catch(error => {
-        console.error('Error:', error);
-        mostrarNotificacion('❌ Error de conexión', 'error');
-      });
-    }
-    
-    function asignarPresupuestoRapido(conductor) {
-      // Abrir panel de presupuestos
-      togglePanel('presupuestos');
-      
-      // Establecer filtro por conductor
-      setTimeout(() => {
-        document.getElementById('filtroConductorPresupuesto').value = conductor;
-        if (empresaFiltroActual) {
-          document.getElementById('filtroEmpresaPresupuesto').value = empresaFiltroActual;
-        }
-        filtrarPresupuestos();
-        
-        // Hacer scroll al primer elemento
-        const lista = document.getElementById('listaPresupuestos');
-        if (lista.firstChild) {
-          lista.firstChild.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }
-      }, 300);
-    }
-    
-    function mostrarAlertasExcedentes() {
-      const conductoresExcedidos = [];
-      const filas = document.querySelectorAll('#tabla_conductores_body tr');
-      
-      filas.forEach(fila => {
-        const conductor = fila.dataset.conductor;
-        const presupuesto = parseFloat(fila.dataset.presupuesto) || 0;
-        
-        if (presupuesto > 0) {
-          const inputTotal = fila.querySelector('input.totales');
-          const totalTexto = inputTotal ? inputTotal.value.replace(/[^0-9]/g, '') : '0';
-          const total = parseInt(totalTexto) || 0;
-          
-          if (total >= presupuesto) {
-            const porcentaje = Math.round((total / presupuesto) * 100);
-            const excedente = total - presupuesto;
-            
-            conductoresExcedidos.push({
-              conductor,
-              total: formatNumber(total),
-              presupuesto: formatNumber(presupuesto),
-              porcentaje,
-              excedente: formatNumber(excedente)
-            });
-          }
-        }
-      });
-      
-      if (conductoresExcedidos.length > 0) {
-        let mensaje = `⚠️ **${conductoresExcedidos.length} conductor(es) excedieron su presupuesto:**\n\n`;
-        
-        conductoresExcedidos.forEach(c => {
-          mensaje += `• **${c.conductor}**: $${c.total} / $${c.presupuesto} (${c.porcentaje}%)\n`;
-          mensaje += `  Excedente: $${c.excedente}\n\n`;
-        });
-        
-        alert(mensaje);
-      } else {
-        alert('🎉 ¡Excelente! Ningún conductor ha excedido su presupuesto.');
-      }
-    }
-    
-    function mostrarReporteExcedentes() {
-      const modal = document.getElementById('modalReporteExcedentes');
-      const contenido = document.getElementById('contenidoReporteExcedentes');
-      
-      modal.classList.add('show');
-      
-      // Cargar historial del servidor
-      fetch('<?= basename(__FILE__) ?>?obtener_historial_excedentes=1&limit=100')
-        .then(r => r.json())
-        .then(historial => {
-          if (historial.length === 0) {
-            contenido.innerHTML = `
-              <div class="text-center py-8 text-emerald-600">
-                <div class="text-4xl mb-4">🎉</div>
-                <p class="text-lg font-semibold">¡Excelente!</p>
-                <p class="text-slate-600">No hay registros de excedentes en el historial.</p>
-              </div>
-            `;
-            return;
-          }
-          
-          let html = `
-            <div class="overflow-x-auto">
-              <table class="w-full text-sm">
-                <thead class="bg-slate-100 text-slate-600">
-                  <tr>
-                    <th class="px-4 py-2 text-left">Fecha</th>
-                    <th class="px-4 py-2 text-left">Conductor</th>
-                    <th class="px-4 py-2 text-left">Empresa</th>
-                    <th class="px-4 py-2 text-right">Total</th>
-                    <th class="px-4 py-2 text-right">Presupuesto</th>
-                    <th class="px-4 py-2 text-right">Excedente</th>
-                    <th class="px-4 py-2 text-right">%</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-100">
-          `;
-          
-          historial.forEach(registro => {
-            const fecha = new Date(registro.fecha_excedente);
-            const fechaFormateada = fecha.toLocaleDateString('es-ES');
-            
-            let claseFila = '';
-            if (registro.porcentaje >= 150) {
-              claseFila = 'bg-rose-50';
-            } else if (registro.porcentaje >= 120) {
-              claseFila = 'bg-amber-50';
-            } else {
-              claseFila = 'bg-orange-50';
-            }
-            
-            html += `
-              <tr class="${claseFila} hover:bg-opacity-80 transition">
-                <td class="px-4 py-2 whitespace-nowrap">${fechaFormateada}</td>
-                <td class="px-4 py-2 font-medium">${registro.conductor}</td>
-                <td class="px-4 py-2">${registro.empresa}</td>
-                <td class="px-4 py-2 text-right font-semibold">$${formatNumber(registro.total)}</td>
-                <td class="px-4 py-2 text-right">$${formatNumber(registro.presupuesto)}</td>
-                <td class="px-4 py-2 text-right font-bold text-rose-600">$${formatNumber(registro.excedente)}</td>
-                <td class="px-4 py-2 text-right">
-                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold 
-                         ${registro.porcentaje >= 150 ? 'bg-rose-100 text-rose-800' : 
-                           registro.porcentaje >= 120 ? 'bg-amber-100 text-amber-800' : 
-                           'bg-orange-100 text-orange-800'}">
-                    ${parseFloat(registro.porcentaje).toFixed(1)}%
-                  </span>
-                </td>
-              </tr>
-            `;
-          });
-          
-          html += `
-                </tbody>
-              </table>
-            </div>
-            
-            <div class="mt-4 pt-4 border-t border-slate-200">
-              <div class="text-xs text-slate-500">
-                <p><strong>Total registros:</strong> ${historial.length}</p>
-                <p class="mt-1">Este reporte muestra el historial de cuando los conductores superaron su presupuesto por primera vez cada día.</p>
-              </div>
-            </div>
-          `;
-          
-          contenido.innerHTML = html;
-        })
-        .catch(error => {
-          console.error('Error:', error);
-          contenido.innerHTML = `
-            <div class="text-center py-8 text-rose-600">
-              <div class="text-4xl mb-4">❌</div>
-              <p class="text-lg font-semibold">Error cargando el reporte</p>
-              <p class="text-slate-600">${error.message}</p>
-            </div>
-          `;
-        });
-    }
-    
-    function cerrarModalReporte() {
-      document.getElementById('modalReporteExcedentes').classList.remove('show');
-    }
-    
-    function exportarPresupuestos() {
-      // Crear contenido CSV
-      let csv = 'Conductor,Empresa,Presupuesto,Total Actual,Porcentaje,Estado\n';
-      
-      Object.keys(presupuestosGlobales).forEach(conductor => {
-        Object.keys(presupuestosGlobales[conductor]).forEach(empresa => {
-          const presupuesto = presupuestosGlobales[conductor][empresa];
-          const estado = obtenerEstadoPresupuesto(conductor, empresa, presupuesto);
-          
-          let estadoTexto = '';
-          if (estado.porcentaje >= 100) {
-            estadoTexto = 'EXCEDIDO';
-          } else if (estado.porcentaje >= 80) {
-            estadoTexto = 'CERCANO AL LÍMITE';
-          } else {
-            estadoTexto = 'DENTRO DEL LÍMITE';
-          }
-          
-          csv += `"${conductor}","${empresa}",${presupuesto},${estado.total},${estado.porcentaje.toFixed(2)}%,${estadoTexto}\n`;
-        });
-      });
-      
-      // Crear y descargar archivo
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-      const url = URL.createObjectURL(blob);
-      
-      link.setAttribute('href', url);
-      link.setAttribute('download', `presupuestos_conductores_${new Date().toISOString().slice(0,10)}.csv`);
-      link.style.visibility = 'hidden';
-      
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      mostrarNotificacion('✅ Reporte exportado', 'success');
-    }
-    
-    // ===== SISTEMA DE SELECCIÓN DE COLUMNAS =====
+    // ===== SISTEMA DE SELECCIÓN DE COLUMNAS NUEVO =====
     
     let columnasSeleccionadas = <?= json_encode($columnas_seleccionadas) ?>;
     
@@ -2984,7 +2135,29 @@ if ($empresaFiltro !== "") {
       });
     }
     
-    // ===== FUNCIONALIDAD PARA RUTAS SIN CLASIFICAR =====
+    function mostrarNotificacion(mensaje, tipo) {
+      // Crear elemento de notificación
+      const notificacion = document.createElement('div');
+      notificacion.className = `fixed top-4 right-4 px-4 py-3 rounded-lg shadow-lg z-[10001] animate-fade-in-down ${
+        tipo === 'success' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 
+        'bg-rose-100 text-rose-800 border border-rose-200'
+      }`;
+      notificacion.innerHTML = `
+        <div class="flex items-center gap-2">
+          <span class="text-lg">${tipo === 'success' ? '✅' : '❌'}</span>
+          <span class="font-medium">${mensaje}</span>
+        </div>
+      `;
+      
+      document.body.appendChild(notificacion);
+      
+      // Remover después de 3 segundos
+      setTimeout(() => {
+        notificacion.remove();
+      }, 3000);
+    }
+    
+    // ===== FUNCIONALIDAD PARA RUTAS SIN CLASIFICAR ORIGINAL =====
     
     function mostrarResumenRutasSinClasificar() {
       const resumenDiv = document.getElementById('resumenRutasSinClasificar');
@@ -3051,7 +2224,7 @@ if ($empresaFiltro !== "") {
       document.getElementById('resumenRutasSinClasificar').classList.add('hidden');
     }
     
-    // ===== BUSCADOR DE CONDUCTORES =====
+    // ===== BUSCADOR DE CONDUCTORES ORIGINAL =====
     const buscadorConductores = document.getElementById('buscadorConductores');
     const clearBuscar = document.getElementById('clearBuscar');
     const contadorConductores = document.getElementById('contador-conductores');
@@ -3099,7 +2272,9 @@ if ($empresaFiltro !== "") {
       buscadorConductores.focus();
     });
 
-    // ===== FUNCIONES DE CÁLCULO CON CONTROL DE PRESUPUESTO =====
+    // ===== FUNCIONES DE CÁLCULO ORIGINAL (MODIFICADA) =====
+    // CAMBIO IMPORTANTE: Ahora SIEMPRE calcula con TODAS las tarifas, 
+    // sin importar si las columnas están visibles o no
     
     function getTarifas(){
       const tarifas = {};
@@ -3128,21 +2303,18 @@ if ($empresaFiltro !== "") {
       let totalViajes = 0;
       let totalPagado = 0;
       let totalFaltante = 0;
-      let totalExcedidos = 0;
-      let conductoresExcedidos = [];
 
       filas.forEach(fila => {
         if (fila.style.display === 'none') return;
 
         const veh = fila.dataset.vehiculo;
-        const conductor = fila.dataset.conductor;
         const tarifasVeh = tarifas[veh] || {};
         const todasColumnas = <?= json_encode($clasificaciones_disponibles) ?>;
-        const presupuesto = parseFloat(fila.dataset.presupuesto) || 0;
 
         let totalFila = 0;
         
-        // Calcular con TODAS las columnas, no solo las visibles
+        // ✅ CAMBIO CRÍTICO: Calcular con TODAS las columnas, no solo las visibles
+        // Recorrer todas las clasificaciones disponibles
         todasColumnas.forEach(columna => {
           // Obtener la cantidad desde la celda correspondiente
           const celda = fila.querySelector(`td[data-columna="${columna}"]`);
@@ -3156,137 +2328,23 @@ if ($empresaFiltro !== "") {
         if (faltante < 0) faltante = 0;
 
         const inpTotal = fila.querySelector('input.totales');
-        if (inpTotal) {
-          inpTotal.value = formatNumber(totalFila);
-          inpTotal.dataset.presupuesto = presupuesto;
-        }
+        if (inpTotal) inpTotal.value = formatNumber(totalFila);
 
         const inpFalt = fila.querySelector('input.faltante');
         if (inpFalt) inpFalt.value = formatNumber(faltante);
-
-        // Aplicar estilo según presupuesto
-        aplicarEstiloPresupuesto(fila, totalFila, presupuesto);
-
-        // Contar excedidos
-        if (presupuesto > 0 && totalFila >= presupuesto) {
-          totalExcedidos++;
-          conductoresExcedidos.push(conductor);
-          
-          // Registrar excedente en historial (solo una vez por cálculo)
-          if (presupuesto > 0) {
-            const porcentaje = (totalFila / presupuesto) * 100;
-            const excedente = totalFila - presupuesto;
-            
-            // Registrar en servidor
-            if (porcentaje >= 100 && empresaFiltroActual) {
-              registrarExcedenteServidor(conductor, empresaFiltroActual, totalFila, presupuesto, excedente, porcentaje);
-            }
-          }
-        }
 
         totalViajes += totalFila;
         totalPagado += pagado;
         totalFaltante += faltante;
       });
 
-      // Actualizar contadores
       document.getElementById('total_viajes').innerText = formatNumber(totalViajes);
       document.getElementById('total_general').innerText = formatNumber(totalViajes);
       document.getElementById('total_pagado').innerText = formatNumber(totalPagado);
       document.getElementById('total_faltante').innerText = formatNumber(totalFaltante);
-      document.getElementById('total_excedidos').innerText = totalExcedidos;
-      document.getElementById('contador-excedidos').innerText = totalExcedidos;
-      
-      // Actualizar contador de alertas
-      const contadorAlertas = document.getElementById('contadorAlertasExcedentes');
-      if (contadorAlertas) {
-        contadorAlertas.textContent = `${totalExcedidos} alerta${totalExcedidos !== 1 ? 's' : ''}`;
-      }
-      
-      // Mostrar alerta si hay excedidos
-      if (totalExcedidos > 0 && !localStorage.getItem('alertaExcedentesMostrada')) {
-        mostrarAlertaExcedentes(conductoresExcedidos);
-      }
-    }
-    
-    function aplicarEstiloPresupuesto(fila, total, presupuesto) {
-      // Limpiar estilos anteriores
-      fila.classList.remove('estado-presupuesto-verde', 'estado-presupuesto-amarillo', 'estado-presupuesto-rojo');
-      
-      // Si no hay presupuesto, no aplicar estilos
-      if (presupuesto <= 0) return;
-      
-      const porcentaje = (total / presupuesto) * 100;
-      
-      // Aplicar estilo según porcentaje
-      if (porcentaje >= 100) {
-        fila.classList.add('estado-presupuesto-rojo');
-        
-        // Agregar badge de excedente
-        const excedente = total - presupuesto;
-        const celdaPresupuesto = fila.querySelector('td:nth-child(1)');
-        if (celdaPresupuesto) {
-          const badgeExistente = celdaPresupuesto.querySelector('.badge-excedente');
-          if (!badgeExistente) {
-            const badge = document.createElement('div');
-            badge.className = 'badge-presupuesto bg-rose-100 text-rose-700 border border-rose-200 mt-1';
-            badge.innerHTML = `⚠️ +$${formatNumber(excedente)}`;
-            badge.title = `Excedente: $${formatNumber(excedente)}`;
-            celdaPresupuesto.appendChild(badge);
-          }
-        }
-      } else if (porcentaje >= 80) {
-        fila.classList.add('estado-presupuesto-amarillo');
-      } else {
-        fila.classList.add('estado-presupuesto-verde');
-      }
-    }
-    
-    function registrarExcedenteServidor(conductor, empresa, total, presupuesto, excedente, porcentaje) {
-      // Solo registrar si es significativo (>= 100%)
-      if (porcentaje >= 100) {
-        fetch('<?= basename(__FILE__) ?>', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            registrar_excedente: 1,
-            conductor: conductor,
-            empresa: empresa,
-            total: total,
-            presupuesto: presupuesto,
-            excedente: excedente,
-            porcentaje: porcentaje
-          })
-        })
-        .then(r => r.text())
-        .then(respuesta => {
-          console.log('Excedente registrado:', respuesta);
-        })
-        .catch(error => {
-          console.error('Error registrando excedente:', error);
-        });
-      }
-    }
-    
-    function mostrarAlertaExcedentes(conductores) {
-      if (conductores.length === 0) return;
-      
-      const mensaje = `⚠️ **${conductores.length} conductor(es) han excedido su presupuesto:**\n\n${conductores.map(c => `• ${c}`).join('\n')}\n\n¿Deseas ver el reporte detallado?`;
-      
-      if (confirm(mensaje)) {
-        mostrarReporteExcedentes();
-      }
-      
-      // Marcar como mostrada para no volver a mostrar en esta sesión
-      localStorage.setItem('alertaExcedentesMostrada', 'true');
-      
-      // Limpiar después de 1 hora
-      setTimeout(() => {
-        localStorage.removeItem('alertaExcedentesMostrada');
-      }, 3600000);
     }
 
-    // ===== CREAR NUEVA CLASIFICACIÓN =====
+    // ===== CREAR NUEVA CLASIFICACIÓN ORIGINAL =====
     function crearYAsignarClasificacion() {
       const nombreClasif = document.getElementById('txt_nueva_clasificacion').value.trim();
       const patronRuta = document.getElementById('txt_patron_ruta').value.trim().toLowerCase();
@@ -3349,7 +2407,7 @@ if ($empresaFiltro !== "") {
       });
     }
 
-    // ===== GUARDAR TARIFAS DINÁMICAMENTE =====
+    // ===== GUARDAR TARIFAS DINÁMICAMENTE ORIGINAL =====
     function configurarEventosTarifas() {
         // Usar delegación de eventos para manejar inputs dinámicos
         document.addEventListener('change', function(e) {
@@ -3404,7 +2462,7 @@ if ($empresaFiltro !== "") {
         });
     }
 
-    // ===== CLASIFICACIONES INDIVIDUALES =====
+    // ===== CLASIFICACIONES INDIVIDUALES ORIGINAL =====
     function guardarClasificacionRuta(ruta, vehiculo, clasificacion) {
       if (!clasificacion) return;
       fetch('<?= basename(__FILE__) ?>', {
@@ -3423,7 +2481,7 @@ if ($empresaFiltro !== "") {
       });
     }
 
-    // ===== MODAL DE VIAJES =====
+    // ===== MODAL DE VIAJES ORIGINAL =====
     const RANGO_DESDE = <?= json_encode($desde) ?>;
     const RANGO_HASTA = <?= json_encode($hasta) ?>;
     const RANGO_EMP   = <?= json_encode($empresaFiltro) ?>;
@@ -3543,35 +2601,12 @@ if ($empresaFiltro !== "") {
         loadViajes(nuevo);
     });
 
-    // ===== NOTIFICACIONES =====
-    function mostrarNotificacion(mensaje, tipo) {
-      // Crear elemento de notificación
-      const notificacion = document.createElement('div');
-      notificacion.className = `fixed top-4 right-4 px-4 py-3 rounded-lg shadow-lg z-[10001] animate-fade-in-down ${
-        tipo === 'success' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 
-        'bg-rose-100 text-rose-800 border border-rose-200'
-      }`;
-      notificacion.innerHTML = `
-        <div class="flex items-center gap-2">
-          <span class="text-lg">${tipo === 'success' ? '✅' : '❌'}</span>
-          <span class="font-medium">${mensaje}</span>
-        </div>
-      `;
-      
-      document.body.appendChild(notificacion);
-      
-      // Remover después de 3 segundos
-      setTimeout(() => {
-        notificacion.remove();
-      }, 3000);
-    }
-
     // ===== INICIALIZACIÓN COMPLETA ====
     document.addEventListener('DOMContentLoaded', function() {
-      // Configurar eventos de tarifas
+      // Configurar eventos de tarifas ORIGINAL
       configurarEventosTarifas();
       
-      // Click en conductor → abre modal de viajes
+      // Click en conductor → abre modal de viajes ORIGINAL
       document.querySelectorAll('.conductor-link').forEach(btn=>{
         btn.addEventListener('click', (e)=>{
           e.preventDefault();
@@ -3580,7 +2615,7 @@ if ($empresaFiltro !== "") {
         });
       });
 
-      // Cambio clasificación ruta individual
+      // Cambio clasificación ruta individual ORIGINAL
       document.querySelectorAll('.select-clasif-ruta').forEach(sel=>{
         sel.addEventListener('change', function() {
           actualizarColorFila(this);
@@ -3595,23 +2630,6 @@ if ($empresaFiltro !== "") {
       if (totalRutasSinClasificar > 0) {
         mostrarResumenRutasSinClasificar();
       }
-      
-      // Mostrar alerta inicial si hay excedidos
-      setTimeout(() => {
-        const totalExcedidos = parseInt(document.getElementById('total_excedidos').textContent);
-        if (totalExcedidos > 0) {
-          const conductoresExcedidos = [];
-          document.querySelectorAll('#tabla_conductores_body tr.estado-presupuesto-rojo').forEach(fila => {
-            const conductor = fila.dataset.conductor;
-            conductoresExcedidos.push(conductor);
-          });
-          
-          if (conductoresExcedidos.length > 0 && !localStorage.getItem('alertaInicialMostrada')) {
-            mostrarAlertaExcedentes(conductoresExcedidos);
-            localStorage.setItem('alertaInicialMostrada', 'true');
-          }
-        }
-      }, 1000);
     });
   </script>
 </body>
