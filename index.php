@@ -1,5 +1,5 @@
 <?php
-// index.php
+// index.ph
 require_once __DIR__.'/router.php';
 
 $raw = file_get_contents("php://input");
