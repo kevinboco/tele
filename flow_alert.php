@@ -1,12 +1,6 @@
 <?php
-// flow_alert.php - Sistema completo de alertas por presupuesto
+// flow_alert.php - Sistema de alertas por presupuesto de empresa
 require_once __DIR__.'/helpers.php';
-
-/* ========= CONFIGURACIÓN - CAMBIA ESTA HORA PARA PRUEBAS ========= */
-// HORA DE ALERTA DIARIA (formato 24h: 'HH:MM')
-$HORA_ALERTA_PROGRAMADA = '10:27'; // <- ¡CAMBIAR AQUÍ PARA PRUEBAS!
-// Ejemplos: '14:30' (2:30 PM), '09:00' (9 AM), '16:45' (4:45 PM)
-/* ========= FIN CONFIGURACIÓN ========= */
 
 /* ========= FUNCIONES DE BASE DE DATOS ========= */
 function obtenerEmpresasConViajes($conn, $chat_id) {
@@ -156,186 +150,40 @@ function obtenerTarifa($conn, $empresa, $tipo_vehiculo, $clasificacion) {
     return floatval($tarifa);
 }
 
-/* ========= ALERTAS PROGRAMADAS (SISTEMA AUTOMÁTICO) ========= */
-function inicializarTablaAlertasProgramadas($conn) {
-    $sql = "CREATE TABLE IF NOT EXISTS alertas_programadas (
-        id INT PRIMARY KEY AUTO_INCREMENT,
-        chat_id BIGINT NOT NULL,
-        hora_alerta VARCHAR(5) DEFAULT '12:00',
-        activo BOOLEAN DEFAULT TRUE,
-        ultima_ejecucion DATETIME NULL,
-        creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE KEY unique_chat (chat_id)
-    )";
-    return $conn->query($sql);
-}
-
-function alert_programar_diaria($chat_id, $hora = '12:00') {
-    $conn = db();
-    if (!$conn) return false;
-    
-    inicializarTablaAlertasProgramadas($conn);
-    
-    $sql = "INSERT INTO alertas_programadas (chat_id, hora_alerta, activo) 
-            VALUES (?, ?, 1)
-            ON DUPLICATE KEY UPDATE 
-            hora_alerta = ?, activo = 1, ultima_ejecucion = NULL";
-    
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("iss", $chat_id, $hora, $hora);
-    $success = $stmt->execute();
-    
-    $stmt->close();
-    $conn->close();
-    
-    return $success;
-}
-
-function alert_desactivar_programadas($chat_id) {
-    $conn = db();
-    if (!$conn) return false;
-    
-    inicializarTablaAlertasProgramadas($conn);
-    
-    $sql = "UPDATE alertas_programadas SET activo = 0 WHERE chat_id = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("i", $chat_id);
-    $success = $stmt->execute();
-    
-    $stmt->close();
-    $conn->close();
-    
-    return $success;
-}
-
-function alert_verificar_programadas() {
-    global $HORA_ALERTA_PROGRAMADA; // Usamos la variable configurada arriba
-    
-    $conn = db();
-    if (!$conn) return;
-    
-    inicializarTablaAlertasProgramadas($conn);
-    
-    $hora_actual = date('H:i');
-    
-    // DEBUG: Para ver qué hora está comparando
-    file_put_contents("debug_alertas.txt", 
-        "[" . date('Y-m-d H:i:s') . "] Hora actual: $hora_actual | Hora configurada: $HORA_ALERTA_PROGRAMADA\n", 
-        FILE_APPEND);
-    
-    // Buscar chats con alertas programadas para ESTA hora
-    $sql = "SELECT chat_id FROM alertas_programadas 
-            WHERE activo = 1 
-            AND hora_alerta = ?
-            AND (ultima_ejecucion IS NULL OR DATE(ultima_ejecucion) != CURDATE())";
-    
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("s", $HORA_ALERTA_PROGRAMADA);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    $chats_a_notificar = [];
-    while ($row = $result->fetch_assoc()) {
-        $chats_a_notificar[] = $row['chat_id'];
-    }
-    $stmt->close();
-    
-    // Para cada chat, ejecutar verificación de alertas
-    foreach ($chats_a_notificar as $chat_id) {
-        alert_ejecutar_verificacion_diaria($chat_id, $conn);
-        
-        // Actualizar última ejecución
-        $sql = "UPDATE alertas_programadas 
-                SET ultima_ejecucion = NOW() 
-                WHERE chat_id = ?";
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param("i", $chat_id);
-        $stmt->execute();
-        $stmt->close();
-    }
-    
-    $conn->close();
-}
-
-function alert_ejecutar_verificacion_diaria($chat_id, $conn = null) {
-    $conn_provided = ($conn !== null);
-    if (!$conn_provided) {
-        $conn = db();
-        if (!$conn) return;
-    }
-    
+function verificarAlertasPresupuesto($conn, $chat_id) {
     $mes_actual = date('n');
     $anio_actual = date('Y');
     
+    $alertas = [];
+    
     // Obtener todos los presupuestos activos del mes actual
     $presupuestos = obtenerPresupuestosEmpresa($conn, $chat_id, $mes_actual, $anio_actual);
-    
-    if (empty($presupuestos)) {
-        if (!$conn_provided) $conn->close();
-        return;
-    }
-    
-    $empresas_sobrepasadas = [];
-    $total_exceso = 0;
     
     foreach ($presupuestos as $presupuesto) {
         // Calcular gastos de esta empresa
         $gastos = calcularGastosEmpresa($conn, $presupuesto['empresa'], $mes_actual, $anio_actual);
         
-        // Si los gastos superan el presupuesto Y no se ha notificado hoy
-        if ($gastos > $presupuesto['presupuesto']) {
-            $exceso = $gastos - $presupuesto['presupuesto'];
-            $porcentaje = (($gastos / $presupuesto['presupuesto']) * 100) - 100;
-            
-            $empresas_sobrepasadas[] = [
+        // Si los gastos superan el presupuesto Y no se ha notificado
+        if ($gastos > $presupuesto['presupuesto'] && !$presupuesto['notificado']) {
+            $alertas[] = [
                 'empresa' => $presupuesto['empresa'],
                 'presupuesto' => $presupuesto['presupuesto'],
                 'gastos' => $gastos,
-                'exceso' => $exceso,
-                'porcentaje' => $porcentaje
+                'exceso' => $gastos - $presupuesto['presupuesto'],
+                'porcentaje' => ($gastos / $presupuesto['presupuesto'] * 100) - 100
             ];
             
-            $total_exceso += $exceso;
+            // Marcar como notificado
+            $sql = "UPDATE presupuestos_empresa SET notificado = 1 
+                    WHERE id = ?";
+            $stmt = $conn->prepare($sql);
+            $stmt->bind_param("i", $presupuesto['id']);
+            $stmt->execute();
+            $stmt->close();
         }
     }
     
-    if (!empty($empresas_sobrepasadas)) {
-        // Enviar reporte diario
-        $mensaje = "📢 *REPORTE DIARIO DE ALERTAS*\n";
-        $mensaje .= "⏰ Hora: " . date('H:i') . "\n";
-        $mensaje .= "📅 Fecha: " . date('d/m/Y') . "\n\n";
-        
-        $mensaje .= "🚨 *EMPRESAS SOBREPASADAS:*\n";
-        foreach ($empresas_sobrepasadas as $empresa) {
-            $mensaje .= "────────────────\n";
-            $mensaje .= "🏢 *" . $empresa['empresa'] . "*\n";
-            $mensaje .= "💰 Presupuesto: $" . number_format($empresa['presupuesto'], 0, ',', '.') . "\n";
-            $mensaje .= "💸 Gastado: $" . number_format($empresa['gastos'], 0, ',', '.') . "\n";
-            $mensaje .= "📈 Exceso: $" . number_format($empresa['exceso'], 0, ',', '.') . "\n";
-            $mensaje .= "   (" . number_format($empresa['porcentaje'], 1) . "%)\n";
-        }
-        
-        $mensaje .= "\n📊 *RESUMEN:*\n";
-        $mensaje .= "• Empresas sobrepasadas: " . count($empresas_sobrepasadas) . "\n";
-        $mensaje .= "• Exceso total: $" . number_format($total_exceso, 0, ',', '.') . "\n\n";
-        $mensaje .= "🔧 Usa /alert para gestionar presupuestos.";
-        
-        sendMessage($chat_id, $mensaje);
-    } else {
-        // Todas las empresas están dentro del presupuesto
-        $mensaje = "✅ *REPORTE DIARIO*\n";
-        $mensaje .= "⏰ Hora: " . date('H:i') . "\n";
-        $mensaje .= "📅 Fecha: " . date('d/m/Y') . "\n\n";
-        $mensaje .= "🎉 ¡Todas las empresas están dentro de su presupuesto!\n\n";
-        $mensaje .= "💰 No hay empresas que hayan superado su presupuesto hoy.\n";
-        $mensaje .= "🔧 Usa /alert para ver detalles.";
-        
-        sendMessage($chat_id, $mensaje);
-    }
-    
-    if (!$conn_provided) {
-        $conn->close();
-    }
+    return $alertas;
 }
 
 /* ========= ENTRYPOINT Y MANEJO DE ESTADO ========= */
@@ -364,16 +212,10 @@ function alert_entrypoint($chat_id, $estado) {
                 ["text" => "📈 Reporte gastos vs presupuesto", "callback_data" => "alert_reporte"]
             ],
             [
-                ["text" => "⏰ Activar alertas diarias", "callback_data" => "alert_activar_diarias"],
-                ["text" => "🚫 Desactivar alertas diarias", "callback_data" => "alert_desactivar_diarias"]
-            ],
-            [
                 ["text" => "🔄 Volver al inicio", "callback_data" => "cmd_start"]
             ]
         ]
     ];
-    
-    global $HORA_ALERTA_PROGRAMADA;
     
     sendMessage($chat_id, 
         "🚨 *SISTEMA DE ALERTAS POR PRESUPUESTO*\n\n" .
@@ -381,9 +223,7 @@ function alert_entrypoint($chat_id, $estado) {
         "• *Ver presupuestos*: Muestra los presupuestos configurados\n" .
         "• *Configurar presupuesto*: Asigna presupuesto a una empresa\n" .
         "• *Verificar alertas*: Revisa si hay empresas sobre presupuesto\n" .
-        "• *Reporte*: Compara gastos reales vs presupuesto\n" .
-        "• *Alertas diarias*: Activadas a las *$HORA_ALERTA_PROGRAMADA*\n\n" .
-        "⚠️ *NOTA:* Las alertas automáticas se activan cuando se registra un viaje que supera el presupuesto.", 
+        "• *Reporte*: Compara gastos reales vs presupuesto", 
         $kb
     );
 }
@@ -524,27 +364,6 @@ function alert_handle_callback($chat_id, &$estado, $cb_data, $cb_id = null) {
         return;
     }
     
-    if ($cb_data === "alert_activar_diarias") {
-        global $HORA_ALERTA_PROGRAMADA;
-        if (alert_programar_diaria($chat_id, $HORA_ALERTA_PROGRAMADA)) {
-            sendMessage($chat_id, "✅ *Alertas diarias ACTIVADAS*\n\n⏰ Recibirás reportes automáticos a las *$HORA_ALERTA_PROGRAMADA* cada día.\n\nEl sistema revisará automáticamente todas las empresas con presupuesto.");
-        } else {
-            sendMessage($chat_id, "❌ Error al activar alertas diarias.");
-        }
-        if ($cb_id) answerCallbackQuery($cb_id);
-        return;
-    }
-    
-    if ($cb_data === "alert_desactivar_diarias") {
-        if (alert_desactivar_programadas($chat_id)) {
-            sendMessage($chat_id, "✅ *Alertas diarias DESACTIVADAS*\n\nYa no recibirás reportes automáticos.\n\nPuedes activarlas nuevamente cuando quieras.");
-        } else {
-            sendMessage($chat_id, "❌ Error al desactivar alertas diarias.");
-        }
-        if ($cb_id) answerCallbackQuery($cb_id);
-        return;
-    }
-    
     // Seleccionar empresa
     if (strpos($cb_data, 'alert_empresa_sel_') === 0) {
         $empresa_encoded = substr($cb_data, strlen('alert_empresa_sel_'));
@@ -578,7 +397,8 @@ function alert_handle_callback($chat_id, &$estado, $cb_data, $cb_id = null) {
     }
     
     if ($cb_data === "alert_otro_mes") {
-        // Por simplicidad, usamos el mes actual
+        // Aquí podrías implementar selección de mes/año
+        // Por ahora usamos el mes actual
         $estado['mes'] = date('n');
         $estado['anio'] = date('Y');
         alert_guardar_presupuesto($chat_id, $estado);
@@ -633,31 +453,8 @@ function alert_verificar_y_notificar($chat_id) {
         return;
     }
     
-    $mes_actual = date('n');
-    $anio_actual = date('Y');
-    $presupuestos = obtenerPresupuestosEmpresa($conn, $chat_id, $mes_actual, $anio_actual);
+    $alertas = verificarAlertasPresupuesto($conn, $chat_id);
     $conn->close();
-    
-    if (empty($presupuestos)) {
-        sendMessage($chat_id, "📭 No hay presupuestos configurados para el mes actual.");
-        return;
-    }
-    
-    $alertas = [];
-    
-    foreach ($presupuestos as $presupuesto) {
-        $gastos = calcularGastosEmpresa(db(), $presupuesto['empresa'], $mes_actual, $anio_actual);
-        
-        if ($gastos > $presupuesto['presupuesto']) {
-            $alertas[] = [
-                'empresa' => $presupuesto['empresa'],
-                'presupuesto' => $presupuesto['presupuesto'],
-                'gastos' => $gastos,
-                'exceso' => $gastos - $presupuesto['presupuesto'],
-                'porcentaje' => ($gastos / $presupuesto['presupuesto'] * 100) - 100
-            ];
-        }
-    }
     
     if (empty($alertas)) {
         sendMessage($chat_id, "✅ Todas las empresas están dentro de su presupuesto. ¡Buen trabajo!");
@@ -764,9 +561,8 @@ function alert_guardar_presupuesto($chat_id, &$estado) {
         $mensaje .= "🏢 Empresa: *$empresa*\n";
         $mensaje .= "📅 Periodo: " . nombreMes($mes) . " $anio\n";
         $mensaje .= "💰 Presupuesto: $" . number_format($presupuesto, 0, ',', '.') . "\n\n";
-        $mensaje .= "⚠️ *El sistema ahora monitoreará automáticamente esta empresa.*\n";
-        $mensaje .= "• Recibirás alerta cuando registres un viaje que supere el presupuesto\n";
-        $mensaje .= "• Puedes activar alertas diarias desde el menú /alert";
+        $mensaje .= "El sistema ahora monitoreará los gastos de esta empresa.\n";
+        $mensaje .= "Recibirás alertas si supera el presupuesto.";
         
         sendMessage($chat_id, $mensaje);
     } else {
@@ -804,44 +600,33 @@ function alert_handle_text($chat_id, &$estado, $text, $photo) {
     }
 }
 
-/* ========= FUNCIÓN PARA VERIFICAR ALERTAS AL REGISTRAR VIAJE ========= */
-function verificarAlertaDespuesViaje($chat_id, $empresa, $fecha) {
-    // Solo verificar si la empresa tiene presupuesto configurado
+/* ========= FUNCIÓN PARA EJECUTAR CHECKS AUTOMÁTICOS ========= */
+// Esta función se puede llamar desde un cron job cada hora/día
+function alert_check_automatico() {
+    // Obtener todos los chat_id únicos con presupuestos activos
     $conn = db();
     if (!$conn) return;
     
-    // Extraer mes y año de la fecha del viaje
-    $mes = date('n', strtotime($fecha));
-    $anio = date('Y', strtotime($fecha));
-    
-    // Verificar si esta empresa tiene presupuesto para este mes/año
-    $sql = "SELECT * FROM presupuestos_empresa 
-            WHERE empresa = ? AND mes = ? AND anio = ? 
-            AND chat_id = ? AND activo = 1";
+    $sql = "SELECT DISTINCT chat_id FROM presupuestos_empresa WHERE activo = 1";
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("siii", $empresa, $mes, $anio, $chat_id);
     $stmt->execute();
     $result = $stmt->get_result();
     
-    if ($presupuesto = $result->fetch_assoc()) {
-        // Calcular gastos actuales
-        $gastos = calcularGastosEmpresa($conn, $empresa, $mes, $anio);
+    while ($row = $result->fetch_assoc()) {
+        $alertas = verificarAlertasPresupuesto($conn, $row['chat_id']);
         
-        // Si supera el presupuesto, ENVIAR ALERTA
-        if ($gastos > $presupuesto['presupuesto']) {
-            $exceso = $gastos - $presupuesto['presupuesto'];
-            $porcentaje = (($gastos / $presupuesto['presupuesto']) * 100) - 100;
-            
-            $mensaje = "🚨 *ALERTA AUTOMÁTICA: PRESUPUESTO SUPERADO*\n\n";
-            $mensaje .= "🏢 Empresa: *$empresa*\n";
-            $mensaje .= "💰 Presupuesto: $" . number_format($presupuesto['presupuesto'], 0, ',', '.') . "\n";
-            $mensaje .= "💸 Gastado: $" . number_format($gastos, 0, ',', '.') . "\n";
-            $mensaje .= "📈 Exceso: $" . number_format($exceso, 0, ',', '.') . "\n";
-            $mensaje .= "(" . number_format($porcentaje, 1) . "% sobre el presupuesto)\n\n";
-            $mensaje .= "📅 Viaje registrado el: " . date('d/m/Y', strtotime($fecha)) . "\n";
-            $mensaje .= "📊 Usa /alert para ver detalles y gestionar.";
-            
-            sendMessage($chat_id, $mensaje);
+        if (!empty($alertas)) {
+            foreach ($alertas as $alerta) {
+                $mensaje = "🚨 *ALERTA AUTOMÁTICA - PRESUPUESTO SUPERADO*\n\n";
+                $mensaje .= "🏢 Empresa: *{$alerta['empresa']}*\n";
+                $mensaje .= "💰 Presupuesto: $" . number_format($alerta['presupuesto'], 0, ',', '.') . "\n";
+                $mensaje .= "💸 Gastado: $" . number_format($alerta['gastos'], 0, ',', '.') . "\n";
+                $mensaje .= "📈 Exceso: $" . number_format($alerta['exceso'], 0, ',', '.') . "\n";
+                $mensaje .= "(" . number_format($alerta['porcentaje'], 1) . "% sobre el presupuesto)\n\n";
+                $mensaje .= "📊 Usa /alert para ver detalles y gestionar.";
+                
+                sendMessage($row['chat_id'], $mensaje);
+            }
         }
     }
     
