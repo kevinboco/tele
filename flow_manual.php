@@ -15,7 +15,7 @@ function manual_entrypoint($chat_id, $estado) {
     ];
     saveState($chat_id, $estado);
 
-    // Cargar conductores frescos desde BD
+    // Cargar conductores frescos desde 
     $conn = db();
     $conductores = $conn ? obtenerConductoresAdmin($conn, $chat_id) : [];
     $conn?->close();
