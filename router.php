@@ -8,7 +8,7 @@ require_once __DIR__.'/flow_p.php';   // <-- nuevo flujo de reportes /p
 
 function routeUpdate(array $update): void
 {
-    // Exponer el update completo (para leer document vs photo en los flujos)
+    // Exponer el update completo (para leer document vs photo en los flujo
     $GLOBALS['update'] = $update;
 
     // Campos base del update
