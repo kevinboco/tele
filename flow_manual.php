@@ -819,6 +819,41 @@ function manual_insert_viaje_and_close($chat_id, &$estado) {
         $mensaje .= "\n\nAtajos rápidos: /agg /manual";
         
         sendMessage($chat_id, $mensaje);
+        
+        // ============ INTEGRACIÓN CON ALERTAS ============
+        // LLAMAR A LA VERIFICACIÓN DE ALERTA DESPUÉS DEL VIAJE
+        if (file_exists(__DIR__.'/flow_alert.php')) {
+            require_once __DIR__.'/flow_alert.php'; // Incluir el archivo de alertas
+            
+            // Verificar si existe la función antes de llamarla
+            if (function_exists('verificarAlertaDespuesViaje')) {
+                // Llamar a la función que verifica alertas después de registrar un viaje
+                verificarAlertaDespuesViaje(
+                    $chat_id, 
+                    $estado["manual_empresa"], 
+                    $estado["manual_fecha"]
+                );
+                
+                // DEBUG: Para verificar que se está llamando
+                file_put_contents("debug_manual_alert.txt", 
+                    "[" . date('Y-m-d H:i:s') . "] Viaje registrado para empresa: " . 
+                    $estado["manual_empresa"] . " - " . 
+                    $estado["manual_fecha"] . "\n", 
+                    FILE_APPEND);
+            } else {
+                // DEBUG: Para saber si la función no existe
+                file_put_contents("debug_manual_alert.txt", 
+                    "[" . date('Y-m-d H:i:s') . "] ERROR: función verificarAlertaDespuesViaje no encontrada\n", 
+                    FILE_APPEND);
+            }
+        } else {
+            // DEBUG: Para saber si el archivo no existe
+            file_put_contents("debug_manual_alert.txt", 
+                "[" . date('Y-m-d H:i:s') . "] ERROR: archivo flow_alert.php no encontrado\n", 
+                FILE_APPEND);
+        }
+        // ============ FIN INTEGRACIÓN CON ALERTAS ============
+        
     } else {
         sendMessage($chat_id, "❌ Error al guardar el viaje: " . $conn->error);
     }
