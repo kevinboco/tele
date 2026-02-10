@@ -4,7 +4,7 @@ require_once __DIR__.'/helpers.php';
 
 /* ========= CONFIGURACIÓN - CAMBIA ESTA HORA PARA PRUEBAS ========= */
 // HORA DE ALERTA DIARIA (formato 24h: 'HH:MM')
-$HORA_ALERTA_PROGRAMADA = '12:00'; // <- ¡CAMBIAR AQUÍ PARA PRUEBAS!
+$HORA_ALERTA_PROGRAMADA = '10:27'; // <- ¡CAMBIAR AQUÍ PARA PRUEBAS!
 // Ejemplos: '14:30' (2:30 PM), '09:00' (9 AM), '16:45' (4:45 PM)
 /* ========= FIN CONFIGURACIÓN ========= */
 
