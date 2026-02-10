@@ -15,7 +15,7 @@ function manual_entrypoint($chat_id, $estado) {
     ];
     saveState($chat_id, $estado);
 
-    // Cargar conductores frescos desde BD
+    // Cargar conductores frescos desde 
     $conn = db();
     $conductores = $conn ? obtenerConductoresAdmin($conn, $chat_id) : [];
     $conn?->close();
@@ -775,137 +775,6 @@ function manual_process_image($chat_id, &$estado, $photo) {
     manual_insert_viaje_and_close($chat_id, $estado);
 }
 
-/* ========= FUNCIÓN PARA CALCULAR GASTOS DE EMPRESA ========= */
-function calcularGastosEmpresa($conn, $empresa, $mes, $anio) {
-    $gastos_totales = 0;
-    
-    // Obtener todos los viajes de la empresa en el mes/año
-    $sql = "SELECT v.ruta, v.tipo_vehiculo, v.fecha 
-            FROM viajes v 
-            WHERE v.empresa = ? 
-            AND MONTH(v.fecha) = ? 
-            AND YEAR(v.fecha) = ?
-            AND v.ruta IS NOT NULL 
-            AND v.tipo_vehiculo IS NOT NULL";
-    
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("sii", $empresa, $mes, $anio);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    while ($viaje = $result->fetch_assoc()) {
-        // Obtener clasificación de la ruta
-        $clasificacion = obtenerClasificacionRuta($conn, $viaje['ruta'], $viaje['tipo_vehiculo']);
-        
-        if ($clasificacion) {
-            // Obtener tarifa según empresa, tipo_vehiculo y clasificación
-            $tarifa = obtenerTarifa($conn, $empresa, $viaje['tipo_vehiculo'], $clasificacion);
-            
-            if ($tarifa > 0) {
-                $gastos_totales += $tarifa;
-            }
-        }
-    }
-    
-    $stmt->close();
-    return $gastos_totales;
-}
-
-function obtenerClasificacionRuta($conn, $ruta, $tipo_vehiculo) {
-    $sql = "SELECT clasificacion FROM ruta_clasificacion 
-            WHERE ruta = ? AND tipo_vehiculo = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("ss", $ruta, $tipo_vehiculo);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    if ($row = $result->fetch_assoc()) {
-        $clasificacion = $row['clasificacion'];
-    } else {
-        // Si no encuentra exacto, buscar solo por ruta
-        $sql = "SELECT clasificacion FROM ruta_clasificacion 
-                WHERE ruta = ? LIMIT 1";
-        $stmt2 = $conn->prepare($sql);
-        $stmt2->bind_param("s", $ruta);
-        $stmt2->execute();
-        $result2 = $stmt2->get_result();
-        if ($row2 = $result2->fetch_assoc()) {
-            $clasificacion = $row2['clasificacion'];
-        } else {
-            $clasificacion = null;
-        }
-        $stmt2->close();
-    }
-    
-    $stmt->close();
-    return $clasificacion;
-}
-
-function obtenerTarifa($conn, $empresa, $tipo_vehiculo, $clasificacion) {
-    // Primero intentar con empresa exacta
-    $sql = "SELECT $clasificacion as tarifa FROM tarifas 
-            WHERE empresa = ? AND tipo_vehiculo = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("ss", $empresa, $tipo_vehiculo);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    if ($row = $result->fetch_assoc()) {
-        $tarifa = $row['tarifa'] ?? 0;
-    } else {
-        // Si no encuentra, buscar empresa similar o default
-        $tarifa = 0;
-    }
-    
-    $stmt->close();
-    return floatval($tarifa);
-}
-
-/* ========= VERIFICAR ALERTA DESPUÉS DE REGISTRAR VIAJE ========= */
-function verificarAlertaDespuesViaje($chat_id, $empresa, $fecha) {
-    // Solo verificar si la empresa tiene presupuesto configurado
-    $conn = db();
-    if (!$conn) return;
-    
-    // Extraer mes y año de la fecha del viaje
-    $mes = date('n', strtotime($fecha));
-    $anio = date('Y', strtotime($fecha));
-    
-    // Verificar si esta empresa tiene presupuesto para este mes/año
-    $sql = "SELECT * FROM presupuestos_empresa 
-            WHERE empresa = ? AND mes = ? AND anio = ? 
-            AND chat_id = ? AND activo = 1";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("siii", $empresa, $mes, $anio, $chat_id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    if ($presupuesto = $result->fetch_assoc()) {
-        // Calcular gastos actuales
-        $gastos = calcularGastosEmpresa($conn, $empresa, $mes, $anio);
-        
-        // Si supera el presupuesto, ENVIAR ALERTA
-        if ($gastos > $presupuesto['presupuesto']) {
-            $exceso = $gastos - $presupuesto['presupuesto'];
-            $porcentaje = (($gastos / $presupuesto['presupuesto']) * 100) - 100;
-            
-            $mensaje = "🚨 *ALERTA AUTOMÁTICA: PRESUPUESTO SUPERADO*\n\n";
-            $mensaje .= "🏢 Empresa: *$empresa*\n";
-            $mensaje .= "💰 Presupuesto: $" . number_format($presupuesto['presupuesto'], 0, ',', '.') . "\n";
-            $mensaje .= "💸 Gastado: $" . number_format($gastos, 0, ',', '.') . "\n";
-            $mensaje .= "📈 Exceso: $" . number_format($exceso, 0, ',', '.') . "\n";
-            $mensaje .= "(" . number_format($porcentaje, 1) . "% sobre el presupuesto)\n\n";
-            $mensaje .= "📅 Viaje registrado el: " . date('d/m/Y', strtotime($fecha)) . "\n";
-            $mensaje .= "📊 Usa /alert para ver detalles y gestionar.";
-            
-            sendMessage($chat_id, $mensaje);
-        }
-    }
-    
-    $stmt->close();
-    $conn->close();
-}
-
 function manual_insert_viaje_and_close($chat_id, &$estado) {
     $conn = db();
     if (!$conn) { 
@@ -950,13 +819,6 @@ function manual_insert_viaje_and_close($chat_id, &$estado) {
         $mensaje .= "\n\nAtajos rápidos: /agg /manual";
         
         sendMessage($chat_id, $mensaje);
-        
-        // ========= NUEVO: VERIFICAR ALERTA DESPUÉS DE REGISTRAR VIAJE =========
-        if (isset($estado["manual_empresa"]) && $estado["manual_empresa"]) {
-            verificarAlertaDespuesViaje($chat_id, $estado["manual_empresa"], $estado["manual_fecha"]);
-        }
-        // ========= FIN NUEVO =========
-        
     } else {
         sendMessage($chat_id, "❌ Error al guardar el viaje: " . $conn->error);
     }
