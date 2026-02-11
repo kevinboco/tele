@@ -1,5 +1,5 @@
 <?php
-// index2.php - Sistema completo de gestión de viajes
+// index2.php - Sistema completo de gestión de viajes con INFORME
 
 // SIEMPRE primero la sesión, sin imprimir nada antes
 session_start();
@@ -171,7 +171,7 @@ function normalizarPagoParcial($conexion, $valorRaw) {
     if (!is_numeric($v)) return "NULL";
     $n = (int)$v;
     if ($n < 0) $n = 0;
-    return (string)$n; // int sin comillas
+    return (string)$n;
 }
 
 // ================== PROCESAR ACCIONES ==================
@@ -190,7 +190,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             ? "'" . $conexion->real_escape_string($_POST['empresa']) . "'" 
             : "NULL";
 
-        // NUEVO: Pago parcial (opcional)
         $pago_parcial = normalizarPagoParcial($conexion, $_POST['pago_parcial'] ?? null);
 
         // Manejo de imagen
@@ -226,7 +225,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
     }
     
-    // EDITAR VIAJE INDIVIDUAL - CON LA MODIFICACIÓN QUE SOLICITAS
+    // EDITAR VIAJE INDIVIDUAL
     elseif (isset($_POST['editar'])) {
         $id = (int)$_POST['id'];
         $nombre = $conexion->real_escape_string($_POST['nombre'] ?? '');
@@ -240,7 +239,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             ? "'" . $conexion->real_escape_string($_POST['empresa']) . "'" 
             : "NULL";
 
-        // NUEVO: Pago parcial (opcional)
         $pago_parcial = normalizarPagoParcial($conexion, $_POST['pago_parcial'] ?? null);
         
         // Obtener datos ACTUALES del registro para comparar
@@ -248,32 +246,27 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $res_actual = $conexion->query($sql_actual);
         $datos_actuales = $res_actual->fetch_assoc();
         
-        // Detectar si SOLO cambió la cédula (y los otros campos obligatorios siguen igual)
+        // Detectar si SOLO cambió la cédula
         $solo_cambio_cedula = false;
         $cedula_nueva = isset($_POST['cedula']) ? trim($_POST['cedula']) : '';
         
         if ($datos_actuales) {
-            // Comparar los campos principales (excepto cédula)
             $mismo_nombre = ($nombre == $datos_actuales['nombre']);
             $misma_fecha = ($fecha == $datos_actuales['fecha']);
             $misma_ruta = ($ruta == $datos_actuales['ruta']);
             $mismo_vehiculo = ($tipo_vehiculo == $datos_actuales['tipo_vehiculo']);
             
-            // Verificar si la empresa es la misma (manejando NULLs)
             $empresa_actual = $datos_actuales['empresa'] ?? '';
             $empresa_nueva = isset($_POST['empresa']) ? trim($_POST['empresa']) : '';
             $misma_empresa = ($empresa_actual == $empresa_nueva);
             
-            // Verificar si pago_parcial es el mismo
             $pago_actual = $datos_actuales['pago_parcial'] ?? null;
             $mismo_pago = ($pago_parcial === "NULL" && $pago_actual === null) || 
                          ($pago_parcial !== "NULL" && (int)$pago_parcial === (int)$pago_actual);
             
-            // Verificar si la cédula cambió
             $cedula_actual = $datos_actuales['cedula'] ?? '';
             $cambio_cedula = ($cedula_actual !== $cedula_nueva);
             
-            // Si todos los otros campos son iguales PERO la cédula cambió
             if ($mismo_nombre && $misma_fecha && $misma_ruta && $mismo_vehiculo && 
                 $misma_empresa && $mismo_pago && $cambio_cedula) {
                 $solo_cambio_cedula = true;
@@ -300,7 +293,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $_SESSION['error'] = "Los campos Nombre, Fecha, Ruta y Vehículo son obligatorios.";
             $accion = 'editar';
         } else {
-            // PRIMERO: Actualizar el registro individual
             $sql = "UPDATE viajes SET 
                     nombre = '$nombre',
                     cedula = $cedula,
@@ -313,16 +305,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     WHERE id = $id";
             
             if ($conexion->query($sql)) {
-                // SEGUNDO: Si solo cambió la cédula, actualizar TODOS los registros con el mismo nombre
                 if ($solo_cambio_cedula && !empty($cedula_nueva)) {
                     $nombre_escapado = $conexion->real_escape_string($nombre);
-                    
-                    // Si la cédula nueva está vacía, ponerla como NULL
                     $valor_cedula = empty($cedula_nueva) ? "NULL" : "'" . $conexion->real_escape_string($cedula_nueva) . "'";
                     
                     $sql_masivo = "UPDATE viajes SET cedula = $valor_cedula 
                                    WHERE nombre = '$nombre_escapado' 
-                                   AND id != $id"; // No incluir el registro que ya actualizamos
+                                   AND id != $id";
                     
                     if ($conexion->query($sql_masivo)) {
                         $registros_afectados = $conexion->affected_rows;
@@ -353,14 +342,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $ids = $_SESSION['seleccionados'];
         $actualizados = 0;
 
-        // General para todos (opcional)
         $pago_parcial_general = normalizarPagoParcial($conexion, $_POST['pago_parcial_general'] ?? null);
         $hay_pago_general = (isset($_POST['pago_parcial_general']) && trim((string)$_POST['pago_parcial_general']) !== '');
 
         foreach ($ids as $id_viaje) {
             $id_viaje = (int)$id_viaje;
             
-            // Obtener los datos específicos para este ID si existen
             $nombre_key   = "nombre_$id_viaje";
             $cedula_key   = "cedula_$id_viaje";
             $fecha_key    = "fecha_$id_viaje";
@@ -369,7 +356,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $empresa_key  = "empresa_$id_viaje";
             $pago_key     = "pago_parcial_$id_viaje";
             
-            // Usar valores específicos o los generales
             $nombre = isset($_POST[$nombre_key]) && trim($_POST[$nombre_key]) !== '' 
                 ? "'" . $conexion->real_escape_string($_POST[$nombre_key]) . "'"
                 : (isset($_POST['nombre_general']) && trim($_POST['nombre_general']) !== ''
@@ -406,27 +392,22 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     ? "'" . $conexion->real_escape_string($_POST['empresa_general']) . "'"
                     : "NULL");
 
-            // NUEVO: pago parcial (por registro o general)
             $pago_parcial = "NULL";
             if (isset($_POST[$pago_key]) && trim((string)$_POST[$pago_key]) !== '') {
                 $pago_parcial = normalizarPagoParcial($conexion, $_POST[$pago_key]);
             } elseif ($hay_pago_general) {
                 $pago_parcial = $pago_parcial_general;
-            } // si no hay ninguno, queda NULL (no cambia el valor actual en BD) => lo manejamos con IFNULL
+            }
             
-            // Si algún campo obligatorio está vacío, saltar este registro
             if (!$nombre || !$fecha || !$ruta || !$tipo_vehiculo) {
                 continue;
             }
             
-            // Remover comillas para NULL
             $nombre        = ($nombre === NULL) ? "NULL" : $nombre;
             $fecha         = ($fecha === NULL) ? "NULL" : $fecha;
             $ruta          = ($ruta === NULL) ? "NULL" : $ruta;
             $tipo_vehiculo = ($tipo_vehiculo === NULL) ? "NULL" : $tipo_vehiculo;
 
-            // Si pago_parcial viene NULL desde el formulario, NO pisar el dato actual:
-            // Usamos: pago_parcial = IFNULL($pago_parcial, pago_parcial)
             $sql = "UPDATE viajes SET 
                     nombre = $nombre,
                     cedula = $cedula,
@@ -442,7 +423,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
         }
         
-        // Limpiar selección después de editar
         $_SESSION['seleccionados'] = [];
         header("Location: ?msg=multi_editado&count=$actualizados");
         exit();
@@ -458,11 +438,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $ids = $_SESSION['seleccionados'];
         
         if ($_POST['accion_multiple'] == 'eliminar') {
-            // Eliminar múltiples registros
             $ids_str = implode(',', array_map('intval', $ids));
             $sql = "DELETE FROM viajes WHERE id IN ($ids_str)";
             if ($conexion->query($sql)) {
-                // Limpiar selección después de eliminar
                 $_SESSION['seleccionados'] = [];
                 header("Location: ?msg=multi_eliminado&count=" . count($ids));
             } else {
@@ -471,7 +449,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             exit();
         }
         elseif ($_POST['accion_multiple'] == 'editar') {
-            // Redirigir a edición múltiple completa
             header("Location: ?accion=editar_multiple");
             exit();
         }
@@ -480,9 +457,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
 // ================== ELIMINAR INDIVIDUAL ==================
 if ($accion == 'eliminar' && $id > 0) {
-    $sql = "DELETE FROM viajes WHERE id = $id";
+    $sql = "DELETE FROM viajes WHERE id = " . (int)$id;
     if ($conexion->query($sql)) {
-        // Remover de la selección si estaba seleccionado
         if (($key = array_search($id, $_SESSION['seleccionados'])) !== false) {
             unset($_SESSION['seleccionados'][$key]);
             $_SESSION['seleccionados'] = array_values($_SESSION['seleccionados']);
@@ -495,10 +471,362 @@ if ($accion == 'eliminar' && $id > 0) {
     }
 }
 
+// ================== PROCESAR INFORME ==================
+if ($accion == 'informe') {
+    // Reconstruir los filtros exactamente como en el listado
+    $where = [];
+    $desc_filtros = [];
+
+    // Nombre (array)
+    if (!empty($_GET['nombre']) && is_array($_GET['nombre'])) {
+        $nombres = array_map([$conexion, 'real_escape_string'], $_GET['nombre']);
+        $nombres = array_filter($nombres, function($val) { return trim($val) !== ''; });
+        if (!empty($nombres)) {
+            $where[] = "nombre IN ('" . implode("','", $nombres) . "')";
+            $desc_filtros[] = "Nombres: " . implode(', ', array_slice($nombres, 0, 3)) . (count($nombres) > 3 ? '...' : '');
+        }
+    }
+
+    // Cédula (array)
+    if (!empty($_GET['cedula']) && is_array($_GET['cedula'])) {
+        $cedulas = array_map([$conexion, 'real_escape_string'], $_GET['cedula']);
+        $cedulas = array_filter($cedulas, function($val) { return trim($val) !== ''; });
+        if (!empty($cedulas)) {
+            $where[] = "cedula IN ('" . implode("','", $cedulas) . "')";
+            $desc_filtros[] = "Cédulas: " . implode(', ', array_slice($cedulas, 0, 3)) . (count($cedulas) > 3 ? '...' : '');
+        }
+    }
+
+    // Fechas
+    if (!empty($_GET['desde']) && !empty($_GET['hasta'])) {
+        $desde = $conexion->real_escape_string($_GET['desde']);
+        $hasta = $conexion->real_escape_string($_GET['hasta']);
+        $where[] = "fecha BETWEEN '$desde' AND '$hasta'";
+        $desc_filtros[] = "Fechas: $desde a $hasta";
+    } elseif (!empty($_GET['desde'])) {
+        $desde = $conexion->real_escape_string($_GET['desde']);
+        $where[] = "fecha >= '$desde'";
+        $desc_filtros[] = "Desde: $desde";
+    } elseif (!empty($_GET['hasta'])) {
+        $hasta = $conexion->real_escape_string($_GET['hasta']);
+        $where[] = "fecha <= '$hasta'";
+        $desc_filtros[] = "Hasta: $hasta";
+    }
+
+    // Ruta (array)
+    if (!empty($_GET['ruta']) && is_array($_GET['ruta'])) {
+        $rutas = array_map([$conexion, 'real_escape_string'], $_GET['ruta']);
+        $rutas = array_filter($rutas, function($val) { return trim($val) !== ''; });
+        if (!empty($rutas)) {
+            $where[] = "ruta IN ('" . implode("','", $rutas) . "')";
+            $desc_filtros[] = "Rutas: " . implode(', ', array_slice($rutas, 0, 3)) . (count($rutas) > 3 ? '...' : '');
+        }
+    }
+
+    // Vehículo (array)
+    if (!empty($_GET['vehiculo']) && is_array($_GET['vehiculo'])) {
+        $vehiculos = array_map([$conexion, 'real_escape_string'], $_GET['vehiculo']);
+        $vehiculos = array_filter($vehiculos, function($val) { return trim($val) !== ''; });
+        if (!empty($vehiculos)) {
+            $where[] = "tipo_vehiculo IN ('" . implode("','", $vehiculos) . "')";
+            $desc_filtros[] = "Vehículos: " . implode(', ', array_slice($vehiculos, 0, 3)) . (count($vehiculos) > 3 ? '...' : '');
+        }
+    }
+
+    // Empresa (array)
+    if (!empty($_GET['empresa']) && is_array($_GET['empresa'])) {
+        $empresas = array_map([$conexion, 'real_escape_string'], $_GET['empresa']);
+        $empresas = array_filter($empresas, function($val) { return trim($val) !== ''; });
+        if (!empty($empresas)) {
+            $where[] = "empresa IN ('" . implode("','", $empresas) . "')";
+            $desc_filtros[] = "Empresas: " . implode(', ', array_slice($empresas, 0, 3)) . (count($empresas) > 3 ? '...' : '');
+        }
+    }
+
+    // Construir consulta principal
+    $sql = "SELECT * FROM viajes";
+    if (count($where) > 0) {
+        $sql .= " WHERE " . implode(" AND ", $where);
+    }
+    $sql .= " ORDER BY fecha DESC, id DESC";
+    
+    $resultado = $conexion->query($sql);
+    
+    // Obtener columnas visibles actuales
+    $columnas_visibles = $_SESSION['columnas_visibles'];
+    uasort($columnas_visibles, function($a, $b) {
+        return $a['orden'] <=> $b['orden'];
+    });
+    
+    // Generar informe HTML
+    ?>
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <title>Informe de Viajes</title>
+        <style>
+            body { 
+                font-family: Arial, sans-serif; 
+                margin: 30px;
+                background: white;
+            }
+            h1 { 
+                color: #333; 
+                border-bottom: 2px solid #333;
+                padding-bottom: 10px;
+            }
+            .info-filtros {
+                background: #f8f9fa;
+                padding: 15px;
+                border-radius: 5px;
+                margin-bottom: 20px;
+                border-left: 4px solid #0d6efd;
+            }
+            table { 
+                width: 100%; 
+                border-collapse: collapse; 
+                margin-top: 20px;
+                font-size: 14px;
+            }
+            th { 
+                background: #343a40; 
+                color: white; 
+                padding: 12px 8px; 
+                text-align: left;
+                font-weight: bold;
+            }
+            td { 
+                border: 1px solid #dee2e6; 
+                padding: 8px; 
+                vertical-align: top;
+            }
+            tr:nth-child(even) { 
+                background: #f8f9fa; 
+            }
+            .fecha-generacion {
+                color: #666;
+                font-size: 12px;
+                margin-top: 20px;
+                text-align: right;
+                border-top: 1px solid #dee2e6;
+                padding-top: 15px;
+            }
+            .badge-pago {
+                background: #0dcaf0;
+                color: #000;
+                padding: 3px 8px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            .img-informe {
+                max-width: 60px;
+                max-height: 60px;
+                border-radius: 4px;
+            }
+            .no-imagen {
+                color: #999;
+                font-style: italic;
+            }
+            .total-registros {
+                background: #e9ecef;
+                padding: 10px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            @media print {
+                .no-print { display: none; }
+                body { margin: 15px; }
+                th { background: #333 !important; color: white !important; }
+                .badge-pago { background: #0dcaf0 !important; color: black !important; }
+            }
+            .btn-print {
+                background: #0d6efd;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 16px;
+                margin-bottom: 20px;
+            }
+            .btn-print:hover {
+                background: #0b5ed7;
+            }
+            .btn-cerrar {
+                background: #6c757d;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 16px;
+                margin-bottom: 20px;
+            }
+            .btn-cerrar:hover {
+                background: #5a6268;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="no-print" style="margin-bottom: 20px; display: flex; gap: 10px;">
+            <button onclick="window.print()" class="btn-print">
+                🖨️ Imprimir / Guardar PDF
+            </button>
+            <button onclick="window.close()" class="btn-cerrar">
+                ❌ Cerrar
+            </button>
+        </div>
+        
+        <h1>🚗 Informe de Viajes</h1>
+        
+        <div class="info-filtros">
+            <strong>📊 Columnas mostradas:</strong> 
+            <?php 
+            $nombres_columnas = [];
+            foreach($columnas_visibles as $col) {
+                if ($col['visible']) {
+                    $nombres_columnas[] = $col['nombre'];
+                }
+            }
+            echo implode(' · ', $nombres_columnas);
+            ?><br>
+            
+            <strong>🔍 Filtros aplicados:</strong> 
+            <?php if (!empty($desc_filtros)): ?>
+                <?= htmlspecialchars(implode(' | ', $desc_filtros)) ?>
+            <?php else: ?>
+                Sin filtros (todos los registros)
+            <?php endif; ?>
+        </div>
+        
+        <?php if ($resultado && $resultado->num_rows > 0): ?>
+            <div class="total-registros">
+                📋 Total de registros: <?= $resultado->num_rows ?>
+            </div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <?php foreach($columnas_visibles as $key => $columna): ?>
+                            <?php if ($columna['visible']): ?>
+                                <th><?= htmlspecialchars($columna['nombre']) ?></th>
+                            <?php endif; ?>
+                        <?php endforeach; ?>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php while($row = $resultado->fetch_assoc()): ?>
+                        <tr>
+                            <?php foreach($columnas_visibles as $key => $columna): ?>
+                                <?php if (!$columna['visible']) continue; ?>
+                                
+                                <?php switch($key): 
+                                    case 'id': ?>
+                                        <td><?= (int)$row['id'] ?></td>
+                                        <?php break; ?>
+                                    
+                                    <?php case 'nombre': ?>
+                                        <td><?= htmlspecialchars($row['nombre']) ?></td>
+                                        <?php break; ?>
+                                    
+                                    <?php case 'cedula': ?>
+                                        <td><?= !empty($row['cedula']) ? htmlspecialchars($row['cedula']) : '—' ?></td>
+                                        <?php break; ?>
+                                    
+                                    <?php case 'fecha': ?>
+                                        <td><?= date('d/m/Y', strtotime($row['fecha'])) ?></td>
+                                        <?php break; ?>
+                                    
+                                    <?php case 'ruta': ?>
+                                        <td><?= htmlspecialchars($row['ruta']) ?></td>
+                                        <?php break; ?>
+                                    
+                                    <?php case 'tipo_vehiculo': ?>
+                                        <td><?= htmlspecialchars($row['tipo_vehiculo']) ?></td>
+                                        <?php break; ?>
+                                    
+                                    <?php case 'empresa': ?>
+                                        <td><?= !empty($row['empresa']) ? htmlspecialchars($row['empresa']) : '—' ?></td>
+                                        <?php break; ?>
+                                    
+                                    <?php case 'pago_parcial': ?>
+                                        <td>
+                                            <?php if ($row['pago_parcial'] !== null && $row['pago_parcial'] !== ''): ?>
+                                                <span class="badge-pago">$<?= number_format((int)$row['pago_parcial'], 0, ',', '.') ?></span>
+                                            <?php else: ?>
+                                                —
+                                            <?php endif; ?>
+                                        </td>
+                                        <?php break; ?>
+                                    
+                                    <?php case 'imagen': ?>
+                                        <td>
+                                            <?php if(!empty($row['imagen'])): ?>
+                                                <img src="uploads/<?= htmlspecialchars($row['imagen']) ?>" 
+                                                     class="img-informe" 
+                                                     alt="Imagen"
+                                                     onerror="this.style.display='none'">
+                                            <?php else: ?>
+                                                <span class="no-imagen">Sin imagen</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <?php break; ?>
+                                    
+                                <?php endswitch; ?>
+                            <?php endforeach; ?>
+                        </tr>
+                    <?php endwhile; ?>
+                </tbody>
+            </table>
+            
+            <!-- Totales de pagos parciales (solo si la columna está visible) -->
+            <?php 
+            $columna_pago_visible = false;
+            foreach($columnas_visibles as $key => $col) {
+                if ($key == 'pago_parcial' && $col['visible']) {
+                    $columna_pago_visible = true;
+                    break;
+                }
+            }
+            
+            if ($columna_pago_visible):
+                $sql_suma = "SELECT SUM(pago_parcial) as total FROM viajes";
+                if (count($where) > 0) {
+                    $sql_suma .= " WHERE " . implode(" AND ", $where);
+                }
+                $res_suma = $conexion->query($sql_suma);
+                $total_pagos = $res_suma ? (int)$res_suma->fetch_assoc()['total'] : 0;
+            ?>
+                <div style="margin-top: 20px; padding: 15px; background: #e8f4ff; border-radius: 5px; text-align: right; font-size: 16px;">
+                    <strong>💰 TOTAL PAGOS PARCIALES:</strong> 
+                    <span style="background: #0d6efd; color: white; padding: 5px 15px; border-radius: 20px; margin-left: 10px;">
+                        $<?= number_format($total_pagos, 0, ',', '.') ?>
+                    </span>
+                </div>
+            <?php endif; ?>
+            
+        <?php else: ?>
+            <div style="text-align: center; padding: 50px; background: #f8f9fa; border-radius: 5px;">
+                <h3 style="color: #666;">📭 No hay registros para mostrar</h3>
+                <p>No se encontraron viajes con los filtros seleccionados.</p>
+            </div>
+        <?php endif; ?>
+        
+        <div class="fecha-generacion">
+            Informe generado desde Sistema de Gestión de Viajes<br>
+            <?= date('d/m/Y H:i:s') ?>
+        </div>
+    </body>
+    </html>
+    <?php
+    exit();
+}
+
 // ================== OBTENER DATOS PARA EDICIÓN ==================
 $viaje = null;
 if ($accion == 'editar' && $id > 0) {
-    $res = $conexion->query("SELECT * FROM viajes WHERE id = $id");
+    $res = $conexion->query("SELECT * FROM viajes WHERE id = " . (int)$id);
     if ($res && $res->num_rows > 0) {
         $viaje = $res->fetch_assoc();
     } else {
@@ -550,14 +878,19 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         .columna-checkbox input { margin-right: 0.5rem; }
         .badge-columna { background-color: #6c757d; cursor: pointer; }
         .badge-columna:hover { background-color: #5a6268; }
+        .btn-informe {
+            background-color: #198754;
+            color: white;
+        }
+        .btn-informe:hover {
+            background-color: #157347;
+            color: white;
+        }
     </style>
 </head>
 <body class="bg-light">
 
-<?php
-// AHORA sí incluimos el menú lateral / nav personalizado
-include("nav.php");
-?>
+<?php include("nav.php"); ?>
 
 <!-- NAVEGACIÓN SUPERIOR -->
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top">
@@ -647,14 +980,12 @@ include("nav.php");
                                 <input type="hidden" name="crear" value="1">
                             <?php endif; ?>
                             
-                            <!-- Nombre -->
                             <div class="mb-3">
                                 <label class="form-label required">Nombre</label>
                                 <input type="text" name="nombre" class="form-control" 
                                        value="<?= htmlspecialchars($viaje['nombre'] ?? '') ?>" required>
                             </div>
                             
-                            <!-- Cédula (opcional) -->
                             <div class="mb-3">
                                 <label class="form-label">Cédula</label>
                                 <input type="text" name="cedula" class="form-control" 
@@ -668,7 +999,6 @@ include("nav.php");
                                 </small>
                             </div>
 
-                            <!-- NUEVO: Pago parcial -->
                             <div class="mb-3">
                                 <label class="form-label">Pago parcial</label>
                                 <input type="number" min="0" step="1" name="pago_parcial" class="form-control"
@@ -677,14 +1007,12 @@ include("nav.php");
                                 <small class="text-muted">Monto entregado como anticipo / pago parcial (si aplica).</small>
                             </div>
                             
-                            <!-- Fecha -->
                             <div class="mb-3">
                                 <label class="form-label required">Fecha</label>
                                 <input type="date" name="fecha" class="form-control" 
                                        value="<?= htmlspecialchars($viaje['fecha'] ?? '') ?>" required>
                             </div>
                             
-                            <!-- Ruta -->
                             <div class="mb-3">
                                 <label class="form-label required">Ruta</label>
                                 <select name="ruta" class="form-select select2-single" required>
@@ -698,7 +1026,6 @@ include("nav.php");
                                 </select>
                             </div>
                             
-                            <!-- Tipo de Vehículo -->
                             <div class="mb-3">
                                 <label class="form-label required">Tipo de Vehículo</label>
                                 <select name="tipo_vehiculo" class="form-select select2-single" required>
@@ -712,7 +1039,6 @@ include("nav.php");
                                 </select>
                             </div>
                             
-                            <!-- Empresa -->
                             <div class="mb-3">
                                 <label class="form-label">Empresa</label>
                                 <select name="empresa" class="form-select select2-single">
@@ -726,7 +1052,6 @@ include("nav.php");
                                 </select>
                             </div>
                             
-                            <!-- Imagen actual (solo en edición) -->
                             <?php if ($accion == 'editar' && isset($viaje['imagen']) && !empty($viaje['imagen'])): ?>
                                 <div class="mb-3">
                                     <label class="form-label">Imagen actual</label>
@@ -744,7 +1069,6 @@ include("nav.php");
                                 </div>
                             <?php endif; ?>
                             
-                            <!-- Nueva imagen -->
                             <div class="mb-3">
                                 <label class="form-label">
                                     <?= $accion == 'crear' ? 'Imagen (opcional)' : 'Nueva imagen (opcional)' ?>
@@ -755,7 +1079,6 @@ include("nav.php");
                                 </small>
                             </div>
                             
-                            <!-- Botones -->
                             <div class="d-flex justify-content-between">
                                 <a href="?" class="btn btn-secondary">Cancelar</a>
                                 <button type="submit" class="btn <?= $accion == 'crear' ? 'btn-success' : 'btn-warning' ?>">
@@ -768,7 +1091,7 @@ include("nav.php");
             </div>
         </div>
 
-    <!-- ================== EDITAR MÚLTIPLES VIAJES (COMPLETO) ================== -->
+    <!-- ================== EDITAR MÚLTIPLES VIAJES ================== -->
     <?php elseif ($accion == 'editar_multiple' && !empty($_SESSION['seleccionados'])): ?>
         <?php $total_seleccionados = count($_SESSION['seleccionados']); ?>
         <div class="row">
@@ -787,11 +1110,10 @@ include("nav.php");
                                     <li>Puedes editar campos individuales para cada registro</li>
                                     <li>También puedes usar los campos "Aplicar a todos" para cambiar un campo en todos los registros</li>
                                     <li>Los campos con <span class="required"></span> son obligatorios</li>
-                                    <li>Dejar un campo en blanco mantiene su valor actual (y en pago parcial no lo pisa)</li>
+                                    <li>Dejar un campo en blanco mantiene su valor actual</li>
                                 </ul>
                             </div>
                             
-                            <!-- CAMPOS GENERALES (APLICAR A TODOS) -->
                             <div class="card mb-4">
                                 <div class="card-header bg-light">
                                     <h5 class="mb-0">🔧 Campos generales (aplicar a todos)</h5>
@@ -812,15 +1134,12 @@ include("nav.php");
                                             <label class="form-label">Fecha (general)</label>
                                             <input type="date" name="fecha_general" class="form-control form-control-sm">
                                         </div>
-
-                                        <!-- NUEVO: Pago parcial general -->
                                         <div class="col-md-4">
                                             <label class="form-label">Pago parcial (general)</label>
                                             <input type="number" min="0" step="1" name="pago_parcial_general"
                                                    class="form-control form-control-sm"
                                                    placeholder="Dejar vacío para no cambiar">
                                         </div>
-
                                         <div class="col-md-4">
                                             <label class="form-label">Ruta (general)</label>
                                             <select name="ruta_general" class="form-select form-select-sm select2-single">
@@ -858,7 +1177,6 @@ include("nav.php");
                                 </div>
                             </div>
                             
-                            <!-- TABLA DE EDICIÓN INDIVIDUAL -->
                             <div class="table-container mb-4">
                                 <table class="table table-bordered table-striped table-sm align-middle">
                                     <thead class="table-dark sticky-top" style="top: 0;">
@@ -928,8 +1246,6 @@ include("nav.php");
                                                         <?php endforeach; ?>
                                                     </select>
                                                 </td>
-
-                                                <!-- NUEVO: pago parcial por registro -->
                                                 <td>
                                                     <input type="number" min="0" step="1"
                                                            name="pago_parcial_<?= $id_multi ?>"
@@ -937,7 +1253,6 @@ include("nav.php");
                                                            value="<?= htmlspecialchars($viaje_multi['pago_parcial'] ?? '') ?>"
                                                            placeholder="(vacío = no cambia)">
                                                 </td>
-
                                                 <td class="text-center">
                                                     <?php if(!empty($viaje_multi['imagen'])): ?>
                                                         <img src="uploads/<?= htmlspecialchars($viaje_multi['imagen']) ?>" 
@@ -953,7 +1268,6 @@ include("nav.php");
                                 </table>
                             </div>
                             
-                            <!-- Botones -->
                             <div class="d-flex justify-content-between">
                                 <a href="?" class="btn btn-secondary">Cancelar</a>
                                 <button type="submit" class="btn btn-warning">
@@ -968,7 +1282,6 @@ include("nav.php");
 
     <!-- ================== LISTADO PRINCIPAL ================== -->
     <?php else: ?>
-        <!-- CONTADOR DE SELECCIONADOS -->
         <?php if (!empty($_SESSION['seleccionados'])): ?>
             <div class="alert alert-info alert-dismissible fade show">
                 <div class="d-flex justify-content-between align-items-center">
@@ -987,8 +1300,31 @@ include("nav.php");
             </div>
         <?php endif; ?>
 
-        <!-- BOTÓN DE CONFIGURACIÓN DE COLUMNAS (NUEVO) -->
-        <div class="d-flex justify-content-end mb-3">
+        <!-- BOTONES DE INFORME Y CONFIGURACIÓN DE COLUMNAS -->
+        <div class="d-flex justify-content-end mb-3 gap-2">
+            <!-- BOTÓN GENERAR INFORME (NUEVO) -->
+            <form method="GET" action="" target="_blank">
+                <?php
+                // Preservar todos los filtros actuales
+                foreach($_GET as $key => $value) {
+                    if ($key != 'accion') {
+                        if (is_array($value)) {
+                            foreach($value as $v) {
+                                echo '<input type="hidden" name="' . htmlspecialchars($key) . '[]" value="' . htmlspecialchars($v) . '">';
+                            }
+                        } else {
+                            echo '<input type="hidden" name="' . htmlspecialchars($key) . '" value="' . htmlspecialchars($value) . '">';
+                        }
+                    }
+                }
+                ?>
+                <input type="hidden" name="accion" value="informe">
+                <button type="submit" class="btn btn-success btn-informe">
+                    📄 Generar Informe
+                </button>
+            </form>
+            
+            <!-- Botón Configuración de Columnas -->
             <div class="columnas-config position-relative">
                 <button type="button" class="btn btn-outline-primary" id="btnConfigColumnas">
                     📊 Configurar Columnas
@@ -1021,7 +1357,7 @@ include("nav.php");
             </div>
         </div>
 
-        <!-- FILTROS (MULTISELECT) - EXACTAMENTE IGUAL A COMO ESTABAN -->
+        <!-- FILTROS -->
         <div class="card shadow mb-4">
             <div class="card-header bg-primary text-white">
                 <h3 class="mb-0">🔍 Filtros de búsqueda (multiselect)</h3>
@@ -1029,7 +1365,6 @@ include("nav.php");
             </div>
             <div class="card-body">
                 <form method="GET" class="row g-3" id="filtrosForm">
-                    <!-- NOMBRE (multiselect) -->
                     <div class="col-md-3">
                         <label class="form-label">Nombre</label>
                         <select name="nombre[]" class="form-select select2-multiple" multiple data-placeholder="Todos los nombres">
@@ -1048,7 +1383,6 @@ include("nav.php");
                         </select>
                     </div>
 
-                    <!-- CÉDULA (multiselect) -->
                     <div class="col-md-3">
                         <label class="form-label">Cédula</label>
                         <select name="cedula[]" class="form-select select2-multiple" multiple data-placeholder="Todas las cédulas">
@@ -1067,7 +1401,6 @@ include("nav.php");
                         </select>
                     </div>
 
-                    <!-- FECHA DESDE/HASTA -->
                     <div class="col-md-2">
                         <label class="form-label">Fecha desde</label>
                         <input type="date" name="desde" value="<?= htmlspecialchars($_GET['desde'] ?? '') ?>" class="form-control">
@@ -1077,7 +1410,6 @@ include("nav.php");
                         <input type="date" name="hasta" value="<?= htmlspecialchars($_GET['hasta'] ?? '') ?>" class="form-control">
                     </div>
 
-                    <!-- RUTA (multiselect) -->
                     <div class="col-md-3">
                         <label class="form-label">Ruta</label>
                         <select name="ruta[]" class="form-select select2-multiple" multiple data-placeholder="Todas las rutas">
@@ -1096,7 +1428,6 @@ include("nav.php");
                         </select>
                     </div>
 
-                    <!-- VEHÍCULO (multiselect) -->
                     <div class="col-md-3">
                         <label class="form-label">Vehículo</label>
                         <select name="vehiculo[]" class="form-select select2-multiple" multiple data-placeholder="Todos los vehículos">
@@ -1115,7 +1446,6 @@ include("nav.php");
                         </select>
                     </div>
 
-                    <!-- EMPRESA (multiselect) -->
                     <div class="col-md-3">
                         <label class="form-label">Empresa</label>
                         <select name="empresa[]" class="form-select select2-multiple" multiple data-placeholder="Todas las empresas">
@@ -1134,7 +1464,6 @@ include("nav.php");
                         </select>
                     </div>
 
-                    <!-- BOTONES -->
                     <div class="col-md-2 align-self-end">
                         <button type="submit" class="btn btn-success w-100">🔎 Buscar</button>
                     </div>
@@ -1146,11 +1475,10 @@ include("nav.php");
         </div>
 
         <?php
-        // ================== CONSTRUIR CONSULTA CON FILTROS (MULTISELECT) ==================
+        // ================== CONSTRUIR CONSULTA CON FILTROS ==================
         $where        = [];
-        $ids_visibles = []; // Para guardar los IDs visibles actualmente
+        $ids_visibles = [];
 
-        // Nombre (array)
         if (!empty($_GET['nombre']) && is_array($_GET['nombre'])) {
             $nombres = array_map([$conexion, 'real_escape_string'], $_GET['nombre']);
             $nombres = array_filter($nombres, function($val) { return trim($val) !== ''; });
@@ -1159,7 +1487,6 @@ include("nav.php");
             }
         }
 
-        // Cédula (array)
         if (!empty($_GET['cedula']) && is_array($_GET['cedula'])) {
             $cedulas = array_map([$conexion, 'real_escape_string'], $_GET['cedula']);
             $cedulas = array_filter($cedulas, function($val) { return trim($val) !== ''; });
@@ -1168,7 +1495,6 @@ include("nav.php");
             }
         }
 
-        // Fechas
         if (!empty($_GET['desde']) && !empty($_GET['hasta'])) {
             $desde = $conexion->real_escape_string($_GET['desde']);
             $hasta = $conexion->real_escape_string($_GET['hasta']);
@@ -1181,7 +1507,6 @@ include("nav.php");
             $where[] = "fecha <= '$hasta'";
         }
 
-        // Ruta (array)
         if (!empty($_GET['ruta']) && is_array($_GET['ruta'])) {
             $rutas = array_map([$conexion, 'real_escape_string'], $_GET['ruta']);
             $rutas = array_filter($rutas, function($val) { return trim($val) !== ''; });
@@ -1190,7 +1515,6 @@ include("nav.php");
             }
         }
 
-        // Vehículo (array)
         if (!empty($_GET['vehiculo']) && is_array($_GET['vehiculo'])) {
             $vehiculos = array_map([$conexion, 'real_escape_string'], $_GET['vehiculo']);
             $vehiculos = array_filter($vehiculos, function($val) { return trim($val) !== ''; });
@@ -1199,7 +1523,6 @@ include("nav.php");
             }
         }
 
-        // Empresa (array)
         if (!empty($_GET['empresa']) && is_array($_GET['empresa'])) {
             $empresas = array_map([$conexion, 'real_escape_string'], $_GET['empresa']);
             $empresas = array_filter($empresas, function($val) { return trim($val) !== ''; });
@@ -1216,7 +1539,6 @@ include("nav.php");
         
         $resultado = $conexion->query($sql);
 
-        // Mostrar conteo si hay filtro de nombres
         if (!empty($_GET['nombre']) && is_array($_GET['nombre']) && count($_GET['nombre']) > 0):
             $nombresFiltro = array_map([$conexion, 'real_escape_string'], $_GET['nombre']);
             $totalViajes = 0;
@@ -1255,7 +1577,6 @@ include("nav.php");
                 </div>
             </div>
             
-            <!-- ACCIONES MÚLTIPLES STICKY (ARRIBA) -->
             <?php if (!empty($_SESSION['seleccionados'])): ?>
                 <div class="sticky-actions">
                     <h5>📋 Acciones para los <?= count($_SESSION['seleccionados']) ?> viajes seleccionados:</h5>
@@ -1282,7 +1603,6 @@ include("nav.php");
             <?php endif; ?>
             
             <div class="card-body">
-                <!-- CONTROLES DE SELECCIÓN -->
                 <div class="mb-3 d-flex justify-content-between align-items-center bg-light p-3 rounded">
                     <div>
                         <strong>Selección múltiple:</strong>
@@ -1309,19 +1629,15 @@ include("nav.php");
                             <tr>
                                 <th style="width:32px;">Sel.</th>
                                 
-                                <!-- Columnas dinámicas según configuración -->
                                 <?php 
-                                // Ordenar columnas por el campo 'orden'
                                 $columnas_ordenadas = $_SESSION['columnas_visibles'];
                                 uasort($columnas_ordenadas, function($a, $b) {
                                     return $a['orden'] <=> $b['orden'];
                                 });
                                 
                                 foreach($columnas_ordenadas as $key => $columna):
-                                    // Solo mostrar si está marcada como visible
                                     if (!$columna['visible']) continue;
                                     
-                                    // Definir anchos específicos para algunas columnas
                                     $width = '';
                                     switch($key) {
                                         case 'id': $width = 'width: 60px;'; break;
@@ -1331,7 +1647,6 @@ include("nav.php");
                                     <th style="<?= $width ?>"><?= htmlspecialchars($columna['nombre']) ?></th>
                                 <?php endforeach; ?>
                                 
-                                <!-- Columna de acciones (siempre visible) -->
                                 <th style="width:160px;">Acciones</th>
                             </tr>
                         </thead>
@@ -1354,7 +1669,6 @@ include("nav.php");
                                         </form>
                                     </td>
                                     
-                                    <!-- Renderizar celdas dinámicamente según columnas visibles -->
                                     <?php foreach($columnas_ordenadas as $key => $columna): 
                                         if (!$columna['visible']) continue;
                                         
@@ -1430,9 +1744,7 @@ include("nav.php");
                             <?php endwhile; ?>
                         <?php else: ?>
                             <?php 
-                            // Calcular colspan dinámicamente
                             $columnas_visibles_count = count(array_filter($columnas_ordenadas, fn($c) => $c['visible']));
-                            // +2 por las columnas fijas (Selección y Acciones)
                             $total_columnas = $columnas_visibles_count + 2;
                             ?>
                             <tr>
@@ -1452,7 +1764,6 @@ include("nav.php");
 <script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/select2.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/i18n/es.min.js"></script>
 <script>
-// Pasar los IDs visibles a los formularios de selección
 document.addEventListener('DOMContentLoaded', function() {
     const idsVisiblesArray = <?= json_encode($ids_visibles ?? []) ?>;
     
@@ -1461,13 +1772,11 @@ document.addEventListener('DOMContentLoaded', function() {
     if (input1) input1.value = idsVisiblesArray.join(',');
     if (input2) input2.value = idsVisiblesArray.join(',');
     
-    // Inicializar tooltips de Bootstrap
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
     var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
         return new bootstrap.Tooltip(tooltipTriggerEl);
     });
     
-    // Inicializar Select2 para multiselect
     $('.select2-multiple').select2({
         width: '100%',
         placeholder: function() {
@@ -1477,7 +1786,6 @@ document.addEventListener('DOMContentLoaded', function() {
         language: 'es'
     });
     
-    // Inicializar Select2 para select simples
     $('.select2-single').select2({
         width: '100%',
         placeholder: '-- Seleccionar --',
@@ -1485,7 +1793,6 @@ document.addEventListener('DOMContentLoaded', function() {
         language: 'es'
     });
     
-    // Toggle del dropdown de columnas (NUEVO)
     const btnConfig = document.getElementById('btnConfigColumnas');
     const dropdown = document.getElementById('dropdownColumnas');
     
@@ -1495,21 +1802,18 @@ document.addEventListener('DOMContentLoaded', function() {
             dropdown.classList.toggle('show');
         });
         
-        // Cerrar dropdown al hacer clic fuera
         document.addEventListener('click', function(e) {
             if (!dropdown.contains(e.target) && !btnConfig.contains(e.target)) {
                 dropdown.classList.remove('show');
             }
         });
         
-        // Evitar que se cierre al hacer clic dentro
         dropdown.addEventListener('click', function(e) {
             e.stopPropagation();
         });
     }
 });
 
-// Validación para edición múltiple
 document.getElementById('formEditarMultiple')?.addEventListener('submit', function(e) {
     const totalRegistros = <?= count($viajes_seleccionados ?? []) ?>;
     if (totalRegistros === 0) {
