@@ -1,5 +1,5 @@
 <?php
-// flow_alert.php - Sistema de alertas por presupuesto de empre
+// flow_alert.php - Sistema de alertas por presupuesto de empresa
 require_once __DIR__.'/helpers.php';
 
 /* ========= FUNCIONES DE BASE DE DATOS ========= */
@@ -321,6 +321,14 @@ function nombreMes($mes) {
 
 /* ========= MANEJO DE CALLBACKS ========= */
 function alert_handle_callback($chat_id, &$estado, $cb_data, $cb_id = null) {
+    // También verificar cancelación en callbacks (por si acaso)
+    if (trim(strtolower($cb_data)) === '/cancel' || trim(strtolower($cb_data)) === 'cancel') {
+        clearState($chat_id);
+        sendMessage($chat_id, "✅ Configuración de alertas cancelada.");
+        if ($cb_id) answerCallbackQuery($cb_id);
+        return;
+    }
+    
     if (($estado["flujo"] ?? "") !== "alert") return;
     
     // Manejar botón volver
@@ -574,6 +582,14 @@ function alert_guardar_presupuesto($chat_id, &$estado) {
 
 /* ========= MANEJO DE TEXTO ========= */
 function alert_handle_text($chat_id, &$estado, $text, $photo) {
+    // 🚨 VERIFICAR CANCELACIÓN PRIMERO - esto es todo lo que necesitas
+    if (trim(strtolower($text)) === '/cancel' || trim(strtolower($text)) === 'cancel') {
+        clearState($chat_id);
+        sendMessage($chat_id, "✅ Configuración de alertas cancelada.");
+        return;
+    }
+    
+    // Solo procesar si estamos en flujo alert
     if (($estado["flujo"] ?? "") !== "alert") return;
     
     switch ($estado["paso"]) {
