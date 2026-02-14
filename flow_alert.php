@@ -203,7 +203,7 @@ function alert_entrypoint($chat_id, $estado) {
     $kb = [
         "inline_keyboard" => [
             [
-                ["text" => "📊 Ver presupuestos", "callback_data" => "alert_ver_presupuestos"],
+                ["text" => "📊 Ver presupuestos", "callback_data" => "alert_ver_presupuestos_0"],
                 ["text" => "⚙️ Configurar presupuesto", "callback_data" => "alert_configurar"]
             ],
             [
@@ -219,7 +219,7 @@ function alert_entrypoint($chat_id, $estado) {
     sendMessage($chat_id, 
         "🚨 *SISTEMA DE ALERTAS POR PRESUPUESTO*\n\n" .
         "Selecciona una opción:\n\n" .
-        "• *Ver presupuestos*: Muestra los presupuestos configurados\n" .
+        "• *Ver presupuestos*: Muestra los presupuestos configurados (paginado)\n" .
         "• *Configurar presupuesto*: Asigna presupuesto a una empresa\n" .
         "• *Verificar alertas*: Revisa si hay empresas sobre presupuesto\n" .
         "• *Reporte*: Compara gastos reales vs presupuesto", 
@@ -318,6 +318,126 @@ function nombreMes($mes) {
     return $meses[$mes] ?? "Desconocido";
 }
 
+/* ========= FUNCIÓN PAGINADA PARA VER PRESUPUESTOS ========= */
+function alert_mostrar_presupuestos_paginados($chat_id, $pagina = 0) {
+    $conn = db();
+    if (!$conn) {
+        sendMessage($chat_id, "❌ Error de conexión a la base de datos.");
+        return;
+    }
+    
+    $mes_actual = date('n');
+    $anio_actual = date('Y');
+    
+    // Obtener todos los presupuestos
+    $presupuestos = obtenerPresupuestosEmpresa($conn, $chat_id, $mes_actual, $anio_actual);
+    
+    if (empty($presupuestos)) {
+        $conn->close();
+        sendMessage($chat_id, "📭 No tienes presupuestos configurados para el mes actual.\nUsa 'Configurar presupuesto' para agregar uno.");
+        return;
+    }
+    
+    // Calcular gastos por empresa de manera eficiente
+    $gastos_por_empresa = [];
+    $total_presupuesto = 0;
+    $total_gastado = 0;
+    
+    foreach ($presupuestos as $p) {
+        $empresa = $p['empresa'];
+        $gastos = calcularGastosEmpresa($conn, $empresa, $mes_actual, $anio_actual);
+        $gastos_por_empresa[$empresa] = $gastos;
+        
+        $total_presupuesto += floatval($p['presupuesto']);
+        $total_gastado += $gastos;
+    }
+    
+    // Configuración de paginación
+    $items_por_pagina = 4;
+    $total_items = count($presupuestos);
+    $total_paginas = ceil($total_items / $items_por_pagina);
+    
+    // Asegurar que la página esté dentro de rangos válidos
+    $pagina = max(0, min($pagina, $total_paginas - 1));
+    $inicio = $pagina * $items_por_pagina;
+    $presupuestos_pagina = array_slice($presupuestos, $inicio, $items_por_pagina);
+    
+    // Generar mensaje de la página actual
+    $mensaje = "📊 *PRESUPUESTOS - " . nombreMes($mes_actual) . " $anio_actual*\n";
+    $mensaje .= "📄 Página " . ($pagina + 1) . " de $total_paginas\n\n";
+    
+    foreach ($presupuestos_pagina as $p) {
+        $empresa = $p['empresa'];
+        $gastos = $gastos_por_empresa[$empresa] ?? 0;
+        $presupuesto = floatval($p['presupuesto']);
+        
+        $porcentaje = ($presupuesto > 0) ? ($gastos / $presupuesto * 100) : 0;
+        $diferencia = $gastos - $presupuesto;
+        
+        // Emoji según estado
+        if ($gastos == 0) {
+            $estado_emoji = "⚪";
+        } elseif ($porcentaje <= 80) {
+            $estado_emoji = "🟢";
+        } elseif ($porcentaje <= 100) {
+            $estado_emoji = "🟡";
+        } else {
+            $estado_emoji = "🔴";
+        }
+        
+        $mensaje .= "$estado_emoji *{$empresa}*\n";
+        $mensaje .= "   💰 Presupuesto: $" . number_format($presupuesto, 0, ',', '.') . "\n";
+        $mensaje .= "   💸 Gastado: $" . number_format($gastos, 0, ',', '.') . "\n";
+        $mensaje .= "   📊 " . number_format($porcentaje, 1) . "%\n";
+        
+        if ($diferencia > 0) {
+            $mensaje .= "   ⚠️ *Exceso: +$" . number_format($diferencia, 0, ',', '.') . "*\n";
+        } elseif ($diferencia < 0) {
+            $mensaje .= "   ✅ Restan: $" . number_format(abs($diferencia), 0, ',', '.') . "\n";
+        }
+        $mensaje .= "   ────────────\n";
+    }
+    
+    // Agregar resumen general al final de cada página
+    $porcentaje_total = ($total_presupuesto > 0) ? ($total_gastado / $total_presupuesto * 100) : 0;
+    
+    $mensaje .= "\n📊 *RESUMEN GENERAL*\n";
+    $mensaje .= "💰 Total presupuesto: $" . number_format($total_presupuesto, 0, ',', '.') . "\n";
+    $mensaje .= "💸 Total gastado: $" . number_format($total_gastado, 0, ',', '.') . "\n";
+    $mensaje .= "📈 " . number_format($porcentaje_total, 1) . "% del total\n";
+    
+    if ($total_gastado > $total_presupuesto) {
+        $mensaje .= "🚨 *EXCEDIDO*: $" . number_format($total_gastado - $total_presupuesto, 0, ',', '.') . "\n";
+    }
+    
+    // Crear teclado de navegación
+    $kb = ["inline_keyboard" => []];
+    
+    // Botones de navegación
+    $nav_row = [];
+    
+    if ($pagina > 0) {
+        $nav_row[] = ["text" => "◀️ Anterior", "callback_data" => "alert_pagina_" . ($pagina - 1)];
+    }
+    
+    $nav_row[] = ["text" => "📋 $total_items empresas", "callback_data" => "alert_info_total"];
+    
+    if ($pagina < $total_paginas - 1) {
+        $nav_row[] = ["text" => "Siguiente ▶️", "callback_data" => "alert_pagina_" . ($pagina + 1)];
+    }
+    
+    $kb["inline_keyboard"][] = $nav_row;
+    
+    // Botón para volver al menú
+    $kb["inline_keyboard"][] = [
+        ["text" => "⬅️ Volver al menú", "callback_data" => "alert_back_menu"]
+    ];
+    
+    $conn->close();
+    
+    sendMessage($chat_id, $mensaje, $kb);
+}
+
 /* ========= MANEJO DE CALLBACKS ========= */
 function alert_handle_callback($chat_id, &$estado, $cb_data, $cb_id = null) {
     // También verificar cancelación en callbacks (por si acaso)
@@ -345,9 +465,22 @@ function alert_handle_callback($chat_id, &$estado, $cb_data, $cb_id = null) {
         return;
     }
     
-    // Menú principal
-    if ($cb_data === "alert_ver_presupuestos") {
-        alert_mostrar_presupuestos($chat_id);
+    // Manejar paginación
+    if (strpos($cb_data, 'alert_pagina_') === 0) {
+        $pagina = intval(substr($cb_data, strlen('alert_pagina_')));
+        alert_mostrar_presupuestos_paginados($chat_id, $pagina);
+        if ($cb_id) answerCallbackQuery($cb_id);
+        return;
+    }
+    
+    if ($cb_data === "alert_info_total") {
+        answerCallbackQuery($cb_id, "Total de empresas con presupuesto configurado", true);
+        return;
+    }
+    
+    // Menú principal (versiones con y sin página)
+    if ($cb_data === "alert_ver_presupuestos" || strpos($cb_data, 'alert_ver_presupuestos_') === 0) {
+        alert_mostrar_presupuestos_paginados($chat_id, 0);
         if ($cb_id) answerCallbackQuery($cb_id);
         return;
     }
@@ -415,101 +548,7 @@ function alert_handle_callback($chat_id, &$estado, $cb_data, $cb_id = null) {
     if ($cb_id) answerCallbackQuery($cb_id);
 }
 
-/* ========= FUNCIONES DE ALERTAS OPTIMIZADAS ========= */
-function alert_mostrar_presupuestos($chat_id) {
-    $conn = db();
-    if (!$conn) {
-        sendMessage($chat_id, "❌ Error de conexión a la base de datos.");
-        return;
-    }
-    
-    $mes_actual = date('n');
-    $anio_actual = date('Y');
-    
-    // Obtener presupuestos
-    $presupuestos = obtenerPresupuestosEmpresa($conn, $chat_id, $mes_actual, $anio_actual);
-    
-    if (empty($presupuestos)) {
-        $conn->close();
-        sendMessage($chat_id, "📭 No tienes presupuestos configurados para el mes actual.\nUsa 'Configurar presupuesto' para agregar uno.");
-        return;
-    }
-    
-    // OPTIMIZACIÓN: Calcular gastos por empresa de manera eficiente
-    $gastos_por_empresa = [];
-    
-    foreach ($presupuestos as $p) {
-        $empresa = $p['empresa'];
-        $gastos_por_empresa[$empresa] = calcularGastosEmpresa($conn, $empresa, $mes_actual, $anio_actual);
-    }
-    
-    // Generar mensaje
-    $mensaje = "📊 *PRESUPUESTOS CONFIGURADOS - " . nombreMes($mes_actual) . " $anio_actual*\n\n";
-    
-    $total_presupuesto = 0;
-    $total_gastado = 0;
-    
-    foreach ($presupuestos as $p) {
-        $empresa = $p['empresa'];
-        $gastos = $gastos_por_empresa[$empresa] ?? 0;
-        $presupuesto = floatval($p['presupuesto']);
-        
-        $total_presupuesto += $presupuesto;
-        $total_gastado += $gastos;
-        
-        $porcentaje = ($presupuesto > 0) ? ($gastos / $presupuesto * 100) : 0;
-        $diferencia = $gastos - $presupuesto;
-        
-        // Emoji según estado
-        if ($gastos == 0) {
-            $estado_emoji = "⚪";
-        } elseif ($porcentaje <= 80) {
-            $estado_emoji = "🟢";
-        } elseif ($porcentaje <= 100) {
-            $estado_emoji = "🟡";
-        } else {
-            $estado_emoji = "🔴";
-        }
-        
-        $mensaje .= "$estado_emoji *{$empresa}*\n";
-        $mensaje .= "   📅 " . nombreMes($mes_actual) . " $anio_actual\n";
-        $mensaje .= "   💰 Presupuesto: $" . number_format($presupuesto, 0, ',', '.') . "\n";
-        $mensaje .= "   💸 Gastado: $" . number_format($gastos, 0, ',', '.') . "\n";
-        $mensaje .= "   📊 " . number_format($porcentaje, 1) . "%\n";
-        
-        if ($diferencia > 0) {
-            $mensaje .= "   ⚠️ *Exceso: +$" . number_format($diferencia, 0, ',', '.') . "*\n";
-        } elseif ($diferencia < 0) {
-            $mensaje .= "   ✅ Restan: $" . number_format(abs($diferencia), 0, ',', '.') . "\n";
-        }
-        $mensaje .= "   ────────────\n";
-    }
-    
-    // Totales generales
-    $porcentaje_total = ($total_presupuesto > 0) ? ($total_gastado / $total_presupuesto * 100) : 0;
-    
-    $mensaje .= "\n📊 *RESUMEN GENERAL*\n";
-    $mensaje .= "💰 Presupuesto total: $" . number_format($total_presupuesto, 0, ',', '.') . "\n";
-    $mensaje .= "💸 Gastado total: $" . number_format($total_gastado, 0, ',', '.') . "\n";
-    $mensaje .= "📈 " . number_format($porcentaje_total, 1) . "% del presupuesto\n";
-    
-    if ($total_gastado > $total_presupuesto) {
-        $mensaje .= "🚨 *TOTAL EXCEDIDO*: $" . number_format($total_gastado - $total_presupuesto, 0, ',', '.') . "\n";
-    }
-    
-    $conn->close();
-    
-    // Enviar mensaje (dividir si es muy largo)
-    if (strlen($mensaje) > 4000) {
-        $partes = str_split($mensaje, 3500);
-        foreach ($partes as $parte) {
-            sendMessage($chat_id, $parte);
-        }
-    } else {
-        sendMessage($chat_id, $mensaje);
-    }
-}
-
+/* ========= FUNCIONES DE ALERTAS ========= */
 function alert_verificar_y_notificar($chat_id) {
     $conn = db();
     if (!$conn) {
