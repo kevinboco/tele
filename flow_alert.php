@@ -1,5 +1,5 @@
 <?php
-// flow_alert.php - Sistema de alertas por presupuesto de empresa
+// flow_alert.php - Sistema de alertas por presupuesto de empre
 require_once __DIR__.'/helpers.php';
 
 /* ========= FUNCIONES DE BASE DE DATOS ========= */
