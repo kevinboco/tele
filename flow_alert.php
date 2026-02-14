@@ -65,43 +65,8 @@ function guardarPresupuestoEmpresa($conn, $chat_id, $empresa, $presupuesto, $mes
     return $success;
 }
 
-function calcularGastosEmpresa($conn, $empresa, $mes, $anio) {
-    $gastos_totales = 0;
-    
-    // Obtener todos los viajes de la empresa en el mes/año
-    $sql = "SELECT v.ruta, v.tipo_vehiculo, v.fecha 
-            FROM viajes v 
-            WHERE v.empresa = ? 
-            AND MONTH(v.fecha) = ? 
-            AND YEAR(v.fecha) = ?
-            AND v.ruta IS NOT NULL 
-            AND v.tipo_vehiculo IS NOT NULL";
-    
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("sii", $empresa, $mes, $anio);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    while ($viaje = $result->fetch_assoc()) {
-        // Obtener clasificación de la ruta
-        $clasificacion = obtenerClasificacionRuta($conn, $viaje['ruta'], $viaje['tipo_vehiculo']);
-        
-        if ($clasificacion) {
-            // Obtener tarifa según empresa, tipo_vehiculo y clasificación
-            $tarifa = obtenerTarifa($conn, $empresa, $viaje['tipo_vehiculo'], $clasificacion);
-            
-            if ($tarifa > 0) {
-                $gastos_totales += $tarifa;
-            }
-        }
-    }
-    
-    $stmt->close();
-    return $gastos_totales;
-}
-
 function obtenerClasificacionRuta($conn, $ruta, $tipo_vehiculo) {
-    $sql = "SELECT clasificacion FROM ruta_clasificacion 
+    $sql = "SELECT clasificacion FROM rutas_clasificacion 
             WHERE ruta = ? AND tipo_vehiculo = ?";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("ss", $ruta, $tipo_vehiculo);
@@ -112,7 +77,7 @@ function obtenerClasificacionRuta($conn, $ruta, $tipo_vehiculo) {
         $clasificacion = $row['clasificacion'];
     } else {
         // Si no encuentra exacto, buscar solo por ruta
-        $sql = "SELECT clasificacion FROM ruta_clasificacion 
+        $sql = "SELECT clasificacion FROM rutas_clasificacion 
                 WHERE ruta = ? LIMIT 1";
         $stmt2 = $conn->prepare($sql);
         $stmt2->bind_param("s", $ruta);
@@ -142,12 +107,46 @@ function obtenerTarifa($conn, $empresa, $tipo_vehiculo, $clasificacion) {
     if ($row = $result->fetch_assoc()) {
         $tarifa = $row['tarifa'] ?? 0;
     } else {
-        // Si no encuentra, buscar empresa similar o default
         $tarifa = 0;
     }
     
     $stmt->close();
     return floatval($tarifa);
+}
+
+function calcularGastosEmpresa($conn, $empresa, $mes, $anio) {
+    $gastos_totales = 0;
+    
+    // Obtener todos los viajes de la empresa en el mes/año
+    $sql = "SELECT v.ruta, v.tipo_vehiculo 
+            FROM viajes v 
+            WHERE v.empresa = ? 
+            AND MONTH(v.fecha) = ? 
+            AND YEAR(v.fecha) = ?
+            AND v.ruta IS NOT NULL 
+            AND v.tipo_vehiculo IS NOT NULL";
+    
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("sii", $empresa, $mes, $anio);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    while ($viaje = $result->fetch_assoc()) {
+        // Obtener clasificación de la ruta
+        $clasificacion = obtenerClasificacionRuta($conn, $viaje['ruta'], $viaje['tipo_vehiculo']);
+        
+        if ($clasificacion) {
+            // Obtener tarifa según empresa, tipo_vehiculo y clasificación
+            $tarifa = obtenerTarifa($conn, $empresa, $viaje['tipo_vehiculo'], $clasificacion);
+            
+            if ($tarifa > 0) {
+                $gastos_totales += $tarifa;
+            }
+        }
+    }
+    
+    $stmt->close();
+    return $gastos_totales;
 }
 
 function verificarAlertasPresupuesto($conn, $chat_id) {
@@ -405,7 +404,6 @@ function alert_handle_callback($chat_id, &$estado, $cb_data, $cb_id = null) {
     }
     
     if ($cb_data === "alert_otro_mes") {
-        // Aquí podrías implementar selección de mes/año
         // Por ahora usamos el mes actual
         $estado['mes'] = date('n');
         $estado['anio'] = date('Y');
@@ -417,7 +415,7 @@ function alert_handle_callback($chat_id, &$estado, $cb_data, $cb_id = null) {
     if ($cb_id) answerCallbackQuery($cb_id);
 }
 
-/* ========= FUNCIONES DE ALERTAS ========= */
+/* ========= FUNCIONES DE ALERTAS OPTIMIZADAS ========= */
 function alert_mostrar_presupuestos($chat_id) {
     $conn = db();
     if (!$conn) {
@@ -425,33 +423,91 @@ function alert_mostrar_presupuestos($chat_id) {
         return;
     }
     
-    $presupuestos = obtenerPresupuestosEmpresa($conn, $chat_id);
-    $conn->close();
+    $mes_actual = date('n');
+    $anio_actual = date('Y');
+    
+    // Obtener presupuestos
+    $presupuestos = obtenerPresupuestosEmpresa($conn, $chat_id, $mes_actual, $anio_actual);
     
     if (empty($presupuestos)) {
-        sendMessage($chat_id, "📭 No tienes presupuestos configurados.\nUsa 'Configurar presupuesto' para agregar uno.");
+        $conn->close();
+        sendMessage($chat_id, "📭 No tienes presupuestos configurados para el mes actual.\nUsa 'Configurar presupuesto' para agregar uno.");
         return;
     }
     
-    $mensaje = "📊 *PRESUPUESTOS CONFIGURADOS*\n\n";
+    // OPTIMIZACIÓN: Calcular gastos por empresa de manera eficiente
+    $gastos_por_empresa = [];
     
     foreach ($presupuestos as $p) {
-        $gastos = calcularGastosEmpresa(db(), $p['empresa'], $p['mes'], $p['anio']);
-        $porcentaje = ($gastos / $p['presupuesto'] * 100);
-        
-        $mensaje .= "🏢 *{$p['empresa']}*\n";
-        $mensaje .= "📅 " . nombreMes($p['mes']) . " {$p['anio']}\n";
-        $mensaje .= "💰 Presupuesto: $" . number_format($p['presupuesto'], 0, ',', '.') . "\n";
-        $mensaje .= "💸 Gastado: $" . number_format($gastos, 0, ',', '.') . "\n";
-        $mensaje .= "📈 " . number_format($porcentaje, 1) . "% del presupuesto\n";
-        
-        if ($gastos > $p['presupuesto']) {
-            $mensaje .= "🚨 *SOBREPASADO* (+$" . number_format($gastos - $p['presupuesto'], 0, ',', '.') . ")\n";
-        }
-        $mensaje .= "────────────\n";
+        $empresa = $p['empresa'];
+        $gastos_por_empresa[$empresa] = calcularGastosEmpresa($conn, $empresa, $mes_actual, $anio_actual);
     }
     
-    sendMessage($chat_id, $mensaje);
+    // Generar mensaje
+    $mensaje = "📊 *PRESUPUESTOS CONFIGURADOS - " . nombreMes($mes_actual) . " $anio_actual*\n\n";
+    
+    $total_presupuesto = 0;
+    $total_gastado = 0;
+    
+    foreach ($presupuestos as $p) {
+        $empresa = $p['empresa'];
+        $gastos = $gastos_por_empresa[$empresa] ?? 0;
+        $presupuesto = floatval($p['presupuesto']);
+        
+        $total_presupuesto += $presupuesto;
+        $total_gastado += $gastos;
+        
+        $porcentaje = ($presupuesto > 0) ? ($gastos / $presupuesto * 100) : 0;
+        $diferencia = $gastos - $presupuesto;
+        
+        // Emoji según estado
+        if ($gastos == 0) {
+            $estado_emoji = "⚪";
+        } elseif ($porcentaje <= 80) {
+            $estado_emoji = "🟢";
+        } elseif ($porcentaje <= 100) {
+            $estado_emoji = "🟡";
+        } else {
+            $estado_emoji = "🔴";
+        }
+        
+        $mensaje .= "$estado_emoji *{$empresa}*\n";
+        $mensaje .= "   📅 " . nombreMes($mes_actual) . " $anio_actual\n";
+        $mensaje .= "   💰 Presupuesto: $" . number_format($presupuesto, 0, ',', '.') . "\n";
+        $mensaje .= "   💸 Gastado: $" . number_format($gastos, 0, ',', '.') . "\n";
+        $mensaje .= "   📊 " . number_format($porcentaje, 1) . "%\n";
+        
+        if ($diferencia > 0) {
+            $mensaje .= "   ⚠️ *Exceso: +$" . number_format($diferencia, 0, ',', '.') . "*\n";
+        } elseif ($diferencia < 0) {
+            $mensaje .= "   ✅ Restan: $" . number_format(abs($diferencia), 0, ',', '.') . "\n";
+        }
+        $mensaje .= "   ────────────\n";
+    }
+    
+    // Totales generales
+    $porcentaje_total = ($total_presupuesto > 0) ? ($total_gastado / $total_presupuesto * 100) : 0;
+    
+    $mensaje .= "\n📊 *RESUMEN GENERAL*\n";
+    $mensaje .= "💰 Presupuesto total: $" . number_format($total_presupuesto, 0, ',', '.') . "\n";
+    $mensaje .= "💸 Gastado total: $" . number_format($total_gastado, 0, ',', '.') . "\n";
+    $mensaje .= "📈 " . number_format($porcentaje_total, 1) . "% del presupuesto\n";
+    
+    if ($total_gastado > $total_presupuesto) {
+        $mensaje .= "🚨 *TOTAL EXCEDIDO*: $" . number_format($total_gastado - $total_presupuesto, 0, ',', '.') . "\n";
+    }
+    
+    $conn->close();
+    
+    // Enviar mensaje (dividir si es muy largo)
+    if (strlen($mensaje) > 4000) {
+        $partes = str_split($mensaje, 3500);
+        foreach ($partes as $parte) {
+            sendMessage($chat_id, $parte);
+        }
+    } else {
+        sendMessage($chat_id, $mensaje);
+    }
 }
 
 function alert_verificar_y_notificar($chat_id) {
@@ -482,7 +538,6 @@ function alert_verificar_y_notificar($chat_id) {
     $mensaje .= "\n⚠️ *Acciones recomendadas:*\n";
     $mensaje .= "• Revisar viajes registrados\n";
     $mensaje .= "• Ajustar presupuesto si es necesario\n";
-    $mensaje .= "• Optimizar rutas y vehículos\n";
     
     sendMessage($chat_id, $mensaje);
 }
@@ -513,20 +568,22 @@ function alert_generar_reporte($chat_id) {
     
     foreach ($presupuestos as $p) {
         $gastos = calcularGastosEmpresa($conn, $p['empresa'], $mes_actual, $anio_actual);
-        $porcentaje = ($gastos / $p['presupuesto'] * 100);
+        $presupuesto = floatval($p['presupuesto']);
         
-        $total_presupuesto += $p['presupuesto'];
+        $total_presupuesto += $presupuesto;
         $total_gastado += $gastos;
+        
+        $porcentaje = ($presupuesto > 0) ? ($gastos / $presupuesto * 100) : 0;
         
         $emoji = ($porcentaje <= 80) ? "🟢" : (($porcentaje <= 100) ? "🟡" : "🔴");
         
         $mensaje .= "$emoji *{$p['empresa']}*\n";
-        $mensaje .= "  Presupuesto: $" . number_format($p['presupuesto'], 0, ',', '.') . "\n";
+        $mensaje .= "  Presupuesto: $" . number_format($presupuesto, 0, ',', '.') . "\n";
         $mensaje .= "  Gastado: $" . number_format($gastos, 0, ',', '.') . "\n";
         $mensaje .= "  (" . number_format($porcentaje, 1) . "%)\n\n";
     }
     
-    $total_porcentaje = ($total_gastado / $total_presupuesto * 100);
+    $total_porcentaje = ($total_presupuesto > 0) ? ($total_gastado / $total_presupuesto * 100) : 0;
     
     $mensaje .= "📊 *TOTAL GENERAL*\n";
     $mensaje .= "💰 Presupuesto total: $" . number_format($total_presupuesto, 0, ',', '.') . "\n";
@@ -569,8 +626,7 @@ function alert_guardar_presupuesto($chat_id, &$estado) {
         $mensaje .= "🏢 Empresa: *$empresa*\n";
         $mensaje .= "📅 Periodo: " . nombreMes($mes) . " $anio\n";
         $mensaje .= "💰 Presupuesto: $" . number_format($presupuesto, 0, ',', '.') . "\n\n";
-        $mensaje .= "El sistema ahora monitoreará los gastos de esta empresa.\n";
-        $mensaje .= "Recibirás alertas si supera el presupuesto.";
+        $mensaje .= "El sistema ahora monitoreará los gastos de esta empresa.";
         
         sendMessage($chat_id, $mensaje);
     } else {
@@ -582,7 +638,7 @@ function alert_guardar_presupuesto($chat_id, &$estado) {
 
 /* ========= MANEJO DE TEXTO ========= */
 function alert_handle_text($chat_id, &$estado, $text, $photo) {
-    // 🚨 VERIFICAR CANCELACIÓN PRIMERO - esto es todo lo que necesitas
+    // VERIFICAR CANCELACIÓN PRIMERO
     if (trim(strtolower($text)) === '/cancel' || trim(strtolower($text)) === 'cancel') {
         clearState($chat_id);
         sendMessage($chat_id, "✅ Configuración de alertas cancelada.");
@@ -617,7 +673,6 @@ function alert_handle_text($chat_id, &$estado, $text, $photo) {
 }
 
 /* ========= FUNCIÓN PARA EJECUTAR CHECKS AUTOMÁTICOS ========= */
-// Esta función se puede llamar desde un cron job cada hora/día
 function alert_check_automatico() {
     // Obtener todos los chat_id únicos con presupuestos activos
     $conn = db();
@@ -649,3 +704,4 @@ function alert_check_automatico() {
     $stmt->close();
     $conn->close();
 }
+?>
