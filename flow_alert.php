@@ -18,15 +18,28 @@ function obtenerEmpresasConViajes($conn, $chat_id) {
     return $empresas;
 }
 
-function obtenerPresupuestosEmpresa($conn, $chat_id, $mes = null, $anio = null) {
+function obtenerPresupuestosEmpresa($conn, $chat_id, $mes = null, $anio = null, $empresas_filtro = []) {
     if ($mes === null) $mes = date('n');
     if ($anio === null) $anio = date('Y');
     
     $sql = "SELECT * FROM presupuestos_empresa 
-            WHERE chat_id = ? AND mes = ? AND anio = ? AND activo = 1
-            ORDER BY empresa ASC";
+            WHERE chat_id = ? AND mes = ? AND anio = ? AND activo = 1";
+    
+    $params = [$chat_id, $mes, $anio];
+    $types = "iii";
+    
+    // Si hay filtro de empresas específicas
+    if (!empty($empresas_filtro)) {
+        $placeholders = implode(',', array_fill(0, count($empresas_filtro), '?'));
+        $sql .= " AND empresa IN ($placeholders)";
+        $params = array_merge($params, $empresas_filtro);
+        $types .= str_repeat('s', count($empresas_filtro));
+    }
+    
+    $sql .= " ORDER BY empresa ASC";
+    
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("iii", $chat_id, $mes, $anio);
+    $stmt->bind_param($types, ...$params);
     $stmt->execute();
     $result = $stmt->get_result();
     $presupuestos = [];
@@ -204,7 +217,7 @@ function alert_entrypoint($chat_id, $estado) {
     $kb = [
         "inline_keyboard" => [
             [
-                ["text" => "📊 Ver presupuestos", "callback_data" => "alert_ver_presupuestos"],
+                ["text" => "📊 Ver presupuestos", "callback_data" => "alert_ver_presupuestos_inicio"],
                 ["text" => "⚙️ Configurar presupuesto", "callback_data" => "alert_configurar"]
             ],
             [
@@ -220,7 +233,7 @@ function alert_entrypoint($chat_id, $estado) {
     sendMessage($chat_id, 
         "🚨 *SISTEMA DE ALERTAS POR PRESUPUESTO*\n\n" .
         "Selecciona una opción:\n\n" .
-        "• *Ver presupuestos*: Muestra los presupuestos configurados\n" .
+        "• *Ver presupuestos*: Muestra los presupuestos configurados (con selección múltiple)\n" .
         "• *Configurar presupuesto*: Asigna presupuesto a una empresa\n" .
         "• *Verificar alertas*: Revisa si hay empresas sobre presupuesto\n" .
         "• *Reporte*: Compara gastos reales vs presupuesto", 
@@ -234,6 +247,7 @@ function alert_resend_current_step($chat_id, $estado) {
             alert_entrypoint($chat_id, $estado);
             break;
         case 'alert_seleccionar_empresa':
+        case 'alert_seleccionar_empresa_ver':
             alert_mostrar_empresas($chat_id, $estado);
             break;
         case 'alert_ingresar_presupuesto':
@@ -258,13 +272,29 @@ function alert_mostrar_empresas($chat_id, $estado) {
         return;
     }
     
+    // Determinar si es para configuración o para ver presupuestos
+    $es_para_ver = ($estado['paso'] === 'alert_seleccionar_empresa_ver');
+    
+    // Inicializar selecciones si no existen
+    if ($es_para_ver && !isset($estado['empresas_seleccionadas'])) {
+        $estado['empresas_seleccionadas'] = [];
+    }
+    
     $kb = ["inline_keyboard" => []];
     $row = [];
     
     foreach ($empresas as $empresa) {
+        $texto = (strlen($empresa) > 15) ? substr($empresa, 0, 12)."..." : $empresa;
+        
+        // Si es para ver presupuestos, mostrar checkboxes
+        if ($es_para_ver) {
+            $seleccionada = in_array($empresa, $estado['empresas_seleccionadas']);
+            $texto = ($seleccionada ? "✅ " : "◻️ ") . $texto;
+        }
+        
         $row[] = [
-            "text" => (strlen($empresa) > 15) ? substr($empresa, 0, 12)."..." : $empresa,
-            "callback_data" => "alert_empresa_sel_" . base64_encode($empresa)
+            "text" => $texto,
+            "callback_data" => ($es_para_ver ? "alert_empresa_selmulti_" : "alert_empresa_sel_") . base64_encode($empresa)
         ];
         
         if (count($row) === 2) {
@@ -277,11 +307,21 @@ function alert_mostrar_empresas($chat_id, $estado) {
         $kb["inline_keyboard"][] = $row;
     }
     
-    $kb["inline_keyboard"][] = [
-        ["text" => "⬅️ Volver", "callback_data" => "alert_back_menu"]
-    ];
+    // Botones adicionales según el caso
+    $fila_botones = [];
     
-    sendMessage($chat_id, "🏢 *Selecciona una empresa* para asignarle presupuesto:", $kb);
+    if ($es_para_ver) {
+        $fila_botones[] = ["text" => "✅ VER SELECCIONADAS", "callback_data" => "alert_ver_presupuestos_confirmar"];
+    }
+    
+    $fila_botones[] = ["text" => "⬅️ Volver", "callback_data" => "alert_back_menu"];
+    $kb["inline_keyboard"][] = $fila_botones;
+    
+    $mensaje = $es_para_ver ? 
+        "🏢 *Selecciona las empresas* para ver sus presupuestos:\n(Puedes seleccionar varias)" :
+        "🏢 *Selecciona una empresa* para asignarle presupuesto:";
+    
+    sendMessage($chat_id, $mensaje, $kb);
 }
 
 function alert_mostrar_periodo($chat_id, $estado) {
@@ -325,28 +365,52 @@ function alert_handle_callback($chat_id, &$estado, $cb_data, $cb_id = null) {
     
     // Manejar botón volver
     if ($cb_data === "alert_back_menu") {
-        $estado['paso'] = 'alert_menu'; saveState($chat_id, $estado);
+        $estado['paso'] = 'alert_menu'; 
+        // Limpiar selecciones si existen
+        unset($estado['empresas_seleccionadas']);
+        unset($estado['empresa_seleccionada']);
+        saveState($chat_id, $estado);
         alert_entrypoint($chat_id, $estado);
         if ($cb_id) answerCallbackQuery($cb_id);
         return;
     }
     
     if ($cb_data === "alert_back_empresa") {
-        $estado['paso'] = 'alert_seleccionar_empresa'; saveState($chat_id, $estado);
+        $estado['paso'] = 'alert_seleccionar_empresa'; 
+        saveState($chat_id, $estado);
         alert_mostrar_empresas($chat_id, $estado);
         if ($cb_id) answerCallbackQuery($cb_id);
         return;
     }
     
     // Menú principal
-    if ($cb_data === "alert_ver_presupuestos") {
-        alert_mostrar_presupuestos($chat_id);
+    if ($cb_data === "alert_ver_presupuestos_inicio") {
+        $estado['paso'] = 'alert_seleccionar_empresa_ver';
+        $estado['empresas_seleccionadas'] = [];
+        saveState($chat_id, $estado);
+        alert_mostrar_empresas($chat_id, $estado);
+        if ($cb_id) answerCallbackQuery($cb_id);
+        return;
+    }
+    
+    if ($cb_data === "alert_ver_presupuestos_confirmar") {
+        if (empty($estado['empresas_seleccionadas'])) {
+            sendMessage($chat_id, "⚠️ Debes seleccionar al menos una empresa.");
+            if ($cb_id) answerCallbackQuery($cb_id, "Selecciona al menos una empresa");
+            return;
+        }
+        alert_mostrar_presupuestos($chat_id, $estado['empresas_seleccionadas']);
+        // Limpiar selecciones después de mostrar
+        unset($estado['empresas_seleccionadas']);
+        $estado['paso'] = 'alert_menu';
+        saveState($chat_id, $estado);
         if ($cb_id) answerCallbackQuery($cb_id);
         return;
     }
     
     if ($cb_data === "alert_configurar") {
-        $estado['paso'] = 'alert_seleccionar_empresa'; saveState($chat_id, $estado);
+        $estado['paso'] = 'alert_seleccionar_empresa';
+        saveState($chat_id, $estado);
         alert_mostrar_empresas($chat_id, $estado);
         if ($cb_id) answerCallbackQuery($cb_id);
         return;
@@ -364,8 +428,8 @@ function alert_handle_callback($chat_id, &$estado, $cb_data, $cb_id = null) {
         return;
     }
     
-    // Seleccionar empresa
-    if (strpos($cb_data, 'alert_empresa_sel_') === 0) {
+    // Seleccionar empresa para configuración (una sola)
+    if (strpos($cb_data, 'alert_empresa_sel_') === 0 && strpos($cb_data, 'alert_empresa_selmulti_') !== 0) {
         $empresa_encoded = substr($cb_data, strlen('alert_empresa_sel_'));
         $empresa = base64_decode($empresa_encoded);
         
@@ -383,7 +447,35 @@ function alert_handle_callback($chat_id, &$estado, $cb_data, $cb_id = null) {
             "Escribe solo el número, sin puntos ni comas."
         );
         
-        if ($cb_id) answerCallbackQuery($cb_id);
+        if ($cb_id) answerCallbackQuery($cb_id, "Empresa seleccionada: $empresa");
+        return;
+    }
+    
+    // Selección múltiple para ver presupuestos
+    if (strpos($cb_data, 'alert_empresa_selmulti_') === 0) {
+        $empresa_encoded = substr($cb_data, strlen('alert_empresa_selmulti_'));
+        $empresa = base64_decode($empresa_encoded);
+        
+        // Inicializar array si no existe
+        if (!isset($estado['empresas_seleccionadas'])) {
+            $estado['empresas_seleccionadas'] = [];
+        }
+        
+        // Toggle selección
+        if (in_array($empresa, $estado['empresas_seleccionadas'])) {
+            $estado['empresas_seleccionadas'] = array_diff($estado['empresas_seleccionadas'], [$empresa]);
+            $mensaje = "❌ Empresa *$empresa* removida";
+        } else {
+            $estado['empresas_seleccionadas'][] = $empresa;
+            $mensaje = "✅ Empresa *$empresa* agregada";
+        }
+        
+        saveState($chat_id, $estado);
+        
+        // Refrescar la lista de empresas
+        alert_mostrar_empresas($chat_id, $estado);
+        
+        if ($cb_id) answerCallbackQuery($cb_id, $mensaje);
         return;
     }
     
@@ -410,22 +502,31 @@ function alert_handle_callback($chat_id, &$estado, $cb_data, $cb_id = null) {
 }
 
 /* ========= FUNCIONES DE ALERTAS ========= */
-function alert_mostrar_presupuestos($chat_id) {
+function alert_mostrar_presupuestos($chat_id, $empresas_filtro = []) {
     $conn = db();
     if (!$conn) {
         sendMessage($chat_id, "❌ Error de conexión a la base de datos.");
         return;
     }
     
-    $presupuestos = obtenerPresupuestosEmpresa($conn, $chat_id);
+    $presupuestos = obtenerPresupuestosEmpresa($conn, $chat_id, date('n'), date('Y'), $empresas_filtro);
     $conn->close();
     
     if (empty($presupuestos)) {
-        sendMessage($chat_id, "📭 No tienes presupuestos configurados.\nUsa 'Configurar presupuesto' para agregar uno.");
+        if (!empty($empresas_filtro)) {
+            $empresas_texto = implode(", ", $empresas_filtro);
+            sendMessage($chat_id, "📭 Las siguientes empresas no tienen presupuestos configurados para el mes actual:\n*$empresas_texto*");
+        } else {
+            sendMessage($chat_id, "📭 No tienes presupuestos configurados.\nUsa 'Configurar presupuesto' para agregar uno.");
+        }
         return;
     }
     
     $mensaje = "📊 *PRESUPUESTOS CONFIGURADOS*\n\n";
+    
+    if (!empty($empresas_filtro)) {
+        $mensaje .= "📋 Mostrando: " . implode(", ", $empresas_filtro) . "\n\n";
+    }
     
     foreach ($presupuestos as $p) {
         $gastos = calcularGastosEmpresa(db(), $p['empresa'], $p['mes'], $p['anio']);
@@ -438,7 +539,8 @@ function alert_mostrar_presupuestos($chat_id) {
         $mensaje .= "📈 " . number_format($porcentaje, 1) . "% del presupuesto\n";
         
         if ($gastos > $p['presupuesto']) {
-            $mensaje .= "🚨 *SOBREPASADO* (+$" . number_format($gastos - $p['presupuesto'], 0, ',', '.') . ")\n";
+            $exceso = $gastos - $p['presupuesto'];
+            $mensaje .= "🚨 *SOBREPASADO* (+$" . number_format($exceso, 0, ',', '.') . ")\n";
         }
         $mensaje .= "────────────\n";
     }
