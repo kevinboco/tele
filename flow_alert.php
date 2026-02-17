@@ -311,6 +311,9 @@ function alert_mostrar_empresas($chat_id, $estado) {
     $fila_botones = [];
     
     if ($es_para_ver) {
+        // NUEVO BOTÓN: Seleccionar todas las empresas que empiezan con "P."
+        $fila_botones[] = ["text" => "🔘 Seleccionar todas P.", "callback_data" => "alert_seleccionar_punto"];
+        
         $fila_botones[] = ["text" => "✅ VER SELECCIONADAS", "callback_data" => "alert_ver_presupuestos_confirmar"];
     }
     
@@ -318,7 +321,7 @@ function alert_mostrar_empresas($chat_id, $estado) {
     $kb["inline_keyboard"][] = $fila_botones;
     
     $mensaje = $es_para_ver ? 
-        "🏢 *Selecciona las empresas* para ver sus presupuestos:\n(Puedes seleccionar varias)" :
+        "🏢 *Selecciona las empresas* para ver sus presupuestos:\n(Puedes seleccionar varias)\n\n🔘 Usa 'Seleccionar todas P.' para marcar automáticamente las que empiezan con P." :
         "🏢 *Selecciona una empresa* para asignarle presupuesto:";
     
     sendMessage($chat_id, $mensaje, $kb);
@@ -425,6 +428,38 @@ function alert_handle_callback($chat_id, &$estado, $cb_data, $cb_id = null) {
     if ($cb_data === "alert_reporte") {
         alert_generar_reporte($chat_id);
         if ($cb_id) answerCallbackQuery($cb_id);
+        return;
+    }
+    
+    // NUEVO: Seleccionar todas las empresas que empiezan con P.
+    if ($cb_data === "alert_seleccionar_punto") {
+        if ($estado['paso'] !== 'alert_seleccionar_empresa_ver') {
+            if ($cb_id) answerCallbackQuery($cb_id);
+            return;
+        }
+        
+        $conn = db();
+        $empresas = $conn ? obtenerEmpresasConViajes($conn, $chat_id) : [];
+        $conn?->close();
+        
+        $seleccionadas = 0;
+        
+        foreach ($empresas as $empresa) {
+            // Verificar si empieza con "P." (mayúscula o minúscula)
+            if (stripos($empresa, 'p.') === 0) {
+                if (!in_array($empresa, $estado['empresas_seleccionadas'])) {
+                    $estado['empresas_seleccionadas'][] = $empresa;
+                    $seleccionadas++;
+                }
+            }
+        }
+        
+        saveState($chat_id, $estado);
+        
+        // Refrescar la lista de empresas
+        alert_mostrar_empresas($chat_id, $estado);
+        
+        if ($cb_id) answerCallbackQuery($cb_id, "✅ $seleccionadas empresas con P. seleccionadas");
         return;
     }
     
@@ -705,7 +740,7 @@ function alert_handle_text($chat_id, &$estado, $text, $photo) {
 /* ========= FUNCIÓN PARA EJECUTAR CHECKS AUTOMÁTICOS ========= */
 // Esta función se puede llamar desde un cron job cada hora/día
 function alert_check_automatico() {
-    // Obtener todos los chat_id únicos con presupuestos activo
+    // Obtener todos los chat_id únicos con presupuestos activos
     $conn = db();
     if (!$conn) return;
     
