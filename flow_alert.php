@@ -705,7 +705,7 @@ function alert_handle_text($chat_id, &$estado, $text, $photo) {
 /* ========= FUNCIÓN PARA EJECUTAR CHECKS AUTOMÁTICOS ========= */
 // Esta función se puede llamar desde un cron job cada hora/día
 function alert_check_automatico() {
-    // Obtener todos los chat_id únicos con presupuestos activos
+    // Obtener todos los chat_id únicos con presupuestos activo
     $conn = db();
     if (!$conn) return;
     
