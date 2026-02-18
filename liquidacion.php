@@ -1142,7 +1142,34 @@ if ($empresaFiltro !== "") {
               </span>
             <?php endif; ?>
           </div>
-          
+          <!-- Botón para abrir el modal de presupuestos -->
+          <button type="button" class="btn btn-info" data-toggle="modal" data-target="#modalPresupuesto">
+              📊 Presupuesto vs Viajes
+          </button>
+
+          <!-- Modal - Aquí se incluye la vista independiente -->
+          <div class="modal fade" id="modalPresupuesto" tabindex="-1" role="dialog" aria-labelledby="modalPresupuestoLabel" aria-hidden="true">
+              <div class="modal-dialog modal-xl" role="document"> <!-- modal-xl para que sea bien grande -->
+                  <div class="modal-content">
+                      <div class="modal-header">
+                          <h5 class="modal-title" id="modalPresupuestoLabel">Comparación Presupuesto vs Total Viajes</h5>
+                          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                              <span aria-hidden="true">&times;</span>
+                          </button>
+                      </div>
+                      <div class="modal-body">
+                          <?php 
+                          // INCLUIMOS LA VISTA INDEPENDIENTE
+                          // Ajusta la ruta según donde hayas guardado el archivo
+                          include('ruta/donde/guardaste/presupuesto_comparacion.php'); 
+                          ?>
+                      </div>
+                      <div class="modal-footer">
+                          <button type="button" class="btn btn-secondary" data-dismiss="modal">Cerrar</button>
+                      </div>
+                  </div>
+              </div>
+          </div>
           <!-- FILTRO DE FECHA - AHORA EN EL ENCABEZADO -->
           <form id="headerFilterForm" class="flex flex-col md:flex-row md:items-center gap-2" method="get">
             <div class="flex flex-col md:flex-row md:items-center gap-2">
