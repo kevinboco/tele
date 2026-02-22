@@ -2091,44 +2091,46 @@ document.addEventListener('DOMContentLoaded', function() {
 <!-- ===== FIN MÓDULO 11 ===== -->
 <?php
 /* =======================================================
-   🚀 MÓDULO 12: SISTEMA DE ALERTAS - VERSIÓN FINAL
+   🚀 MÓDULO 12: SISTEMA DE ALERTAS - VERSIÓN SIN AJAX
+   ========================================================
+   🔧 FUNCIONA MEDIANTE POST Y MODAL
    ======================================================== */
 
-// ===== PROCESAR AJAX - DEBE IR AL INICIO DEL MÓDULO =====
-if (isset($_GET['accion']) && $_GET['accion'] === 'ver_presupuestos') {
-    header('Content-Type: application/json');
+// Procesar formulario si se envió
+$resultados_presupuestos = [];
+$empresas_seleccionadas = [];
+$periodo_seleccionado = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ver_presupuestos'])) {
+    $mes = intval($_POST['mes']);
+    $anio = intval($_POST['anio']);
+    $empresas_seleccionadas = $_POST['empresas'] ?? [];
+    $periodo_seleccionado = nombreMes($mes) . " $anio";
     
-    $mes = intval($_GET['mes'] ?? date('n'));
-    $anio = intval($_GET['anio'] ?? date('Y'));
-    $empresas = isset($_GET['empresas']) ? json_decode($_GET['empresas'], true) : [];
-    
-    $resultados = [];
-    
-    if (!empty($empresas)) {
-        foreach ($empresas as $empresa) {
-            $empresa = $conn->real_escape_string($empresa);
+    if (!empty($empresas_seleccionadas)) {
+        foreach ($empresas_seleccionadas as $empresa) {
+            $empresa_esc = $conn->real_escape_string($empresa);
             
-            // 1. Obtener presupuesto
+            // Obtener presupuesto
             $sql_pres = "SELECT * FROM presupuestos_empresa 
-                        WHERE empresa = '$empresa' 
+                        WHERE empresa = '$empresa_esc' 
                         AND mes = $mes 
                         AND anio = $anio 
                         AND activo = 1";
             $res_pres = $conn->query($sql_pres);
             
             if ($pres = $res_pres->fetch_assoc()) {
-                // 2. Calcular gastos (MISMA LÓGICA QUE FLOW_ALERT)
+                // Calcular gastos
                 $gastos = 0;
                 
                 $sql_viajes = "SELECT ruta, tipo_vehiculo FROM viajes 
-                              WHERE empresa = '$empresa' 
+                              WHERE empresa = '$empresa_esc' 
                               AND MONTH(fecha) = $mes 
                               AND YEAR(fecha) = $anio";
                 $res_viajes = $conn->query($sql_viajes);
                 
                 while ($viaje = $res_viajes->fetch_assoc()) {
-                    // Obtener clasificación de la ruta
-                    $clasif = '';
+                    // Obtener clasificación
                     $sql_clasif = "SELECT clasificacion FROM ruta_clasificacion 
                                   WHERE ruta = '" . $conn->real_escape_string($viaje['ruta']) . "' 
                                   AND tipo_vehiculo = '" . $conn->real_escape_string($viaje['tipo_vehiculo']) . "'";
@@ -2137,9 +2139,8 @@ if (isset($_GET['accion']) && $_GET['accion'] === 'ver_presupuestos') {
                     if ($row_clasif = $res_clasif->fetch_assoc()) {
                         $clasif = $row_clasif['clasificacion'];
                         
-                        // Obtener tarifa
                         $sql_tarifa = "SELECT $clasif as tarifa FROM tarifas 
-                                      WHERE empresa = '$empresa' 
+                                      WHERE empresa = '$empresa_esc' 
                                       AND tipo_vehiculo = '" . $conn->real_escape_string($viaje['tipo_vehiculo']) . "'";
                         $res_tarifa = $conn->query($sql_tarifa);
                         
@@ -2149,22 +2150,16 @@ if (isset($_GET['accion']) && $_GET['accion'] === 'ver_presupuestos') {
                     }
                 }
                 
-                $resultados[] = [
+                $resultados_presupuestos[] = [
                     'empresa' => $pres['empresa'],
                     'presupuesto' => floatval($pres['presupuesto']),
                     'gastos' => $gastos,
                     'exceso' => max($gastos - $pres['presupuesto'], 0),
-                    'mes' => $pres['mes'],
-                    'anio' => $pres['anio'],
-                    'mes_nombre' => nombreMes($pres['mes']),
                     'porcentaje' => $pres['presupuesto'] > 0 ? round(($gastos / $pres['presupuesto'] * 100), 1) : 0
                 ];
             }
         }
     }
-    
-    echo json_encode($resultados);
-    exit;
 }
 
 function nombreMes($mes) {
@@ -2172,7 +2167,7 @@ function nombreMes($mes) {
     return $meses[$mes] ?? "Desconocido";
 }
 
-// Obtener lista de empresas
+// Obtener empresas
 $empresas_lista = [];
 $res = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa != '' ORDER BY empresa ASC");
 if ($res) {
@@ -2182,8 +2177,9 @@ if ($res) {
 }
 ?>
 
-<!-- BOTÓN Y PANEL -->
+<!-- ===== BOTÓN Y PANEL ===== -->
 <style>
+/* Botón flotante */
 .presupuestos-btn {
     position: fixed;
     right: 20px;
@@ -2201,8 +2197,14 @@ if ($res) {
     z-index: 999999;
     font-size: 28px;
     color: white;
+    transition: all 0.3s;
 }
 
+.presupuestos-btn:hover {
+    transform: scale(1.1);
+}
+
+/* Panel */
 .presupuestos-panel {
     position: fixed;
     right: -500px;
@@ -2216,7 +2218,9 @@ if ($res) {
     overflow-y: auto;
 }
 
-.presupuestos-panel.active { right: 0; }
+.presupuestos-panel.active {
+    right: 0;
+}
 
 .presupuestos-overlay {
     position: fixed;
@@ -2229,7 +2233,9 @@ if ($res) {
     display: none;
 }
 
-.presupuestos-overlay.active { display: block; }
+.presupuestos-overlay.active {
+    display: block;
+}
 
 .presupuestos-header {
     padding: 20px;
@@ -2242,8 +2248,11 @@ if ($res) {
     top: 0;
 }
 
-.presupuestos-body { padding: 20px; }
+.presupuestos-body {
+    padding: 20px;
+}
 
+/* Checkboxes */
 .empresa-item {
     display: flex;
     align-items: center;
@@ -2252,6 +2261,11 @@ if ($res) {
     border: 1px solid #e2e8f0;
     border-radius: 8px;
     cursor: pointer;
+    transition: all 0.2s;
+}
+
+.empresa-item:hover {
+    background: #f8fafc;
 }
 
 .empresa-item.selected {
@@ -2259,6 +2273,89 @@ if ($res) {
     border-color: #3b82f6;
 }
 
+.empresa-checkbox {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+/* Botones */
+.btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: none;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.btn-primary {
+    background: #2563eb;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #1d4ed8;
+}
+
+.btn-small {
+    padding: 4px 8px;
+    font-size: 12px;
+    border-radius: 4px;
+}
+
+/* Modal de resultados */
+.resultados-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 600px;
+    max-width: 90%;
+    max-height: 80vh;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    z-index: 1000000;
+    display: none;
+    overflow: hidden;
+}
+
+.resultados-modal.active {
+    display: block;
+}
+
+.resultados-modal-header {
+    padding: 20px;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #f8fafc;
+}
+
+.resultados-modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    max-height: calc(80vh - 80px);
+}
+
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    z-index: 999999;
+    display: none;
+}
+
+.modal-overlay.active {
+    display: block;
+}
+
+/* Tarjetas de presupuesto */
 .presupuesto-card {
     border: 1px solid #e2e8f0;
     border-radius: 12px;
@@ -2283,97 +2380,200 @@ if ($res) {
     margin: 12px 0;
 }
 
-.btn {
-    padding: 8px 16px;
-    border-radius: 8px;
-    border: none;
-    font-size: 14px;
-    cursor: pointer;
-}
-
-.btn-primary {
-    background: #2563eb;
-    color: white;
-    width: 100%;
-    padding: 12px;
+.porcentaje-fill {
+    height: 100%;
+    transition: width 0.3s;
 }
 </style>
 
 <!-- Botón flotante -->
-<div class="presupuestos-btn" id="presupuestosBtn">🚨</div>
+<div class="presupuestos-btn" id="presupuestosBtn">
+    <span>🚨</span>
+</div>
 
-<!-- Overlay -->
+<!-- Overlay del panel -->
 <div class="presupuestos-overlay" id="presupuestosOverlay"></div>
 
-<!-- Panel -->
+<!-- Panel lateral -->
 <div class="presupuestos-panel" id="presupuestosPanel">
     <div class="presupuestos-header">
-        <h3 style="margin:0;">🚨 Alertas por Presupuesto</h3>
-        <button id="presupuestosCloseBtn" style="background:#f1f5f9; border:none; width:32px; height:32px; border-radius:50%; cursor:pointer;">✕</button>
+        <h3 style="margin:0; font-size:18px; font-weight:600;">🚨 Alertas por Presupuesto</h3>
+        <button id="presupuestosCloseBtn" style="background:#f1f5f9; border:none; width:32px; height:32px; border-radius:50%; cursor:pointer; font-size:16px;">✕</button>
     </div>
     
     <div class="presupuestos-body">
-        <!-- Período -->
-        <div style="background:#f8fafc; padding:12px; border-radius:8px; margin-bottom:16px;">
-            <select id="periodoSelect" style="width:100%; padding:8px;">
-                <option value="<?= date('n').'-'.date('Y') ?>" selected><?= nombreMes(date('n')).' '.date('Y') ?></option>
-            </select>
-        </div>
-        
-        <!-- Botones selección -->
-        <div style="display:flex; gap:8px; margin-bottom:12px;">
-            <button id="btnSeleccionarP" style="padding:4px 8px; background:#f3e8ff; color:#9333ea; border:none; border-radius:4px; cursor:pointer;">🔘 P.</button>
-            <button id="btnSeleccionarTodas" style="padding:4px 8px; background:#dbeafe; color:#2563eb; border:none; border-radius:4px; cursor:pointer;">✅ Todas</button>
-            <button id="btnLimpiar" style="padding:4px 8px; background:#f1f5f9; color:#475569; border:none; border-radius:4px; cursor:pointer;">✕ Limpiar</button>
-        </div>
-        
-        <!-- Empresas -->
-        <div style="margin-bottom:16px;">
-            <div id="empresasGrid" style="display:grid; grid-template-columns:repeat(2,1fr); gap:8px; max-height:300px; overflow-y:auto;">
-                <?php foreach ($empresas_lista as $emp): ?>
-                <label class="empresa-item">
-                    <input type="checkbox" class="empresa-checkbox" value="<?= htmlspecialchars($emp) ?>" style="width:16px; height:16px;">
-                    <span style="font-size:13px;"><?= htmlspecialchars($emp) ?></span>
-                </label>
-                <?php endforeach; ?>
+        <form method="POST" id="formPresupuestos">
+            <!-- Período -->
+            <div style="background:#f8fafc; padding:12px; border-radius:8px; margin-bottom:16px;">
+                <label style="display:block; font-size:12px; color:#475569; margin-bottom:4px;">Período:</label>
+                <select name="mes" style="width:70%; padding:8px; border:1px solid #cbd5e1; border-radius:6px;">
+                    <?php for($m=1; $m<=12; $m++): ?>
+                    <option value="<?= $m ?>" <?= $m==date('n') ? 'selected' : '' ?>><?= nombreMes($m) ?></option>
+                    <?php endfor; ?>
+                </select>
+                <select name="anio" style="width:28%; padding:8px; border:1px solid #cbd5e1; border-radius:6px;">
+                    <?php for($a=date('Y'); $a>=date('Y')-2; $a--): ?>
+                    <option value="<?= $a ?>" <?= $a==date('Y') ? 'selected' : '' ?>><?= $a ?></option>
+                    <?php endfor; ?>
+                </select>
             </div>
-        </div>
-        
-        <!-- Botón Ver -->
-        <button id="btnVerPresupuestos" class="btn-primary">📊 Ver presupuestos seleccionados</button>
-        
-        <!-- Resultados -->
-        <div id="resultadosPresupuestos" style="margin-top:20px;"></div>
+            
+            <!-- Botones de selección rápida -->
+            <div style="display:flex; gap:8px; margin-bottom:12px;">
+                <button type="button" id="btnSeleccionarP" class="btn btn-small" style="background:#f3e8ff; color:#9333ea; border:1px solid #e9d5ff;">🔘 P.</button>
+                <button type="button" id="btnSeleccionarTodas" class="btn btn-small" style="background:#dbeafe; color:#2563eb; border:1px solid #bfdbfe;">✅ Todas</button>
+                <button type="button" id="btnLimpiar" class="btn btn-small" style="background:#f1f5f9; color:#475569; border:1px solid #e2e8f0;">✕ Limpiar</button>
+            </div>
+            
+            <!-- Grid de empresas -->
+            <div style="margin-bottom:16px;">
+                <label style="display:block; font-size:12px; color:#475569; margin-bottom:8px;">Empresas:</label>
+                <div id="empresasGrid" style="display:grid; grid-template-columns:repeat(2, 1fr); gap:8px; max-height:300px; overflow-y:auto; padding:4px;">
+                    <?php foreach ($empresas_lista as $emp): ?>
+                    <label class="empresa-item">
+                        <input type="checkbox" name="empresas[]" class="empresa-checkbox" value="<?= htmlspecialchars($emp) ?>">
+                        <span style="font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"><?= htmlspecialchars($emp) ?></span>
+                    </label>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            
+            <!-- Botón Ver presupuestos -->
+            <button type="submit" name="ver_presupuestos" class="btn btn-primary" style="width:100%; padding:12px;">
+                📊 Ver presupuestos seleccionados
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- Modal de resultados -->
+<div class="modal-overlay" id="modalOverlay"></div>
+<div class="resultados-modal" id="resultadosModal">
+    <div class="resultados-modal-header">
+        <h3 style="margin:0; font-size:18px; font-weight:600;">
+            📊 Resultados - <?= $periodo_seleccionado ?>
+        </h3>
+        <button id="cerrarModalBtn" style="background:#f1f5f9; border:none; width:32px; height:32px; border-radius:50%; cursor:pointer; font-size:16px;">✕</button>
+    </div>
+    <div class="resultados-modal-body" id="resultadosModalBody">
+        <?php if (!empty($resultados_presupuestos)): ?>
+            <?php foreach ($resultados_presupuestos as $p): 
+                $excedido = $p['gastos'] > $p['presupuesto'];
+            ?>
+                <div class="presupuesto-card <?= $excedido ? 'excedido' : 'normal' ?>">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
+                        <div>
+                            <div style="font-weight:600; font-size:16px;"><?= htmlspecialchars($p['empresa']) ?></div>
+                        </div>
+                        <div style="text-align:right;">
+                            <div style="font-size:11px; color:#64748b;">Presupuesto</div>
+                            <div style="font-weight:700;">$<?= number_format($p['presupuesto'], 0, ',', '.') ?></div>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top:12px;">
+                        <div style="display:flex; justify-content:space-between; font-size:14px; margin-bottom:4px;">
+                            <span>Gastado:</span>
+                            <span style="font-weight:500;">$<?= number_format($p['gastos'], 0, ',', '.') ?></span>
+                        </div>
+                        
+                        <div class="porcentaje-bar">
+                            <div class="porcentaje-fill" style="width: <?= min($p['porcentaje'], 100) ?>%; background-color: <?= $excedido ? '#dc2626' : '#10b981' ?>;"></div>
+                        </div>
+                        
+                        <div style="display:flex; justify-content:space-between; font-size:14px;">
+                            <span>Porcentaje:</span>
+                            <span style="font-weight:600; <?= $excedido ? 'color:#dc2626;' : '' ?>"><?= $p['porcentaje'] ?>%</span>
+                        </div>
+                        
+                        <?php if ($excedido): ?>
+                            <div style="display:flex; justify-content:space-between; font-size:14px; margin-top:8px; padding-top:8px; border-top:1px solid #fee2e2;">
+                                <span style="color:#dc2626;">🚨 Exceso:</span>
+                                <span style="color:#dc2626; font-weight:700;">$<?= number_format($p['exceso'], 0, ',', '.') ?></span>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        <?php elseif ($_SERVER['REQUEST_METHOD'] === 'POST'): ?>
+            <div style="text-align:center; padding:30px; color:#64748b;">
+                📭 No hay presupuestos configurados para las empresas seleccionadas
+            </div>
+        <?php else: ?>
+            <div style="text-align:center; padding:30px; color:#64748b;">
+                👈 Selecciona empresas y período en el panel lateral
+            </div>
+        <?php endif; ?>
     </div>
 </div>
 
 <script>
-// Variables
-let empresasSeleccionadas = [];
+// ===== VARIABLES =====
+let panelActivo = false;
 
-// Inicializar
+// ===== INICIALIZACIÓN =====
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('✅ Módulo de presupuestos iniciado');
+    
+    // Elementos del panel
     const btn = document.getElementById('presupuestosBtn');
     const panel = document.getElementById('presupuestosPanel');
     const overlay = document.getElementById('presupuestosOverlay');
     const closeBtn = document.getElementById('presupuestosCloseBtn');
     
+    // Elementos del modal
+    const modal = document.getElementById('resultadosModal');
+    const modalOverlay = document.getElementById('modalOverlay');
+    const cerrarModal = document.getElementById('cerrarModalBtn');
+    
     // Abrir panel
-    btn.addEventListener('click', function() {
-        panel.classList.add('active');
-        overlay.classList.add('active');
-    });
+    if (btn) {
+        btn.addEventListener('click', function() {
+            panel.classList.add('active');
+            overlay.classList.add('active');
+        });
+    }
     
     // Cerrar panel
-    closeBtn.addEventListener('click', function() {
-        panel.classList.remove('active');
-        overlay.classList.remove('active');
-    });
+    if (closeBtn) {
+        closeBtn.addEventListener('click', function() {
+            panel.classList.remove('active');
+            overlay.classList.remove('active');
+        });
+    }
     
-    overlay.addEventListener('click', function() {
+    if (overlay) {
+        overlay.addEventListener('click', function() {
+            panel.classList.remove('active');
+            overlay.classList.remove('active');
+        });
+    }
+    
+    // Cerrar modal
+    if (cerrarModal) {
+        cerrarModal.addEventListener('click', function() {
+            modal.classList.remove('active');
+            modalOverlay.classList.remove('active');
+        });
+    }
+    
+    if (modalOverlay) {
+        modalOverlay.addEventListener('click', function() {
+            modal.classList.remove('active');
+            modalOverlay.classList.remove('active');
+        });
+    }
+    
+    // Mostrar modal si hay resultados
+    <?php if (!empty($resultados_presupuestos)): ?>
+    setTimeout(function() {
+        modal.classList.add('active');
+        modalOverlay.classList.add('active');
+        // Cerrar panel si está abierto
         panel.classList.remove('active');
         overlay.classList.remove('active');
-    });
+    }, 500);
+    <?php endif; ?>
     
     // Checkboxes
     document.querySelectorAll('.empresa-checkbox').forEach(cb => {
@@ -2381,119 +2581,57 @@ document.addEventListener('DOMContentLoaded', function() {
             const item = this.closest('.empresa-item');
             if (this.checked) {
                 item.classList.add('selected');
-                empresasSeleccionadas.push(this.value);
             } else {
                 item.classList.remove('selected');
-                empresasSeleccionadas = empresasSeleccionadas.filter(e => e !== this.value);
             }
         });
     });
     
-    // Seleccionar todas
+    // Botón seleccionar todas
     document.getElementById('btnSeleccionarTodas').addEventListener('click', function() {
         document.querySelectorAll('.empresa-checkbox').forEach(cb => {
             cb.checked = true;
             cb.closest('.empresa-item').classList.add('selected');
-            if (!empresasSeleccionadas.includes(cb.value)) {
-                empresasSeleccionadas.push(cb.value);
-            }
         });
     });
     
-    // Seleccionar P.
+    // Botón seleccionar P.
     document.getElementById('btnSeleccionarP').addEventListener('click', function() {
         document.querySelectorAll('.empresa-checkbox').forEach(cb => {
             if (cb.value.toLowerCase().startsWith('p.')) {
                 cb.checked = true;
                 cb.closest('.empresa-item').classList.add('selected');
-                if (!empresasSeleccionadas.includes(cb.value)) {
-                    empresasSeleccionadas.push(cb.value);
-                }
             }
         });
     });
     
-    // Limpiar
+    // Botón limpiar
     document.getElementById('btnLimpiar').addEventListener('click', function() {
         document.querySelectorAll('.empresa-checkbox').forEach(cb => {
             cb.checked = false;
             cb.closest('.empresa-item').classList.remove('selected');
         });
-        empresasSeleccionadas = [];
     });
     
-    // Ver presupuestos
-    document.getElementById('btnVerPresupuestos').addEventListener('click', function() {
-        if (empresasSeleccionadas.length === 0) {
-            alert('Selecciona al menos una empresa');
-            return;
+    // Validar formulario antes de enviar
+    document.getElementById('formPresupuestos').addEventListener('submit', function(e) {
+        const checkboxes = document.querySelectorAll('.empresa-checkbox:checked');
+        if (checkboxes.length === 0) {
+            e.preventDefault();
+            alert('⚠️ Selecciona al menos una empresa');
         }
-        
-        const [mes, anio] = document.getElementById('periodoSelect').value.split('-');
-        
-        const resultados = document.getElementById('resultadosPresupuestos');
-        resultados.innerHTML = '<div style="text-align:center; padding:20px;">Cargando...</div>';
-        
-        fetch(`<?= basename(__FILE__) ?>?accion=ver_presupuestos&mes=${mes}&anio=${anio}&empresas=${JSON.stringify(empresasSeleccionadas)}`)
-            .then(r => {
-                if (!r.ok) throw new Error('Error en la respuesta');
-                return r.json();
-            })
-            .then(data => {
-                if (data.length === 0) {
-                    resultados.innerHTML = '<div style="text-align:center; padding:20px;">📭 No hay presupuestos</div>';
-                    return;
-                }
-                
-                let html = '';
-                data.forEach(p => {
-                    const excedido = p.gastos > p.presupuesto;
-                    html += `
-                        <div class="presupuesto-card ${excedido ? 'excedido' : 'normal'}">
-                            <div style="display:flex; justify-content:space-between;">
-                                <div>
-                                    <div style="font-weight:600;">${p.empresa}</div>
-                                    <div style="font-size:12px;">${p.mes_nombre} ${p.anio}</div>
-                                </div>
-                                <div style="text-align:right;">
-                                    <div style="font-size:11px;">Presupuesto</div>
-                                    <div style="font-weight:700;">$${formatNumber(p.presupuesto)}</div>
-                                </div>
-                            </div>
-                            <div style="margin-top:10px;">
-                                <div style="display:flex; justify-content:space-between;">
-                                    <span>Gastado:</span>
-                                    <span>$${formatNumber(p.gastos)}</span>
-                                </div>
-                                <div class="porcentaje-bar">
-                                    <div style="width:${Math.min(p.porcentaje,100)}%; height:100%; background:${excedido ? '#dc2626' : '#10b981'};"></div>
-                                </div>
-                                <div style="display:flex; justify-content:space-between;">
-                                    <span>Porcentaje:</span>
-                                    <span style="font-weight:600; ${excedido ? 'color:#dc2626;' : ''}">${p.porcentaje}%</span>
-                                </div>
-                                ${excedido ? `
-                                <div style="display:flex; justify-content:space-between; margin-top:8px; padding-top:8px; border-top:1px solid #fee2e2; color:#dc2626;">
-                                    <span>🚨 Exceso:</span>
-                                    <span style="font-weight:700;">$${formatNumber(p.exceso)}</span>
-                                </div>
-                                ` : ''}
-                            </div>
-                        </div>
-                    `;
-                });
-                resultados.innerHTML = html;
-            })
-            .catch(error => {
-                console.error(error);
-                resultados.innerHTML = '<div style="text-align:center; padding:20px; color:#dc2626;">❌ Error al cargar los datos</div>';
-            });
     });
 });
 
-function formatNumber(num) {
-    return new Intl.NumberFormat('es-CO').format(num || 0);
-}
+// Cerrar modal con ESC
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        const modal = document.getElementById('resultadosModal');
+        const modalOverlay = document.getElementById('modalOverlay');
+        modal.classList.remove('active');
+        modalOverlay.classList.remove('active');
+    }
+});
 </script>
 </body>
 </html>
