@@ -1661,6 +1661,9 @@ function deseleccionarTodasHeader() {
 </div>
 
 <script>
+// ===== FUNCIONES ESPECÍFICAS DEL MODAL =====
+// (Estas funciones complementan el Módulo 11)
+
 // Actualizar la función que abre el modal
 function abrirModalViajes(nombreInicial){
     // Mostrar el rango
@@ -1713,14 +1716,14 @@ function loadViajes(nombre) {
    🚀 MÓDULO 11: JAVASCRIPT PRINCIPAL (TODAS LAS FUNCIONES)
    ========================================================
    🔧 PROPÓSITO: Lógica de negocio del sistema
-   🔧 SI MODIFICAS: Cambias el comportamiento de la app
+   🔧 ACTUALIZADO: Soporte multi-empresa en modal de viajes
    ======================================================== -->
 <script>
 // ===== VARIABLES GLOBALES =====
 let activePanel = null;
 const RANGO_DESDE = <?= json_encode($desde) ?>;
 const RANGO_HASTA = <?= json_encode($hasta) ?>;
-const RANGO_EMPS   = <?= json_encode($empresasFiltro) ?>; // Cambiar de RANGO_EMP a RANGO_EMPS
+const RANGO_EMPS   = <?= json_encode($empresasFiltro) ?>; // Array de empresas seleccionadas
 const CONDUCTORES_LIST = <?= json_encode(array_keys($datos), JSON_UNESCAPED_UNICODE); ?>;
 let columnasSeleccionadas = <?= json_encode($columnas_seleccionadas) ?>;
 
@@ -2024,34 +2027,6 @@ function initViajesSelect(selectedName) {
         if (nombre === selectedName) opt.selected = true;
         select.appendChild(opt);
     });
-}
-
-function loadViajes(nombre) {
-    const content = document.getElementById('viajesContent');
-    content.innerHTML = '<p class="text-center m-0 animate-pulse">Cargando…</p>';
-    viajesConductorActual = nombre;
-    document.getElementById('viajesTitle').textContent = nombre;
-
-    const qs = new URLSearchParams({
-        viajes_conductor: nombre,
-        desde: RANGO_DESDE,
-        hasta: RANGO_HASTA,
-        empresa: RANGO_EMP
-    });
-
-    fetch('<?= basename(__FILE__) ?>?' + qs.toString())
-        .then(r => r.text())
-        .then(html => {
-            content.innerHTML = html;
-        });
-}
-
-function abrirModalViajes(nombreInicial){
-    document.getElementById('viajesRango').textContent = RANGO_DESDE + " → " + RANGO_HASTA;
-    document.getElementById('viajesEmpresa').textContent = (RANGO_EMP && RANGO_EMP !== "") ? RANGO_EMP : "Todas las empresas";
-    initViajesSelect(nombreInicial);
-    document.getElementById('viajesModal').classList.add('show');
-    loadViajes(nombreInicial);
 }
 
 function cerrarModalViajes(){
