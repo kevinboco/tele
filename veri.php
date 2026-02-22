@@ -2089,245 +2089,938 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 <!-- ===== FIN MÓDULO 11 ===== -->
+<?php
 /* =======================================================
-   🚀 MÓDULO 12: LISTA DE CONDUCTORES (VISTA RÁPIDA)
+   🚀 MÓDULO 12: SISTEMA DE ALERTAS Y PRESUPUESTOS
    ========================================================
-   🔧 PROPÓSITO: Mostrar todos los conductores con sus tipos de vehículo
-   🔧 INSTRUCCIONES: Este módulo usa el sistema de paneles EXISTENTE
+   🔧 PROPÓSITO: Gestión de presupuestos por empresa y alertas
+   🔧 CARACTERÍSTICAS: 
+        - Ver presupuestos con filtro múltiple
+        - Configurar presupuestos por empresa/mes
+        - Reportes comparativos
+        - Alertas automáticas
    ======================================================== */
 
-<!-- Botón para abrir el panel (USA EL SISTEMA EXISTENTE) -->
-<button onclick="togglePanel('conductores')" 
-        class="fixed bottom-6 right-6 z-50 bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-4 rounded-full shadow-lg hover:shadow-xl transition-all transform hover:scale-110">
-    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
-    </svg>
-</button>
+// ===== FUNCIONES DE BASE DE DATOS =====
+function obtenerEmpresasConViajes($conn) {
+    $sql = "SELECT DISTINCT empresa FROM viajes 
+            WHERE empresa IS NOT NULL AND empresa != ''
+            ORDER BY empresa ASC";
+    $result = $conn->query($sql);
+    $empresas = [];
+    while ($row = $result->fetch_assoc()) {
+        $empresas[] = $row['empresa'];
+    }
+    return $empresas;
+}
 
-<!-- Panel lateral de conductores (AHORA SIGUE LA MISMA ESTRUCTURA) -->
-<div class="side-panel" id="panel-conductores">
-    <style>
-    /* Estilos específicos para este módulo */
-    .conductor-card {
-        transition: all 0.3s ease;
-        border-left: 4px solid transparent;
+function obtenerPresupuestosEmpresa($conn, $mes = null, $anio = null, $empresas_filtro = []) {
+    if ($mes === null) $mes = date('n');
+    if ($anio === null) $anio = date('Y');
+    
+    $sql = "SELECT * FROM presupuestos_empresa 
+            WHERE mes = ? AND anio = ? AND activo = 1";
+    
+    $params = [$mes, $anio];
+    $types = "ii";
+    
+    if (!empty($empresas_filtro)) {
+        $placeholders = implode(',', array_fill(0, count($empresas_filtro), '?'));
+        $sql .= " AND empresa IN ($placeholders)";
+        $params = array_merge($params, $empresas_filtro);
+        $types .= str_repeat('s', count($empresas_filtro));
     }
-    .conductor-card:hover {
-        transform: translateX(5px);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    
+    $sql .= " ORDER BY empresa ASC";
+    
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $presupuestos = [];
+    while ($row = $result->fetch_assoc()) {
+        $presupuestos[] = $row;
     }
-    .conductor-card.mensual {
-        border-left-color: #f59e0b;
-        background: linear-gradient(to right, #fff7ed, white);
-    }
-    .conductor-card.camioneta {
-        border-left-color: #3b82f6;
-        background: linear-gradient(to right, #eff6ff, white);
-    }
-    .conductor-card.turbo {
-        border-left-color: #10b981;
-        background: linear-gradient(to right, #ecfdf5, white);
-    }
-    .badge-tipo {
-        transition: all 0.2s ease;
-    }
-    .badge-tipo:hover {
-        transform: scale(1.05);
-    }
-    .stats-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    }
-    </style>
+    $stmt->close();
+    return $presupuestos;
+}
 
-    <div class="side-panel-header bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
+function guardarPresupuestoEmpresa($conn, $empresa, $presupuesto, $mes, $anio) {
+    // Verificar si ya existe
+    $sql = "SELECT id FROM presupuestos_empresa 
+            WHERE empresa = ? AND mes = ? AND anio = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("sii", $empresa, $mes, $anio);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    if ($result->num_rows > 0) {
+        // Actualizar
+        $sql = "UPDATE presupuestos_empresa SET presupuesto = ?, activo = 1, notificado = 0 
+                WHERE empresa = ? AND mes = ? AND anio = ?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("dsii", $presupuesto, $empresa, $mes, $anio);
+    } else {
+        // Insertar nuevo
+        $sql = "INSERT INTO presupuestos_empresa (empresa, presupuesto, mes, anio, activo, notificado) 
+                VALUES (?, ?, ?, ?, 1, 0)";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("sdii", $empresa, $presupuesto, $mes, $anio);
+    }
+    
+    $success = $stmt->execute();
+    $stmt->close();
+    return $success;
+}
+
+function calcularGastosEmpresa($conn, $empresa, $mes, $anio) {
+    $gastos_totales = 0;
+    
+    $sql = "SELECT v.ruta, v.tipo_vehiculo, v.fecha 
+            FROM viajes v 
+            WHERE v.empresa = ? 
+            AND MONTH(v.fecha) = ? 
+            AND YEAR(v.fecha) = ?
+            AND v.ruta IS NOT NULL 
+            AND v.tipo_vehiculo IS NOT NULL";
+    
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("sii", $empresa, $mes, $anio);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    while ($viaje = $result->fetch_assoc()) {
+        $clasificacion = obtenerClasificacionRuta($conn, $viaje['ruta'], $viaje['tipo_vehiculo']);
+        
+        if ($clasificacion) {
+            $tarifa = obtenerTarifa($conn, $empresa, $viaje['tipo_vehiculo'], $clasificacion);
+            if ($tarifa > 0) {
+                $gastos_totales += $tarifa;
+            }
+        }
+    }
+    
+    $stmt->close();
+    return $gastos_totales;
+}
+
+function obtenerClasificacionRuta($conn, $ruta, $tipo_vehiculo) {
+    $sql = "SELECT clasificacion FROM ruta_clasificacion 
+            WHERE ruta = ? AND tipo_vehiculo = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("ss", $ruta, $tipo_vehiculo);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    if ($row = $result->fetch_assoc()) {
+        $clasificacion = $row['clasificacion'];
+    } else {
+        // Si no encuentra exacto, buscar solo por ruta
+        $sql = "SELECT clasificacion FROM ruta_clasificacion 
+                WHERE ruta = ? LIMIT 1";
+        $stmt2 = $conn->prepare($sql);
+        $stmt2->bind_param("s", $ruta);
+        $stmt2->execute();
+        $result2 = $stmt2->get_result();
+        if ($row2 = $result2->fetch_assoc()) {
+            $clasificacion = $row2['clasificacion'];
+        } else {
+            $clasificacion = null;
+        }
+        $stmt2->close();
+    }
+    
+    $stmt->close();
+    return $clasificacion;
+}
+
+function obtenerTarifa($conn, $empresa, $tipo_vehiculo, $clasificacion) {
+    // Primero intentar con empresa exacta
+    $sql = "SELECT $clasificacion as tarifa FROM tarifas 
+            WHERE empresa = ? AND tipo_vehiculo = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("ss", $empresa, $tipo_vehiculo);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    if ($row = $result->fetch_assoc()) {
+        $tarifa = $row['tarifa'] ?? 0;
+    } else {
+        $tarifa = 0;
+    }
+    
+    $stmt->close();
+    return floatval($tarifa);
+}
+
+function obtenerMesesConPresupuestos($conn) {
+    $sql = "SELECT DISTINCT mes, anio FROM presupuestos_empresa 
+            WHERE activo = 1 ORDER BY anio DESC, mes DESC";
+    $result = $conn->query($sql);
+    $periodos = [];
+    while ($row = $result->fetch_assoc()) {
+        $periodos[] = $row;
+    }
+    return $periodos;
+}
+
+function nombreMes($mes) {
+    $meses = [
+        1 => "Enero", 2 => "Febrero", 3 => "Marzo", 4 => "Abril",
+        5 => "Mayo", 6 => "Junio", 7 => "Julio", 8 => "Agosto",
+        9 => "Septiembre", 10 => "Octubre", 11 => "Noviembre", 12 => "Diciembre"
+    ];
+    return $meses[$mes] ?? "Desconocido";
+}
+
+// ===== PROCESAR PETICIONES =====
+if (isset($_POST['guardar_presupuesto'])) {
+    $empresa = $conn->real_escape_string($_POST['empresa']);
+    $presupuesto = floatval($_POST['presupuesto']);
+    $mes = intval($_POST['mes']);
+    $anio = intval($_POST['anio']);
+    
+    if (guardarPresupuestoEmpresa($conn, $empresa, $presupuesto, $mes, $anio)) {
+        echo json_encode(['success' => true, 'message' => 'Presupuesto guardado']);
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Error al guardar']);
+    }
+    exit;
+}
+
+if (isset($_POST['eliminar_presupuesto'])) {
+    $id = intval($_POST['id']);
+    $sql = "UPDATE presupuestos_empresa SET activo = 0 WHERE id = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("i", $id);
+    $success = $stmt->execute();
+    $stmt->close();
+    echo json_encode(['success' => $success]);
+    exit;
+}
+
+// ===== INTERFAZ DE USUARIO =====
+?>
+<!-- Panel 5: Sistema de Alertas y Presupuestos -->
+<div class="side-panel" id="panel-presupuestos">
+    <div class="side-panel-header">
         <h3 class="text-lg font-semibold flex items-center gap-2">
-            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
-            </svg>
-            <span>Lista de Conductores</span>
+            <span>🚨 Sistema de Alertas por Presupuesto</span>
         </h3>
-        <button class="side-panel-close text-white hover:bg-white/20" data-panel="conductores">✕</button>
+        <button class="side-panel-close" data-panel="presupuestos">✕</button>
     </div>
-
-    <div class="side-panel-body bg-gradient-to-b from-gray-50 to-white">
-        <!-- Estadísticas rápidas -->
-        <div class="stats-card rounded-xl p-4 mb-6 text-white shadow-lg">
-            <?php
-            $total_conductores = count($datos);
-            $tipos_vehiculo = array_count_values(array_column($datos, 'vehiculo'));
-            $mensuales = $tipos_vehiculo['mensual'] ?? 0;
-            ?>
-            <div class="grid grid-cols-3 gap-2 text-center">
-                <div>
-                    <div class="text-2xl font-bold"><?= $total_conductores ?></div>
-                    <div class="text-xs opacity-90">Total</div>
-                </div>
-                <div>
-                    <div class="text-2xl font-bold"><?= $mensuales ?></div>
-                    <div class="text-xs opacity-90">Mensuales</div>
-                </div>
-                <div>
-                    <div class="text-2xl font-bold"><?= $total_conductores - $mensuales ?></div>
-                    <div class="text-xs opacity-90">Otros</div>
-                </div>
-            </div>
+    
+    <div class="side-panel-body">
+        <!-- Pestañas de navegación -->
+        <div class="flex border-b border-slate-200 mb-4">
+            <button class="tab-btn active px-4 py-2 text-sm font-medium text-blue-600 border-b-2 border-blue-600" data-tab="ver">
+                📊 Ver presupuestos
+            </button>
+            <button class="tab-btn px-4 py-2 text-sm font-medium text-slate-600 hover:text-blue-600" data-tab="configurar">
+                ⚙️ Configurar
+            </button>
+            <button class="tab-btn px-4 py-2 text-sm font-medium text-slate-600 hover:text-blue-600" data-tab="reporte">
+                📈 Reporte
+            </button>
         </div>
-
-        <!-- Buscador específico para este panel -->
-        <div class="mb-4">
-            <div class="relative">
-                <input type="text" 
-                       id="buscadorConductoresPanel"
-                       placeholder="🔍 Buscar conductor..." 
-                       class="w-full rounded-xl border border-gray-200 px-4 py-3 pl-10 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition">
-                <svg class="absolute left-3 top-3.5 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                </svg>
-            </div>
-        </div>
-
-        <!-- Lista de conductores -->
-        <div class="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto pr-2" id="listaConductoresPanel">
-            <?php 
-            $colores_por_tipo = [];
-            foreach ($datos as $conductor => $info): 
-                $vehiculo = $info['vehiculo'];
-                $rutasSinClasificar = $info['rutas_sin_clasificar'] ?? 0;
-                $color_vehiculo = obtenerColorVehiculo($vehiculo);
-                $esMensual = stripos($vehiculo, 'mensual') !== false;
-                $clase_mensual = $esMensual ? 'mensual' : '';
-                
-                // Guardar color para el badge
-                if (!isset($colores_por_tipo[$vehiculo])) {
-                    $colores_por_tipo[$vehiculo] = $color_vehiculo;
-                }
-            ?>
-            <div class="conductor-card <?= $clase_mensual ?> bg-white rounded-xl p-4 shadow-sm border border-gray-100 cursor-pointer hover:shadow-md transition-all"
-                 data-nombre="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
-                 onclick="verDetallesConductor('<?= htmlspecialchars($conductor) ?>')">
-                
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-3">
-                        <!-- Avatar con inicial -->
-                        <div class="w-10 h-10 rounded-full bg-gradient-to-br <?= $color_vehiculo['bg'] ?> flex items-center justify-center <?= $color_vehiculo['text'] ?> font-bold text-lg shadow-sm">
-                            <?= mb_substr($conductor, 0, 1) ?>
-                        </div>
+        
+        <!-- Pestaña: Ver presupuestos -->
+        <div class="tab-content active" id="tab-ver">
+            <div class="space-y-4">
+                <!-- Filtro de período -->
+                <div class="bg-slate-50 p-3 rounded-lg">
+                    <label class="block text-xs font-medium text-slate-600 mb-2">Período:</label>
+                    <select id="filtro-periodo" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                        <?php
+                        $periodos = obtenerMesesConPresupuestos($conn);
+                        $mes_actual = date('n');
+                        $anio_actual = date('Y');
+                        $hay_periodo_actual = false;
                         
-                        <div>
-                            <h4 class="font-semibold text-gray-800 flex items-center gap-2">
-                                <?= htmlspecialchars($conductor) ?>
-                                <?php if ($rutasSinClasificar > 0): ?>
-                                    <span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full flex items-center gap-1">
-                                        <span>⚠️</span>
-                                        <?= $rutasSinClasificar ?>
-                                    </span>
-                                <?php endif; ?>
-                            </h4>
-                            <div class="flex items-center gap-2 mt-1">
-                                <!-- Badge del tipo de vehículo -->
-                                <span class="badge-tipo text-xs px-2 py-1 rounded-md <?= $color_vehiculo['bg'] ?> <?= $color_vehiculo['text'] ?> border <?= $color_vehiculo['border'] ?> font-medium inline-flex items-center gap-1">
-                                    <?php 
-                                    $iconos = [
-                                        'mensual' => '📅',
-                                        'camioneta' => '🚙',
-                                        'turbo' => '⚡',
-                                        'camión' => '🚛',
-                                        'buseta' => '🚌',
-                                        'default' => '🚗'
-                                    ];
-                                    $icono = $iconos[strtolower($vehiculo)] ?? $iconos['default'];
-                                    echo $icono . ' ' . htmlspecialchars($vehiculo);
-                                    ?>
-                                </span>
-                                
-                                <!-- Total a pagar (si existe en los datos) -->
-                                <?php if (isset($info['total'])): ?>
-                                <span class="text-xs text-gray-500">
-                                    💰 $<?= number_format($info['total'], 0, ',', '.') ?>
-                                </span>
-                                <?php endif; ?>
-                            </div>
+                        foreach ($periodos as $p) {
+                            $selected = ($p['mes'] == $mes_actual && $p['anio'] == $anio_actual) ? 'selected' : '';
+                            if ($selected) $hay_periodo_actual = true;
+                            echo "<option value='{$p['mes']}-{$p['anio']}' $selected>" . nombreMes($p['mes']) . " {$p['anio']}</option>";
+                        }
+                        
+                        if (!$hay_periodo_actual) {
+                            echo "<option value='$mes_actual-$anio_actual' selected>" . nombreMes($mes_actual) . " $anio_actual (Actual)</option>";
+                        }
+                        ?>
+                    </select>
+                </div>
+                
+                <!-- Filtro de empresas -->
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="text-xs font-medium text-slate-600">Empresas:</label>
+                        <div class="flex gap-2">
+                            <button id="seleccionar-todas-p" class="text-xs px-2 py-1 rounded bg-purple-100 text-purple-700 hover:bg-purple-200">
+                                🔘 Seleccionar P.
+                            </button>
+                            <button id="seleccionar-todas" class="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700 hover:bg-blue-200">
+                                ✅ Todas
+                            </button>
+                            <button id="limpiar-seleccion" class="text-xs px-2 py-1 rounded bg-slate-100 text-slate-700 hover:bg-slate-200">
+                                ✕ Limpiar
+                            </button>
                         </div>
                     </div>
                     
-                    <!-- Botones de acción -->
-                    <div class="flex items-center gap-2">
-                        <button onclick="verViajesConductor('<?= htmlspecialchars($conductor) ?>'); event.stopPropagation();"
-                                class="p-2 hover:bg-blue-50 rounded-lg transition group" 
-                                title="Ver viajes">
-                            <svg class="w-5 h-5 text-gray-500 group-hover:text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
-                            </svg>
-                        </button>
+                    <div class="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto p-2 border border-slate-200 rounded-lg">
+                        <?php
+                        $empresas = obtenerEmpresasConViajes($conn);
+                        foreach ($empresas as $empresa):
+                        ?>
+                        <label class="flex items-center gap-2 p-2 border border-slate-100 rounded-lg hover:bg-slate-50 cursor-pointer empresa-checkbox-item">
+                            <input type="checkbox" class="empresa-checkbox rounded border-slate-300" value="<?= htmlspecialchars($empresa) ?>">
+                            <span class="text-sm truncate" title="<?= htmlspecialchars($empresa) ?>"><?= htmlspecialchars($empresa) ?></span>
+                        </label>
+                        <?php endforeach; ?>
                     </div>
                 </div>
+                
+                <button id="btn-ver-presupuestos" class="w-full py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+                    🔍 Ver presupuestos seleccionados
+                </button>
+                
+                <!-- Resultados -->
+                <div id="resultado-presupuestos" class="mt-4 space-y-3"></div>
             </div>
-            <?php endforeach; ?>
         </div>
-
-        <!-- Leyenda de tipos de vehículo -->
-        <div class="mt-6 pt-4 border-t border-gray-200">
-            <h5 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Tipos de vehículo</h5>
-            <div class="flex flex-wrap gap-2">
-                <?php foreach ($colores_por_tipo as $tipo => $color): ?>
-                <span class="text-xs px-3 py-1.5 rounded-full <?= $color['bg'] ?> <?= $color['text'] ?> border <?= $color['border'] ?> font-medium flex items-center gap-1 shadow-sm">
-                    <?php 
-                    $iconos_leyenda = [
-                        'mensual' => '📅',
-                        'camioneta' => '🚙',
-                        'turbo' => '⚡',
-                        'camión' => '🚛',
-                        'buseta' => '🚌',
-                        'default' => '🚗'
-                    ];
-                    echo ($iconos_leyenda[strtolower($tipo)] ?? $iconos_leyenda['default']) . ' ' . htmlspecialchars($tipo);
-                    ?>
-                </span>
-                <?php endforeach; ?>
+        
+        <!-- Pestaña: Configurar presupuesto -->
+        <div class="tab-content" id="tab-configurar">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-2">Empresa:</label>
+                    <select id="config-empresa" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                        <option value="">Seleccionar empresa...</option>
+                        <?php foreach ($empresas as $empresa): ?>
+                        <option value="<?= htmlspecialchars($empresa) ?>"><?= htmlspecialchars($empresa) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-2">Período:</label>
+                    <div class="flex gap-2">
+                        <select id="config-mes" class="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                            <?php for ($m = 1; $m <= 12; $m++): ?>
+                            <option value="<?= $m ?>" <?= $m == date('n') ? 'selected' : '' ?>><?= nombreMes($m) ?></option>
+                            <?php endfor; ?>
+                        </select>
+                        <select id="config-anio" class="w-24 rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                            <?php for ($a = date('Y'); $a >= date('Y')-2; $a--): ?>
+                            <option value="<?= $a ?>" <?= $a == date('Y') ? 'selected' : '' ?>><?= $a ?></option>
+                            <?php endfor; ?>
+                        </select>
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-2">Presupuesto ($):</label>
+                    <input type="number" id="config-presupuesto" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Ej: 10000000" min="0" step="1000">
+                </div>
+                
+                <button id="btn-guardar-presupuesto" class="w-full py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">
+                    💾 Guardar presupuesto
+                </button>
+                
+                <div id="mensaje-config" class="text-sm"></div>
+                
+                <!-- Lista de presupuestos existentes -->
+                <div class="mt-6">
+                    <h4 class="font-medium text-sm mb-3">Presupuestos existentes</h4>
+                    <div id="lista-presupuestos-existente" class="space-y-2 max-h-60 overflow-y-auto"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Pestaña: Reporte -->
+        <div class="tab-content" id="tab-reporte">
+            <div class="space-y-4">
+                <div class="bg-slate-50 p-3 rounded-lg">
+                    <select id="reporte-periodo" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                        <?php
+                        foreach ($periodos as $p) {
+                            $selected = ($p['mes'] == $mes_actual && $p['anio'] == $anio_actual) ? 'selected' : '';
+                            echo "<option value='{$p['mes']}-{$p['anio']}' $selected>" . nombreMes($p['mes']) . " {$p['anio']}</option>";
+                        }
+                        ?>
+                    </select>
+                </div>
+                
+                <button id="btn-generar-reporte" class="w-full py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium">
+                    📊 Generar reporte completo
+                </button>
+                
+                <div id="resultado-reporte" class="mt-4"></div>
             </div>
         </div>
     </div>
 </div>
 
-<!-- JavaScript específico para este módulo (solo lo que NO existe) -->
-<script>
-// ===== FUNCIONES DEL MÓDULO 12 (solo las nuevas) =====
+<!-- Bolita para el panel de presupuestos (nueva) -->
+<div class="floating-ball ball-presupuestos" id="ball-presupuestos" data-panel="presupuestos" style="background: linear-gradient(135deg, #f97316, #dc2626);">
+    <div class="ball-content">🚨</div>
+    <div class="ball-tooltip">Alertas por presupuesto</div>
+</div>
 
-// Función para filtrar conductores en el panel
-function filtrarConductoresPanel() {
-    const texto = normalizarTexto(document.getElementById('buscadorConductoresPanel').value);
-    const cards = document.querySelectorAll('#listaConductoresPanel .conductor-card');
-    
-    cards.forEach(card => {
-        const nombre = card.dataset.nombre;
-        card.style.display = (texto === '' || nombre.includes(texto)) ? '' : 'none';
-    });
+<style>
+/* Estilos adicionales para el panel de presupuestos */
+.ball-presupuestos {
+    background: linear-gradient(135deg, #f97316, #dc2626);
 }
 
-// Función para ver detalles del conductor (usa el sistema existente)
-function verDetallesConductor(nombre) {
-    // Buscar el link del conductor en la tabla principal
-    document.querySelectorAll('.conductor-link').forEach(link => {
-        if (link.textContent.trim().replace('⚠️', '').trim() === nombre) {
-            link.click(); // Esto abre el modal de viajes
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+.tab-btn {
+    transition: all 0.2s;
+}
+
+/* Estilos para las tarjetas de presupuesto */
+.presupuesto-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 0.75rem;
+    padding: 1rem;
+    transition: all 0.2s;
+}
+
+.presupuesto-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+.presupuesto-card.excedido {
+    border-left: 4px solid #dc2626;
+    background-color: #fef2f2;
+}
+
+.presupuesto-card.normal {
+    border-left: 4px solid #10b981;
+}
+
+.porcentaje-bar {
+    height: 6px;
+    background-color: #e2e8f0;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.porcentaje-fill {
+    height: 100%;
+    transition: width 0.3s;
+}
+
+.empresa-checkbox-item.selected {
+    background-color: #eff6ff;
+    border-color: #3b82f6;
+}
+</style>
+
+<script>
+// ===== SISTEMA DE PRESUPUESTOS =====
+document.addEventListener('DOMContentLoaded', function() {
+    // Variables
+    let empresasSeleccionadas = [];
+    
+    // Cambio de pestañas
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const tabId = this.dataset.tab;
+            
+            document.querySelectorAll('.tab-btn').forEach(b => {
+                b.classList.remove('active', 'text-blue-600', 'border-b-2', 'border-blue-600');
+                b.classList.add('text-slate-600');
+            });
+            
+            this.classList.add('active', 'text-blue-600', 'border-b-2', 'border-blue-600');
+            this.classList.remove('text-slate-600');
+            
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            document.getElementById(`tab-${tabId}`).classList.add('active');
+            
+            // Cargar datos según pestaña
+            if (tabId === 'ver') {
+                cargarPresupuestosPorPeriodo();
+            } else if (tabId === 'configurar') {
+                cargarListaPresupuestosExistentes();
+            }
+        });
+    });
+    
+    // Checkbox de empresas
+    document.querySelectorAll('.empresa-checkbox').forEach(cb => {
+        cb.addEventListener('change', function() {
+            const label = this.closest('.empresa-checkbox-item');
+            if (this.checked) {
+                label.classList.add('selected');
+                if (!empresasSeleccionadas.includes(this.value)) {
+                    empresasSeleccionadas.push(this.value);
+                }
+            } else {
+                label.classList.remove('selected');
+                empresasSeleccionadas = empresasSeleccionadas.filter(e => e !== this.value);
+            }
+        });
+    });
+    
+    // Botón seleccionar todas
+    document.getElementById('seleccionar-todas')?.addEventListener('click', function() {
+        document.querySelectorAll('.empresa-checkbox').forEach(cb => {
+            cb.checked = true;
+            cb.closest('.empresa-checkbox-item').classList.add('selected');
+            if (!empresasSeleccionadas.includes(cb.value)) {
+                empresasSeleccionadas.push(cb.value);
+            }
+        });
+    });
+    
+    // Botón seleccionar P.
+    document.getElementById('seleccionar-todas-p')?.addEventListener('click', function() {
+        document.querySelectorAll('.empresa-checkbox').forEach(cb => {
+            if (cb.value.toLowerCase().startsWith('p.')) {
+                cb.checked = true;
+                cb.closest('.empresa-checkbox-item').classList.add('selected');
+                if (!empresasSeleccionadas.includes(cb.value)) {
+                    empresasSeleccionadas.push(cb.value);
+                }
+            }
+        });
+    });
+    
+    // Botón limpiar
+    document.getElementById('limpiar-seleccion')?.addEventListener('click', function() {
+        document.querySelectorAll('.empresa-checkbox').forEach(cb => {
+            cb.checked = false;
+            cb.closest('.empresa-checkbox-item').classList.remove('selected');
+        });
+        empresasSeleccionadas = [];
+    });
+    
+    // Ver presupuestos
+    document.getElementById('btn-ver-presupuestos')?.addEventListener('click', function() {
+        const periodo = document.getElementById('filtro-periodo').value.split('-');
+        const mes = periodo[0];
+        const anio = periodo[1];
+        
+        if (empresasSeleccionadas.length === 0) {
+            alert('Selecciona al menos una empresa');
+            return;
+        }
+        
+        cargarPresupuestos(mes, anio, empresasSeleccionadas);
+    });
+    
+    // Cambio de período
+    document.getElementById('filtro-periodo')?.addEventListener('change', function() {
+        if (empresasSeleccionadas.length > 0) {
+            const periodo = this.value.split('-');
+            cargarPresupuestos(periodo[0], periodo[1], empresasSeleccionadas);
         }
     });
     
-    // Opcional: cerrar el panel después de seleccionar
-    // togglePanel('conductores');
+    // Guardar presupuesto
+    document.getElementById('btn-guardar-presupuesto')?.addEventListener('click', function() {
+        const empresa = document.getElementById('config-empresa').value;
+        const mes = document.getElementById('config-mes').value;
+        const anio = document.getElementById('config-anio').value;
+        const presupuesto = document.getElementById('config-presupuesto').value;
+        
+        if (!empresa) {
+            mostrarMensaje('Selecciona una empresa', 'error');
+            return;
+        }
+        
+        if (!presupuesto || presupuesto <= 0) {
+            mostrarMensaje('Ingresa un presupuesto válido', 'error');
+            return;
+        }
+        
+        guardarPresupuesto(empresa, presupuesto, mes, anio);
+    });
+    
+    // Generar reporte
+    document.getElementById('btn-generar-reporte')?.addEventListener('click', function() {
+        const periodo = document.getElementById('reporte-periodo').value.split('-');
+        generarReporte(periodo[0], periodo[1]);
+    });
+    
+    // Cargar presupuestos iniciales
+    setTimeout(() => {
+        if (document.getElementById('tab-ver').classList.contains('active')) {
+            cargarPresupuestosPorPeriodo();
+        }
+    }, 500);
+});
+
+// ===== FUNCIONES AJAX =====
+function cargarPresupuestos(mes, anio, empresas) {
+    const resultado = document.getElementById('resultado-presupuestos');
+    resultado.innerHTML = '<div class="text-center py-4"><div class="animate-spin inline-block w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full"></div><p class="text-sm text-slate-500 mt-2">Cargando presupuestos...</p></div>';
+    
+    const params = new URLSearchParams({
+        ajax: 'get_presupuestos',
+        mes: mes,
+        anio: anio,
+        empresas: JSON.stringify(empresas)
+    });
+    
+    fetch('<?= basename(__FILE__) ?>?' + params.toString())
+        .then(r => r.json())
+        .then(data => {
+            if (data.length === 0) {
+                resultado.innerHTML = '<div class="text-center py-6 text-slate-500">📭 No hay presupuestos para las empresas seleccionadas</div>';
+                return;
+            }
+            
+            let html = '';
+            data.forEach(p => {
+                const excedido = p.gastos > p.presupuesto;
+                const porcentaje = (p.gastos / p.presupuesto * 100).toFixed(1);
+                
+                html += `
+                <div class="presupuesto-card ${excedido ? 'excedido' : 'normal'}">
+                    <div class="flex items-start justify-between mb-2">
+                        <div>
+                            <div class="font-semibold text-base">${p.empresa}</div>
+                            <div class="text-xs text-slate-500">${p.mes_nombre} ${p.anio}</div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-xs text-slate-500">Presupuesto</div>
+                            <div class="font-bold">$${formatNumber(p.presupuesto)}</div>
+                        </div>
+                    </div>
+                    
+                    <div class="space-y-2 mt-3">
+                        <div class="flex justify-between text-sm">
+                            <span class="text-slate-600">Gastado:</span>
+                            <span class="font-medium">$${formatNumber(p.gastos)}</span>
+                        </div>
+                        
+                        <div class="flex justify-between text-sm">
+                            <span class="text-slate-600">Porcentaje:</span>
+                            <span class="font-medium ${porcentaje > 100 ? 'text-red-600 font-bold' : ''}">${porcentaje}%</span>
+                        </div>
+                        
+                        <div class="porcentaje-bar">
+                            <div class="porcentaje-fill ${porcentaje > 100 ? 'bg-red-500' : 'bg-green-500'}" style="width: ${Math.min(porcentaje, 100)}%"></div>
+                        </div>
+                        
+                        ${excedido ? `
+                        <div class="flex justify-between text-sm mt-2 pt-2 border-t border-red-100">
+                            <span class="text-red-600 font-medium">Exceso:</span>
+                            <span class="text-red-600 font-bold">$${formatNumber(p.exceso)}</span>
+                        </div>
+                        ` : ''}
+                    </div>
+                </div>
+                `;
+            });
+            
+            resultado.innerHTML = html;
+        });
 }
 
-// Inicializar eventos del panel
-document.addEventListener('DOMContentLoaded', function() {
-    // Buscador del panel
-    const buscadorPanel = document.getElementById('buscadorConductoresPanel');
-    if (buscadorPanel) {
-        buscadorPanel.addEventListener('input', filtrarConductoresPanel);
+function cargarPresupuestosPorPeriodo() {
+    const periodo = document.getElementById('filtro-periodo').value.split('-');
+    const mes = periodo[0];
+    const anio = periodo[1];
+    
+    // Obtener empresas seleccionadas
+    const empresas = [];
+    document.querySelectorAll('.empresa-checkbox:checked').forEach(cb => {
+        empresas.push(cb.value);
+    });
+    
+    if (empresas.length > 0) {
+        cargarPresupuestos(mes, anio, empresas);
     }
-});
+}
+
+function guardarPresupuesto(empresa, presupuesto, mes, anio) {
+    const btn = document.getElementById('btn-guardar-presupuesto');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"></span>Guardando...';
+    
+    fetch('<?= basename(__FILE__) ?>', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            guardar_presupuesto: 1,
+            empresa: empresa,
+            presupuesto: presupuesto,
+            mes: mes,
+            anio: anio
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            mostrarMensaje('✅ Presupuesto guardado correctamente', 'success');
+            document.getElementById('config-presupuesto').value = '';
+            
+            // Actualizar selector de período
+            actualizarSelectorPeriodos();
+            
+            // Recargar lista
+            cargarListaPresupuestosExistentes();
+        } else {
+            mostrarMensaje('❌ Error: ' + data.message, 'error');
+        }
+    })
+    .catch(() => {
+        mostrarMensaje('❌ Error de conexión', 'error');
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '💾 Guardar presupuesto';
+    });
+}
+
+function cargarListaPresupuestosExistentes() {
+    const lista = document.getElementById('lista-presupuestos-existente');
+    if (!lista) return;
+    
+    lista.innerHTML = '<div class="text-center py-2 text-sm text-slate-500">Cargando...</div>';
+    
+    const params = new URLSearchParams({
+        ajax: 'lista_presupuestos'
+    });
+    
+    fetch('<?= basename(__FILE__) ?>?' + params.toString())
+        .then(r => r.json())
+        .then(data => {
+            if (data.length === 0) {
+                lista.innerHTML = '<div class="text-center py-4 text-sm text-slate-500">📭 No hay presupuestos configurados</div>';
+                return;
+            }
+            
+            let html = '';
+            data.forEach(p => {
+                html += `
+                <div class="flex items-center justify-between p-2 border border-slate-100 rounded-lg hover:bg-slate-50">
+                    <div>
+                        <div class="font-medium text-sm">${p.empresa}</div>
+                        <div class="text-xs text-slate-500">${p.mes_nombre} ${p.anio}</div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm font-semibold">$${formatNumber(p.presupuesto)}</span>
+                        <button onclick="eliminarPresupuesto(${p.id})" class="text-xs text-red-500 hover:text-red-700 px-2 py-1">
+                            ✕
+                        </button>
+                    </div>
+                </div>
+                `;
+            });
+            
+            lista.innerHTML = html;
+        });
+}
+
+function eliminarPresupuesto(id) {
+    if (!confirm('¿Eliminar este presupuesto?')) return;
+    
+    fetch('<?= basename(__FILE__) ?>', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            eliminar_presupuesto: 1,
+            id: id
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            cargarListaPresupuestosExistentes();
+            actualizarSelectorPeriodos();
+        }
+    });
+}
+
+function generarReporte(mes, anio) {
+    const resultado = document.getElementById('resultado-reporte');
+    resultado.innerHTML = '<div class="text-center py-4"><div class="animate-spin inline-block w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full"></div></div>';
+    
+    const params = new URLSearchParams({
+        ajax: 'reporte_presupuestos',
+        mes: mes,
+        anio: anio
+    });
+    
+    fetch('<?= basename(__FILE__) ?>?' + params.toString())
+        .then(r => r.json())
+        .then(data => {
+            if (data.length === 0) {
+                resultado.innerHTML = '<div class="text-center py-6 text-slate-500">📭 No hay presupuestos para este período</div>';
+                return;
+            }
+            
+            let totalPresupuesto = 0;
+            let totalGastado = 0;
+            let html = '<div class="space-y-3">';
+            
+            data.forEach(p => {
+                totalPresupuesto += p.presupuesto;
+                totalGastado += p.gastos;
+                
+                const porcentaje = (p.gastos / p.presupuesto * 100).toFixed(1);
+                const emoji = porcentaje <= 80 ? '🟢' : (porcentaje <= 100 ? '🟡' : '🔴');
+                
+                html += `
+                <div class="flex items-center justify-between p-3 border border-slate-100 rounded-lg">
+                    <div class="flex-1">
+                        <div class="font-medium">${emoji} ${p.empresa}</div>
+                        <div class="text-xs text-slate-500">$${formatNumber(p.gastos)} de $${formatNumber(p.presupuesto)}</div>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-sm font-bold ${porcentaje > 100 ? 'text-red-600' : ''}">${porcentaje}%</span>
+                    </div>
+                </div>
+                `;
+            });
+            
+            const porcentajeTotal = (totalGastado / totalPresupuesto * 100).toFixed(1);
+            
+            html += `
+                <div class="mt-4 pt-4 border-t border-slate-200">
+                    <div class="flex justify-between font-semibold">
+                        <span>TOTAL:</span>
+                        <span>$${formatNumber(totalGastado)} de $${formatNumber(totalPresupuesto)}</span>
+                    </div>
+                    <div class="flex justify-between text-sm mt-1">
+                        <span>Porcentaje global:</span>
+                        <span class="font-bold ${porcentajeTotal > 100 ? 'text-red-600' : ''}">${porcentajeTotal}%</span>
+                    </div>
+                </div>
+            </div>`;
+            
+            resultado.innerHTML = html;
+        });
+}
+
+function actualizarSelectorPeriodos() {
+    fetch('<?= basename(__FILE__) ?>?ajax=periodos_presupuestos')
+        .then(r => r.json())
+        .then(data => {
+            const selector = document.getElementById('filtro-periodo');
+            if (!selector) return;
+            
+            const valorActual = selector.value;
+            let options = '';
+            
+            data.forEach(p => {
+                const value = p.mes + '-' + p.anio;
+                const selected = (value === valorActual) ? 'selected' : '';
+                options += `<option value="${value}" ${selected}>${nombreMes(p.mes)} ${p.anio}</option>`;
+            });
+            
+            selector.innerHTML = options;
+            
+            // Actualizar también el selector de reporte
+            const reporteSelector = document.getElementById('reporte-periodo');
+            if (reporteSelector) {
+                reporteSelector.innerHTML = options;
+            }
+        });
+}
+
+function mostrarMensaje(texto, tipo) {
+    const div = document.getElementById('mensaje-config');
+    if (!div) return;
+    
+    div.innerHTML = `<div class="p-2 rounded-lg ${tipo === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} text-sm">${texto}</div>`;
+    setTimeout(() => { div.innerHTML = ''; }, 3000);
+}
+
+function formatNumber(num) {
+    return new Intl.NumberFormat('es-CO').format(num || 0);
+}
+
+function nombreMes(num) {
+    const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    return meses[num-1] || '';
+}
 </script>
-<!-- ===== FIN MÓDULO 12 ===== -->
+<?php
+// ===== MANEJO DE PETICIONES AJAX =====
+if (isset($_GET['ajax'])) {
+    header('Content-Type: application/json');
+    
+    if ($_GET['ajax'] === 'get_presupuestos') {
+        $mes = intval($_GET['mes']);
+        $anio = intval($_GET['anio']);
+        $empresas = json_decode($_GET['empresas'], true);
+        
+        $presupuestos = obtenerPresupuestosEmpresa($conn, $mes, $anio, $empresas);
+        $resultado = [];
+        
+        foreach ($presupuestos as $p) {
+            $gastos = calcularGastosEmpresa($conn, $p['empresa'], $mes, $anio);
+            $resultado[] = [
+                'id' => $p['id'],
+                'empresa' => $p['empresa'],
+                'presupuesto' => floatval($p['presupuesto']),
+                'gastos' => $gastos,
+                'exceso' => max($gastos - $p['presupuesto'], 0),
+                'mes' => $p['mes'],
+                'anio' => $p['anio'],
+                'mes_nombre' => nombreMes($p['mes'])
+            ];
+        }
+        
+        echo json_encode($resultado);
+        exit;
+    }
+    
+    if ($_GET['ajax'] === 'lista_presupuestos') {
+        $sql = "SELECT * FROM presupuestos_empresa WHERE activo = 1 ORDER BY anio DESC, mes DESC, empresa ASC";
+        $result = $conn->query($sql);
+        $presupuestos = [];
+        while ($row = $result->fetch_assoc()) {
+            $row['mes_nombre'] = nombreMes($row['mes']);
+            $presupuestos[] = $row;
+        }
+        echo json_encode($presupuestos);
+        exit;
+    }
+    
+    if ($_GET['ajax'] === 'periodos_presupuestos') {
+        $periodos = obtenerMesesConPresupuestos($conn);
+        echo json_encode($periodos);
+        exit;
+    }
+    
+    if ($_GET['ajax'] === 'reporte_presupuestos') {
+        $mes = intval($_GET['mes']);
+        $anio = intval($_GET['anio']);
+        
+        $presupuestos = obtenerPresupuestosEmpresa($conn, $mes, $anio);
+        $resultado = [];
+        
+        foreach ($presupuestos as $p) {
+            $gastos = calcularGastosEmpresa($conn, $p['empresa'], $mes, $anio);
+            $resultado[] = [
+                'empresa' => $p['empresa'],
+                'presupuesto' => floatval($p['presupuesto']),
+                'gastos' => $gastos
+            ];
+        }
+        
+        echo json_encode($resultado);
+        exit;
+    }
+}
+?>
 </body>
 </html>
 <?php $conn->close(); ?>
