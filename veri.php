@@ -2091,169 +2091,105 @@ document.addEventListener('DOMContentLoaded', function() {
 <!-- ===== FIN MÓDULO 11 ===== -->
 <?php
 /* =======================================================
-   🚀 MÓDULO 12: SISTEMA DE ALERTAS Y PRESUPUESTOS
+   🚀 MÓDULO 12: SISTEMA DE ALERTAS Y PRESUPUESTOS (CORREGIDO)
    ========================================================
    🔧 PROPÓSITO: Gestión de presupuestos por empresa y alertas
-   🔧 CARACTERÍSTICAS: 
-        - Ver presupuestos con filtro múltiple
-        - Configurar presupuestos por empresa/mes
-        - Reportes comparativos
-        - Alertas automáticas
+   🔧 IMPORTANTE: Este módulo debe ir ANTES del cierre $conn->close()
+                y DESPUÉS del Módulo 11
    ======================================================== */
 
-// ===== FUNCIONES DE BASE DE DATOS =====
-function obtenerEmpresasConViajes($conn) {
-    $sql = "SELECT DISTINCT empresa FROM viajes 
-            WHERE empresa IS NOT NULL AND empresa != ''
-            ORDER BY empresa ASC";
-    $result = $conn->query($sql);
-    $empresas = [];
-    while ($row = $result->fetch_assoc()) {
-        $empresas[] = $row['empresa'];
-    }
-    return $empresas;
-}
-
-function obtenerPresupuestosEmpresa($conn, $mes = null, $anio = null, $empresas_filtro = []) {
-    if ($mes === null) $mes = date('n');
-    if ($anio === null) $anio = date('Y');
+// ===== PROCESAR PETICIONES AJAX (DEBE IR PRIMERO) =====
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_presupuestos') {
+    header('Content-Type: application/json');
     
+    $mes = intval($_GET['mes']);
+    $anio = intval($_GET['anio']);
+    $empresas = json_decode($_GET['empresas'], true);
+    
+    // Usar funciones existentes del Módulo 4
+    $presupuestos = [];
+    
+    // Construir consulta manualmente para evitar conflictos
     $sql = "SELECT * FROM presupuestos_empresa 
-            WHERE mes = ? AND anio = ? AND activo = 1";
+            WHERE mes = $mes AND anio = $anio AND activo = 1";
     
-    $params = [$mes, $anio];
-    $types = "ii";
-    
-    if (!empty($empresas_filtro)) {
-        $placeholders = implode(',', array_fill(0, count($empresas_filtro), '?'));
-        $sql .= " AND empresa IN ($placeholders)";
-        $params = array_merge($params, $empresas_filtro);
-        $types .= str_repeat('s', count($empresas_filtro));
+    if (!empty($empresas)) {
+        $empresas_escapadas = array_map(function($e) use ($conn) {
+            return "'" . $conn->real_escape_string($e) . "'";
+        }, $empresas);
+        $sql .= " AND empresa IN (" . implode(',', $empresas_escapadas) . ")";
     }
     
     $sql .= " ORDER BY empresa ASC";
+    $result = $conn->query($sql);
     
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param($types, ...$params);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $presupuestos = [];
-    while ($row = $result->fetch_assoc()) {
-        $presupuestos[] = $row;
-    }
-    $stmt->close();
-    return $presupuestos;
-}
-
-function guardarPresupuestoEmpresa($conn, $empresa, $presupuesto, $mes, $anio) {
-    // Verificar si ya existe
-    $sql = "SELECT id FROM presupuestos_empresa 
-            WHERE empresa = ? AND mes = ? AND anio = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("sii", $empresa, $mes, $anio);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    if ($result->num_rows > 0) {
-        // Actualizar
-        $sql = "UPDATE presupuestos_empresa SET presupuesto = ?, activo = 1, notificado = 0 
-                WHERE empresa = ? AND mes = ? AND anio = ?";
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param("dsii", $presupuesto, $empresa, $mes, $anio);
-    } else {
-        // Insertar nuevo
-        $sql = "INSERT INTO presupuestos_empresa (empresa, presupuesto, mes, anio, activo, notificado) 
-                VALUES (?, ?, ?, ?, 1, 0)";
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param("sdii", $empresa, $presupuesto, $mes, $anio);
-    }
-    
-    $success = $stmt->execute();
-    $stmt->close();
-    return $success;
-}
-
-function calcularGastosEmpresa($conn, $empresa, $mes, $anio) {
-    $gastos_totales = 0;
-    
-    $sql = "SELECT v.ruta, v.tipo_vehiculo, v.fecha 
-            FROM viajes v 
-            WHERE v.empresa = ? 
-            AND MONTH(v.fecha) = ? 
-            AND YEAR(v.fecha) = ?
-            AND v.ruta IS NOT NULL 
-            AND v.tipo_vehiculo IS NOT NULL";
-    
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("sii", $empresa, $mes, $anio);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    while ($viaje = $result->fetch_assoc()) {
-        $clasificacion = obtenerClasificacionRuta($conn, $viaje['ruta'], $viaje['tipo_vehiculo']);
+    $resultado = [];
+    while ($p = $result->fetch_assoc()) {
+        // Calcular gastos usando funciones existentes
+        $gastos = 0;
+        $sql_gastos = "SELECT v.ruta, v.tipo_vehiculo 
+                       FROM viajes v 
+                       WHERE v.empresa = '" . $conn->real_escape_string($p['empresa']) . "' 
+                       AND MONTH(v.fecha) = $mes 
+                       AND YEAR(v.fecha) = $anio";
+        $res_gastos = $conn->query($sql_gastos);
         
-        if ($clasificacion) {
-            $tarifa = obtenerTarifa($conn, $empresa, $viaje['tipo_vehiculo'], $clasificacion);
-            if ($tarifa > 0) {
-                $gastos_totales += $tarifa;
+        while ($viaje = $res_gastos->fetch_assoc()) {
+            // Obtener clasificación
+            $clasificacion = '';
+            $sql_clasif = "SELECT clasificacion FROM ruta_clasificacion 
+                          WHERE ruta = '" . $conn->real_escape_string($viaje['ruta']) . "' 
+                          AND tipo_vehiculo = '" . $conn->real_escape_string($viaje['tipo_vehiculo']) . "'";
+            $res_clasif = $conn->query($sql_clasif);
+            if ($row_clasif = $res_clasif->fetch_assoc()) {
+                $clasificacion = $row_clasif['clasificacion'];
+            }
+            
+            if ($clasificacion) {
+                // Obtener tarifa
+                $sql_tarifa = "SELECT $clasificacion as tarifa FROM tarifas 
+                              WHERE empresa = '" . $conn->real_escape_string($p['empresa']) . "' 
+                              AND tipo_vehiculo = '" . $conn->real_escape_string($viaje['tipo_vehiculo']) . "'";
+                $res_tarifa = $conn->query($sql_tarifa);
+                if ($row_tarifa = $res_tarifa->fetch_assoc()) {
+                    $gastos += floatval($row_tarifa['tarifa'] ?? 0);
+                }
             }
         }
+        
+        $resultado[] = [
+            'id' => $p['id'],
+            'empresa' => $p['empresa'],
+            'presupuesto' => floatval($p['presupuesto']),
+            'gastos' => $gastos,
+            'exceso' => max($gastos - $p['presupuesto'], 0),
+            'mes' => $p['mes'],
+            'anio' => $p['anio'],
+            'mes_nombre' => nombreMes($p['mes'])
+        ];
     }
     
-    $stmt->close();
-    return $gastos_totales;
+    echo json_encode($resultado);
+    exit;
 }
 
-function obtenerClasificacionRuta($conn, $ruta, $tipo_vehiculo) {
-    $sql = "SELECT clasificacion FROM ruta_clasificacion 
-            WHERE ruta = ? AND tipo_vehiculo = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("ss", $ruta, $tipo_vehiculo);
-    $stmt->execute();
-    $result = $stmt->get_result();
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'lista_presupuestos') {
+    header('Content-Type: application/json');
     
-    if ($row = $result->fetch_assoc()) {
-        $clasificacion = $row['clasificacion'];
-    } else {
-        // Si no encuentra exacto, buscar solo por ruta
-        $sql = "SELECT clasificacion FROM ruta_clasificacion 
-                WHERE ruta = ? LIMIT 1";
-        $stmt2 = $conn->prepare($sql);
-        $stmt2->bind_param("s", $ruta);
-        $stmt2->execute();
-        $result2 = $stmt2->get_result();
-        if ($row2 = $result2->fetch_assoc()) {
-            $clasificacion = $row2['clasificacion'];
-        } else {
-            $clasificacion = null;
-        }
-        $stmt2->close();
+    $sql = "SELECT * FROM presupuestos_empresa WHERE activo = 1 ORDER BY anio DESC, mes DESC, empresa ASC";
+    $result = $conn->query($sql);
+    $presupuestos = [];
+    while ($row = $result->fetch_assoc()) {
+        $row['mes_nombre'] = nombreMes($row['mes']);
+        $presupuestos[] = $row;
     }
-    
-    $stmt->close();
-    return $clasificacion;
+    echo json_encode($presupuestos);
+    exit;
 }
 
-function obtenerTarifa($conn, $empresa, $tipo_vehiculo, $clasificacion) {
-    // Primero intentar con empresa exacta
-    $sql = "SELECT $clasificacion as tarifa FROM tarifas 
-            WHERE empresa = ? AND tipo_vehiculo = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("ss", $empresa, $tipo_vehiculo);
-    $stmt->execute();
-    $result = $stmt->get_result();
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'periodos_presupuestos') {
+    header('Content-Type: application/json');
     
-    if ($row = $result->fetch_assoc()) {
-        $tarifa = $row['tarifa'] ?? 0;
-    } else {
-        $tarifa = 0;
-    }
-    
-    $stmt->close();
-    return floatval($tarifa);
-}
-
-function obtenerMesesConPresupuestos($conn) {
     $sql = "SELECT DISTINCT mes, anio FROM presupuestos_empresa 
             WHERE activo = 1 ORDER BY anio DESC, mes DESC";
     $result = $conn->query($sql);
@@ -2261,143 +2197,228 @@ function obtenerMesesConPresupuestos($conn) {
     while ($row = $result->fetch_assoc()) {
         $periodos[] = $row;
     }
-    return $periodos;
+    echo json_encode($periodos);
+    exit;
 }
 
-function nombreMes($mes) {
-    $meses = [
-        1 => "Enero", 2 => "Febrero", 3 => "Marzo", 4 => "Abril",
-        5 => "Mayo", 6 => "Junio", 7 => "Julio", 8 => "Agosto",
-        9 => "Septiembre", 10 => "Octubre", 11 => "Noviembre", 12 => "Diciembre"
-    ];
-    return $meses[$mes] ?? "Desconocido";
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'reporte_presupuestos') {
+    header('Content-Type: application/json');
+    
+    $mes = intval($_GET['mes']);
+    $anio = intval($_GET['anio']);
+    
+    $sql = "SELECT * FROM presupuestos_empresa 
+            WHERE mes = $mes AND anio = $anio AND activo = 1 
+            ORDER BY empresa ASC";
+    $result = $conn->query($sql);
+    
+    $resultado = [];
+    while ($p = $result->fetch_assoc()) {
+        // Calcular gastos (misma lógica que arriba)
+        $gastos = 0;
+        $sql_gastos = "SELECT v.ruta, v.tipo_vehiculo 
+                       FROM viajes v 
+                       WHERE v.empresa = '" . $conn->real_escape_string($p['empresa']) . "' 
+                       AND MONTH(v.fecha) = $mes 
+                       AND YEAR(v.fecha) = $anio";
+        $res_gastos = $conn->query($sql_gastos);
+        
+        while ($viaje = $res_gastos->fetch_assoc()) {
+            $clasificacion = '';
+            $sql_clasif = "SELECT clasificacion FROM ruta_clasificacion 
+                          WHERE ruta = '" . $conn->real_escape_string($viaje['ruta']) . "' 
+                          AND tipo_vehiculo = '" . $conn->real_escape_string($viaje['tipo_vehiculo']) . "'";
+            $res_clasif = $conn->query($sql_clasif);
+            if ($row_clasif = $res_clasif->fetch_assoc()) {
+                $clasificacion = $row_clasif['clasificacion'];
+            }
+            
+            if ($clasificacion) {
+                $sql_tarifa = "SELECT $clasificacion as tarifa FROM tarifas 
+                              WHERE empresa = '" . $conn->real_escape_string($p['empresa']) . "' 
+                              AND tipo_vehiculo = '" . $conn->real_escape_string($viaje['tipo_vehiculo']) . "'";
+                $res_tarifa = $conn->query($sql_tarifa);
+                if ($row_tarifa = $res_tarifa->fetch_assoc()) {
+                    $gastos += floatval($row_tarifa['tarifa'] ?? 0);
+                }
+            }
+        }
+        
+        $resultado[] = [
+            'empresa' => $p['empresa'],
+            'presupuesto' => floatval($p['presupuesto']),
+            'gastos' => $gastos
+        ];
+    }
+    
+    echo json_encode($resultado);
+    exit;
 }
 
-// ===== PROCESAR PETICIONES =====
 if (isset($_POST['guardar_presupuesto'])) {
+    header('Content-Type: application/json');
+    
     $empresa = $conn->real_escape_string($_POST['empresa']);
     $presupuesto = floatval($_POST['presupuesto']);
     $mes = intval($_POST['mes']);
     $anio = intval($_POST['anio']);
     
-    if (guardarPresupuestoEmpresa($conn, $empresa, $presupuesto, $mes, $anio)) {
-        echo json_encode(['success' => true, 'message' => 'Presupuesto guardado']);
+    // Verificar si ya existe
+    $sql_check = "SELECT id FROM presupuestos_empresa 
+                  WHERE empresa = '$empresa' AND mes = $mes AND anio = $anio";
+    $result = $conn->query($sql_check);
+    
+    if ($result->num_rows > 0) {
+        // Actualizar
+        $sql = "UPDATE presupuestos_empresa 
+                SET presupuesto = $presupuesto, activo = 1, notificado = 0 
+                WHERE empresa = '$empresa' AND mes = $mes AND anio = $anio";
     } else {
-        echo json_encode(['success' => false, 'message' => 'Error al guardar']);
+        // Insertar
+        $sql = "INSERT INTO presupuestos_empresa (empresa, presupuesto, mes, anio, activo, notificado) 
+                VALUES ('$empresa', $presupuesto, $mes, $anio, 1, 0)";
     }
+    
+    $success = $conn->query($sql);
+    echo json_encode(['success' => $success, 'message' => $success ? 'Guardado' : 'Error']);
     exit;
 }
 
 if (isset($_POST['eliminar_presupuesto'])) {
+    header('Content-Type: application/json');
+    
     $id = intval($_POST['id']);
-    $sql = "UPDATE presupuestos_empresa SET activo = 0 WHERE id = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("i", $id);
-    $success = $stmt->execute();
-    $stmt->close();
+    $sql = "UPDATE presupuestos_empresa SET activo = 0 WHERE id = $id";
+    $success = $conn->query($sql);
     echo json_encode(['success' => $success]);
     exit;
 }
-
-// ===== INTERFAZ DE USUARIO =====
 ?>
+
 <!-- Panel 5: Sistema de Alertas y Presupuestos -->
 <div class="side-panel" id="panel-presupuestos">
+    <style>
+    .presupuestos-tab-content { display: none; }
+    .presupuestos-tab-content.active { display: block; }
+    .presupuestos-tab-btn.active {
+        color: #2563eb !important;
+        border-bottom: 2px solid #2563eb !important;
+    }
+    .presupuesto-card {
+        border: 1px solid #e2e8f0;
+        border-radius: 0.75rem;
+        padding: 1rem;
+        transition: all 0.2s;
+    }
+    .presupuesto-card.excedido {
+        border-left: 4px solid #dc2626;
+        background-color: #fef2f2;
+    }
+    .presupuesto-card.normal {
+        border-left: 4px solid #10b981;
+    }
+    .porcentaje-bar {
+        height: 6px;
+        background-color: #e2e8f0;
+        border-radius: 999px;
+        overflow: hidden;
+    }
+    .porcentaje-fill {
+        height: 100%;
+        transition: width 0.3s;
+    }
+    .empresa-checkbox-item.selected {
+        background-color: #eff6ff;
+        border-color: #3b82f6;
+    }
+    .empresa-checkbox-item {
+        transition: all 0.2s;
+    }
+    </style>
+
     <div class="side-panel-header">
         <h3 class="text-lg font-semibold flex items-center gap-2">
-            <span>🚨 Sistema de Alertas por Presupuesto</span>
+            <span>🚨 Alertas por Presupuesto</span>
         </h3>
         <button class="side-panel-close" data-panel="presupuestos">✕</button>
     </div>
     
     <div class="side-panel-body">
-        <!-- Pestañas de navegación -->
+        <!-- Pestañas -->
         <div class="flex border-b border-slate-200 mb-4">
-            <button class="tab-btn active px-4 py-2 text-sm font-medium text-blue-600 border-b-2 border-blue-600" data-tab="ver">
-                📊 Ver presupuestos
+            <button class="presupuestos-tab-btn px-4 py-2 text-sm font-medium text-blue-600 border-b-2 border-blue-600 active" onclick="cambiarTabPresupuesto('ver')">
+                📊 Ver
             </button>
-            <button class="tab-btn px-4 py-2 text-sm font-medium text-slate-600 hover:text-blue-600" data-tab="configurar">
+            <button class="presupuestos-tab-btn px-4 py-2 text-sm font-medium text-slate-600 hover:text-blue-600" onclick="cambiarTabPresupuesto('configurar')">
                 ⚙️ Configurar
             </button>
-            <button class="tab-btn px-4 py-2 text-sm font-medium text-slate-600 hover:text-blue-600" data-tab="reporte">
+            <button class="presupuestos-tab-btn px-4 py-2 text-sm font-medium text-slate-600 hover:text-blue-600" onclick="cambiarTabPresupuesto('reporte')">
                 📈 Reporte
             </button>
         </div>
         
-        <!-- Pestaña: Ver presupuestos -->
-        <div class="tab-content active" id="tab-ver">
+        <!-- Tab: Ver presupuestos -->
+        <div id="tab-ver-presupuestos" class="presupuestos-tab-content active">
             <div class="space-y-4">
-                <!-- Filtro de período -->
+                <!-- Período -->
                 <div class="bg-slate-50 p-3 rounded-lg">
                     <label class="block text-xs font-medium text-slate-600 mb-2">Período:</label>
                     <select id="filtro-periodo" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
                         <?php
-                        $periodos = obtenerMesesConPresupuestos($conn);
                         $mes_actual = date('n');
                         $anio_actual = date('Y');
-                        $hay_periodo_actual = false;
-                        
-                        foreach ($periodos as $p) {
-                            $selected = ($p['mes'] == $mes_actual && $p['anio'] == $anio_actual) ? 'selected' : '';
-                            if ($selected) $hay_periodo_actual = true;
-                            echo "<option value='{$p['mes']}-{$p['anio']}' $selected>" . nombreMes($p['mes']) . " {$p['anio']}</option>";
-                        }
-                        
-                        if (!$hay_periodo_actual) {
-                            echo "<option value='$mes_actual-$anio_actual' selected>" . nombreMes($mes_actual) . " $anio_actual (Actual)</option>";
-                        }
+                        echo "<option value='$mes_actual-$anio_actual' selected>" . nombreMes($mes_actual) . " $anio_actual</option>";
                         ?>
                     </select>
                 </div>
                 
-                <!-- Filtro de empresas -->
+                <!-- Empresas -->
                 <div>
                     <div class="flex items-center justify-between mb-2">
                         <label class="text-xs font-medium text-slate-600">Empresas:</label>
                         <div class="flex gap-2">
-                            <button id="seleccionar-todas-p" class="text-xs px-2 py-1 rounded bg-purple-100 text-purple-700 hover:bg-purple-200">
-                                🔘 Seleccionar P.
+                            <button type="button" onclick="seleccionarEmpresasP()" class="text-xs px-2 py-1 rounded bg-purple-100 text-purple-700 hover:bg-purple-200">
+                                P.
                             </button>
-                            <button id="seleccionar-todas" class="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700 hover:bg-blue-200">
-                                ✅ Todas
+                            <button type="button" onclick="seleccionarTodasEmpresas()" class="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700 hover:bg-blue-200">
+                                Todas
                             </button>
-                            <button id="limpiar-seleccion" class="text-xs px-2 py-1 rounded bg-slate-100 text-slate-700 hover:bg-slate-200">
-                                ✕ Limpiar
+                            <button type="button" onclick="limpiarEmpresas()" class="text-xs px-2 py-1 rounded bg-slate-100 text-slate-700 hover:bg-slate-200">
+                                Limpiar
                             </button>
                         </div>
                     </div>
                     
-                    <div class="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto p-2 border border-slate-200 rounded-lg">
+                    <div class="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto p-2 border border-slate-200 rounded-lg" id="empresas-container">
                         <?php
-                        $empresas = obtenerEmpresasConViajes($conn);
-                        foreach ($empresas as $empresa):
+                        $empresas_list = obtenerEmpresasConViajes($conn);
+                        foreach ($empresas_list as $emp):
                         ?>
                         <label class="flex items-center gap-2 p-2 border border-slate-100 rounded-lg hover:bg-slate-50 cursor-pointer empresa-checkbox-item">
-                            <input type="checkbox" class="empresa-checkbox rounded border-slate-300" value="<?= htmlspecialchars($empresa) ?>">
-                            <span class="text-sm truncate" title="<?= htmlspecialchars($empresa) ?>"><?= htmlspecialchars($empresa) ?></span>
+                            <input type="checkbox" class="empresa-checkbox rounded border-slate-300" value="<?= htmlspecialchars($emp) ?>">
+                            <span class="text-sm truncate"><?= htmlspecialchars($emp) ?></span>
                         </label>
                         <?php endforeach; ?>
                     </div>
                 </div>
                 
-                <button id="btn-ver-presupuestos" class="w-full py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
-                    🔍 Ver presupuestos seleccionados
+                <button onclick="verPresupuestos()" class="w-full py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+                    🔍 Ver seleccionados
                 </button>
                 
-                <!-- Resultados -->
                 <div id="resultado-presupuestos" class="mt-4 space-y-3"></div>
             </div>
         </div>
         
-        <!-- Pestaña: Configurar presupuesto -->
-        <div class="tab-content" id="tab-configurar">
+        <!-- Tab: Configurar -->
+        <div id="tab-configurar-presupuestos" class="presupuestos-tab-content">
             <div class="space-y-4">
                 <div>
                     <label class="block text-xs font-medium text-slate-600 mb-2">Empresa:</label>
                     <select id="config-empresa" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
-                        <option value="">Seleccionar empresa...</option>
-                        <?php foreach ($empresas as $empresa): ?>
-                        <option value="<?= htmlspecialchars($empresa) ?>"><?= htmlspecialchars($empresa) ?></option>
+                        <option value="">Seleccionar...</option>
+                        <?php foreach ($empresas_list as $emp): ?>
+                        <option value="<?= htmlspecialchars($emp) ?>"><?= htmlspecialchars($emp) ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -2420,39 +2441,33 @@ if (isset($_POST['eliminar_presupuesto'])) {
                 
                 <div>
                     <label class="block text-xs font-medium text-slate-600 mb-2">Presupuesto ($):</label>
-                    <input type="number" id="config-presupuesto" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Ej: 10000000" min="0" step="1000">
+                    <input type="number" id="config-presupuesto" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Ej: 10000000">
                 </div>
                 
-                <button id="btn-guardar-presupuesto" class="w-full py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">
-                    💾 Guardar presupuesto
+                <button onclick="guardarPresupuesto()" class="w-full py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">
+                    💾 Guardar
                 </button>
                 
                 <div id="mensaje-config" class="text-sm"></div>
                 
-                <!-- Lista de presupuestos existentes -->
                 <div class="mt-6">
                     <h4 class="font-medium text-sm mb-3">Presupuestos existentes</h4>
-                    <div id="lista-presupuestos-existente" class="space-y-2 max-h-60 overflow-y-auto"></div>
+                    <div id="lista-presupuestos" class="space-y-2 max-h-60 overflow-y-auto"></div>
                 </div>
             </div>
         </div>
         
-        <!-- Pestaña: Reporte -->
-        <div class="tab-content" id="tab-reporte">
+        <!-- Tab: Reporte -->
+        <div id="tab-reporte-presupuestos" class="presupuestos-tab-content">
             <div class="space-y-4">
                 <div class="bg-slate-50 p-3 rounded-lg">
                     <select id="reporte-periodo" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
-                        <?php
-                        foreach ($periodos as $p) {
-                            $selected = ($p['mes'] == $mes_actual && $p['anio'] == $anio_actual) ? 'selected' : '';
-                            echo "<option value='{$p['mes']}-{$p['anio']}' $selected>" . nombreMes($p['mes']) . " {$p['anio']}</option>";
-                        }
-                        ?>
+                        <option value="<?= date('n') . '-' . date('Y') ?>" selected><?= nombreMes(date('n')) . ' ' . date('Y') ?></option>
                     </select>
                 </div>
                 
-                <button id="btn-generar-reporte" class="w-full py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium">
-                    📊 Generar reporte completo
+                <button onclick="generarReporte()" class="w-full py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium">
+                    📊 Generar reporte
                 </button>
                 
                 <div id="resultado-reporte" class="mt-4"></div>
@@ -2461,104 +2476,40 @@ if (isset($_POST['eliminar_presupuesto'])) {
     </div>
 </div>
 
-<!-- Bolita para el panel de presupuestos (nueva) -->
+<!-- Bolita para el panel -->
 <div class="floating-ball ball-presupuestos" id="ball-presupuestos" data-panel="presupuestos" style="background: linear-gradient(135deg, #f97316, #dc2626);">
     <div class="ball-content">🚨</div>
     <div class="ball-tooltip">Alertas por presupuesto</div>
 </div>
 
-<style>
-/* Estilos adicionales para el panel de presupuestos */
-.ball-presupuestos {
-    background: linear-gradient(135deg, #f97316, #dc2626);
-}
-
-.tab-content {
-    display: none;
-}
-
-.tab-content.active {
-    display: block;
-}
-
-.tab-btn {
-    transition: all 0.2s;
-}
-
-/* Estilos para las tarjetas de presupuesto */
-.presupuesto-card {
-    border: 1px solid #e2e8f0;
-    border-radius: 0.75rem;
-    padding: 1rem;
-    transition: all 0.2s;
-}
-
-.presupuesto-card:hover {
-    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-}
-
-.presupuesto-card.excedido {
-    border-left: 4px solid #dc2626;
-    background-color: #fef2f2;
-}
-
-.presupuesto-card.normal {
-    border-left: 4px solid #10b981;
-}
-
-.porcentaje-bar {
-    height: 6px;
-    background-color: #e2e8f0;
-    border-radius: 999px;
-    overflow: hidden;
-}
-
-.porcentaje-fill {
-    height: 100%;
-    transition: width 0.3s;
-}
-
-.empresa-checkbox-item.selected {
-    background-color: #eff6ff;
-    border-color: #3b82f6;
-}
-</style>
-
 <script>
-// ===== SISTEMA DE PRESUPUESTOS =====
-document.addEventListener('DOMContentLoaded', function() {
-    // Variables
-    let empresasSeleccionadas = [];
-    
-    // Cambio de pestañas
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            const tabId = this.dataset.tab;
-            
-            document.querySelectorAll('.tab-btn').forEach(b => {
-                b.classList.remove('active', 'text-blue-600', 'border-b-2', 'border-blue-600');
-                b.classList.add('text-slate-600');
-            });
-            
-            this.classList.add('active', 'text-blue-600', 'border-b-2', 'border-blue-600');
-            this.classList.remove('text-slate-600');
-            
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.remove('active');
-            });
-            
-            document.getElementById(`tab-${tabId}`).classList.add('active');
-            
-            // Cargar datos según pestaña
-            if (tabId === 'ver') {
-                cargarPresupuestosPorPeriodo();
-            } else if (tabId === 'configurar') {
-                cargarListaPresupuestosExistentes();
-            }
-        });
+// Variables globales del módulo
+let empresasSeleccionadas = [];
+
+// Cambiar pestañas
+function cambiarTabPresupuesto(tab) {
+    document.querySelectorAll('.presupuestos-tab-btn').forEach(btn => {
+        btn.classList.remove('active', 'text-blue-600', 'border-b-2', 'border-blue-600');
+        btn.classList.add('text-slate-600');
     });
     
-    // Checkbox de empresas
+    event.target.classList.add('active', 'text-blue-600', 'border-b-2', 'border-blue-600');
+    event.target.classList.remove('text-slate-600');
+    
+    document.querySelectorAll('.presupuestos-tab-content').forEach(content => {
+        content.classList.remove('active');
+    });
+    
+    document.getElementById(`tab-${tab}-presupuestos`).classList.add('active');
+    
+    if (tab === 'configurar') {
+        cargarListaPresupuestos();
+    }
+}
+
+// Manejo de checkboxes
+document.addEventListener('DOMContentLoaded', function() {
+    // Inicializar checkboxes
     document.querySelectorAll('.empresa-checkbox').forEach(cb => {
         cb.addEventListener('change', function() {
             const label = this.closest('.empresa-checkbox-item');
@@ -2573,126 +2524,70 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
-    
-    // Botón seleccionar todas
-    document.getElementById('seleccionar-todas')?.addEventListener('click', function() {
-        document.querySelectorAll('.empresa-checkbox').forEach(cb => {
+});
+
+function seleccionarTodasEmpresas() {
+    document.querySelectorAll('.empresa-checkbox').forEach(cb => {
+        cb.checked = true;
+        cb.closest('.empresa-checkbox-item').classList.add('selected');
+        if (!empresasSeleccionadas.includes(cb.value)) {
+            empresasSeleccionadas.push(cb.value);
+        }
+    });
+}
+
+function seleccionarEmpresasP() {
+    document.querySelectorAll('.empresa-checkbox').forEach(cb => {
+        if (cb.value.toLowerCase().startsWith('p.')) {
             cb.checked = true;
             cb.closest('.empresa-checkbox-item').classList.add('selected');
             if (!empresasSeleccionadas.includes(cb.value)) {
                 empresasSeleccionadas.push(cb.value);
             }
-        });
-    });
-    
-    // Botón seleccionar P.
-    document.getElementById('seleccionar-todas-p')?.addEventListener('click', function() {
-        document.querySelectorAll('.empresa-checkbox').forEach(cb => {
-            if (cb.value.toLowerCase().startsWith('p.')) {
-                cb.checked = true;
-                cb.closest('.empresa-checkbox-item').classList.add('selected');
-                if (!empresasSeleccionadas.includes(cb.value)) {
-                    empresasSeleccionadas.push(cb.value);
-                }
-            }
-        });
-    });
-    
-    // Botón limpiar
-    document.getElementById('limpiar-seleccion')?.addEventListener('click', function() {
-        document.querySelectorAll('.empresa-checkbox').forEach(cb => {
-            cb.checked = false;
-            cb.closest('.empresa-checkbox-item').classList.remove('selected');
-        });
-        empresasSeleccionadas = [];
-    });
-    
-    // Ver presupuestos
-    document.getElementById('btn-ver-presupuestos')?.addEventListener('click', function() {
-        const periodo = document.getElementById('filtro-periodo').value.split('-');
-        const mes = periodo[0];
-        const anio = periodo[1];
-        
-        if (empresasSeleccionadas.length === 0) {
-            alert('Selecciona al menos una empresa');
-            return;
-        }
-        
-        cargarPresupuestos(mes, anio, empresasSeleccionadas);
-    });
-    
-    // Cambio de período
-    document.getElementById('filtro-periodo')?.addEventListener('change', function() {
-        if (empresasSeleccionadas.length > 0) {
-            const periodo = this.value.split('-');
-            cargarPresupuestos(periodo[0], periodo[1], empresasSeleccionadas);
         }
     });
-    
-    // Guardar presupuesto
-    document.getElementById('btn-guardar-presupuesto')?.addEventListener('click', function() {
-        const empresa = document.getElementById('config-empresa').value;
-        const mes = document.getElementById('config-mes').value;
-        const anio = document.getElementById('config-anio').value;
-        const presupuesto = document.getElementById('config-presupuesto').value;
-        
-        if (!empresa) {
-            mostrarMensaje('Selecciona una empresa', 'error');
-            return;
-        }
-        
-        if (!presupuesto || presupuesto <= 0) {
-            mostrarMensaje('Ingresa un presupuesto válido', 'error');
-            return;
-        }
-        
-        guardarPresupuesto(empresa, presupuesto, mes, anio);
-    });
-    
-    // Generar reporte
-    document.getElementById('btn-generar-reporte')?.addEventListener('click', function() {
-        const periodo = document.getElementById('reporte-periodo').value.split('-');
-        generarReporte(periodo[0], periodo[1]);
-    });
-    
-    // Cargar presupuestos iniciales
-    setTimeout(() => {
-        if (document.getElementById('tab-ver').classList.contains('active')) {
-            cargarPresupuestosPorPeriodo();
-        }
-    }, 500);
-});
+}
 
-// ===== FUNCIONES AJAX =====
-function cargarPresupuestos(mes, anio, empresas) {
-    const resultado = document.getElementById('resultado-presupuestos');
-    resultado.innerHTML = '<div class="text-center py-4"><div class="animate-spin inline-block w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full"></div><p class="text-sm text-slate-500 mt-2">Cargando presupuestos...</p></div>';
-    
-    const params = new URLSearchParams({
-        ajax: 'get_presupuestos',
-        mes: mes,
-        anio: anio,
-        empresas: JSON.stringify(empresas)
+function limpiarEmpresas() {
+    document.querySelectorAll('.empresa-checkbox').forEach(cb => {
+        cb.checked = false;
+        cb.closest('.empresa-checkbox-item').classList.remove('selected');
     });
+    empresasSeleccionadas = [];
+}
+
+// Ver presupuestos
+function verPresupuestos() {
+    const periodo = document.getElementById('filtro-periodo').value.split('-');
+    const mes = periodo[0];
+    const anio = periodo[1];
     
-    fetch('<?= basename(__FILE__) ?>?' + params.toString())
+    if (empresasSeleccionadas.length === 0) {
+        alert('Selecciona al menos una empresa');
+        return;
+    }
+    
+    const resultado = document.getElementById('resultado-presupuestos');
+    resultado.innerHTML = '<div class="text-center py-4"><div class="animate-spin inline-block w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full"></div><p class="text-sm text-slate-500 mt-2">Cargando...</p></div>';
+    
+    fetch(`<?= basename(__FILE__) ?>?ajax=get_presupuestos&mes=${mes}&anio=${anio}&empresas=${JSON.stringify(empresasSeleccionadas)}`)
         .then(r => r.json())
         .then(data => {
             if (data.length === 0) {
-                resultado.innerHTML = '<div class="text-center py-6 text-slate-500">📭 No hay presupuestos para las empresas seleccionadas</div>';
+                resultado.innerHTML = '<div class="text-center py-6 text-slate-500">📭 No hay presupuestos</div>';
                 return;
             }
             
             let html = '';
             data.forEach(p => {
                 const excedido = p.gastos > p.presupuesto;
-                const porcentaje = (p.gastos / p.presupuesto * 100).toFixed(1);
+                const porcentaje = ((p.gastos / p.presupuesto) * 100).toFixed(1);
                 
                 html += `
                 <div class="presupuesto-card ${excedido ? 'excedido' : 'normal'}">
                     <div class="flex items-start justify-between mb-2">
                         <div>
-                            <div class="font-semibold text-base">${p.empresa}</div>
+                            <div class="font-semibold">${p.empresa}</div>
                             <div class="text-xs text-slate-500">${p.mes_nombre} ${p.anio}</div>
                         </div>
                         <div class="text-right">
@@ -2703,13 +2598,13 @@ function cargarPresupuestos(mes, anio, empresas) {
                     
                     <div class="space-y-2 mt-3">
                         <div class="flex justify-between text-sm">
-                            <span class="text-slate-600">Gastado:</span>
+                            <span>Gastado:</span>
                             <span class="font-medium">$${formatNumber(p.gastos)}</span>
                         </div>
                         
                         <div class="flex justify-between text-sm">
-                            <span class="text-slate-600">Porcentaje:</span>
-                            <span class="font-medium ${porcentaje > 100 ? 'text-red-600 font-bold' : ''}">${porcentaje}%</span>
+                            <span>Porcentaje:</span>
+                            <span class="font-medium ${porcentaje > 100 ? 'text-red-600' : ''}">${porcentaje}%</span>
                         </div>
                         
                         <div class="porcentaje-bar">
@@ -2718,7 +2613,7 @@ function cargarPresupuestos(mes, anio, empresas) {
                         
                         ${excedido ? `
                         <div class="flex justify-between text-sm mt-2 pt-2 border-t border-red-100">
-                            <span class="text-red-600 font-medium">Exceso:</span>
+                            <span class="text-red-600">Exceso:</span>
                             <span class="text-red-600 font-bold">$${formatNumber(p.exceso)}</span>
                         </div>
                         ` : ''}
@@ -2731,77 +2626,72 @@ function cargarPresupuestos(mes, anio, empresas) {
         });
 }
 
-function cargarPresupuestosPorPeriodo() {
-    const periodo = document.getElementById('filtro-periodo').value.split('-');
-    const mes = periodo[0];
-    const anio = periodo[1];
+// Guardar presupuesto
+function guardarPresupuesto() {
+    const empresa = document.getElementById('config-empresa').value;
+    const mes = document.getElementById('config-mes').value;
+    const anio = document.getElementById('config-anio').value;
+    const presupuesto = document.getElementById('config-presupuesto').value;
     
-    // Obtener empresas seleccionadas
-    const empresas = [];
-    document.querySelectorAll('.empresa-checkbox:checked').forEach(cb => {
-        empresas.push(cb.value);
-    });
-    
-    if (empresas.length > 0) {
-        cargarPresupuestos(mes, anio, empresas);
+    if (!empresa) {
+        mostrarMensajeConfig('Selecciona una empresa', 'error');
+        return;
     }
-}
-
-function guardarPresupuesto(empresa, presupuesto, mes, anio) {
-    const btn = document.getElementById('btn-guardar-presupuesto');
+    
+    if (!presupuesto || presupuesto <= 0) {
+        mostrarMensajeConfig('Ingresa un presupuesto válido', 'error');
+        return;
+    }
+    
+    const btn = event.target;
+    const textoOriginal = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<span class="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"></span>Guardando...';
+    
+    const formData = new URLSearchParams();
+    formData.append('guardar_presupuesto', '1');
+    formData.append('empresa', empresa);
+    formData.append('presupuesto', presupuesto);
+    formData.append('mes', mes);
+    formData.append('anio', anio);
     
     fetch('<?= basename(__FILE__) ?>', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-            guardar_presupuesto: 1,
-            empresa: empresa,
-            presupuesto: presupuesto,
-            mes: mes,
-            anio: anio
-        })
+        body: formData
     })
     .then(r => r.json())
     .then(data => {
         if (data.success) {
-            mostrarMensaje('✅ Presupuesto guardado correctamente', 'success');
+            mostrarMensajeConfig('✅ Presupuesto guardado', 'success');
             document.getElementById('config-presupuesto').value = '';
-            
-            // Actualizar selector de período
-            actualizarSelectorPeriodos();
-            
-            // Recargar lista
-            cargarListaPresupuestosExistentes();
+            cargarListaPresupuestos();
+            actualizarSelectoresPeriodo();
         } else {
-            mostrarMensaje('❌ Error: ' + data.message, 'error');
+            mostrarMensajeConfig('❌ Error al guardar', 'error');
         }
     })
     .catch(() => {
-        mostrarMensaje('❌ Error de conexión', 'error');
+        mostrarMensajeConfig('❌ Error de conexión', 'error');
     })
     .finally(() => {
         btn.disabled = false;
-        btn.innerHTML = '💾 Guardar presupuesto';
+        btn.innerHTML = textoOriginal;
     });
 }
 
-function cargarListaPresupuestosExistentes() {
-    const lista = document.getElementById('lista-presupuestos-existente');
+// Cargar lista de presupuestos
+function cargarListaPresupuestos() {
+    const lista = document.getElementById('lista-presupuestos');
     if (!lista) return;
     
     lista.innerHTML = '<div class="text-center py-2 text-sm text-slate-500">Cargando...</div>';
     
-    const params = new URLSearchParams({
-        ajax: 'lista_presupuestos'
-    });
-    
-    fetch('<?= basename(__FILE__) ?>?' + params.toString())
+    fetch('<?= basename(__FILE__) ?>?ajax=lista_presupuestos')
         .then(r => r.json())
         .then(data => {
             if (data.length === 0) {
-                lista.innerHTML = '<div class="text-center py-4 text-sm text-slate-500">📭 No hay presupuestos configurados</div>';
+                lista.innerHTML = '<div class="text-center py-4 text-sm text-slate-500">📭 No hay presupuestos</div>';
                 return;
             }
             
@@ -2815,9 +2705,7 @@ function cargarListaPresupuestosExistentes() {
                     </div>
                     <div class="flex items-center gap-2">
                         <span class="text-sm font-semibold">$${formatNumber(p.presupuesto)}</span>
-                        <button onclick="eliminarPresupuesto(${p.id})" class="text-xs text-red-500 hover:text-red-700 px-2 py-1">
-                            ✕
-                        </button>
+                        <button onclick="eliminarPresupuesto(${p.id})" class="text-xs text-red-500 hover:text-red-700 px-2 py-1">✕</button>
                     </div>
                 </div>
                 `;
@@ -2827,41 +2715,42 @@ function cargarListaPresupuestosExistentes() {
         });
 }
 
+// Eliminar presupuesto
 function eliminarPresupuesto(id) {
     if (!confirm('¿Eliminar este presupuesto?')) return;
+    
+    const formData = new URLSearchParams();
+    formData.append('eliminar_presupuesto', '1');
+    formData.append('id', id);
     
     fetch('<?= basename(__FILE__) ?>', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-            eliminar_presupuesto: 1,
-            id: id
-        })
+        body: formData
     })
     .then(r => r.json())
     .then(data => {
         if (data.success) {
-            cargarListaPresupuestosExistentes();
-            actualizarSelectorPeriodos();
+            cargarListaPresupuestos();
+            actualizarSelectoresPeriodo();
         }
     });
 }
 
-function generarReporte(mes, anio) {
+// Generar reporte
+function generarReporte() {
+    const periodo = document.getElementById('reporte-periodo').value.split('-');
+    const mes = periodo[0];
+    const anio = periodo[1];
+    
     const resultado = document.getElementById('resultado-reporte');
     resultado.innerHTML = '<div class="text-center py-4"><div class="animate-spin inline-block w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full"></div></div>';
     
-    const params = new URLSearchParams({
-        ajax: 'reporte_presupuestos',
-        mes: mes,
-        anio: anio
-    });
-    
-    fetch('<?= basename(__FILE__) ?>?' + params.toString())
+    fetch(`<?= basename(__FILE__) ?>?ajax=reporte_presupuestos&mes=${mes}&anio=${anio}`)
         .then(r => r.json())
         .then(data => {
             if (data.length === 0) {
-                resultado.innerHTML = '<div class="text-center py-6 text-slate-500">📭 No hay presupuestos para este período</div>';
+                resultado.innerHTML = '<div class="text-center py-6 text-slate-500">📭 No hay presupuestos</div>';
                 return;
             }
             
@@ -2873,7 +2762,7 @@ function generarReporte(mes, anio) {
                 totalPresupuesto += p.presupuesto;
                 totalGastado += p.gastos;
                 
-                const porcentaje = (p.gastos / p.presupuesto * 100).toFixed(1);
+                const porcentaje = ((p.gastos / p.presupuesto) * 100).toFixed(1);
                 const emoji = porcentaje <= 80 ? '🟢' : (porcentaje <= 100 ? '🟡' : '🔴');
                 
                 html += `
@@ -2889,7 +2778,7 @@ function generarReporte(mes, anio) {
                 `;
             });
             
-            const porcentajeTotal = (totalGastado / totalPresupuesto * 100).toFixed(1);
+            const porcentajeTotal = ((totalGastado / totalPresupuesto) * 100).toFixed(1);
             
             html += `
                 <div class="mt-4 pt-4 border-t border-slate-200">
@@ -2908,33 +2797,36 @@ function generarReporte(mes, anio) {
         });
 }
 
-function actualizarSelectorPeriodos() {
+// Actualizar selectores de período
+function actualizarSelectoresPeriodo() {
     fetch('<?= basename(__FILE__) ?>?ajax=periodos_presupuestos')
         .then(r => r.json())
         .then(data => {
-            const selector = document.getElementById('filtro-periodo');
-            if (!selector) return;
-            
-            const valorActual = selector.value;
-            let options = '';
-            
-            data.forEach(p => {
-                const value = p.mes + '-' + p.anio;
-                const selected = (value === valorActual) ? 'selected' : '';
-                options += `<option value="${value}" ${selected}>${nombreMes(p.mes)} ${p.anio}</option>`;
-            });
-            
-            selector.innerHTML = options;
-            
-            // Actualizar también el selector de reporte
-            const reporteSelector = document.getElementById('reporte-periodo');
-            if (reporteSelector) {
-                reporteSelector.innerHTML = options;
+            if (data.length > 0) {
+                const selectorVer = document.getElementById('filtro-periodo');
+                const selectorReporte = document.getElementById('reporte-periodo');
+                
+                if (selectorVer) {
+                    let options = '';
+                    data.forEach(p => {
+                        options += `<option value="${p.mes}-${p.anio}">${nombreMes(p.mes)} ${p.anio}</option>`;
+                    });
+                    selectorVer.innerHTML = options;
+                }
+                
+                if (selectorReporte) {
+                    let options = '';
+                    data.forEach(p => {
+                        options += `<option value="${p.mes}-${p.anio}">${nombreMes(p.mes)} ${p.anio}</option>`;
+                    });
+                    selectorReporte.innerHTML = options;
+                }
             }
         });
 }
 
-function mostrarMensaje(texto, tipo) {
+// Utilidades
+function mostrarMensajeConfig(texto, tipo) {
     const div = document.getElementById('mensaje-config');
     if (!div) return;
     
@@ -2942,85 +2834,18 @@ function mostrarMensaje(texto, tipo) {
     setTimeout(() => { div.innerHTML = ''; }, 3000);
 }
 
-function formatNumber(num) {
-    return new Intl.NumberFormat('es-CO').format(num || 0);
-}
-
 function nombreMes(num) {
     const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
     return meses[num-1] || '';
 }
+
+// Inicializar
+setTimeout(() => {
+    if (document.getElementById('tab-ver-presupuestos')?.classList.contains('active')) {
+        // Precargar lista de presupuestos si es necesario
+    }
+}, 500);
 </script>
-<?php
-// ===== MANEJO DE PETICIONES AJAX =====
-if (isset($_GET['ajax'])) {
-    header('Content-Type: application/json');
-    
-    if ($_GET['ajax'] === 'get_presupuestos') {
-        $mes = intval($_GET['mes']);
-        $anio = intval($_GET['anio']);
-        $empresas = json_decode($_GET['empresas'], true);
-        
-        $presupuestos = obtenerPresupuestosEmpresa($conn, $mes, $anio, $empresas);
-        $resultado = [];
-        
-        foreach ($presupuestos as $p) {
-            $gastos = calcularGastosEmpresa($conn, $p['empresa'], $mes, $anio);
-            $resultado[] = [
-                'id' => $p['id'],
-                'empresa' => $p['empresa'],
-                'presupuesto' => floatval($p['presupuesto']),
-                'gastos' => $gastos,
-                'exceso' => max($gastos - $p['presupuesto'], 0),
-                'mes' => $p['mes'],
-                'anio' => $p['anio'],
-                'mes_nombre' => nombreMes($p['mes'])
-            ];
-        }
-        
-        echo json_encode($resultado);
-        exit;
-    }
-    
-    if ($_GET['ajax'] === 'lista_presupuestos') {
-        $sql = "SELECT * FROM presupuestos_empresa WHERE activo = 1 ORDER BY anio DESC, mes DESC, empresa ASC";
-        $result = $conn->query($sql);
-        $presupuestos = [];
-        while ($row = $result->fetch_assoc()) {
-            $row['mes_nombre'] = nombreMes($row['mes']);
-            $presupuestos[] = $row;
-        }
-        echo json_encode($presupuestos);
-        exit;
-    }
-    
-    if ($_GET['ajax'] === 'periodos_presupuestos') {
-        $periodos = obtenerMesesConPresupuestos($conn);
-        echo json_encode($periodos);
-        exit;
-    }
-    
-    if ($_GET['ajax'] === 'reporte_presupuestos') {
-        $mes = intval($_GET['mes']);
-        $anio = intval($_GET['anio']);
-        
-        $presupuestos = obtenerPresupuestosEmpresa($conn, $mes, $anio);
-        $resultado = [];
-        
-        foreach ($presupuestos as $p) {
-            $gastos = calcularGastosEmpresa($conn, $p['empresa'], $mes, $anio);
-            $resultado[] = [
-                'empresa' => $p['empresa'],
-                'presupuesto' => floatval($p['presupuesto']),
-                'gastos' => $gastos
-            ];
-        }
-        
-        echo json_encode($resultado);
-        exit;
-    }
-}
-?>
 </body>
 </html>
 <?php $conn->close(); ?>
