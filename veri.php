@@ -2091,202 +2091,37 @@ document.addEventListener('DOMContentLoaded', function() {
 <!-- ===== FIN MÓDULO 11 ===== -->
 <?php
 /* =======================================================
-   🚀 MÓDULO 12: SISTEMA DE ALERTAS Y PRESUPUESTOS (CORREGIDO)
-   ========================================================
-   🔧 PROPÓSITO: Gestión de presupuestos por empresa y alertas
-   🔧 TOTALMENTE FUNCIONAL - CON BOTÓN PROPIO
+   🚀 MÓDULO 12: SISTEMA DE ALERTAS (VERSIÓN SIMPLE Y FUNCIONAL)
    ======================================================== */
 
 // ===== PROCESAR PETICIONES AJAX =====
-if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_presupuestos') {
-    header('Content-Type: application/json');
-    
-    $mes = intval($_GET['mes']);
-    $anio = intval($_GET['anio']);
-    $empresas = json_decode($_GET['empresas'], true);
-    
-    $sql = "SELECT * FROM presupuestos_empresa 
-            WHERE mes = $mes AND anio = $anio AND activo = 1";
-    
-    if (!empty($empresas)) {
-        $empresas_escapadas = array_map(function($e) use ($conn) {
-            return "'" . $conn->real_escape_string($e) . "'";
-        }, $empresas);
-        $sql .= " AND empresa IN (" . implode(',', $empresas_escapadas) . ")";
-    }
-    
-    $sql .= " ORDER BY empresa ASC";
-    $result = $conn->query($sql);
-    
-    $resultado = [];
-    while ($p = $result->fetch_assoc()) {
-        $gastos = 0;
-        $sql_gastos = "SELECT v.ruta, v.tipo_vehiculo 
-                       FROM viajes v 
-                       WHERE v.empresa = '" . $conn->real_escape_string($p['empresa']) . "' 
-                       AND MONTH(v.fecha) = $mes 
-                       AND YEAR(v.fecha) = $anio";
-        $res_gastos = $conn->query($sql_gastos);
-        
-        while ($viaje = $res_gastos->fetch_assoc()) {
-            $clasificacion = '';
-            $sql_clasif = "SELECT clasificacion FROM ruta_clasificacion 
-                          WHERE ruta = '" . $conn->real_escape_string($viaje['ruta']) . "' 
-                          AND tipo_vehiculo = '" . $conn->real_escape_string($viaje['tipo_vehiculo']) . "'";
-            $res_clasif = $conn->query($sql_clasif);
-            if ($row_clasif = $res_clasif->fetch_assoc()) {
-                $clasificacion = $row_clasif['clasificacion'];
-            }
-            
-            if ($clasificacion) {
-                $sql_tarifa = "SELECT $clasificacion as tarifa FROM tarifas 
-                              WHERE empresa = '" . $conn->real_escape_string($p['empresa']) . "' 
-                              AND tipo_vehiculo = '" . $conn->real_escape_string($viaje['tipo_vehiculo']) . "'";
-                $res_tarifa = $conn->query($sql_tarifa);
-                if ($row_tarifa = $res_tarifa->fetch_assoc()) {
-                    $gastos += floatval($row_tarifa['tarifa'] ?? 0);
-                }
-            }
-        }
-        
-        $resultado[] = [
-            'id' => $p['id'],
-            'empresa' => $p['empresa'],
-            'presupuesto' => floatval($p['presupuesto']),
-            'gastos' => $gastos,
-            'exceso' => max($gastos - $p['presupuesto'], 0),
-            'mes' => $p['mes'],
-            'anio' => $p['anio'],
-            'mes_nombre' => nombreMes($p['mes'])
-        ];
-    }
-    
-    echo json_encode($resultado);
-    exit;
-}
-
-if (isset($_GET['ajax']) && $_GET['ajax'] === 'lista_presupuestos') {
-    header('Content-Type: application/json');
-    
-    $sql = "SELECT * FROM presupuestos_empresa WHERE activo = 1 ORDER BY anio DESC, mes DESC, empresa ASC";
-    $result = $conn->query($sql);
-    $presupuestos = [];
-    while ($row = $result->fetch_assoc()) {
-        $row['mes_nombre'] = nombreMes($row['mes']);
-        $presupuestos[] = $row;
-    }
-    echo json_encode($presupuestos);
-    exit;
-}
-
-if (isset($_GET['ajax']) && $_GET['ajax'] === 'periodos_presupuestos') {
-    header('Content-Type: application/json');
-    
-    $sql = "SELECT DISTINCT mes, anio FROM presupuestos_empresa 
-            WHERE activo = 1 ORDER BY anio DESC, mes DESC";
-    $result = $conn->query($sql);
-    $periodos = [];
-    while ($row = $result->fetch_assoc()) {
-        $periodos[] = $row;
-    }
-    echo json_encode($periodos);
-    exit;
-}
-
-if (isset($_GET['ajax']) && $_GET['ajax'] === 'reporte_presupuestos') {
-    header('Content-Type: application/json');
-    
-    $mes = intval($_GET['mes']);
-    $anio = intval($_GET['anio']);
-    
-    $sql = "SELECT * FROM presupuestos_empresa 
-            WHERE mes = $mes AND anio = $anio AND activo = 1 
-            ORDER BY empresa ASC";
-    $result = $conn->query($sql);
-    
-    $resultado = [];
-    while ($p = $result->fetch_assoc()) {
-        $gastos = 0;
-        $sql_gastos = "SELECT v.ruta, v.tipo_vehiculo 
-                       FROM viajes v 
-                       WHERE v.empresa = '" . $conn->real_escape_string($p['empresa']) . "' 
-                       AND MONTH(v.fecha) = $mes 
-                       AND YEAR(v.fecha) = $anio";
-        $res_gastos = $conn->query($sql_gastos);
-        
-        while ($viaje = $res_gastos->fetch_assoc()) {
-            $clasificacion = '';
-            $sql_clasif = "SELECT clasificacion FROM ruta_clasificacion 
-                          WHERE ruta = '" . $conn->real_escape_string($viaje['ruta']) . "' 
-                          AND tipo_vehiculo = '" . $conn->real_escape_string($viaje['tipo_vehiculo']) . "'";
-            $res_clasif = $conn->query($sql_clasif);
-            if ($row_clasif = $res_clasif->fetch_assoc()) {
-                $clasificacion = $row_clasif['clasificacion'];
-            }
-            
-            if ($clasificacion) {
-                $sql_tarifa = "SELECT $clasificacion as tarifa FROM tarifas 
-                              WHERE empresa = '" . $conn->real_escape_string($p['empresa']) . "' 
-                              AND tipo_vehiculo = '" . $conn->real_escape_string($viaje['tipo_vehiculo']) . "'";
-                $res_tarifa = $conn->query($sql_tarifa);
-                if ($row_tarifa = $res_tarifa->fetch_assoc()) {
-                    $gastos += floatval($row_tarifa['tarifa'] ?? 0);
-                }
-            }
-        }
-        
-        $resultado[] = [
-            'empresa' => $p['empresa'],
-            'presupuesto' => floatval($p['presupuesto']),
-            'gastos' => $gastos
-        ];
-    }
-    
-    echo json_encode($resultado);
-    exit;
-}
-
-if (isset($_POST['guardar_presupuesto'])) {
-    header('Content-Type: application/json');
-    
-    $empresa = $conn->real_escape_string($_POST['empresa']);
-    $presupuesto = floatval($_POST['presupuesto']);
-    $mes = intval($_POST['mes']);
-    $anio = intval($_POST['anio']);
-    
-    $sql_check = "SELECT id FROM presupuestos_empresa 
-                  WHERE empresa = '$empresa' AND mes = $mes AND anio = $anio";
-    $result = $conn->query($sql_check);
-    
-    if ($result->num_rows > 0) {
-        $sql = "UPDATE presupuestos_empresa 
-                SET presupuesto = $presupuesto, activo = 1, notificado = 0 
-                WHERE empresa = '$empresa' AND mes = $mes AND anio = $anio";
-    } else {
-        $sql = "INSERT INTO presupuestos_empresa (empresa, presupuesto, mes, anio, activo, notificado) 
-                VALUES ('$empresa', $presupuesto, $mes, $anio, 1, 0)";
-    }
-    
-    $success = $conn->query($sql);
-    echo json_encode(['success' => $success, 'message' => $success ? 'Guardado' : 'Error']);
-    exit;
-}
-
-if (isset($_POST['eliminar_presupuesto'])) {
-    header('Content-Type: application/json');
-    
-    $id = intval($_POST['id']);
-    $sql = "UPDATE presupuestos_empresa SET activo = 0 WHERE id = $id";
-    $success = $conn->query($sql);
-    echo json_encode(['success' => $success]);
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'test') {
+    echo "OK";
     exit;
 }
 ?>
 
-<!-- ===== BOTÓN Y PANEL DE PRESUPUESTOS ===== -->
-<style>
-/* Botón flotante */
-.presupuestos-float-btn {
+<!-- BOTÓN EN LA PARTE SUPERIOR (VISIBLE) -->
+<div style="
+    position: fixed;
+    top: 100px;
+    right: 20px;
+    background: red;
+    color: white;
+    padding: 15px 25px;
+    border-radius: 50px;
+    font-size: 18px;
+    font-weight: bold;
+    cursor: pointer;
+    z-index: 999999;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    border: 2px solid white;
+" onclick="alert('✅ Botón funciona!')">
+    🚨 PROBAR BOTÓN
+</div>
+
+<!-- BOTÓN ORIGINAL (CORREGIDO) -->
+<div style="
     position: fixed;
     right: 20px;
     bottom: 20px;
@@ -2298,784 +2133,115 @@ if (isset($_POST['eliminar_presupuesto'])) {
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.3);
     border: 3px solid white;
     z-index: 999999;
     font-size: 28px;
     color: white;
-    text-shadow: 0 2px 4px rgba(0,0,0,0.3);
-}
+" onclick="togglePresupuestosPanel()">
+    🚨
+</div>
 
-.presupuestos-float-btn:hover {
-    transform: scale(1.15) translateY(-2px);
-    box-shadow: 0 12px 25px rgba(0, 0, 0, 0.4);
-}
-
-.presupuestos-tooltip {
-    position: absolute;
-    right: 80px;
-    top: 50%;
-    transform: translateY(-50%);
-    background: white;
-    color: #1e293b;
-    padding: 6px 12px;
-    border-radius: 8px;
-    font-size: 12px;
-    font-weight: 600;
-    white-space: nowrap;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    border: 1px solid #e2e8f0;
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.3s;
-    pointer-events: none;
-}
-
-.presupuestos-float-btn:hover .presupuestos-tooltip {
-    opacity: 1;
-    visibility: visible;
-    right: 85px;
-}
-
-/* Panel */
-.presupuestos-panel {
+<!-- PANEL -->
+<div id="panelPresupuestos" style="
     position: fixed;
     right: -450px;
     top: 0;
     width: 450px;
     height: 100vh;
     background: white;
-    box-shadow: -4px 0 25px rgba(0, 0, 0, 0.15);
+    box-shadow: -4px 0 25px rgba(0,0,0,0.15);
     z-index: 999998;
-    transition: right 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: right 0.4s;
     overflow-y: auto;
-}
+">
+    <div style="padding: 20px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin:0; font-size:18px;">🚨 Alertas</h3>
+        <button onclick="togglePresupuestosPanel()" style="background:#f1f5f9; border:none; width:32px; height:32px; border-radius:50%; cursor:pointer;">✕</button>
+    </div>
+    <div style="padding:20px;">
+        <p style="color:#2563eb; font-weight:bold;">✅ Módulo cargado correctamente</p>
+        <p>Haz clic en "Ver presupuestos" para probar:</p>
+        <button onclick="cargarPresupuestosPrueba()" style="background:#2563eb; color:white; border:none; padding:10px 20px; border-radius:8px; width:100%; cursor:pointer; margin-top:10px;">
+            📊 Ver presupuestos
+        </button>
+        <div id="resultadoPrueba" style="margin-top:20px;"></div>
+    </div>
+</div>
 
-.presupuestos-panel.active {
-    right: 0;
-}
-
-.presupuestos-overlay {
+<!-- OVERLAY -->
+<div id="overlayPresupuestos" onclick="togglePresupuestosPanel()" style="
     position: fixed;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0, 0, 0, 0.4);
+    background: rgba(0,0,0,0.4);
     z-index: 999997;
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.3s;
-}
-
-.presupuestos-overlay.active {
-    opacity: 1;
-    visibility: visible;
-}
-
-.presupuestos-header {
-    position: sticky;
-    top: 0;
-    background: white;
-    border-bottom: 1px solid #e2e8f0;
-    padding: 1.25rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    z-index: 10;
-}
-
-.presupuestos-close {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background: #f1f5f9;
-    border: 1px solid #e2e8f0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: all 0.2s;
-    color: #64748b;
-}
-
-.presupuestos-close:hover {
-    background: #e2e8f0;
-    color: #1e293b;
-}
-
-.presupuestos-body {
-    padding: 1.25rem;
-    padding-bottom: 2rem;
-}
-
-/* Pestañas */
-.presupuestos-tabs {
-    display: flex;
-    border-bottom: 1px solid #e2e8f0;
-    margin-bottom: 1rem;
-}
-
-.presupuestos-tab-btn {
-    padding: 0.5rem 1rem;
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: #64748b;
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.presupuestos-tab-btn:hover {
-    color: #2563eb;
-}
-
-.presupuestos-tab-btn.active {
-    color: #2563eb;
-    border-bottom-color: #2563eb;
-}
-
-.presupuestos-tab-content {
     display: none;
-}
-
-.presupuestos-tab-content.active {
-    display: block;
-}
-
-/* Tarjetas de presupuesto */
-.presupuesto-card {
-    border: 1px solid #e2e8f0;
-    border-radius: 0.75rem;
-    padding: 1rem;
-    margin-bottom: 0.75rem;
-    transition: all 0.2s;
-}
-
-.presupuesto-card.excedido {
-    border-left: 4px solid #dc2626;
-    background-color: #fef2f2;
-}
-
-.presupuesto-card.normal {
-    border-left: 4px solid #10b981;
-}
-
-.porcentaje-bar {
-    height: 6px;
-    background-color: #e2e8f0;
-    border-radius: 999px;
-    overflow: hidden;
-    margin: 0.5rem 0;
-}
-
-.porcentaje-fill {
-    height: 100%;
-    transition: width 0.3s;
-}
-
-/* Checkboxes */
-.empresa-item.selected {
-    background-color: #eff6ff;
-    border-color: #3b82f6;
-}
-
-.empresa-checkbox {
-    width: 16px;
-    height: 16px;
-    cursor: pointer;
-}
-
-/* Botones de acción */
-.btn-action {
-    padding: 0.5rem 1rem;
-    border-radius: 0.5rem;
-    font-size: 0.875rem;
-    font-weight: 500;
-    border: none;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.btn-primary {
-    background-color: #2563eb;
-    color: white;
-}
-
-.btn-primary:hover {
-    background-color: #1d4ed8;
-}
-
-.btn-success {
-    background-color: #10b981;
-    color: white;
-}
-
-.btn-success:hover {
-    background-color: #059669;
-}
-
-.btn-indigo {
-    background-color: #6366f1;
-    color: white;
-}
-
-.btn-indigo:hover {
-    background-color: #4f46e5;
-}
-</style>
-
-<!-- Botón flotante -->
-<div class="presupuestos-float-btn" id="presupuestosToggleBtn">
-    <span>🚨</span>
-    <span class="presupuestos-tooltip">Alertas por presupuesto</span>
-</div>
-
-<!-- Overlay -->
-<div class="presupuestos-overlay" id="presupuestosOverlay"></div>
-
-<!-- Panel -->
-<div class="presupuestos-panel" id="presupuestosPanel">
-    <div class="presupuestos-header">
-        <h3 style="font-size: 1.125rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;">
-            <span>🚨 Alertas por Presupuesto</span>
-        </h3>
-        <button class="presupuestos-close" id="presupuestosCloseBtn">✕</button>
-    </div>
-    
-    <div class="presupuestos-body">
-        <!-- Pestañas -->
-        <div class="presupuestos-tabs">
-            <button class="presupuestos-tab-btn active" onclick="cambiarTabPresupuesto('ver')">📊 Ver</button>
-            <button class="presupuestos-tab-btn" onclick="cambiarTabPresupuesto('configurar')">⚙️ Configurar</button>
-            <button class="presupuestos-tab-btn" onclick="cambiarTabPresupuesto('reporte')">📈 Reporte</button>
-        </div>
-        
-        <!-- Tab: Ver -->
-        <div id="tabVerPresupuestos" class="presupuestos-tab-content active">
-            <div style="display: flex; flex-direction: column; gap: 1rem;">
-                <!-- Período -->
-                <div style="background-color: #f8fafc; padding: 0.75rem; border-radius: 0.5rem;">
-                    <label style="display: block; font-size: 0.75rem; font-weight: 500; color: #475569; margin-bottom: 0.5rem;">Período:</label>
-                    <select id="filtroPeriodo" style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 0.5rem;">
-                        <?php
-                        $mes_actual = date('n');
-                        $anio_actual = date('Y');
-                        echo "<option value='$mes_actual-$anio_actual' selected>" . nombreMes($mes_actual) . " $anio_actual</option>";
-                        ?>
-                    </select>
-                </div>
-                
-                <!-- Empresas -->
-                <div>
-                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
-                        <label style="font-size: 0.75rem; font-weight: 500; color: #475569;">Empresas:</label>
-                        <div style="display: flex; gap: 0.5rem;">
-                            <button onclick="seleccionarEmpresasP()" style="font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: 0.25rem; background-color: #f3e8ff; color: #9333ea; border: none; cursor: pointer;">P.</button>
-                            <button onclick="seleccionarTodasEmpresas()" style="font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: 0.25rem; background-color: #dbeafe; color: #2563eb; border: none; cursor: pointer;">Todas</button>
-                            <button onclick="limpiarEmpresas()" style="font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: 0.25rem; background-color: #f1f5f9; color: #475569; border: none; cursor: pointer;">Limpiar</button>
-                        </div>
-                    </div>
-                    
-                    <div id="empresasContainer" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; max-height: 240px; overflow-y: auto; padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 0.5rem;">
-                        <?php
-                        $empresas_list = [];
-                        $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
-                        if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas_list[] = $r['empresa'];
-                        
-                        foreach ($empresas_list as $emp):
-                        ?>
-                        <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; border: 1px solid #f1f5f9; border-radius: 0.5rem; cursor: pointer;" class="empresa-item">
-                            <input type="checkbox" class="empresa-checkbox" value="<?= htmlspecialchars($emp) ?>" style="width: 16px; height: 16px;">
-                            <span style="font-size: 0.875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><?= htmlspecialchars($emp) ?></span>
-                        </label>
-                        <?php endforeach; ?>
-                    </div>
-                </div>
-                
-                <button onclick="verPresupuestos()" style="width: 100%; padding: 0.625rem; background-color: #2563eb; color: white; border: none; border-radius: 0.5rem; font-weight: 500; cursor: pointer;">
-                    🔍 Ver seleccionados
-                </button>
-                
-                <div id="resultadoPresupuestos" style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.75rem;"></div>
-            </div>
-        </div>
-        
-        <!-- Tab: Configurar -->
-        <div id="tabConfigurarPresupuestos" class="presupuestos-tab-content">
-            <div style="display: flex; flex-direction: column; gap: 1rem;">
-                <div>
-                    <label style="display: block; font-size: 0.75rem; font-weight: 500; color: #475569; margin-bottom: 0.5rem;">Empresa:</label>
-                    <select id="configEmpresa" style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 0.5rem;">
-                        <option value="">Seleccionar...</option>
-                        <?php foreach ($empresas_list as $emp): ?>
-                        <option value="<?= htmlspecialchars($emp) ?>"><?= htmlspecialchars($emp) ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                
-                <div>
-                    <label style="display: block; font-size: 0.75rem; font-weight: 500; color: #475569; margin-bottom: 0.5rem;">Período:</label>
-                    <div style="display: flex; gap: 0.5rem;">
-                        <select id="configMes" style="flex: 1; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 0.5rem;">
-                            <?php for ($m = 1; $m <= 12; $m++): ?>
-                            <option value="<?= $m ?>" <?= $m == date('n') ? 'selected' : '' ?>><?= nombreMes($m) ?></option>
-                            <?php endfor; ?>
-                        </select>
-                        <select id="configAnio" style="width: 80px; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 0.5rem;">
-                            <?php for ($a = date('Y'); $a >= date('Y')-2; $a--): ?>
-                            <option value="<?= $a ?>" <?= $a == date('Y') ? 'selected' : '' ?>><?= $a ?></option>
-                            <?php endfor; ?>
-                        </select>
-                    </div>
-                </div>
-                
-                <div>
-                    <label style="display: block; font-size: 0.75rem; font-weight: 500; color: #475569; margin-bottom: 0.5rem;">Presupuesto ($):</label>
-                    <input type="number" id="configPresupuesto" style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 0.5rem;" placeholder="Ej: 10000000">
-                </div>
-                
-                <button onclick="guardarPresupuesto()" style="width: 100%; padding: 0.625rem; background-color: #10b981; color: white; border: none; border-radius: 0.5rem; font-weight: 500; cursor: pointer;">
-                    💾 Guardar
-                </button>
-                
-                <div id="mensajeConfig" style="font-size: 0.875rem;"></div>
-                
-                <div style="margin-top: 1.5rem;">
-                    <h4 style="font-weight: 500; font-size: 0.875rem; margin-bottom: 0.75rem;">Presupuestos existentes</h4>
-                    <div id="listaPresupuestos" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 240px; overflow-y: auto;"></div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Tab: Reporte -->
-        <div id="tabReportePresupuestos" class="presupuestos-tab-content">
-            <div style="display: flex; flex-direction: column; gap: 1rem;">
-                <div style="background-color: #f8fafc; padding: 0.75rem; border-radius: 0.5rem;">
-                    <select id="reportePeriodo" style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 0.5rem;">
-                        <option value="<?= date('n') . '-' . date('Y') ?>" selected><?= nombreMes(date('n')) . ' ' . date('Y') ?></option>
-                    </select>
-                </div>
-                
-                <button onclick="generarReporte()" style="width: 100%; padding: 0.625rem; background-color: #6366f1; color: white; border: none; border-radius: 0.5rem; font-weight: 500; cursor: pointer;">
-                    📊 Generar reporte
-                </button>
-                
-                <div id="resultadoReporte" style="margin-top: 1rem;"></div>
-            </div>
-        </div>
-    </div>
-</div>
+"></div>
 
 <script>
-// Variables globales del módulo
-let empresasSeleccionadas = [];
+// Variables
+let panelActivo = false;
 
-// Inicialización cuando el DOM está listo
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('Módulo de presupuestos inicializado');
+// Función para abrir/cerrar panel
+function togglePresupuestosPanel() {
+    const panel = document.getElementById('panelPresupuestos');
+    const overlay = document.getElementById('overlayPresupuestos');
     
-    // Configurar botones del panel
-    const toggleBtn = document.getElementById('presupuestosToggleBtn');
-    const panel = document.getElementById('presupuestosPanel');
-    const overlay = document.getElementById('presupuestosOverlay');
-    const closeBtn = document.getElementById('presupuestosCloseBtn');
-    
-    if (toggleBtn) {
-        toggleBtn.addEventListener('click', function() {
-            panel.classList.toggle('active');
-            overlay.classList.toggle('active');
-        });
+    if (!panelActivo) {
+        panel.style.right = '0';
+        overlay.style.display = 'block';
+        panelActivo = true;
+    } else {
+        panel.style.right = '-450px';
+        overlay.style.display = 'none';
+        panelActivo = false;
     }
+}
+
+// Función de prueba
+function cargarPresupuestosPrueba() {
+    const resultado = document.getElementById('resultadoPrueba');
+    resultado.innerHTML = '<div style="text-align:center; padding:20px;">Cargando...</div>';
     
-    if (closeBtn) {
-        closeBtn.addEventListener('click', function() {
-            panel.classList.remove('active');
-            overlay.classList.remove('active');
-        });
+    // Simular carga
+    setTimeout(() => {
+        resultado.innerHTML = `
+            <div style="border:1px solid #e2e8f0; border-radius:8px; padding:15px;">
+                <div style="font-weight:bold;">EMPRESA DE PRUEBA</div>
+                <div style="font-size:12px; color:#64748b;">Enero 2026</div>
+                <div style="margin-top:10px;">
+                    <div style="display:flex; justify-content:space-between;">
+                        <span>Presupuesto:</span>
+                        <span style="font-weight:bold;">$10,000,000</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; margin-top:5px;">
+                        <span>Gastado:</span>
+                        <span style="font-weight:bold;">$8,500,000</span>
+                    </div>
+                    <div style="height:6px; background:#e2e8f0; border-radius:999px; margin:10px 0;">
+                        <div style="width:85%; height:100%; background:#10b981; border-radius:999px;"></div>
+                    </div>
+                    <div style="display:flex; justify-content:space-between;">
+                        <span>Porcentaje:</span>
+                        <span style="font-weight:bold;">85%</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }, 1000);
+}
+
+// Cerrar con tecla ESC
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && panelActivo) {
+        togglePresupuestosPanel();
     }
-    
-    if (overlay) {
-        overlay.addEventListener('click', function() {
-            panel.classList.remove('active');
-            overlay.classList.remove('active');
-        });
-    }
-    
-    // Event listeners para checkboxes
-    document.querySelectorAll('.empresa-checkbox').forEach(cb => {
-        cb.addEventListener('change', function() {
-            const label = this.closest('.empresa-item');
-            if (this.checked) {
-                label.style.backgroundColor = '#eff6ff';
-                label.style.borderColor = '#3b82f6';
-                if (!empresasSeleccionadas.includes(this.value)) {
-                    empresasSeleccionadas.push(this.value);
-                }
-            } else {
-                label.style.backgroundColor = '';
-                label.style.borderColor = '#f1f5f9';
-                empresasSeleccionadas = empresasSeleccionadas.filter(e => e !== this.value);
-            }
-        });
-    });
-    
-    // Cargar lista de presupuestos al iniciar
-    cargarListaPresupuestos();
 });
 
-// Cambiar pestañas
-function cambiarTabPresupuesto(tab) {
-    document.querySelectorAll('.presupuestos-tab-btn').forEach(btn => {
-        btn.classList.remove('active');
-    });
-    event.target.classList.add('active');
-    
-    document.querySelectorAll('.presupuestos-tab-content').forEach(content => {
-        content.classList.remove('active');
-    });
-    
-    document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1) + 'Presupuestos').classList.add('active');
-    
-    if (tab === 'configurar') {
-        cargarListaPresupuestos();
-    }
-}
-
-// Funciones de selección de empresas
-function seleccionarTodasEmpresas() {
-    document.querySelectorAll('.empresa-checkbox').forEach(cb => {
-        cb.checked = true;
-        const label = cb.closest('.empresa-item');
-        label.style.backgroundColor = '#eff6ff';
-        label.style.borderColor = '#3b82f6';
-        if (!empresasSeleccionadas.includes(cb.value)) {
-            empresasSeleccionadas.push(cb.value);
-        }
-    });
-}
-
-function seleccionarEmpresasP() {
-    document.querySelectorAll('.empresa-checkbox').forEach(cb => {
-        if (cb.value.toLowerCase().startsWith('p.')) {
-            cb.checked = true;
-            const label = cb.closest('.empresa-item');
-            label.style.backgroundColor = '#eff6ff';
-            label.style.borderColor = '#3b82f6';
-            if (!empresasSeleccionadas.includes(cb.value)) {
-                empresasSeleccionadas.push(cb.value);
-            }
-        }
-    });
-}
-
-function limpiarEmpresas() {
-    document.querySelectorAll('.empresa-checkbox').forEach(cb => {
-        cb.checked = false;
-        const label = cb.closest('.empresa-item');
-        label.style.backgroundColor = '';
-        label.style.borderColor = '#f1f5f9';
-    });
-    empresasSeleccionadas = [];
-}
-
-// Ver presupuestos
-function verPresupuestos() {
-    const periodo = document.getElementById('filtroPeriodo').value.split('-');
-    const mes = periodo[0];
-    const anio = periodo[1];
-    
-    if (empresasSeleccionadas.length === 0) {
-        alert('Selecciona al menos una empresa');
-        return;
-    }
-    
-    const resultado = document.getElementById('resultadoPresupuestos');
-    resultado.innerHTML = '<div style="text-align: center; padding: 1rem;"><div style="display: inline-block; width: 24px; height: 24px; border: 2px solid #2563eb; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div><p style="font-size: 0.875rem; color: #64748b; margin-top: 0.5rem;">Cargando...</p></div>';
-    
-    fetch(`<?= basename(__FILE__) ?>?ajax=get_presupuestos&mes=${mes}&anio=${anio}&empresas=${JSON.stringify(empresasSeleccionadas)}`)
-        .then(r => r.json())
-        .then(data => {
-            if (data.length === 0) {
-                resultado.innerHTML = '<div style="text-align: center; padding: 1.5rem; color: #64748b;">📭 No hay presupuestos</div>';
-                return;
-            }
-            
-            let html = '';
-            data.forEach(p => {
-                const excedido = p.gastos > p.presupuesto;
-                const porcentaje = ((p.gastos / p.presupuesto) * 100).toFixed(1);
-                
-                html += `
-                <div class="presupuesto-card ${excedido ? 'excedido' : 'normal'}">
-                    <div style="display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 0.5rem;">
-                        <div>
-                            <div style="font-weight: 600;">${p.empresa}</div>
-                            <div style="font-size: 0.75rem; color: #64748b;">${p.mes_nombre} ${p.anio}</div>
-                        </div>
-                        <div style="text-align: right;">
-                            <div style="font-size: 0.75rem; color: #64748b;">Presupuesto</div>
-                            <div style="font-weight: 700;">$${formatNumber(p.presupuesto)}</div>
-                        </div>
-                    </div>
-                    
-                    <div style="margin-top: 0.75rem;">
-                        <div style="display: flex; justify-content: space-between; font-size: 0.875rem;">
-                            <span>Gastado:</span>
-                            <span style="font-weight: 500;">$${formatNumber(p.gastos)}</span>
-                        </div>
-                        
-                        <div style="display: flex; justify-content: space-between; font-size: 0.875rem; margin-top: 0.25rem;">
-                            <span>Porcentaje:</span>
-                            <span style="font-weight: 500; ${porcentaje > 100 ? 'color: #dc2626;' : ''}">${porcentaje}%</span>
-                        </div>
-                        
-                        <div class="porcentaje-bar">
-                            <div class="porcentaje-fill" style="width: ${Math.min(porcentaje, 100)}%; background-color: ${porcentaje > 100 ? '#dc2626' : '#10b981'};"></div>
-                        </div>
-                        
-                        ${excedido ? `
-                        <div style="display: flex; justify-content: space-between; font-size: 0.875rem; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid #fee2e2;">
-                            <span style="color: #dc2626;">Exceso:</span>
-                            <span style="color: #dc2626; font-weight: 700;">$${formatNumber(p.exceso)}</span>
-                        </div>
-                        ` : ''}
-                    </div>
-                </div>
-                `;
-            });
-            
-            resultado.innerHTML = html;
-        });
-}
-
-// Guardar presupuesto
-function guardarPresupuesto() {
-    const empresa = document.getElementById('configEmpresa').value;
-    const mes = document.getElementById('configMes').value;
-    const anio = document.getElementById('configAnio').value;
-    const presupuesto = document.getElementById('configPresupuesto').value;
-    
-    if (!empresa) {
-        mostrarMensaje('Selecciona una empresa', 'error');
-        return;
-    }
-    
-    if (!presupuesto || presupuesto <= 0) {
-        mostrarMensaje('Ingresa un presupuesto válido', 'error');
-        return;
-    }
-    
-    const btn = event.target;
-    const textoOriginal = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<span style="display: inline-block; width: 16px; height: 16px; border: 2px solid white; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite; margin-right: 0.5rem;"></span>Guardando...';
-    
-    const formData = new URLSearchParams();
-    formData.append('guardar_presupuesto', '1');
-    formData.append('empresa', empresa);
-    formData.append('presupuesto', presupuesto);
-    formData.append('mes', mes);
-    formData.append('anio', anio);
-    
-    fetch('<?= basename(__FILE__) ?>', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: formData
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            mostrarMensaje('✅ Presupuesto guardado', 'success');
-            document.getElementById('configPresupuesto').value = '';
-            cargarListaPresupuestos();
-            actualizarSelectoresPeriodo();
-        } else {
-            mostrarMensaje('❌ Error al guardar', 'error');
-        }
-    })
-    .catch(() => {
-        mostrarMensaje('❌ Error de conexión', 'error');
-    })
-    .finally(() => {
-        btn.disabled = false;
-        btn.innerHTML = textoOriginal;
-    });
-}
-
-// Cargar lista de presupuestos
-function cargarListaPresupuestos() {
-    const lista = document.getElementById('listaPresupuestos');
-    if (!lista) return;
-    
-    lista.innerHTML = '<div style="text-align: center; padding: 0.5rem; font-size: 0.875rem; color: #64748b;">Cargando...</div>';
-    
-    fetch('<?= basename(__FILE__) ?>?ajax=lista_presupuestos')
-        .then(r => r.json())
-        .then(data => {
-            if (data.length === 0) {
-                lista.innerHTML = '<div style="text-align: center; padding: 1rem; font-size: 0.875rem; color: #64748b;">📭 No hay presupuestos</div>';
-                return;
-            }
-            
-            let html = '';
-            data.forEach(p => {
-                html += `
-                <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.5rem; border: 1px solid #f1f5f9; border-radius: 0.5rem;">
-                    <div>
-                        <div style="font-weight: 500; font-size: 0.875rem;">${p.empresa}</div>
-                        <div style="font-size: 0.75rem; color: #64748b;">${p.mes_nombre} ${p.anio}</div>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <span style="font-size: 0.875rem; font-weight: 600;">$${formatNumber(p.presupuesto)}</span>
-                        <button onclick="eliminarPresupuesto(${p.id})" style="font-size: 0.75rem; color: #ef4444; background: none; border: none; cursor: pointer;">✕</button>
-                    </div>
-                </div>
-                `;
-            });
-            
-            lista.innerHTML = html;
-        });
-}
-
-// Eliminar presupuesto
-function eliminarPresupuesto(id) {
-    if (!confirm('¿Eliminar este presupuesto?')) return;
-    
-    const formData = new URLSearchParams();
-    formData.append('eliminar_presupuesto', '1');
-    formData.append('id', id);
-    
-    fetch('<?= basename(__FILE__) ?>', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: formData
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            cargarListaPresupuestos();
-            actualizarSelectoresPeriodo();
-        }
-    });
-}
-
-// Generar reporte
-function generarReporte() {
-    const periodo = document.getElementById('reportePeriodo').value.split('-');
-    const mes = periodo[0];
-    const anio = periodo[1];
-    
-    const resultado = document.getElementById('resultadoReporte');
-    resultado.innerHTML = '<div style="text-align: center; padding: 1rem;"><div style="display: inline-block; width: 24px; height: 24px; border: 2px solid #6366f1; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div></div>';
-    
-    fetch(`<?= basename(__FILE__) ?>?ajax=reporte_presupuestos&mes=${mes}&anio=${anio}`)
-        .then(r => r.json())
-        .then(data => {
-            if (data.length === 0) {
-                resultado.innerHTML = '<div style="text-align: center; padding: 1.5rem; color: #64748b;">📭 No hay presupuestos</div>';
-                return;
-            }
-            
-            let totalPresupuesto = 0;
-            let totalGastado = 0;
-            let html = '<div style="display: flex; flex-direction: column; gap: 0.75rem;">';
-            
-            data.forEach(p => {
-                totalPresupuesto += p.presupuesto;
-                totalGastado += p.gastos;
-                
-                const porcentaje = ((p.gastos / p.presupuesto) * 100).toFixed(1);
-                const emoji = porcentaje <= 80 ? '🟢' : (porcentaje <= 100 ? '🟡' : '🔴');
-                
-                html += `
-                <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; border: 1px solid #f1f5f9; border-radius: 0.5rem;">
-                    <div style="flex: 1;">
-                        <div style="font-weight: 500;">${emoji} ${p.empresa}</div>
-                        <div style="font-size: 0.75rem; color: #64748b;">$${formatNumber(p.gastos)} de $${formatNumber(p.presupuesto)}</div>
-                    </div>
-                    <div style="text-align: right;">
-                        <span style="font-size: 0.875rem; font-weight: 700; ${porcentaje > 100 ? 'color: #dc2626;' : ''}">${porcentaje}%</span>
-                    </div>
-                </div>
-                `;
-            });
-            
-            const porcentajeTotal = ((totalGastado / totalPresupuesto) * 100).toFixed(1);
-            
-            html += `
-                <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e2e8f0;">
-                    <div style="display: flex; justify-content: space-between; font-weight: 600;">
-                        <span>TOTAL:</span>
-                        <span>$${formatNumber(totalGastado)} de $${formatNumber(totalPresupuesto)}</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; font-size: 0.875rem; margin-top: 0.25rem;">
-                        <span>Porcentaje global:</span>
-                        <span style="font-weight: 700; ${porcentajeTotal > 100 ? 'color: #dc2626;' : ''}">${porcentajeTotal}%</span>
-                    </div>
-                </div>
-            </div>`;
-            
-            resultado.innerHTML = html;
-        });
-}
-
-// Actualizar selectores de período
-function actualizarSelectoresPeriodo() {
-    fetch('<?= basename(__FILE__) ?>?ajax=periodos_presupuestos')
-        .then(r => r.json())
-        .then(data => {
-            if (data.length > 0) {
-                const selectorVer = document.getElementById('filtroPeriodo');
-                const selectorReporte = document.getElementById('reportePeriodo');
-                
-                if (selectorVer) {
-                    let options = '';
-                    data.forEach(p => {
-                        options += `<option value="${p.mes}-${p.anio}">${nombreMes(p.mes)} ${p.anio}</option>`;
-                    });
-                    selectorVer.innerHTML = options;
-                }
-                
-                if (selectorReporte) {
-                    let options = '';
-                    data.forEach(p => {
-                        options += `<option value="${p.mes}-${p.anio}">${nombreMes(p.mes)} ${p.anio}</option>`;
-                    });
-                    selectorReporte.innerHTML = options;
-                }
-            }
-        });
-}
-
-// Utilidades
-function mostrarMensaje(texto, tipo) {
-    const div = document.getElementById('mensajeConfig');
-    if (!div) return;
-    
-    div.innerHTML = `<div style="padding: 0.5rem; border-radius: 0.5rem; ${tipo === 'success' ? 'background-color: #d1fae5; color: #065f46;' : 'background-color: #fee2e2; color: #991b1b;'} font-size: 0.875rem;">${texto}</div>`;
-    setTimeout(() => { div.innerHTML = ''; }, 3000);
-}
-
-function formatNumber(num) {
-    return new Intl.NumberFormat('es-CO').format(num || 0);
-}
-
-function nombreMes(num) {
-    const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-    return meses[num-1] || '';
-}
-
-// Animación para el spinner
-const style = document.createElement('style');
-style.textContent = `
-@keyframes spin {
-    to { transform: rotate(360deg); }
-}`;
-document.head.appendChild(style);
+console.log('✅ Módulo de presupuestos cargado');
 </script>
 </body>
 </html>
