@@ -1155,7 +1155,6 @@ if (isset($_GET['viajes_conductor'])) {
 <div class="side-panel-overlay" id="sidePanelOverlay"></div>
 <!-- ===== FIN MÓDULO 8 ===== -->
 
-
 <!-- =======================================================
    🚀 MÓDULO 9: CONTENIDO PRINCIPAL (TABLA DE CONDUCTORES)
    ========================================================
@@ -1181,42 +1180,101 @@ if (isset($_GET['viajes_conductor'])) {
             background: none; border: none; color: #64748b; cursor: pointer; display: none; 
         }
         
-        /* ===== ESTILOS PARA FILAS POR TIPO DE VEHÍCULO ===== */
-        .fila-vehiculo-mensual { background-color: rgba(255, 237, 213, 0.3); }  /* naranja suave */
-        .fila-vehiculo-mensual:hover { background-color: rgba(255, 237, 213, 0.6); }
+        /* ===== ESTILOS PARA FILAS POR TIPO DE VEHÍCULO (MÁS VISIBLES) ===== */
+        .fila-vehiculo-mensual { 
+            background-color: #ffedd5 !important;  /* naranja más fuerte */
+        }
+        .fila-vehiculo-mensual:hover { 
+            background-color: #fed7aa !important;  /* naranja más oscuro al hover */
+        }
         
-        .fila-vehiculo-camioneta { background-color: rgba(219, 234, 254, 0.3); }  /* azul suave */
-        .fila-vehiculo-camioneta:hover { background-color: rgba(219, 234, 254, 0.6); }
+        .fila-vehiculo-camioneta { 
+            background-color: #dbeafe !important;  /* azul más fuerte */
+        }
+        .fila-vehiculo-camioneta:hover { 
+            background-color: #bfdbfe !important;
+        }
         
-        .fila-vehiculo-turbo { background-color: rgba(209, 250, 229, 0.3); }  /* verde suave */
-        .fila-vehiculo-turbo:hover { background-color: rgba(209, 250, 229, 0.6); }
+        .fila-vehiculo-turbo { 
+            background-color: #d1fae5 !important;  /* verde más fuerte */
+        }
+        .fila-vehiculo-turbo:hover { 
+            background-color: #a7f3d0 !important;
+        }
         
-        .fila-vehiculo-camión { background-color: rgba(237, 233, 254, 0.3); }  /* morado suave */
-        .fila-vehiculo-camión:hover { background-color: rgba(237, 233, 254, 0.6); }
+        .fila-vehiculo-camión { 
+            background-color: #ede9fe !important;  /* morado más fuerte */
+        }
+        .fila-vehiculo-camión:hover { 
+            background-color: #ddd6fe !important;
+        }
         
-        .fila-vehiculo-buseta { background-color: rgba(254, 226, 226, 0.3); }  /* rojo suave */
-        .fila-vehiculo-buseta:hover { background-color: rgba(254, 226, 226, 0.6); }
+        .fila-vehiculo-buseta { 
+            background-color: #fee2e2 !important;  /* rojo más fuerte */
+        }
+        .fila-vehiculo-buseta:hover { 
+            background-color: #fecaca !important;
+        }
         
-        .fila-vehiculo-minivan { background-color: rgba(204, 251, 241, 0.3); }  /* teal suave */
-        .fila-vehiculo-minivan:hover { background-color: rgba(204, 251, 241, 0.6); }
+        .fila-vehiculo-minivan { 
+            background-color: #ccfbf1 !important;  /* teal más fuerte */
+        }
+        .fila-vehiculo-minivan:hover { 
+            background-color: #99f6e4 !important;
+        }
         
-        .fila-vehiculo-automóvil { background-color: rgba(254, 202, 202, 0.3); }  /* rojo claro */
-        .fila-vehiculo-automóvil:hover { background-color: rgba(254, 202, 202, 0.6); }
+        .fila-vehiculo-automóvil { 
+            background-color: #ffe4e6 !important;  /* rosa más fuerte */
+        }
+        .fila-vehiculo-automóvil:hover { 
+            background-color: #fecdd3 !important;
+        }
         
-        .fila-vehiculo-moto { background-color: rgba(224, 231, 255, 0.3); }  /* indigo suave */
-        .fila-vehiculo-moto:hover { background-color: rgba(224, 231, 255, 0.6); }
+        .fila-vehiculo-moto { 
+            background-color: #e0e7ff !important;  /* indigo más fuerte */
+        }
+        .fila-vehiculo-moto:hover { 
+            background-color: #c7d2fe !important;
+        }
         
-        .fila-vehiculo-furgoneta { background-color: rgba(254, 243, 199, 0.3); }  /* ámbar suave */
-        .fila-vehiculo-furgoneta:hover { background-color: rgba(254, 243, 199, 0.6); }
+        .fila-vehiculo-furgoneta { 
+            background-color: #fef3c7 !important;  /* amarillo más fuerte */
+        }
+        .fila-vehiculo-furgoneta:hover { 
+            background-color: #fde68a !important;
+        }
         
         /* Clase por defecto para tipos no definidos */
-        .fila-vehiculo-default { background-color: rgba(241, 245, 249, 0.3); }
-        .fila-vehiculo-default:hover { background-color: rgba(241, 245, 249, 0.6); }
+        .fila-vehiculo-default { 
+            background-color: #f1f5f9 !important;  /* gris más fuerte */
+        }
+        .fila-vehiculo-default:hover { 
+            background-color: #e2e8f0 !important;
+        }
         
-        .vehiculo-mensual { background-color: #fef3c7 !important; border: 1px solid #f59e0b !important; color: #92400e !important; font-weight: 600; }
-        .alerta-sin-clasificar { animation: pulse-alerta 2s infinite; }
-        @keyframes pulse-alerta { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
-        .conductor-link{ cursor:pointer; color:#0d6efd; text-decoration:underline; }
+        .vehiculo-mensual { 
+            background-color: #fef3c7 !important; 
+            border: 1px solid #f59e0b !important; 
+            color: #92400e !important; 
+            font-weight: 600; 
+        }
+        .alerta-sin-clasificar { 
+            animation: pulse-alerta 2s infinite; 
+        }
+        @keyframes pulse-alerta { 
+            0%, 100% { opacity: 1; } 
+            50% { opacity: 0.7; } 
+        }
+        .conductor-link{ 
+            cursor:pointer; 
+            color:#0d6efd; 
+            text-decoration:underline; 
+        }
+        
+        /* Asegurar que las celdas también hereden el color de fondo */
+        #tabla_conductores tbody tr td {
+            background-color: inherit !important;
+        }
         </style>
 
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
