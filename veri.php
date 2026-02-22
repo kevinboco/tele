@@ -1155,11 +1155,12 @@ if (isset($_GET['viajes_conductor'])) {
 <div class="side-panel-overlay" id="sidePanelOverlay"></div>
 <!-- ===== FIN MÓDULO 8 ===== -->
 
+
 <!-- =======================================================
    🚀 MÓDULO 9: CONTENIDO PRINCIPAL (TABLA DE CONDUCTORES)
    ========================================================
    🔧 PROPÓSITO: Tabla principal con liquidación
-   🔧 SI MODIFICAS: Cambias la vista principal del sistema
+   🔧 CARACTERÍSTICA: Cada fila tiene color según tipo de vehículo
    ======================================================== -->
 <main class="max-w-[1800px] mx-auto px-3 md:px-4 py-6">
     <div class="table-container-wrapper" id="tableContainerWrapper">
@@ -1179,6 +1180,39 @@ if (isset($_GET['viajes_conductor'])) {
             position: absolute; right: 10px; top: 50%; transform: translateY(-50%); 
             background: none; border: none; color: #64748b; cursor: pointer; display: none; 
         }
+        
+        /* ===== ESTILOS PARA FILAS POR TIPO DE VEHÍCULO ===== */
+        .fila-vehiculo-mensual { background-color: rgba(255, 237, 213, 0.3); }  /* naranja suave */
+        .fila-vehiculo-mensual:hover { background-color: rgba(255, 237, 213, 0.6); }
+        
+        .fila-vehiculo-camioneta { background-color: rgba(219, 234, 254, 0.3); }  /* azul suave */
+        .fila-vehiculo-camioneta:hover { background-color: rgba(219, 234, 254, 0.6); }
+        
+        .fila-vehiculo-turbo { background-color: rgba(209, 250, 229, 0.3); }  /* verde suave */
+        .fila-vehiculo-turbo:hover { background-color: rgba(209, 250, 229, 0.6); }
+        
+        .fila-vehiculo-camión { background-color: rgba(237, 233, 254, 0.3); }  /* morado suave */
+        .fila-vehiculo-camión:hover { background-color: rgba(237, 233, 254, 0.6); }
+        
+        .fila-vehiculo-buseta { background-color: rgba(254, 226, 226, 0.3); }  /* rojo suave */
+        .fila-vehiculo-buseta:hover { background-color: rgba(254, 226, 226, 0.6); }
+        
+        .fila-vehiculo-minivan { background-color: rgba(204, 251, 241, 0.3); }  /* teal suave */
+        .fila-vehiculo-minivan:hover { background-color: rgba(204, 251, 241, 0.6); }
+        
+        .fila-vehiculo-automóvil { background-color: rgba(254, 202, 202, 0.3); }  /* rojo claro */
+        .fila-vehiculo-automóvil:hover { background-color: rgba(254, 202, 202, 0.6); }
+        
+        .fila-vehiculo-moto { background-color: rgba(224, 231, 255, 0.3); }  /* indigo suave */
+        .fila-vehiculo-moto:hover { background-color: rgba(224, 231, 255, 0.6); }
+        
+        .fila-vehiculo-furgoneta { background-color: rgba(254, 243, 199, 0.3); }  /* ámbar suave */
+        .fila-vehiculo-furgoneta:hover { background-color: rgba(254, 243, 199, 0.6); }
+        
+        /* Clase por defecto para tipos no definidos */
+        .fila-vehiculo-default { background-color: rgba(241, 245, 249, 0.3); }
+        .fila-vehiculo-default:hover { background-color: rgba(241, 245, 249, 0.6); }
+        
         .vehiculo-mensual { background-color: #fef3c7 !important; border: 1px solid #f59e0b !important; color: #92400e !important; font-weight: 600; }
         .alerta-sin-clasificar { animation: pulse-alerta 2s infinite; }
         @keyframes pulse-alerta { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
@@ -1268,7 +1302,7 @@ if (isset($_GET['viajes_conductor'])) {
                                 ?>
                                 <th class="px-4 py-3 text-center sticky top-0 <?= $clase_visibilidad ?> columna-tabla" 
                                     data-columna="<?= htmlspecialchars($clasif) ?>"
-                                    style="min-width: 80px; <?= $visible ? '' : '' ?>">
+                                    style="min-width: 80px;">
                                     <?= htmlspecialchars($abreviatura) ?>
                                 </th>
                                 <?php endforeach; ?>
@@ -1278,19 +1312,44 @@ if (isset($_GET['viajes_conductor'])) {
                                 <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 100px;">Faltante</th>
                             </tr>
                         </thead>
-                        <tbody id="tabla_conductores_body" class="divide-y divide-slate-100 bg-white">
+                        <tbody id="tabla_conductores_body" class="divide-y divide-slate-100">
                         <?php foreach ($datos as $conductor => $info): 
-                            $esMensual = (stripos($info['vehiculo'], 'mensual') !== false);
-                            $claseVehiculo = $esMensual ? 'vehiculo-mensual' : '';
+                            $vehiculo = $info['vehiculo'];
+                            $esMensual = (stripos($vehiculo, 'mensual') !== false);
+                            $claseVehiculoBadge = $esMensual ? 'vehiculo-mensual' : '';
                             $rutasSinClasificar = $info['rutas_sin_clasificar'] ?? 0;
-                            $color_vehiculo = obtenerColorVehiculo($info['vehiculo']);
+                            $color_vehiculo = obtenerColorVehiculo($vehiculo);
+                            
+                            // Determinar la clase CSS para la fila según el tipo de vehículo
+                            $vehiculo_lower = strtolower($vehiculo);
+                            $clase_fila = 'fila-vehiculo-default'; // Por defecto
+                            
+                            // Mapear tipos de vehículo a clases específicas
+                            $mapa_clases = [
+                                'mensual' => 'fila-vehiculo-mensual',
+                                'camioneta' => 'fila-vehiculo-camioneta',
+                                'turbo' => 'fila-vehiculo-turbo',
+                                'camión' => 'fila-vehiculo-camión',
+                                'buseta' => 'fila-vehiculo-buseta',
+                                'minivan' => 'fila-vehiculo-minivan',
+                                'automóvil' => 'fila-vehiculo-automóvil',
+                                'moto' => 'fila-vehiculo-moto',
+                                'furgoneta' => 'fila-vehiculo-furgoneta'
+                            ];
+                            
+                            foreach ($mapa_clases as $tipo => $clase) {
+                                if (strpos($vehiculo_lower, $tipo) !== false) {
+                                    $clase_fila = $clase;
+                                    break;
+                                }
+                            }
                         ?>
                             <tr data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>" 
                                 data-conductor="<?= htmlspecialchars($conductor) ?>" 
                                 data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
                                 data-pagado="<?= (int)($info['pagado'] ?? 0) ?>"
                                 data-sin-clasificar="<?= $rutasSinClasificar ?>"
-                                class="hover:bg-blue-50/40 transition-colors <?php echo $rutasSinClasificar > 0 ? 'alerta-sin-clasificar' : ''; ?>">
+                                class="<?= $clase_fila ?> hover:bg-opacity-80 transition-colors <?php echo $rutasSinClasificar > 0 ? 'alerta-sin-clasificar' : ''; ?>">
                                 
                                 <td class="px-4 py-3 text-center">
                                     <?php if ($rutasSinClasificar > 0): ?>
@@ -1319,7 +1378,7 @@ if (isset($_GET['viajes_conductor'])) {
                                 </td>
                                 
                                 <td class="px-4 py-3 text-center">
-                                    <span class="inline-block <?= $claseVehiculo ?> px-3 py-1.5 rounded-lg text-xs font-medium border <?= $color_vehiculo['border'] ?> <?= $color_vehiculo['text'] ?> <?= $color_vehiculo['bg'] ?>">
+                                    <span class="inline-block <?= $claseVehiculoBadge ?> px-3 py-1.5 rounded-lg text-xs font-medium border <?= $color_vehiculo['border'] ?> <?= $color_vehiculo['text'] ?> <?= $color_vehiculo['bg'] ?>">
                                         <?= htmlspecialchars($info['vehiculo']) ?>
                                     </span>
                                 </td>
@@ -1339,20 +1398,20 @@ if (isset($_GET['viajes_conductor'])) {
 
                                 <td class="px-4 py-3">
                                     <input type="text"
-                                           class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none whitespace-nowrap tabular-nums"
+                                           class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white bg-opacity-50 outline-none whitespace-nowrap tabular-nums"
                                            readonly>
                                 </td>
 
                                 <td class="px-4 py-3">
                                     <input type="text"
-                                           class="pagado w-full rounded-xl border border-emerald-200 px-3 py-2 text-right bg-emerald-50 outline-none whitespace-nowrap tabular-nums"
+                                           class="pagado w-full rounded-xl border border-emerald-200 px-3 py-2 text-right bg-emerald-50 bg-opacity-50 outline-none whitespace-nowrap tabular-nums"
                                            readonly
                                            value="<?= number_format((int)($info['pagado'] ?? 0), 0, ',', '.') ?>">
                                 </td>
 
                                 <td class="px-4 py-3">
                                     <input type="text"
-                                           class="faltante w-full rounded-xl border border-rose-200 px-3 py-2 text-right bg-rose-50 outline-none whitespace-nowrap tabular-nums"
+                                           class="faltante w-full rounded-xl border border-rose-200 px-3 py-2 text-right bg-rose-50 bg-opacity-50 outline-none whitespace-nowrap tabular-nums"
                                            readonly>
                                 </td>
                             </tr>
