@@ -1972,7 +1972,346 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 <!-- ===== FIN MÓDULO 11 ===== -->
+/* =======================================================
+   🚀 MÓDULO 12: LISTA DE CONDUCTORES (VISTA RÁPIDA)
+   ========================================================
+   🔧 PROPÓSITO: Mostrar todos los conductores con sus tipos de vehículo
+   🔧 PARA MODIFICAR: Cambia el HTML, CSS o JS de ESTE BLOQUE
+   🔧 PARA ELIMINAR: Borra este bloque completo
+   ======================================================== */
 
+<!-- Botón para abrir el panel (opcional - puedes ponerlo donde quieras) -->
+<button onclick="togglePanelConductores()" 
+        class="fixed bottom-6 right-6 z-50 bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-4 rounded-full shadow-lg hover:shadow-xl transition-all transform hover:scale-110">
+    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
+    </svg>
+</button>
+
+<!-- Panel lateral de conductores -->
+<div class="side-panel" id="panel-conductores">
+    <style>
+    /* Estilos específicos para este módulo */
+    .conductor-card {
+        transition: all 0.3s ease;
+        border-left: 4px solid transparent;
+    }
+    .conductor-card:hover {
+        transform: translateX(5px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .conductor-card.mensual {
+        border-left-color: #f59e0b;
+        background: linear-gradient(to right, #fff7ed, white);
+    }
+    .conductor-card.camioneta {
+        border-left-color: #3b82f6;
+        background: linear-gradient(to right, #eff6ff, white);
+    }
+    .conductor-card.turbo {
+        border-left-color: #10b981;
+        background: linear-gradient(to right, #ecfdf5, white);
+    }
+    .badge-tipo {
+        transition: all 0.2s ease;
+    }
+    .badge-tipo:hover {
+        transform: scale(1.05);
+    }
+    .stats-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    </style>
+
+    <div class="side-panel-header bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
+        <h3 class="text-lg font-semibold flex items-center gap-2">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+            </svg>
+            <span>Lista de Conductores</span>
+        </h3>
+        <button class="side-panel-close text-white hover:bg-white/20" data-panel="conductores">✕</button>
+    </div>
+
+    <div class="side-panel-body bg-gradient-to-b from-gray-50 to-white">
+        <!-- Estadísticas rápidas -->
+        <div class="stats-card rounded-xl p-4 mb-6 text-white shadow-lg">
+            <?php
+            $total_conductores = count($datos);
+            $tipos_vehiculo = array_count_values(array_column($datos, 'vehiculo'));
+            $mensuales = $tipos_vehiculo['mensual'] ?? 0;
+            ?>
+            <div class="grid grid-cols-3 gap-2 text-center">
+                <div>
+                    <div class="text-2xl font-bold"><?= $total_conductores ?></div>
+                    <div class="text-xs opacity-90">Total</div>
+                </div>
+                <div>
+                    <div class="text-2xl font-bold"><?= $mensuales ?></div>
+                    <div class="text-xs opacity-90">Mensuales</div>
+                </div>
+                <div>
+                    <div class="text-2xl font-bold"><?= $total_conductores - $mensuales ?></div>
+                    <div class="text-xs opacity-90">Otros</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Buscador específico para este panel -->
+        <div class="mb-4">
+            <div class="relative">
+                <input type="text" 
+                       id="buscadorConductoresPanel"
+                       placeholder="🔍 Buscar conductor..." 
+                       class="w-full rounded-xl border border-gray-200 px-4 py-3 pl-10 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition">
+                <svg class="absolute left-3 top-3.5 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                </svg>
+            </div>
+        </div>
+
+        <!-- Lista de conductores -->
+        <div class="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto pr-2" id="listaConductoresPanel">
+            <?php 
+            $colores_por_tipo = [];
+            foreach ($datos as $conductor => $info): 
+                $vehiculo = $info['vehiculo'];
+                $rutasSinClasificar = $info['rutas_sin_clasificar'] ?? 0;
+                $color_vehiculo = obtenerColorVehiculo($vehiculo);
+                $esMensual = stripos($vehiculo, 'mensual') !== false;
+                $clase_mensual = $esMensual ? 'mensual' : '';
+                
+                // Guardar color para el badge
+                if (!isset($colores_por_tipo[$vehiculo])) {
+                    $colores_por_tipo[$vehiculo] = $color_vehiculo;
+                }
+            ?>
+            <div class="conductor-card <?= $clase_mensual ?> bg-white rounded-xl p-4 shadow-sm border border-gray-100 cursor-pointer hover:shadow-md transition-all"
+                 data-nombre="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
+                 onclick="verDetallesConductor('<?= htmlspecialchars($conductor) ?>')">
+                
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <!-- Avatar con inicial -->
+                        <div class="w-10 h-10 rounded-full bg-gradient-to-br <?= $color_vehiculo['bg'] ?> flex items-center justify-center <?= $color_vehiculo['text'] ?> font-bold text-lg shadow-sm">
+                            <?= mb_substr($conductor, 0, 1) ?>
+                        </div>
+                        
+                        <div>
+                            <h4 class="font-semibold text-gray-800 flex items-center gap-2">
+                                <?= htmlspecialchars($conductor) ?>
+                                <?php if ($rutasSinClasificar > 0): ?>
+                                    <span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                        <span>⚠️</span>
+                                        <?= $rutasSinClasificar ?>
+                                    </span>
+                                <?php endif; ?>
+                            </h4>
+                            <div class="flex items-center gap-2 mt-1">
+                                <!-- Badge del tipo de vehículo -->
+                                <span class="badge-tipo text-xs px-2 py-1 rounded-md <?= $color_vehiculo['bg'] ?> <?= $color_vehiculo['text'] ?> border <?= $color_vehiculo['border'] ?> font-medium inline-flex items-center gap-1">
+                                    <?php 
+                                    $iconos = [
+                                        'mensual' => '📅',
+                                        'camioneta' => '🚙',
+                                        'turbo' => '⚡',
+                                        'camión' => '🚛',
+                                        'buseta' => '🚌',
+                                        'default' => '🚗'
+                                    ];
+                                    $icono = $iconos[strtolower($vehiculo)] ?? $iconos['default'];
+                                    echo $icono . ' ' . htmlspecialchars($vehiculo);
+                                    ?>
+                                </span>
+                                
+                                <!-- Total a pagar (si existe en los datos) -->
+                                <?php if (isset($info['total'])): ?>
+                                <span class="text-xs text-gray-500">
+                                    💰 $<?= number_format($info['total'], 0, ',', '.') ?>
+                                </span>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Botones de acción -->
+                    <div class="flex items-center gap-2">
+                        <button onclick="verViajesConductor('<?= htmlspecialchars($conductor) ?>'); event.stopPropagation();"
+                                class="p-2 hover:bg-blue-50 rounded-lg transition group" 
+                                title="Ver viajes">
+                            <svg class="w-5 h-5 text-gray-500 group-hover:text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                            </svg>
+                        </button>
+                        
+                        <button onclick="event.stopPropagation();"
+                                class="p-2 hover:bg-gray-50 rounded-lg transition group">
+                            <svg class="w-5 h-5 text-gray-500 group-hover:text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+
+        <!-- Leyenda de tipos de vehículo -->
+        <div class="mt-6 pt-4 border-t border-gray-200">
+            <h5 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Tipos de vehículo</h5>
+            <div class="flex flex-wrap gap-2">
+                <?php foreach ($colores_por_tipo as $tipo => $color): ?>
+                <span class="text-xs px-3 py-1.5 rounded-full <?= $color['bg'] ?> <?= $color['text'] ?> border <?= $color['border'] ?> font-medium flex items-center gap-1 shadow-sm">
+                    <?php 
+                    $iconos_leyenda = [
+                        'mensual' => '📅',
+                        'camioneta' => '🚙',
+                        'turbo' => '⚡',
+                        'camión' => '🚛',
+                        'buseta' => '🚌',
+                        'default' => '🚗'
+                    ];
+                    echo ($iconos_leyenda[strtolower($tipo)] ?? $iconos_leyenda['default']) . ' ' . htmlspecialchars($tipo);
+                    ?>
+                </span>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- JavaScript específico para este módulo -->
+<script>
+// ===== FUNCIONES DEL MÓDULO 12 =====
+let panelConductoresAbierto = false;
+
+function togglePanelConductores() {
+    const panel = document.getElementById('panel-conductores');
+    const overlay = document.getElementById('sidePanelOverlay');
+    const tableWrapper = document.getElementById('tableContainerWrapper');
+    
+    if (panelConductoresAbierto) {
+        panel.classList.remove('active');
+        overlay.classList.remove('active');
+        tableWrapper.classList.remove('with-panel');
+        panelConductoresAbierto = false;
+    } else {
+        // Cerrar otros paneles si es necesario
+        if (activePanel) {
+            document.getElementById(`panel-${activePanel}`)?.classList.remove('active');
+            document.getElementById(`ball-${activePanel}`)?.classList.remove('ball-active');
+        }
+        
+        panel.classList.add('active');
+        overlay.classList.add('active');
+        tableWrapper.classList.add('with-panel');
+        panelConductoresAbierto = true;
+        activePanel = 'conductores';
+        
+        // Resetear búsqueda al abrir
+        document.getElementById('buscadorConductoresPanel').value = '';
+        filtrarConductoresPanel();
+    }
+}
+
+function filtrarConductoresPanel() {
+    const texto = normalizarTexto(document.getElementById('buscadorConductoresPanel').value);
+    const cards = document.querySelectorAll('#listaConductoresPanel .conductor-card');
+    
+    cards.forEach(card => {
+        const nombre = card.dataset.nombre;
+        if (texto === '' || nombre.includes(texto)) {
+            card.style.display = '';
+        } else {
+            card.style.display = 'none';
+        }
+    });
+}
+
+function verDetallesConductor(nombre) {
+    // Aquí puedes agregar la funcionalidad que quieras
+    // Por ejemplo, abrir el modal de viajes
+    const conductorLink = document.querySelector(`.conductor-link:contains('${nombre}')`);
+    if (conductorLink) {
+        conductorLink.click();
+    } else {
+        // Buscar en la tabla principal
+        document.querySelectorAll('.conductor-link').forEach(link => {
+            if (link.textContent.trim().replace('⚠️', '').trim() === nombre) {
+                link.click();
+            }
+        });
+    }
+    
+    // Opcional: cerrar el panel después de seleccionar
+    // togglePanelConductores();
+}
+
+// Inicializar eventos del panel
+document.addEventListener('DOMContentLoaded', function() {
+    // Buscador del panel
+    const buscadorPanel = document.getElementById('buscadorConductoresPanel');
+    if (buscadorPanel) {
+        buscadorPanel.addEventListener('input', filtrarConductoresPanel);
+    }
+    
+    // Botón flotante para abrir el panel
+    const btnPanel = document.querySelector('button[onclick="togglePanelConductores()"]');
+    if (btnPanel) {
+        btnPanel.addEventListener('click', togglePanelConductores);
+    }
+    
+    // Cerrar con el botón X
+    document.querySelector('#panel-conductores .side-panel-close')?.addEventListener('click', togglePanelConductores);
+});
+
+// Helper para selector :contains (no nativo)
+Element.prototype.matches = Element.prototype.matches || Element.prototype.msMatchesSelector;
+Element.prototype.closest = Element.prototype.closest || function(selector) {
+    var el = this;
+    while (el) {
+        if (el.matches(selector)) return el;
+        el = el.parentElement;
+    }
+    return null;
+};
+
+// Polyfill para :contains en selectores
+document.querySelectorAllWithContains = function(selector) {
+    const elements = [];
+    const baseSelector = selector.split(':contains')[0];
+    const containsText = selector.match(/:contains\(['"](.+)['"]\)/)?.[1] || '';
+    
+    document.querySelectorAll(baseSelector).forEach(el => {
+        if (el.textContent.includes(containsText)) {
+            elements.push(el);
+        }
+    });
+    
+    return elements;
+};
+
+// Sobrescribir el método para usarlo
+if (!document.querySelectorAllWithContains) {
+    window.verDetallesConductor = function(nombre) {
+        const links = document.querySelectorAll('.conductor-link');
+        let encontrado = false;
+        
+        links.forEach(link => {
+            if (link.textContent.trim().replace('⚠️', '').trim() === nombre) {
+                link.click();
+                encontrado = true;
+            }
+        });
+        
+        if (!encontrado) {
+            console.log('No se encontró el conductor:', nombre);
+        }
+    };
+}
+</script>
+<!-- ===== FIN MÓDULO 12 ===== -->
 </body>
 </html>
 <?php $conn->close(); ?>
