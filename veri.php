@@ -1976,19 +1976,18 @@ document.addEventListener('DOMContentLoaded', function() {
    🚀 MÓDULO 12: LISTA DE CONDUCTORES (VISTA RÁPIDA)
    ========================================================
    🔧 PROPÓSITO: Mostrar todos los conductores con sus tipos de vehículo
-   🔧 PARA MODIFICAR: Cambia el HTML, CSS o JS de ESTE BLOQUE
-   🔧 PARA ELIMINAR: Borra este bloque completo
+   🔧 INSTRUCCIONES: Este módulo usa el sistema de paneles EXISTENTE
    ======================================================== */
 
-<!-- Botón para abrir el panel (opcional - puedes ponerlo donde quieras) -->
-<button onclick="togglePanelConductores()" 
+<!-- Botón para abrir el panel (USA EL SISTEMA EXISTENTE) -->
+<button onclick="togglePanel('conductores')" 
         class="fixed bottom-6 right-6 z-50 bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-4 rounded-full shadow-lg hover:shadow-xl transition-all transform hover:scale-110">
     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
     </svg>
 </button>
 
-<!-- Panel lateral de conductores -->
+<!-- Panel lateral de conductores (AHORA SIGUE LA MISMA ESTRUCTURA) -->
 <div class="side-panel" id="panel-conductores">
     <style>
     /* Estilos específicos para este módulo */
@@ -2144,13 +2143,6 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
                             </svg>
                         </button>
-                        
-                        <button onclick="event.stopPropagation();"
-                                class="p-2 hover:bg-gray-50 rounded-lg transition group">
-                            <svg class="w-5 h-5 text-gray-500 group-hover:text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z"></path>
-                            </svg>
-                        </button>
                     </div>
                 </div>
             </div>
@@ -2181,71 +2173,32 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
 </div>
 
-<!-- JavaScript específico para este módulo -->
+<!-- JavaScript específico para este módulo (solo lo que NO existe) -->
 <script>
-// ===== FUNCIONES DEL MÓDULO 12 =====
-let panelConductoresAbierto = false;
+// ===== FUNCIONES DEL MÓDULO 12 (solo las nuevas) =====
 
-function togglePanelConductores() {
-    const panel = document.getElementById('panel-conductores');
-    const overlay = document.getElementById('sidePanelOverlay');
-    const tableWrapper = document.getElementById('tableContainerWrapper');
-    
-    if (panelConductoresAbierto) {
-        panel.classList.remove('active');
-        overlay.classList.remove('active');
-        tableWrapper.classList.remove('with-panel');
-        panelConductoresAbierto = false;
-    } else {
-        // Cerrar otros paneles si es necesario
-        if (activePanel) {
-            document.getElementById(`panel-${activePanel}`)?.classList.remove('active');
-            document.getElementById(`ball-${activePanel}`)?.classList.remove('ball-active');
-        }
-        
-        panel.classList.add('active');
-        overlay.classList.add('active');
-        tableWrapper.classList.add('with-panel');
-        panelConductoresAbierto = true;
-        activePanel = 'conductores';
-        
-        // Resetear búsqueda al abrir
-        document.getElementById('buscadorConductoresPanel').value = '';
-        filtrarConductoresPanel();
-    }
-}
-
+// Función para filtrar conductores en el panel
 function filtrarConductoresPanel() {
     const texto = normalizarTexto(document.getElementById('buscadorConductoresPanel').value);
     const cards = document.querySelectorAll('#listaConductoresPanel .conductor-card');
     
     cards.forEach(card => {
         const nombre = card.dataset.nombre;
-        if (texto === '' || nombre.includes(texto)) {
-            card.style.display = '';
-        } else {
-            card.style.display = 'none';
-        }
+        card.style.display = (texto === '' || nombre.includes(texto)) ? '' : 'none';
     });
 }
 
+// Función para ver detalles del conductor (usa el sistema existente)
 function verDetallesConductor(nombre) {
-    // Aquí puedes agregar la funcionalidad que quieras
-    // Por ejemplo, abrir el modal de viajes
-    const conductorLink = document.querySelector(`.conductor-link:contains('${nombre}')`);
-    if (conductorLink) {
-        conductorLink.click();
-    } else {
-        // Buscar en la tabla principal
-        document.querySelectorAll('.conductor-link').forEach(link => {
-            if (link.textContent.trim().replace('⚠️', '').trim() === nombre) {
-                link.click();
-            }
-        });
-    }
+    // Buscar el link del conductor en la tabla principal
+    document.querySelectorAll('.conductor-link').forEach(link => {
+        if (link.textContent.trim().replace('⚠️', '').trim() === nombre) {
+            link.click(); // Esto abre el modal de viajes
+        }
+    });
     
     // Opcional: cerrar el panel después de seleccionar
-    // togglePanelConductores();
+    // togglePanel('conductores');
 }
 
 // Inicializar eventos del panel
@@ -2255,61 +2208,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (buscadorPanel) {
         buscadorPanel.addEventListener('input', filtrarConductoresPanel);
     }
-    
-    // Botón flotante para abrir el panel
-    const btnPanel = document.querySelector('button[onclick="togglePanelConductores()"]');
-    if (btnPanel) {
-        btnPanel.addEventListener('click', togglePanelConductores);
-    }
-    
-    // Cerrar con el botón X
-    document.querySelector('#panel-conductores .side-panel-close')?.addEventListener('click', togglePanelConductores);
 });
-
-// Helper para selector :contains (no nativo)
-Element.prototype.matches = Element.prototype.matches || Element.prototype.msMatchesSelector;
-Element.prototype.closest = Element.prototype.closest || function(selector) {
-    var el = this;
-    while (el) {
-        if (el.matches(selector)) return el;
-        el = el.parentElement;
-    }
-    return null;
-};
-
-// Polyfill para :contains en selectores
-document.querySelectorAllWithContains = function(selector) {
-    const elements = [];
-    const baseSelector = selector.split(':contains')[0];
-    const containsText = selector.match(/:contains\(['"](.+)['"]\)/)?.[1] || '';
-    
-    document.querySelectorAll(baseSelector).forEach(el => {
-        if (el.textContent.includes(containsText)) {
-            elements.push(el);
-        }
-    });
-    
-    return elements;
-};
-
-// Sobrescribir el método para usarlo
-if (!document.querySelectorAllWithContains) {
-    window.verDetallesConductor = function(nombre) {
-        const links = document.querySelectorAll('.conductor-link');
-        let encontrado = false;
-        
-        links.forEach(link => {
-            if (link.textContent.trim().replace('⚠️', '').trim() === nombre) {
-                link.click();
-                encontrado = true;
-            }
-        });
-        
-        if (!encontrado) {
-            console.log('No se encontró el conductor:', nombre);
-        }
-    };
-}
 </script>
 <!-- ===== FIN MÓDULO 12 ===== -->
 </body>
