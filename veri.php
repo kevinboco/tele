@@ -2091,17 +2091,98 @@ document.addEventListener('DOMContentLoaded', function() {
 <!-- ===== FIN MÓDULO 11 ===== -->
 <?php
 /* =======================================================
-   🚀 MÓDULO 12: SISTEMA DE ALERTAS Y PRESUPUESTOS (FUNCIONAL)
-   ========================================================
-   🔧 BASADO EN: flow_alert.php - Botón "Ver presupuestos"
-   🔧 CARACTERÍSTICAS:
-        - Muestra empresas con checkboxes
-        - Botón "Seleccionar todas P."
-        - Calcula gastos reales vs presupuesto
-        - Muestra alertas cuando se excede
+   🚀 MÓDULO 12: SISTEMA DE ALERTAS (CON LA MISMA LÓGICA DE FLOW_ALERT)
    ======================================================== */
 
-// ===== FUNCIONES DE BASE DE DATOS =====
+// ===== FUNCIONES IDÉNTICAS A FLOW_ALERT.PHP =====
+function obtenerClasificacionRuta($conn, $ruta, $tipo_vehiculo) {
+    // Primero buscar con ruta y tipo_vehiculo exactos
+    $sql = "SELECT clasificacion FROM ruta_clasificacion 
+            WHERE ruta = ? AND tipo_vehiculo = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("ss", $ruta, $tipo_vehiculo);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    if ($row = $result->fetch_assoc()) {
+        $clasificacion = $row['clasificacion'];
+        $stmt->close();
+        return $clasificacion;
+    }
+    $stmt->close();
+    
+    // Si no encuentra, buscar solo por ruta
+    $sql = "SELECT clasificacion FROM ruta_clasificacion 
+            WHERE ruta = ? LIMIT 1";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("s", $ruta);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    if ($row = $result->fetch_assoc()) {
+        $clasificacion = $row['clasificacion'];
+        $stmt->close();
+        return $clasificacion;
+    }
+    
+    $stmt->close();
+    return null;
+}
+
+function obtenerTarifa($conn, $empresa, $tipo_vehiculo, $clasificacion) {
+    // Buscar tarifa para la empresa específica
+    $sql = "SELECT $clasificacion as tarifa FROM tarifas 
+            WHERE empresa = ? AND tipo_vehiculo = ?";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("ss", $empresa, $tipo_vehiculo);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    if ($row = $result->fetch_assoc()) {
+        $tarifa = $row['tarifa'] ?? 0;
+        $stmt->close();
+        return floatval($tarifa);
+    }
+    
+    $stmt->close();
+    return 0;
+}
+
+function calcularGastosEmpresa($conn, $empresa, $mes, $anio) {
+    $gastos_totales = 0;
+    
+    // Obtener todos los viajes de la empresa en el mes/año
+    $sql = "SELECT v.ruta, v.tipo_vehiculo, v.fecha 
+            FROM viajes v 
+            WHERE v.empresa = ? 
+            AND MONTH(v.fecha) = ? 
+            AND YEAR(v.fecha) = ?
+            AND v.ruta IS NOT NULL 
+            AND v.tipo_vehiculo IS NOT NULL";
+    
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("sii", $empresa, $mes, $anio);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    while ($viaje = $result->fetch_assoc()) {
+        // Obtener clasificación de la ruta (igual que en flow_alert)
+        $clasificacion = obtenerClasificacionRuta($conn, $viaje['ruta'], $viaje['tipo_vehiculo']);
+        
+        if ($clasificacion) {
+            // Obtener tarifa (igual que en flow_alert)
+            $tarifa = obtenerTarifa($conn, $empresa, $viaje['tipo_vehiculo'], $clasificacion);
+            
+            if ($tarifa > 0) {
+                $gastos_totales += $tarifa;
+            }
+        }
+    }
+    
+    $stmt->close();
+    return $gastos_totales;
+}
+
 function obtenerEmpresasConViajes($conn) {
     $sql = "SELECT DISTINCT empresa FROM viajes 
             WHERE empresa IS NOT NULL AND empresa != ''
@@ -2114,71 +2195,32 @@ function obtenerEmpresasConViajes($conn) {
     return $empresas;
 }
 
-function obtenerPresupuestosEmpresa($conn, $mes = null, $anio = null, $empresas_filtro = []) {
-    if ($mes === null) $mes = date('n');
-    if ($anio === null) $anio = date('Y');
-    
+function obtenerPresupuestosEmpresa($conn, $mes, $anio, $empresas_filtro = []) {
     $sql = "SELECT * FROM presupuestos_empresa 
-            WHERE mes = $mes AND anio = $anio AND activo = 1";
+            WHERE mes = ? AND anio = ? AND activo = 1";
+    
+    $params = [$mes, $anio];
+    $types = "ii";
     
     if (!empty($empresas_filtro)) {
-        $empresas_escapadas = array_map(function($e) use ($conn) {
-            return "'" . $conn->real_escape_string($e) . "'";
-        }, $empresas_filtro);
-        $sql .= " AND empresa IN (" . implode(',', $empresas_escapadas) . ")";
+        $placeholders = implode(',', array_fill(0, count($empresas_filtro), '?'));
+        $sql .= " AND empresa IN ($placeholders)";
+        $params = array_merge($params, $empresas_filtro);
+        $types .= str_repeat('s', count($empresas_filtro));
     }
     
     $sql .= " ORDER BY empresa ASC";
-    $result = $conn->query($sql);
+    
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $result = $stmt->get_result();
     $presupuestos = [];
     while ($row = $result->fetch_assoc()) {
         $presupuestos[] = $row;
     }
+    $stmt->close();
     return $presupuestos;
-}
-
-function calcularGastosEmpresa($conn, $empresa, $mes, $anio) {
-    $gastos_totales = 0;
-    
-    $sql = "SELECT v.ruta, v.tipo_vehiculo 
-            FROM viajes v 
-            WHERE v.empresa = '" . $conn->real_escape_string($empresa) . "' 
-            AND MONTH(v.fecha) = $mes 
-            AND YEAR(v.fecha) = $anio
-            AND v.ruta IS NOT NULL 
-            AND v.tipo_vehiculo IS NOT NULL";
-    
-    $result = $conn->query($sql);
-    
-    while ($viaje = $result->fetch_assoc()) {
-        // Obtener clasificación de la ruta
-        $clasificacion = '';
-        $sql_clasif = "SELECT clasificacion FROM ruta_clasificacion 
-                      WHERE ruta = '" . $conn->real_escape_string($viaje['ruta']) . "' 
-                      AND tipo_vehiculo = '" . $conn->real_escape_string($viaje['tipo_vehiculo']) . "'";
-        $res_clasif = $conn->query($sql_clasif);
-        
-        if ($row_clasif = $res_clasif->fetch_assoc()) {
-            $clasificacion = $row_clasif['clasificacion'];
-        }
-        
-        if ($clasificacion) {
-            // Obtener tarifa
-            $sql_tarifa = "SELECT $clasificacion as tarifa FROM tarifas 
-                          WHERE empresa = '" . $conn->real_escape_string($empresa) . "' 
-                          AND tipo_vehiculo = '" . $conn->real_escape_string($viaje['tipo_vehiculo']) . "'";
-            $res_tarifa = $conn->query($sql_tarifa);
-            
-            if ($row_tarifa = $res_tarifa->fetch_assoc()) {
-                $tarifa = floatval($row_tarifa['tarifa'] ?? 0);
-                if ($tarifa > 0) {
-                    $gastos_totales += $tarifa;
-                }
-            }
-        }
-    }
-    
-    return $gastos_totales;
 }
 
 function nombreMes($mes) {
@@ -2198,11 +2240,14 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_presupuestos') {
     $anio = intval($_GET['anio']);
     $empresas = json_decode($_GET['empresas'], true);
     
+    // Usar prepared statements como en flow_alert
     $presupuestos = obtenerPresupuestosEmpresa($conn, $mes, $anio, $empresas);
     $resultado = [];
     
     foreach ($presupuestos as $p) {
+        // Calcular gastos usando la misma función de flow_alert
         $gastos = calcularGastosEmpresa($conn, $p['empresa'], $mes, $anio);
+        
         $resultado[] = [
             'empresa' => $p['empresa'],
             'presupuesto' => floatval($p['presupuesto']),
@@ -2220,7 +2265,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_presupuestos') {
 }
 ?>
 
-<!-- ===== BOTÓN Y PANEL DE PRESUPUESTOS ===== -->
+<!-- ===== BOTÓN Y PANEL (IGUAL QUE ANTES) ===== -->
 <style>
 /* Botón flotante */
 .presupuestos-btn {
@@ -2402,7 +2447,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_presupuestos') {
     </div>
     
     <div class="presupuestos-body">
-        <!-- Selector de mes (por defecto mes actual) -->
+        <!-- Selector de mes -->
         <div style="background:#f8fafc; padding:12px; border-radius:8px; margin-bottom:16px;">
             <label style="display:block; font-size:12px; color:#475569; margin-bottom:4px;">Período:</label>
             <select id="periodoSelect" style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px;">
@@ -2410,6 +2455,17 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'get_presupuestos') {
                 $mes_actual = date('n');
                 $anio_actual = date('Y');
                 echo "<option value='$mes_actual-$anio_actual' selected>" . nombreMes($mes_actual) . " $anio_actual</option>";
+                
+                // También mostrar meses con presupuestos
+                $sql_periodos = "SELECT DISTINCT mes, anio FROM presupuestos_empresa WHERE activo = 1 ORDER BY anio DESC, mes DESC";
+                $res_periodos = $conn->query($sql_periodos);
+                if ($res_periodos) {
+                    while ($p = $res_periodos->fetch_assoc()) {
+                        if ($p['mes'] != $mes_actual || $p['anio'] != $anio_actual) {
+                            echo "<option value='{$p['mes']}-{$p['anio']}'>" . nombreMes($p['mes']) . " {$p['anio']}</option>";
+                        }
+                    }
+                }
                 ?>
             </select>
         </div>
@@ -2624,7 +2680,7 @@ function verPresupuestos() {
             console.error('Error:', error);
             resultados.innerHTML = `
                 <div style="text-align:center; padding:30px; color:#dc2626;">
-                    ❌ Error al cargar los datos
+                    ❌ Error al cargar los datos: ${error.message}
                 </div>
             `;
         });
