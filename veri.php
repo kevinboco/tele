@@ -180,7 +180,7 @@ if (isset($_POST['guardar_columnas_seleccionadas'])) {
    🚀 MÓDULO 3: FILTRO INICIAL (PANTALLA DE SELECCIÓN)
    ========================================================
    🔧 PROPÓSITO: Mostrar formulario cuando no hay fechas
-   🔧 SI MODIFICAS: Cambias la pantalla de entrada
+   🔧 ACTUALIZADO: Selección múltiple de empresas con checkboxes
    ======================================================== */
 if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
     $empresas = [];
@@ -194,39 +194,88 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
       <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
       <title>Filtrar viajes</title>
       <script src="https://cdn.tailwindcss.com"></script>
+      <style>
+        .empresa-checkbox:checked + span {
+            background-color: #3b82f6;
+            color: white;
+            border-color: #2563eb;
+        }
+        .grid-empresas {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 12px;
+        }
+      </style>
     </head>
     <body class="min-h-screen bg-slate-100 text-slate-800">
       <div class="max-w-lg mx-auto p-6">
         <div class="bg-white shadow-sm rounded-2xl p-6 border border-slate-200">
           <h2 class="text-2xl font-bold text-center mb-2">📅 Filtrar viajes por rango</h2>
-          <p class="text-center text-slate-500 mb-6">Selecciona el periodo y (opcional) una empresa.</p>
+          <p class="text-center text-slate-500 mb-6">Selecciona el periodo y las empresas que deseas incluir.</p>
+          
           <form method="get" class="space-y-4">
             <label class="block">
               <span class="block text-sm font-medium mb-1">Desde</span>
               <input type="date" name="desde" required
                      class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"/>
             </label>
+            
             <label class="block">
               <span class="block text-sm font-medium mb-1">Hasta</span>
               <input type="date" name="hasta" required
                      class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"/>
             </label>
-            <label class="block">
-              <span class="block text-sm font-medium mb-1">Empresa</span>
-              <select name="empresa"
-                      class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
-                <option value="">-- Todas --</option>
+            
+            <div class="block">
+              <span class="block text-sm font-medium mb-2">Empresas (selecciona las que necesites)</span>
+              
+              <!-- Botones de selección rápida -->
+              <div class="flex flex-wrap gap-2 mb-3">
+                <button type="button" onclick="seleccionarTodas()" 
+                        class="text-xs px-3 py-1.5 rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 transition">
+                  ✅ Seleccionar todas
+                </button>
+                <button type="button" onclick="deseleccionarTodas()" 
+                        class="text-xs px-3 py-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 transition">
+                  ✕ Limpiar
+                </button>
+              </div>
+              
+              <!-- Grid de checkboxes -->
+              <div class="grid-empresas grid grid-cols-2 gap-2">
                 <?php foreach($empresas as $e): ?>
-                  <option value="<?= htmlspecialchars($e) ?>"><?= htmlspecialchars($e) ?></option>
+                <label class="flex items-center gap-2 p-2 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50 transition">
+                  <input type="checkbox" name="empresas[]" value="<?= htmlspecialchars($e) ?>" 
+                         class="empresa-checkbox w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500">
+                  <span class="text-sm truncate"><?= htmlspecialchars($e) ?></span>
+                </label>
                 <?php endforeach; ?>
-              </select>
-            </label>
-            <button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow hover:bg-blue-700 active:bg-blue-800 focus:ring-4 focus:ring-blue-200 transition">
-              Filtrar
+              </div>
+              
+              <p class="text-xs text-slate-500 mt-2">
+                ℹ️ Puedes seleccionar una o varias empresas. Los conductores aparecerán con el total combinado.
+              </p>
+            </div>
+            
+            <button type="submit" 
+                    class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow hover:bg-blue-700 active:bg-blue-800 focus:ring-4 focus:ring-blue-200 transition">
+              📊 Ver liquidación
             </button>
           </form>
         </div>
       </div>
+      
+      <script>
+        function seleccionarTodas() {
+          document.querySelectorAll('.empresa-checkbox').forEach(cb => cb.checked = true);
+        }
+        
+        function deseleccionarTodas() {
+          document.querySelectorAll('.empresa-checkbox').forEach(cb => cb.checked = false);
+        }
+      </script>
     </body>
     </html>
     <?php
@@ -235,19 +284,35 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
 /* ===== FIN MÓDULO 3 ===== */
 
 /* =======================================================
-   🚀 MÓDULO 4: OBTENCIÓN DE DATOS PRINCIPALES
+   🚀 MÓDULO 4: OBTENCIÓN DE DATOS PRINCIPALES (MULTI-EMPRESA)
    ========================================================
-   🔧 PROPÓSITO: Procesar los datos de la consulta principal
-   🔧 SI MODIFICAS: Cambias la lógica de negocio
+   🔧 PROPÓSITO: Procesar los datos con múltiples empresas
+   🔧 CARACTERÍSTICA: Suma automática de viajes de todas las empresas seleccionadas
    ======================================================== */
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
-$empresaFiltro = $_GET['empresa'] ?? "";
+$empresasFiltro = $_GET['empresas'] ?? [];
+
+// Si viene vacío o no es array, lo convertimos a array vacío
+if (!is_array($empresasFiltro)) {
+    $empresasFiltro = $empresasFiltro ? [$empresasFiltro] : [];
+}
+$empresasFiltro = array_filter($empresasFiltro); // Quitar vacíos
+
+// Construir condición SQL para múltiples empresas
+$sqlCondicionEmpresa = "";
+if (!empty($empresasFiltro)) {
+    $empresasEscapadas = array_map(function($e) use ($conn) {
+        return "'" . $conn->real_escape_string($e) . "'";
+    }, $empresasFiltro);
+    $sqlCondicionEmpresa = " AND empresa IN (" . implode(",", $empresasEscapadas) . ")";
+}
 
 $columnas_tarifas = obtenerColumnasTarifas($conn);
 $clasificaciones_disponibles = obtenerClasificacionesDisponibles($conn);
 
-$session_key = "columnas_seleccionadas_" . md5($empresaFiltro . $desde . $hasta);
+// Session key basado en TODAS las empresas seleccionadas
+$session_key = "columnas_seleccionadas_" . md5(implode('|', $empresasFiltro) . $desde . $hasta);
 $columnas_seleccionadas = [];
 if (isset($_COOKIE[$session_key])) {
     $columnas_seleccionadas = json_decode($_COOKIE[$session_key], true);
@@ -255,7 +320,7 @@ if (isset($_COOKIE[$session_key])) {
     $columnas_seleccionadas = $clasificaciones_disponibles;
 }
 
-// Cargar clasificaciones de rutas
+// Cargar clasificaciones de rutas (global, no depende de empresas)
 $clasif_rutas = [];
 $resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
 if ($resClasif) {
@@ -265,34 +330,37 @@ if ($resClasif) {
     }
 }
 
-// Consulta principal de viajes
+// 📊 CONSULTA PRINCIPAL - Trae viajes de TODAS las empresas seleccionadas
 $sql = "SELECT nombre, ruta, empresa, tipo_vehiculo, COALESCE(pago_parcial,0) AS pago_parcial
         FROM viajes
         WHERE fecha BETWEEN '$desde' AND '$hasta'";
-if ($empresaFiltro !== "") {
-    $empresaFiltro = $conn->real_escape_string($empresaFiltro);
-    $sql .= " AND empresa = '$empresaFiltro'";
-}
+$sql .= $sqlCondicionEmpresa; // Agregar condición multi-empresa
+
 $res = $conn->query($sql);
 
+// Inicializar arrays
 $datos = [];
 $vehiculos = [];
 $rutasUnicas = [];
 $pagosConductor = [];
 $rutas_sin_clasificar_por_conductor = [];
 
+// Procesar resultados - SE SUMAN AUTOMÁTICAMENTE LOS VIAJES DE TODAS LAS EMPRESAS
 if ($res) {
     while ($row = $res->fetch_assoc()) {
         $nombre   = $row['nombre'];
         $ruta     = $row['ruta'];
         $vehiculo = $row['tipo_vehiculo'];
         $pagoParcial = (int)($row['pago_parcial'] ?? 0);
+        $empresa  = $row['empresa'];
 
+        // Sumar pagos parciales del conductor (acumula de todas las empresas)
         if (!isset($pagosConductor[$nombre])) $pagosConductor[$nombre] = 0;
         $pagosConductor[$nombre] += $pagoParcial;
 
         $keyRuta = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
 
+        // Registrar ruta única para el panel de clasificación
         if (!isset($rutasUnicas[$keyRuta])) {
             $rutasUnicas[$keyRuta] = [
                 'ruta'          => $ruta,
@@ -301,8 +369,10 @@ if ($res) {
             ];
         }
 
+        // Registrar tipo de vehículo único
         if (!in_array($vehiculo, $vehiculos, true)) $vehiculos[] = $vehiculo;
 
+        // Registrar rutas sin clasificar
         $clasificacion_ruta = $clasif_rutas[$keyRuta] ?? '';
         if ($clasificacion_ruta === '' || $clasificacion_ruta === 'otro') {
             if (!isset($rutas_sin_clasificar_por_conductor[$nombre])) {
@@ -314,52 +384,65 @@ if ($res) {
             }
         }
 
+        // Inicializar datos del conductor si no existe
         if (!isset($datos[$nombre])) {
             $datos[$nombre] = ["vehiculo" => $vehiculo, "pagado" => 0];
             foreach ($clasificaciones_disponibles as $clasif) $datos[$nombre][$clasif] = 0;
         }
 
+        // SUMAR el viaje a la clasificación correspondiente
         $clasifRuta = $clasif_rutas[$keyRuta] ?? '';
         if ($clasifRuta !== '') {
             if (!isset($datos[$nombre][$clasifRuta])) $datos[$nombre][$clasifRuta] = 0;
-            $datos[$nombre][$clasifRuta]++;
+            $datos[$nombre][$clasifRuta]++; // ¡ESTA LÍNEA SUMA LOS VIAJES!
         }
     }
 }
 
+// Asignar pagos totales a cada conductor (ya están sumados de todas las empresas)
 foreach ($datos as $conductor => $info) {
     $datos[$conductor]["pagado"] = (int)($pagosConductor[$conductor] ?? 0);
     $datos[$conductor]["rutas_sin_clasificar"] = count($rutas_sin_clasificar_por_conductor[$conductor] ?? []);
 }
 
-// Obtener empresas para el filtro
+// Obtener empresas para el filtro (lista completa)
 $empresas = [];
 $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
 if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
 
-// Obtener tarifas guardadas
+// Obtener tarifas guardadas (para la PRIMERA empresa seleccionada - las bolitas funcionan igual)
 $tarifas_guardadas = [];
-if ($empresaFiltro !== "") {
-  $resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa='$empresaFiltro'");
-  if ($resTarifas) {
-    while ($r = $resTarifas->fetch_assoc()) {
-      $tarifas_guardadas[$r['tipo_vehiculo']] = $r;
+if (!empty($empresasFiltro)) {
+    $primeraEmpresa = $empresasFiltro[0];
+    $resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa='$primeraEmpresa'");
+    if ($resTarifas) {
+        while ($r = $resTarifas->fetch_assoc()) {
+            $tarifas_guardadas[$r['tipo_vehiculo']] = $r;
+        }
     }
-  }
 }
 /* ===== FIN MÓDULO 4 ===== */
 
 /* =======================================================
-   🚀 MÓDULO 5: ENDPOINT VIAJES POR CONDUCTOR (AJAX)
+   🚀 MÓDULO 5: ENDPOINT VIAJES POR CONDUCTOR (AJAX) - MULTI-EMPRESA
    ========================================================
    🔧 PROPÓSITO: Cargar viajes individuales en el modal
-   🔧 SI MODIFICAS: Cambias la visualización de viajes
+   🔧 ACTUALIZADO: Muestra viajes de TODAS las empresas seleccionadas
    ======================================================== */
 if (isset($_GET['viajes_conductor'])) {
     $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
     $desde   = $_GET['desde'];
     $hasta   = $_GET['hasta'];
-    $empresa = $_GET['empresa'] ?? "";
+    $empresasParam = $_GET['empresas'] ?? [];
+    
+    // Procesar empresas (puede venir como array o como string JSON)
+    if (is_string($empresasParam)) {
+        $empresasParam = json_decode($empresasParam, true) ?? [];
+    }
+    if (!is_array($empresasParam)) {
+        $empresasParam = $empresasParam ? [$empresasParam] : [];
+    }
+    $empresasParam = array_filter($empresasParam);
 
     $clasificaciones_disponibles = obtenerClasificacionesDisponibles($conn);
     $legend = [];
@@ -373,7 +456,7 @@ if (isset($_GET['viajes_conductor'])) {
     }
     $legend['otro'] = ['label'=>'Sin clasificar', 'badge'=>'bg-gray-100 text-gray-700 border border-gray-200', 'row'=>'bg-gray-50/20'];
 
-    // Cargar clasificaciones
+    // Cargar clasificaciones de rutas
     $clasif_rutas = [];
     $resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
     if ($resClasif) {
@@ -383,14 +466,20 @@ if (isset($_GET['viajes_conductor'])) {
         }
     }
 
+    // 📌 CONSTRUIR CONSULTA - TRAER VIAJES DE TODAS LAS EMPRESAS SELECCIONADAS
     $sql = "SELECT fecha, ruta, empresa, tipo_vehiculo, COALESCE(pago_parcial,0) AS pago_parcial
             FROM viajes
             WHERE nombre = '$nombre'
               AND fecha BETWEEN '$desde' AND '$hasta'";
-    if ($empresa !== "") {
-        $empresa = $conn->real_escape_string($empresa);
-        $sql .= " AND empresa = '$empresa'";
+    
+    // Agregar filtro de múltiples empresas si hay
+    if (!empty($empresasParam)) {
+        $empresasEscapadas = array_map(function($e) use ($conn) {
+            return "'" . $conn->real_escape_string($e) . "'";
+        }, $empresasParam);
+        $sql .= " AND empresa IN (" . implode(",", $empresasEscapadas) . ")";
     }
+    
     $sql .= " ORDER BY fecha ASC";
 
     $res = $conn->query($sql);
@@ -404,6 +493,7 @@ if (isset($_GET['viajes_conductor'])) {
         while ($r = $res->fetch_assoc()) {
             $ruta = (string)$r['ruta'];
             $vehiculo = $r['tipo_vehiculo'];
+            $empresa = $r['empresa'];
             
             $key = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
             $cat = $clasif_rutas[$key] ?? 'otro';
@@ -414,7 +504,8 @@ if (isset($_GET['viajes_conductor'])) {
                 $rutas_sin_clasificar[] = [
                     'ruta' => $ruta,
                     'vehiculo' => $vehiculo,
-                    'fecha' => $r['fecha']
+                    'fecha' => $r['fecha'],
+                    'empresa' => $empresa
                 ];
             }
             
@@ -437,15 +528,20 @@ if (isset($_GET['viajes_conductor'])) {
             $pp = (int)($r['pago_parcial'] ?? 0);
             $pagoParcialHTML = $pp > 0 ? '$'.number_format($pp,0,',','.') : "<span class='text-slate-400'>—</span>";
 
+            // Agregar columna de empresa en el modal para mejor visibilidad
+            $badgeEmpresa = "<span class='inline-block px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-medium'>".htmlspecialchars($empresa)."</span>";
+
             $rowsHTML .= "<tr class='{$rowCls}'>
                     <td class='px-3 py-2 text-center'>".htmlspecialchars($r['fecha'])."</td>
                     <td class='px-3 py-2'>
-                      <div class='flex items-center justify-center gap-2'>
-                        {$badge}
-                        <span>".htmlspecialchars($ruta)."</span>
+                      <div class='flex flex-col items-start gap-1'>
+                        <div class='flex items-center gap-2'>
+                          {$badge}
+                          <span>".htmlspecialchars($ruta)."</span>
+                        </div>
+                        <div class='text-[10px] text-slate-500'>{$badgeEmpresa}</div>
                       </div>
                     </td>
-                    <td class='px-3 py-2 text-center'>".htmlspecialchars($r['empresa'])."</td>
                     <td class='px-3 py-2 text-center'>".htmlspecialchars($vehiculo)."</td>
                     <td class='px-3 py-2 text-center'>{$pagoParcialHTML}</td>
                   </tr>";
@@ -467,6 +563,7 @@ if (isset($_GET['viajes_conductor'])) {
                         <span class='text-xs'>•</span>
                         <span>".htmlspecialchars($rsc['ruta'])." (".htmlspecialchars($rsc['vehiculo']).")</span>
                         <span class='text-xs text-amber-500'>".$rsc['fecha']."</span>
+                        <span class='text-[10px] bg-amber-200 px-1.5 py-0.5 rounded-full'>".htmlspecialchars($rsc['empresa'])."</span>
                       </div>";
             }
             
@@ -477,6 +574,7 @@ if (isset($_GET['viajes_conductor'])) {
             echo "</div></div>";
         }
         
+        // Leyenda de filtros
         echo "<div class='flex flex-wrap gap-2 text-xs' id='legendFilterBar'>";
         foreach (array_keys($legend) as $k) {
             if ($counts[$k] > 0) {
@@ -495,13 +593,13 @@ if (isset($_GET['viajes_conductor'])) {
         }
         echo "</div>";
 
+        // Tabla de viajes
         echo "<div class='overflow-x-auto max-h-[350px]'>
                 <table class='min-w-full text-sm text-left'>
                   <thead class='bg-blue-600 text-white sticky top-0 z-10'>
                     <tr>
                       <th class='px-3 py-2 text-center'>Fecha</th>
-                      <th class='px-3 py-2 text-center'>Ruta</th>
-                      <th class='px-3 py-2 text-center'>Empresa</th>
+                      <th class='px-3 py-2 text-center'>Ruta / Empresa</th>
                       <th class='px-3 py-2 text-center'>Vehículo</th>
                       <th class='px-3 py-2 text-center'>Pago parcial</th>
                     </tr>
@@ -514,6 +612,7 @@ if (isset($_GET['viajes_conductor'])) {
         
         echo "</div>";
         
+        // Script de filtrado (igual que antes)
         echo "<script>
                 function attachFiltroViajes(){
                     const pills = document.querySelectorAll('#legendFilterBar .legend-pill');
@@ -583,18 +682,24 @@ if (isset($_GET['viajes_conductor'])) {
    🚀 MÓDULO 6: ENCABEZADO PRINCIPAL Y FILTROS
    ========================================================
    🔧 PROPÓSITO: Barra superior con filtros y título
-   🔧 SI MODIFICAS: Cambias la navegación principal
+   🔧 ACTUALIZADO: Muestra múltiples empresas seleccionadas
    ======================================================== -->
 <header class="max-w-[1800px] mx-auto px-3 md:px-4 pt-6">
   <div class="bg-white border border-slate-200 rounded-2xl shadow-sm px-5 py-4">
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between w-full gap-3">
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-3 flex-wrap">
           <h2 class="text-xl md:text-2xl font-bold">🪙 Liquidación de Conductores</h2>
-          <?php if ($empresaFiltro !== ""): ?>
-            <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-sm font-medium">
-              🏢 <?= htmlspecialchars($empresaFiltro) ?>
-            </span>
+          
+          <!-- Mostrar todas las empresas seleccionadas como badges -->
+          <?php if (!empty($empresasFiltro)): ?>
+            <div class="flex flex-wrap gap-1">
+              <?php foreach($empresasFiltro as $emp): ?>
+                <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-sm font-medium">
+                  🏢 <?= htmlspecialchars($emp) ?>
+                </span>
+              <?php endforeach; ?>
+            </div>
           <?php endif; ?>
         </div>
         
@@ -610,18 +715,28 @@ if (isset($_GET['viajes_conductor'])) {
               <input type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" required
                      class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition">
             </label>
-            <label class="flex items-center gap-1">
-              <span class="text-xs font-medium text-slate-600 whitespace-nowrap">Empresa:</span>
-              <select name="empresa"
-                      class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition min-w-[120px]">
-                <option value="">-- Todas --</option>
-                <?php foreach($empresas as $e): ?>
-                  <option value="<?= htmlspecialchars($e) ?>" <?= $empresaFiltro==$e?'selected':'' ?>>
-                    <?= htmlspecialchars($e) ?>
-                  </option>
+            
+            <!-- Selector de empresas en el header (para recargar) -->
+            <details class="relative">
+              <summary class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm cursor-pointer bg-white hover:bg-slate-50">
+                <?= count($empresasFiltro) ?> empresa(s) seleccionada(s) ▼
+              </summary>
+              <div class="absolute right-0 mt-1 w-64 bg-white border border-slate-200 rounded-lg shadow-lg p-3 z-50 max-h-80 overflow-y-auto">
+                <div class="flex justify-between mb-2">
+                  <button type="button" onclick="seleccionarTodasHeader()" class="text-xs text-blue-600 hover:underline">Todas</button>
+                  <button type="button" onclick="deseleccionarTodasHeader()" class="text-xs text-gray-600 hover:underline">Ninguna</button>
+                </div>
+                <?php foreach($empresas as $emp): ?>
+                  <label class="flex items-center gap-2 py-1">
+                    <input type="checkbox" name="empresas[]" value="<?= htmlspecialchars($emp) ?>" 
+                           <?= in_array($emp, $empresasFiltro) ? 'checked' : '' ?>
+                           class="empresa-checkbox-header w-4 h-4 text-blue-600 rounded">
+                    <span class="text-sm truncate"><?= htmlspecialchars($emp) ?></span>
+                  </label>
                 <?php endforeach; ?>
-              </select>
-            </label>
+              </div>
+            </details>
+            
             <button type="submit" 
                     class="rounded-lg bg-blue-600 text-white px-4 py-1.5 text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 focus:ring-2 focus:ring-blue-200 transition whitespace-nowrap">
               🔄 Aplicar
@@ -631,7 +746,7 @@ if (isset($_GET['viajes_conductor'])) {
       </div>
     </div>
     
-    <div class="text-sm text-slate-600 flex items-center gap-2">
+    <div class="text-sm text-slate-600 flex items-center gap-2 flex-wrap">
       <span class="font-medium">Periodo actual:</span>
       <span class="bg-slate-100 px-2 py-1 rounded-lg font-semibold">
         <?= htmlspecialchars($desde) ?> → <?= htmlspecialchars($hasta) ?>
@@ -649,6 +764,16 @@ if (isset($_GET['viajes_conductor'])) {
     </div>
   </div>
 </header>
+
+<script>
+function seleccionarTodasHeader() {
+  document.querySelectorAll('.empresa-checkbox-header').forEach(cb => cb.checked = true);
+}
+
+function deseleccionarTodasHeader() {
+  document.querySelectorAll('.empresa-checkbox-header').forEach(cb => cb.checked = false);
+}
+</script>
 <!-- ===== FIN MÓDULO 6 ===== -->
 
 <!-- =======================================================
@@ -1484,10 +1609,10 @@ if (isset($_GET['viajes_conductor'])) {
 <!-- ===== FIN MÓDULO 9 ===== -->
 
 <!-- =======================================================
-   🚀 MÓDULO 10: MODAL DE VIAJES
+   🚀 MÓDULO 10: MODAL DE VIAJES (ACTUALIZADO MULTI-EMPRESA)
    ========================================================
    🔧 PROPÓSITO: Mostrar viajes detallados por conductor
-   🔧 SI MODIFICAS: Cambias la vista de viajes individuales
+   🔧 ACTUALIZADO: Pasa las empresas seleccionadas al modal
    ======================================================== -->
 <div id="viajesModal" class="viajes-backdrop">
     <style>
@@ -1497,7 +1622,7 @@ if (isset($_GET['viajes_conductor'])) {
     }
     .viajes-backdrop.show{ display:flex; }
     .viajes-card{ 
-        width:min(720px,94vw); max-height:90vh; overflow:hidden; border-radius:16px; 
+        width:min(820px,94vw); max-height:90vh; overflow:hidden; border-radius:16px; 
         background:#fff; box-shadow:0 20px 60px rgba(0,0,0,.25); border:1px solid #e5e7eb; 
     }
     .viajes-header{ padding:14px 16px; border-bottom:1px solid #eef2f7; }
@@ -1516,7 +1641,7 @@ if (isset($_GET['viajes_conductor'])) {
                     <div class="text-[11px] text-slate-500 leading-tight">
                         <span id="viajesRango"></span>
                         <span class="mx-1">•</span>
-                        <span id="viajesEmpresa"></span>
+                        <span id="viajesEmpresas"></span>
                     </div>
                 </div>
                 <div class="flex items-center gap-2">
@@ -1534,6 +1659,54 @@ if (isset($_GET['viajes_conductor'])) {
         <div class="viajes-body" id="viajesContent"></div>
     </div>
 </div>
+
+<script>
+// Actualizar la función que abre el modal
+function abrirModalViajes(nombreInicial){
+    // Mostrar el rango
+    document.getElementById('viajesRango').textContent = RANGO_DESDE + " → " + RANGO_HASTA;
+    
+    // Mostrar las empresas seleccionadas
+    const empresasText = (RANGO_EMPS && RANGO_EMPS.length > 0) 
+        ? RANGO_EMPS.join(' • ') 
+        : "Todas las empresas";
+    document.getElementById('viajesEmpresas').textContent = empresasText;
+    
+    // Inicializar select de conductores
+    initViajesSelect(nombreInicial);
+    
+    // Mostrar modal
+    document.getElementById('viajesModal').classList.add('show');
+    
+    // Cargar viajes
+    loadViajes(nombreInicial);
+}
+
+// Modificar la función loadViajes para enviar las empresas
+function loadViajes(nombre) {
+    const content = document.getElementById('viajesContent');
+    content.innerHTML = '<p class="text-center m-0 animate-pulse">Cargando…</p>';
+    viajesConductorActual = nombre;
+    document.getElementById('viajesTitle').textContent = nombre;
+
+    // Crear query string con todas las empresas
+    const params = new URLSearchParams();
+    params.append('viajes_conductor', nombre);
+    params.append('desde', RANGO_DESDE);
+    params.append('hasta', RANGO_HASTA);
+    
+    // Agregar todas las empresas seleccionadas
+    if (RANGO_EMPS && RANGO_EMPS.length > 0) {
+        params.append('empresas', JSON.stringify(RANGO_EMPS));
+    }
+
+    fetch('<?= basename(__FILE__) ?>?' + params.toString())
+        .then(r => r.text())
+        .then(html => {
+            content.innerHTML = html;
+        });
+}
+</script>
 <!-- ===== FIN MÓDULO 10 ===== -->
 
 <!-- =======================================================
@@ -1547,7 +1720,7 @@ if (isset($_GET['viajes_conductor'])) {
 let activePanel = null;
 const RANGO_DESDE = <?= json_encode($desde) ?>;
 const RANGO_HASTA = <?= json_encode($hasta) ?>;
-const RANGO_EMP   = <?= json_encode($empresaFiltro) ?>;
+const RANGO_EMPS   = <?= json_encode($empresasFiltro) ?>; // Cambiar de RANGO_EMP a RANGO_EMPS
 const CONDUCTORES_LIST = <?= json_encode(array_keys($datos), JSON_UNESCAPED_UNICODE); ?>;
 let columnasSeleccionadas = <?= json_encode($columnas_seleccionadas) ?>;
 
