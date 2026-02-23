@@ -37,9 +37,9 @@ function obtenerAreaCobertura($tipo) {
     } elseif (strpos($tipo, 'carrotanque') !== false) {
         return 'Nazareth';
     } elseif (strpos($tipo, 'camión 750') !== false || strpos($tipo, 'camion 750') !== false) {
-        return 'Maicao - Nazareth - Maicao'; // Asumiendo mismo que camión 350
+        return 'Maicao - Nazareth - Maicao';
     } elseif (strpos($tipo, 'copetrana') !== false) {
-        return 'Maicao - Nazareth - Maicao'; // Asumiendo mismo que burbuja
+        return 'Maicao - Nazareth - Maicao';
     }
     
     // Para tipos desconocidos, poner un valor por defecto
@@ -55,27 +55,78 @@ if (empty($_POST['desde']) || empty($_POST['hasta'])) {
     <!doctype html><html lang="es"><head>
     <meta charset="utf-8"><title>Generar Informe</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .empresas-container {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #dee2e6;
+            border-radius: 0.375rem;
+            padding: 0.75rem;
+            background-color: #f8f9fa;
+        }
+        .empresa-checkbox {
+            margin-bottom: 0.5rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            transition: background-color 0.2s;
+        }
+        .empresa-checkbox:hover {
+            background-color: #e9ecef;
+        }
+        .empresa-checkbox label {
+            margin-left: 0.5rem;
+            cursor: pointer;
+            flex: 1;
+        }
+        .select-all-container {
+            margin-bottom: 0.75rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #dee2e6;
+            font-weight: bold;
+        }
+    </style>
     </head><body class="bg-light p-4">
     <div class="container">
       <h3 class="mb-3">📅 Generar Informe de Viajes</h3>
       <form method="post" class="card p-4 shadow-sm">
         <div class="row g-3">
-          <div class="col-md-4">
+          <div class="col-md-6">
             <label class="form-label">Desde</label>
             <input type="date" name="desde" class="form-control" required>
           </div>
-          <div class="col-md-4">
+          <div class="col-md-6">
             <label class="form-label">Hasta</label>
             <input type="date" name="hasta" class="form-control" required>
           </div>
-          <div class="col-md-4">
-            <label class="form-label">Empresa</label>
-            <select name="empresa" class="form-select">
-              <option value="">-- Todas --</option>
-              <?php foreach($empresas as $e): ?>
-                <option value="<?= htmlspecialchars($e) ?>"><?= htmlspecialchars($e) ?></option>
-              <?php endforeach; ?>
-            </select>
+          <div class="col-12">
+            <label class="form-label fw-bold">Seleccionar Empresas:</label>
+            <div class="empresas-container">
+                <div class="select-all-container">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="seleccionarTodos">
+                        <label class="form-check-label" for="seleccionarTodos">
+                            Seleccionar todas las empresas
+                        </label>
+                    </div>
+                </div>
+                <div class="empresas-list">
+                    <?php if (empty($empresas)): ?>
+                        <p class="text-muted mb-0">No hay empresas disponibles</p>
+                    <?php else: ?>
+                        <?php foreach($empresas as $index => $e): ?>
+                        <div class="empresa-checkbox form-check">
+                            <input class="form-check-input empresa-item" type="checkbox" 
+                                   name="empresas[]" value="<?= htmlspecialchars($e) ?>" 
+                                   id="empresa_<?= $index ?>">
+                            <label class="form-check-label" for="empresa_<?= $index ?>">
+                                <?= htmlspecialchars($e) ?>
+                            </label>
+                        </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <small class="text-muted">Seleccione una o más empresas. Si no selecciona ninguna, se incluirán todas.</small>
           </div>
         </div>
         <div class="mt-3">
@@ -84,6 +135,44 @@ if (empty($_POST['desde']) || empty($_POST['hasta'])) {
         </div>
       </form>
     </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const seleccionarTodos = document.getElementById('seleccionarTodos');
+            const checkboxesEmpresa = document.querySelectorAll('.empresa-item');
+            
+            // Función para actualizar el estado del checkbox "Seleccionar todos"
+            function actualizarSeleccionarTodos() {
+                const totalCheckboxes = checkboxesEmpresa.length;
+                const checkboxesSeleccionados = document.querySelectorAll('.empresa-item:checked').length;
+                
+                if (checkboxesSeleccionados === 0) {
+                    seleccionarTodos.checked = false;
+                    seleccionarTodos.indeterminate = false;
+                } else if (checkboxesSeleccionados === totalCheckboxes) {
+                    seleccionarTodos.checked = true;
+                    seleccionarTodos.indeterminate = false;
+                } else {
+                    seleccionarTodos.indeterminate = true;
+                }
+            }
+            
+            // Evento para "Seleccionar todos"
+            seleccionarTodos.addEventListener('change', function() {
+                checkboxesEmpresa.forEach(checkbox => {
+                    checkbox.checked = seleccionarTodos.checked;
+                });
+            });
+            
+            // Evento para cada checkbox individual
+            checkboxesEmpresa.forEach(checkbox => {
+                checkbox.addEventListener('change', actualizarSeleccionarTodos);
+            });
+            
+            // Inicializar estado
+            actualizarSeleccionarTodos();
+        });
+    </script>
     </body></html>
     <?php
     exit;
@@ -92,21 +181,29 @@ if (empty($_POST['desde']) || empty($_POST['hasta'])) {
 // Parámetros
 $desde = $_POST['desde'];
 $hasta = $_POST['hasta'];
-$empresaFiltro = $_POST['empresa'] ?? "";
+$empresasSeleccionadas = $_POST['empresas'] ?? [];
 
 // Normaliza a todo el día por si `fecha` es DATETIME
 $desdeIni = $conn->real_escape_string($desde . " 00:00:00");
 $hastaFin = $conn->real_escape_string($hasta . " 23:59:59");
+
+// Construir condición para múltiples empresas
+$condicionEmpresa = "";
+if (!empty($empresasSeleccionadas)) {
+    // Escapar cada valor para evitar inyección SQL
+    $empresasEscapadas = array_map(function($emp) use ($conn) {
+        return "'" . $conn->real_escape_string($emp) . "'";
+    }, $empresasSeleccionadas);
+    
+    $condicionEmpresa = " AND empresa IN (" . implode(",", $empresasEscapadas) . ")";
+}
 
 // CONSULTA PARA LISTA DE CONDUCTORES - Únicos con sus datos (RESPETANDO FILTROS)
 $sqlConductores = "SELECT DISTINCT nombre, cedula, tipo_vehiculo 
                    FROM viajes 
                    WHERE fecha >= '$desdeIni' AND fecha <= '$hastaFin' 
                    AND nombre IS NOT NULL AND nombre <> ''";
-if ($empresaFiltro !== "") {
-    $empresaFiltro = $conn->real_escape_string($empresaFiltro);
-    $sqlConductores .= " AND empresa = '$empresaFiltro'";
-}
+$sqlConductores .= $condicionEmpresa;
 $sqlConductores .= " ORDER BY nombre ASC";
 $resConductores = $conn->query($sqlConductores);
 
@@ -114,9 +211,7 @@ $resConductores = $conn->query($sqlConductores);
 $sql = "SELECT fecha, nombre, ruta, empresa 
         FROM viajes 
         WHERE fecha >= '$desdeIni' AND fecha <= '$hastaFin'";
-if ($empresaFiltro !== "") {
-    $sql .= " AND empresa = '$empresaFiltro'";
-}
+$sql .= $condicionEmpresa;
 $sql .= " ORDER BY fecha ASC, id ASC";
 $res = $conn->query($sql);
 
@@ -131,8 +226,10 @@ $section->addText("SEGÚN ACTA DE INICIO AL CONTRATO DE PRESTACIÓN DE SERVICIOS
 $section->addText("OBJETO: TRASLADO DE PERSONAL ASISTENCIAL – SEDE NAZARETH.");
 $section->addTextBreak(1);
 $section->addText("Periodo: desde $desde hasta $hasta", ['italic' => true]);
-if (!empty($empresaFiltro)) {
-    $section->addText("Empresa: $empresaFiltro", ['italic' => true]);
+if (!empty($empresasSeleccionadas)) {
+    $section->addText("Empresas seleccionadas: " . implode(", ", $empresasSeleccionadas), ['italic' => true]);
+} else {
+    $section->addText("Empresas: TODAS", ['italic' => true]);
 }
 $section->addTextBreak(2);
 
@@ -147,7 +244,7 @@ $tableConductores = $section->addTable([
     'alignment' => \PhpOffice\PhpWord\SimpleType\JcTable::CENTER
 ]);
 
-// Encabezado tabla conductores (AHORA CON 4 COLUMNAS)
+// Encabezado tabla conductores
 $tableConductores->addRow();
 $tableConductores->addCell(3000)->addText("CONDUCTOR", ['bold' => true]);
 $tableConductores->addCell(2500)->addText("CÉDULA", ['bold' => true]);
@@ -176,7 +273,7 @@ if ($resConductores && $resConductores->num_rows > 0) {
 
 $section->addTextBreak(3);
 
-// ========== TABLA 2: DETALLE DE VIAJES (TABLA ORIGINAL - SIN CAMBIOS) ==========
+// ========== TABLA 2: DETALLE DE VIAJES ==========
 $section->addText("DETALLE DE VIAJES POR FECHA", ['bold' => true, 'size' => 12]);
 $section->addTextBreak(1);
 
@@ -187,7 +284,7 @@ $tableViajes = $section->addTable([
     'alignment' => \PhpOffice\PhpWord\SimpleType\JcTable::CENTER
 ]);
 
-// Encabezado tabla viajes (ORIGINAL - solo 3 columnas)
+// Encabezado tabla viajes
 $tableViajes->addRow();
 $tableViajes->addCell(2000)->addText("FECHA", ['bold' => true]);
 $tableViajes->addCell(4000)->addText("CONDUCTOR", ['bold' => true]);
@@ -226,3 +323,4 @@ header("Pragma: public");
 $writer = IOFactory::createWriter($phpWord, 'Word2007');
 $writer->save('php://output');
 exit;
+?>
