@@ -405,10 +405,39 @@ foreach ($datos as $conductor => $info) {
     $datos[$conductor]["rutas_sin_clasificar"] = count($rutas_sin_clasificar_por_conductor[$conductor] ?? []);
 }
 
-// Obtener empresas para el filtro (lista completa)
+// Obtener empresas para el filtro (lista completa) - VERSIÓN CORREGIDA
 $empresas = [];
-$resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
-if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
+$resEmp = $conn->query("
+    SELECT DISTINCT TRIM(empresa) as empresa 
+    FROM viajes 
+    WHERE empresa IS NOT NULL 
+      AND TRIM(empresa) != '' 
+    ORDER BY 
+        CASE 
+            WHEN TRIM(empresa) LIKE 'P.%' THEN 1  -- Las que empiezan con P. primero
+            WHEN TRIM(empresa) LIKE 'p.%' THEN 1
+            ELSE 2
+        END,
+        TRIM(empresa) ASC
+");
+if ($resEmp) {
+    $empresas_temp = [];
+    while ($r = $resEmp->fetch_assoc()) {
+        $empresas_temp[] = $r['empresa'];
+    }
+    
+    // Limpiar duplicados que puedan haber por diferencias de mayúsculas
+    $empresas = array_values(array_unique($empresas_temp));
+}
+
+// Si aún falta, forzar la inclusión manualmente (solución de respaldo)
+$empresas_conocidas = ['ACPM', 'Hospital', 'Hospital Nazareth', 'ICBF', 'Sunny app', 
+                       'P.campaña-maicao', 'P.flor de la guajira', 'p.nazareth', 
+                       'P.paraiso', 'P.puerto estrella', 'p.siapana', 'P.villa Fátima'];
+
+// Combinar y eliminar duplicados
+$empresas = array_values(array_unique(array_merge($empresas, $empresas_conocidas)));
+sort($empresas);
 
 // Obtener tarifas guardadas (para la PRIMERA empresa seleccionada - las bolitas funcionan igual)
 $tarifas_guardadas = [];
