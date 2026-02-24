@@ -97,30 +97,84 @@ function obtenerColorVehiculo($vehiculo) {
 /* ===== FIN MÓDULO 1 ===== */
 
 /* =======================================================
-   🚀 MÓDULO 2: ENDPOINTS AJAX (VERSIÓN MULTI-EMPRESA)
+   🚀 MÓDULO 2: PROCESAMIENTO DE ENDPOINTS AJAX
+   ========================================================
+   🔧 PROPÓSITO: Todas las peticiones POST/GET del sistema
+   🔧 SI MODIFICAS: Afectas la comunicación con el backend
    ======================================================== */
 
-// ENDPOINT: Guardar clasificación de ruta (AHORA CON EMPRESA)
+// ENDPOINT: Crear nueva clasificación
+if (isset($_POST['crear_clasificacion'])) {
+    $nombre_clasificacion = trim($conn->real_escape_string($_POST['nombre_clasificacion']));
+    if (empty($nombre_clasificacion)) { echo "error: nombre vacío"; exit; }
+    
+    $nombre_columna = preg_replace('/[^a-zA-Z0-9_]/', '_', $nombre_clasificacion);
+    $nombre_columna = strtolower($nombre_columna);
+    
+    if (crearNuevaColumnaTarifa($conn, $nombre_columna)) {
+        echo "ok";
+    } else {
+        echo "error: " . $conn->error;
+    }
+    exit;
+}
+
+// ENDPOINT: Guardar tarifa
+if (isset($_POST['guardar_tarifa'])) {
+    $empresa  = $conn->real_escape_string($_POST['empresa']);
+    $vehiculo = $conn->real_escape_string($_POST['tipo_vehiculo']);
+    $campo    = strtolower($conn->real_escape_string($_POST['campo']));
+    $valor    = (float)$_POST['valor'];
+
+    $campo = preg_replace('/[^a-z0-9_]/', '_', $campo);
+    $columnas_tarifas = obtenerColumnasTarifas($conn);
+    
+    if (!in_array($campo, $columnas_tarifas)) { 
+        if (!crearNuevaColumnaTarifa($conn, $campo)) {
+            echo "error: no se pudo crear el campo '$campo'";
+            exit;
+        }
+    }
+
+    $conn->query("INSERT IGNORE INTO tarifas (empresa, tipo_vehiculo) VALUES ('$empresa', '$vehiculo')");
+    $sql = "UPDATE tarifas SET `$campo` = $valor WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'";
+    
+    echo $conn->query($sql) ? "ok" : "error: " . $conn->error;
+    exit;
+}
+
+// ENDPOINT: Guardar clasificación de ruta
 if (isset($_POST['guardar_clasificacion'])) {
     $ruta       = $conn->real_escape_string($_POST['ruta']);
     $vehiculo   = $conn->real_escape_string($_POST['tipo_vehiculo']);
-    $empresa    = $conn->real_escape_string($_POST['empresa']); // 🔥 NUEVO
     $clasif     = strtolower($conn->real_escape_string($_POST['clasificacion']));
 
     if ($clasif === '') {
-        $sql = "DELETE FROM ruta_clasificacion 
-                WHERE ruta = '$ruta' 
-                  AND tipo_vehiculo = '$vehiculo' 
-                  AND empresa = '$empresa'"; // 🔥 AHORA INCLUYE EMPRESA
+        $sql = "DELETE FROM ruta_clasificacion WHERE ruta = '$ruta' AND tipo_vehiculo = '$vehiculo'";
     } else {
-        $sql = "INSERT INTO ruta_clasificacion (ruta, tipo_vehiculo, empresa, clasificacion)
-                VALUES ('$ruta', '$vehiculo', '$empresa', '$clasif')
+        $sql = "INSERT INTO ruta_clasificacion (ruta, tipo_vehiculo, clasificacion)
+                VALUES ('$ruta', '$vehiculo', '$clasif')
                 ON DUPLICATE KEY UPDATE clasificacion = VALUES(clasificacion)";
     }
     
     echo $conn->query($sql) ? "ok" : "error: " . $conn->error;
     exit;
 }
+
+// ENDPOINT: Guardar columnas seleccionadas
+if (isset($_POST['guardar_columnas_seleccionadas'])) {
+    $columnas = $_POST['columnas'] ?? [];
+    $empresa = $_GET['empresa'] ?? "";
+    $desde = $_GET['desde'] ?? "";
+    $hasta = $_GET['hasta'] ?? "";
+    
+    $session_key = "columnas_seleccionadas_" . md5($empresa . $desde . $hasta);
+    setcookie($session_key, json_encode($columnas), time() + (86400 * 7), "/");
+    
+    echo "ok";
+    exit;
+}
+/* ===== FIN MÓDULO 2 ===== */
 
 /* =======================================================
    🚀 MÓDULO 3: FILTRO INICIAL (PANTALLA DE SELECCIÓN)
@@ -233,8 +287,8 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
    🚀 MÓDULO 4: OBTENCIÓN DE DATOS PRINCIPALES (MULTI-EMPRESA)
    ========================================================
    🔧 PROPÓSITO: Procesar los datos con múltiples empresas
-   🔧 CARACTERÍSTICA: Tarifas y clasificaciones SEPARADAS por empresa
-   🔧 ACTUALIZADO: 24/02/2026 - Soporte multi-empresa completo
+   🔧 CARACTERÍSTICA: Extrae TODAS las empresas de la tabla sin repetir
+   🔧 ACTUALIZADO: 23/02/2026 - Eliminado forzado manual de empresas
    ======================================================== */
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
@@ -246,20 +300,12 @@ if (!is_array($empresasFiltro)) {
 }
 $empresasFiltro = array_filter($empresasFiltro); // Quitar vacíos
 
-// Función auxiliar para obtener empresas seleccionadas
-function obtenerEmpresasSeleccionadas($empresasFiltro) {
-    if (empty($empresasFiltro)) return [];
-    return is_array($empresasFiltro) ? $empresasFiltro : [$empresasFiltro];
-}
-
-$empresas_activas = obtenerEmpresasSeleccionadas($empresasFiltro);
-
 // Construir condición SQL para múltiples empresas
 $sqlCondicionEmpresa = "";
-if (!empty($empresas_activas)) {
+if (!empty($empresasFiltro)) {
     $empresasEscapadas = array_map(function($e) use ($conn) {
         return "'" . $conn->real_escape_string(trim($e)) . "'";
-    }, $empresas_activas);
+    }, $empresasFiltro);
     $sqlCondicionEmpresa = " AND empresa IN (" . implode(",", $empresasEscapadas) . ")";
 }
 
@@ -267,7 +313,7 @@ $columnas_tarifas = obtenerColumnasTarifas($conn);
 $clasificaciones_disponibles = obtenerClasificacionesDisponibles($conn);
 
 // Session key basado en TODAS las empresas seleccionadas
-$session_key = "columnas_seleccionadas_" . md5(implode('|', $empresas_activas) . $desde . $hasta);
+$session_key = "columnas_seleccionadas_" . md5(implode('|', $empresasFiltro) . $desde . $hasta);
 $columnas_seleccionadas = [];
 if (isset($_COOKIE[$session_key])) {
     $columnas_seleccionadas = json_decode($_COOKIE[$session_key], true);
@@ -275,14 +321,12 @@ if (isset($_COOKIE[$session_key])) {
     $columnas_seleccionadas = $clasificaciones_disponibles;
 }
 
-// ========================================================
-// 🔥 NUEVO: Cargar clasificaciones de rutas POR EMPRESA
-// ========================================================
+// Cargar clasificaciones de rutas (global, no depende de empresas)
 $clasif_rutas = [];
-$resClasif = $conn->query("SELECT ruta, tipo_vehiculo, empresa, clasificacion FROM ruta_clasificacion");
+$resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
 if ($resClasif) {
     while ($r = $resClasif->fetch_assoc()) {
-        $key = mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo'] . '|' . $r['empresa']), 'UTF-8');
+        $key = mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo']), 'UTF-8');
         $clasif_rutas[$key] = strtolower($r['clasificacion']);
     }
 }
@@ -297,7 +341,7 @@ $res = $conn->query($sql);
 
 // Inicializar arrays
 $datos = [];
-$vehiculos_por_empresa = [];
+$vehiculos = [];
 $rutasUnicas = [];
 $pagosConductor = [];
 $rutas_sin_clasificar_por_conductor = [];
@@ -318,35 +362,27 @@ if ($res) {
         if (!isset($pagosConductor[$nombre])) $pagosConductor[$nombre] = 0;
         $pagosConductor[$nombre] += $pagoParcial;
 
-        $keyRuta = mb_strtolower(trim($ruta . '|' . $vehiculo . '|' . $empresa), 'UTF-8');
+        $keyRuta = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
 
-        // Registrar ruta única para el panel de clasificación (AHORA INCLUYE EMPRESA)
+        // Registrar ruta única para el panel de clasificación
         if (!isset($rutasUnicas[$keyRuta])) {
             $rutasUnicas[$keyRuta] = [
                 'ruta'          => $ruta,
                 'vehiculo'      => $vehiculo,
-                'empresa'       => $empresa,
                 'clasificacion' => $clasif_rutas[$keyRuta] ?? ''
             ];
         }
 
-        // Registrar tipo de vehículo POR EMPRESA
-        if (!empty($vehiculo)) {
-            if (!isset($vehiculos_por_empresa[$empresa])) {
-                $vehiculos_por_empresa[$empresa] = [];
-            }
-            if (!in_array($vehiculo, $vehiculos_por_empresa[$empresa], true)) {
-                $vehiculos_por_empresa[$empresa][] = $vehiculo;
-            }
-        }
+        // Registrar tipo de vehículo único
+        if (!empty($vehiculo) && !in_array($vehiculo, $vehiculos, true)) $vehiculos[] = $vehiculo;
 
-        // Registrar rutas sin clasificar (AHORA POR EMPRESA)
+        // Registrar rutas sin clasificar
         $clasificacion_ruta = $clasif_rutas[$keyRuta] ?? '';
         if ($clasificacion_ruta === '' || $clasificacion_ruta === 'otro') {
             if (!isset($rutas_sin_clasificar_por_conductor[$nombre])) {
                 $rutas_sin_clasificar_por_conductor[$nombre] = [];
             }
-            $ruta_key = $ruta . '|' . $vehiculo . '|' . $empresa;
+            $ruta_key = $ruta . '|' . $vehiculo;
             if (!in_array($ruta_key, $rutas_sin_clasificar_por_conductor[$nombre])) {
                 $rutas_sin_clasificar_por_conductor[$nombre][] = $ruta_key;
             }
@@ -377,28 +413,11 @@ foreach ($datos as $conductor => $info) {
 }
 
 // ========================================================
-// 🔥 NUEVO: Obtener tarifas POR EMPRESA (multi-empresa)
-// ========================================================
-$tarifas_por_empresa = [];
-
-if (!empty($empresas_activas)) {
-    foreach ($empresas_activas as $empresa) {
-        $empresa_esc = $conn->real_escape_string($empresa);
-        $resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa = '$empresa_esc'");
-        if ($resTarifas) {
-            $tarifas_por_empresa[$empresa] = [];
-            while ($r = $resTarifas->fetch_assoc()) {
-                $tarifas_por_empresa[$empresa][$r['tipo_vehiculo']] = $r;
-            }
-        }
-    }
-}
-
-// ========================================================
-// 🔥 NUEVO: Obtener EMPRESAS directamente de la tabla
+// 🔥 NUEVO: OBTENER EMPRESAS DIRECTAMENTE DE LA TABLA SIN FORZAR
 // ========================================================
 $empresas = [];
 
+// Consulta mejorada para obtener TODAS las empresas sin duplicados
 $sqlEmpresas = "
     SELECT DISTINCT 
         TRIM(empresa) as empresa 
@@ -408,7 +427,7 @@ $sqlEmpresas = "
       AND TRIM(empresa) NOT IN ('', 'NULL', 'null')
     ORDER BY 
         CASE 
-            WHEN LOWER(TRIM(empresa)) LIKE 'p.%' THEN 1
+            WHEN LOWER(TRIM(empresa)) LIKE 'p.%' THEN 1  -- Las que empiezan con P. primero
             WHEN LOWER(TRIM(empresa)) = 'acpm' THEN 2
             WHEN LOWER(TRIM(empresa)) = 'icbf' THEN 3
             WHEN LOWER(TRIM(empresa)) = 'hospital' THEN 4
@@ -429,7 +448,10 @@ if ($resEmp) {
     }
 }
 
-// Ordenar final
+// 🔥 ELIMINADO: Ya no forzamos empresas manualmente
+// Ya no existe el array $empresas_conocidas
+
+// Ordenar final (por si acaso)
 usort($empresas, function($a, $b) {
     $aStartsWithP = stripos($a, 'p.') === 0;
     $bStartsWithP = stripos($b, 'p.') === 0;
@@ -439,11 +461,23 @@ usort($empresas, function($a, $b) {
     return strcasecmp($a, $b);
 });
 
-// Debug (opcional)
+// Debug: Ver qué empresas se encontraron (opcional - puedes eliminarlo)
 if (empty($empresas)) {
     error_log("⚠️ ADVERTENCIA: No se encontraron empresas en la tabla viajes");
 } else {
     error_log("✅ Empresas encontradas: " . implode(", ", $empresas));
+}
+
+// Obtener tarifas guardadas (para la PRIMERA empresa seleccionada)
+$tarifas_guardadas = [];
+if (!empty($empresasFiltro)) {
+    $primeraEmpresa = $conn->real_escape_string($empresasFiltro[0]);
+    $resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa = '$primeraEmpresa'");
+    if ($resTarifas) {
+        while ($r = $resTarifas->fetch_assoc()) {
+            $tarifas_guardadas[$r['tipo_vehiculo']] = $r;
+        }
+    }
 }
 /* ===== FIN MÓDULO 4 ===== */
 
@@ -941,13 +975,13 @@ function deseleccionarTodasHeader() {
 <!-- ===== FIN MÓDULO 7 ===== -->
 
 <!-- =======================================================
-   🚀 MÓDULO 8: PANELES LATERALES (VERSIÓN MULTI-EMPRESA)
+   🚀 MÓDULO 8: PANELES LATERALES (TARIFAS, CLASIFICACIONES, ETC)
    ========================================================
-   🔧 PROPÓSITO: Contenedores para funcionalidades secundarias
-   🔧 ACTUALIZADO: Tarifas agrupadas POR EMPRESA
+   🔧 PROPÓSITO: Contenedores para las funcionalidades secundarias
+   🔧 SI MODIFICAS: Cambias la interfaz de los paneles
    ======================================================== -->
    
-<!-- Panel 1: Tarifas (VERSIÓN MULTI-EMPRESA) -->
+<!-- Panel 1: Tarifas -->
 <div class="side-panel" id="panel-tarifas">
     <style>
     .side-panel-overlay {
@@ -1037,24 +1071,12 @@ function deseleccionarTodasHeader() {
     .acordeon-content.expanded { max-height: 2000px; }
     .acordeon-icon { transition: transform 0.3s ease; }
     .acordeon-icon.expanded { transform: rotate(90deg); }
-    
-    /* Estilos para badges de empresa */
-    .empresa-badge {
-        display: inline-block;
-        padding: 2px 8px;
-        border-radius: 12px;
-        font-size: 10px;
-        font-weight: 600;
-        background: #e2e8f0;
-        color: #1e293b;
-        margin-left: 8px;
-    }
     </style>
     
     <div class="side-panel-header">
         <h3 class="text-lg font-semibold flex items-center gap-2">
-            <span>🚐 Tarifas por Empresa y Vehículo</span>
-            <span class="text-xs text-slate-500">(<?= count($empresas_activas) ?> empresas)</span>
+            <span>🚐 Tarifas por Tipo de Vehículo</span>
+            <span class="text-xs text-slate-500">(<?= count($columnas_tarifas) ?> tipos)</span>
         </h3>
         <button class="side-panel-close" data-panel="tarifas">✕</button>
     </div>
@@ -1071,81 +1093,59 @@ function deseleccionarTodasHeader() {
             </button>
         </div>
         
-        <div id="tarifas_grid" class="grid grid-cols-1 gap-4">
-            <?php 
-            // 🔥 NUEVO: Iterar por EMPRESA primero
-            foreach ($empresas_activas as $empresa): 
-                $empresa_vehiculos = $vehiculos_por_empresa[$empresa] ?? [];
-                if (empty($empresa_vehiculos)) continue;
+        <div id="tarifas_grid" class="grid grid-cols-1 gap-3">
+            <?php foreach ($vehiculos as $index => $veh):
+                $color_vehiculo = obtenerColorVehiculo($veh);
+                $t = $tarifas_guardadas[$veh] ?? [];
+                $veh_id = preg_replace('/[^a-z0-9]/i', '-', strtolower($veh));
             ?>
-                <div class="empresa-seccion mb-2">
-                    <div class="flex items-center gap-2 mb-3 sticky top-0 bg-white py-2 z-10 border-b border-slate-200">
-                        <span class="text-sm font-bold bg-blue-600 text-white px-3 py-1 rounded-full">
-                            🏢 <?= htmlspecialchars($empresa) ?>
-                        </span>
-                        <span class="text-xs text-slate-500"><?= count($empresa_vehiculos) ?> vehículo(s)</span>
-                    </div>
-                    
-                    <?php foreach ($empresa_vehiculos as $veh):
-                        $color_vehiculo = obtenerColorVehiculo($veh);
-                        $t = $tarifas_por_empresa[$empresa][$veh] ?? [];
-                        $veh_id = preg_replace('/[^a-z0-9]/i', '-', strtolower($empresa . '-' . $veh));
-                    ?>
-                    <div class="tarjeta-tarifa-acordeon rounded-xl border <?= $color_vehiculo['border'] ?> overflow-hidden shadow-sm mb-3"
-                         data-empresa="<?= htmlspecialchars($empresa) ?>"
-                         data-vehiculo="<?= htmlspecialchars($veh) ?>" 
-                         id="acordeon-<?= $veh_id ?>">
-                        
-                        <div class="acordeon-header flex items-center justify-between px-4 py-3 cursor-pointer transition <?= $color_vehiculo['bg'] ?> hover:opacity-90"
-                             onclick="toggleAcordeon('<?= $veh_id ?>')">
-                            <div class="flex items-center gap-3">
-                                <span class="acordeon-icon text-lg transition-transform duration-300 <?= $color_vehiculo['text'] ?>" id="icon-<?= $veh_id ?>">▶️</span>
-                                <div>
-                                    <div class="flex items-center gap-2">
-                                        <span class="text-base font-semibold <?= $color_vehiculo['text'] ?>">
-                                            <?= htmlspecialchars($veh) ?>
-                                        </span>
-                                        <span class="empresa-badge"><?= htmlspecialchars($empresa) ?></span>
-                                    </div>
-                                    <div class="text-xs text-slate-500 mt-0.5">
-                                        <?= count($columnas_tarifas) ?> tipos de tarifas
-                                    </div>
-                                </div>
+            <div class="tarjeta-tarifa-acordeon rounded-xl border <?= $color_vehiculo['border'] ?> overflow-hidden shadow-sm"
+                 data-vehiculo="<?= htmlspecialchars($veh) ?>" id="acordeon-<?= $veh_id ?>">
+                
+                <div class="acordeon-header flex items-center justify-between px-4 py-3.5 cursor-pointer transition <?= $color_vehiculo['bg'] ?> hover:opacity-90"
+                     onclick="toggleAcordeon('<?= $veh_id ?>')">
+                    <div class="flex items-center gap-3">
+                        <span class="acordeon-icon text-lg transition-transform duration-300 <?= $color_vehiculo['text'] ?>" id="icon-<?= $veh_id ?>">▶️</span>
+                        <div>
+                            <div class="text-base font-semibold <?= $color_vehiculo['text'] ?>">
+                                <?= htmlspecialchars($veh) ?>
                             </div>
-                        </div>
-                        
-                        <div class="acordeon-content px-4 py-3 border-t <?= $color_vehiculo['border'] ?> bg-white" id="content-<?= $veh_id ?>">
-                            <div class="space-y-3">
-                                <?php foreach ($columnas_tarifas as $columna): 
-                                    $valor = isset($t[$columna]) ? (float)$t[$columna] : 0;
-                                    $etiquetas_especiales = [
-                                        'completo' => 'Viaje Completo', 'medio' => 'Viaje Medio', 'extra' => 'Viaje Extra',
-                                        'carrotanque' => 'Carrotanque', 'siapana' => 'Siapana', 'riohacha' => 'Riohacha',
-                                        'pru' => 'Pru', 'maco' => 'Maco'
-                                    ];
-                                    $etiqueta_final = $etiquetas_especiales[$columna] ?? ucfirst($columna);
-                                    $estilo_clasif = obtenerEstiloClasificacion($columna);
-                                ?>
-                                <label class="block">
-                                    <span class="block text-sm font-medium mb-1 <?= $estilo_clasif['text'] ?>">
-                                        <?= htmlspecialchars($etiqueta_final) ?>
-                                    </span>
-                                    <div class="relative">
-                                        <input type="number" step="1000" value="<?= $valor ?>"
-                                               data-empresa="<?= htmlspecialchars($empresa) ?>"
-                                               data-campo="<?= htmlspecialchars($columna) ?>"
-                                               class="w-full rounded-xl border <?= $estilo_clasif['border'] ?> px-3 py-2 pr-10 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition tarifa-input">
-                                        <span class="absolute right-3 top-1/2 transform -translate-y-1/2 text-sm font-semibold <?= $estilo_clasif['text'] ?>">
-                                            $
-                                        </span>
-                                    </div>
-                                </label>
-                                <?php endforeach; ?>
+                            <div class="text-xs text-slate-500 mt-0.5">
+                                <?= count($columnas_tarifas) ?> tipos de tarifas
                             </div>
                         </div>
                     </div>
-                    <?php endforeach; ?>
                 </div>
+                
+                <div class="acordeon-content px-4 py-3 border-t <?= $color_vehiculo['border'] ?> bg-white" id="content-<?= $veh_id ?>">
+                    <div class="space-y-3">
+                        <?php foreach ($columnas_tarifas as $columna): 
+                            $valor = isset($t[$columna]) ? (float)$t[$columna] : 0;
+                            $etiquetas_especiales = [
+                                'completo' => 'Viaje Completo', 'medio' => 'Viaje Medio', 'extra' => 'Viaje Extra',
+                                'carrotanque' => 'Carrotanque', 'siapana' => 'Siapana', 'riohacha' => 'Riohacha',
+                                'pru' => 'Pru', 'maco' => 'Maco'
+                            ];
+                            $etiqueta_final = $etiquetas_especiales[$columna] ?? ucfirst($columna);
+                            $estilo_clasif = obtenerEstiloClasificacion($columna);
+                        ?>
+                        <label class="block">
+                            <span class="block text-sm font-medium mb-1 <?= $estilo_clasif['text'] ?>">
+                                <?= htmlspecialchars($etiqueta_final) ?>
+                            </span>
+                            <div class="relative">
+                                <input type="number" step="1000" value="<?= $valor ?>"
+                                       data-campo="<?= htmlspecialchars($columna) ?>"
+                                       class="w-full rounded-xl border <?= $estilo_clasif['border'] ?> px-3 py-2 pr-10 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition tarifa-input">
+                                <span class="absolute right-3 top-1/2 transform -translate-y-1/2 text-sm font-semibold <?= $estilo_clasif['text'] ?>">
+                                    $
+                                </span>
+                            </div>
+                        </label>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </div>
             <?php endforeach; ?>
         </div>
         
@@ -1155,7 +1155,188 @@ function deseleccionarTodasHeader() {
     </div>
 </div>
 
-<!-- [EL RESTO DE PANELES (2,3,4) QUEDAN IGUAL, NO SE MODIFICAN] -->
+<!-- Panel 2: Crear clasificación -->
+<div class="side-panel" id="panel-crear-clasif">
+    <div class="side-panel-header">
+        <h3 class="text-lg font-semibold flex items-center gap-2">
+            <span>➕ Crear Nueva Clasificación</span>
+        </h3>
+        <button class="side-panel-close" data-panel="crear-clasif">✕</button>
+    </div>
+    <div class="side-panel-body">
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium mb-2">Nombre de la nueva clasificación</label>
+                <input id="txt_nueva_clasificacion" type="text"
+                       class="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:ring-4 focus:ring-blue-100"
+                       placeholder="Ej: Premium, Nocturno, Express...">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2">Texto que deben contener las rutas (opcional)</label>
+                <input id="txt_patron_ruta" type="text"
+                       class="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:ring-4 focus:ring-blue-100"
+                       placeholder="Dejar vacío para solo crear la clasificación">
+            </div>
+            <button type="button"
+                    onclick="crearYAsignarClasificacion()"
+                    class="w-full inline-flex items-center justify-center rounded-xl bg-green-600 text-white px-4 py-3 text-sm font-semibold hover:bg-green-700 active:bg-green-800 focus:ring-4 focus:ring-green-200 transition">
+                ⚙️ Crear y Aplicar
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Panel 3: Clasificar rutas -->
+<div class="side-panel" id="panel-clasif-rutas">
+    <style>
+    .fila-clasificada-completo { background-color: rgba(209, 250, 229, 0.3) !important; border-left: 4px solid #10b981 !important; }
+    .fila-clasificada-medio { background-color: rgba(254, 243, 199, 0.3) !important; border-left: 4px solid #f59e0b !important; }
+    .fila-clasificada-extra { background-color: rgba(241, 245, 249, 0.3) !important; border-left: 4px solid #64748b !important; }
+    .fila-clasificada-siapana { background-color: rgba(250, 232, 255, 0.3) !important; border-left: 4px solid #d946ef !important; }
+    .fila-clasificada-carrotanque { background-color: rgba(207, 250, 254, 0.3) !important; border-left: 4px solid #06b6d4 !important; }
+    .fila-clasificada-riohacha { background-color: rgba(224, 231, 255, 0.3) !important; border-left: 4px solid #4f46e5 !important; }
+    .fila-clasificada-pru { background-color: rgba(204, 251, 241, 0.3) !important; border-left: 4px solid #14b8a6 !important; }
+    .fila-clasificada-maco { background-color: rgba(255, 228, 230, 0.3) !important; border-left: 4px solid #f43f5e !important; }
+    </style>
+    
+    <div class="side-panel-header">
+        <h3 class="text-lg font-semibold flex items-center gap-2">
+            <span>🧭 Clasificar Rutas</span>
+            <span class="text-xs text-slate-500"><?= count($rutasUnicas) ?> rutas</span>
+        </h3>
+        <button class="side-panel-close" data-panel="clasif-rutas">✕</button>
+    </div>
+    <div class="side-panel-body">
+        <div class="max-h-[calc(100vh-180px)] overflow-y-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-sm">
+                <thead class="bg-slate-100 text-slate-600 sticky top-0 z-10">
+                    <tr>
+                        <th class="px-3 py-2 text-left">Ruta</th>
+                        <th class="px-3 py-2 text-center">Vehículo</th>
+                        <th class="px-3 py-2 text-center">Clasificación</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100" id="tablaClasificacionRutas">
+                <?php foreach($rutasUnicas as $info): 
+                    $clasificacion_actual = $info['clasificacion'] ?? '';
+                    $estilo = obtenerEstiloClasificacion($clasificacion_actual);
+                    $clase_fila = $clasificacion_actual ? 'fila-clasificada-' . $clasificacion_actual : '';
+                ?>
+                    <tr class="fila-ruta hover:bg-slate-50 <?= $clase_fila ?>"
+                        data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
+                        data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>"
+                        data-clasificacion="<?= htmlspecialchars($clasificacion_actual) ?>">
+                        <td class="px-3 py-2 whitespace-nowrap text-left font-medium">
+                            <?= htmlspecialchars($info['ruta']) ?>
+                        </td>
+                        <td class="px-3 py-2 text-center">
+                            <?php $color_vehiculo = obtenerColorVehiculo($info['vehiculo']); ?>
+                            <span class="inline-block px-2 py-1 rounded-md text-xs font-medium <?= $color_vehiculo['bg'] ?> <?= $color_vehiculo['text'] ?> border <?= $color_vehiculo['border'] ?>">
+                                <?= htmlspecialchars($info['vehiculo']) ?>
+                            </span>
+                        </td>
+                        <td class="px-3 py-2 text-center">
+                            <select class="select-clasif-ruta rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100 w-full transition-all duration-300"
+                                    data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
+                                    data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>"
+                                    onchange="actualizarColorFila(this)">
+                                <option value="">Sin clasificar</option>
+                                <?php foreach ($clasificaciones_disponibles as $clasif): 
+                                    $estilo_opcion = obtenerEstiloClasificacion($clasif);
+                                ?>
+                                <option value="<?= htmlspecialchars($clasif) ?>" 
+                                        <?= $info['clasificacion']===$clasif ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars(ucfirst($clasif)) ?>
+                                </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Panel 4: Selector de columnas -->
+<div class="side-panel" id="panel-selector-columnas">
+    <style>
+    .columna-checkbox-item { transition: all 0.2s ease; }
+    .columna-checkbox-item:hover { background-color: #f8fafc; }
+    .columna-checkbox-item.selected { background-color: #eff6ff; border-color: #3b82f6; }
+    .checkbox-columna {
+        width: 18px; height: 18px; border-radius: 4px; border: 2px solid #cbd5e1;
+        cursor: pointer; display: flex; align-items: center; justify-content: center;
+        transition: all 0.2s;
+    }
+    .checkbox-columna.checked { background-color: #3b82f6; border-color: #3b82f6; }
+    .checkbox-columna.checked::after { content: "✓"; color: white; font-size: 12px; font-weight: bold; }
+    .columna-oculta { display: none !important; }
+    .columna-visualizada { display: table-cell !important; }
+    </style>
+    
+    <div class="side-panel-header">
+        <h3 class="text-lg font-semibold flex items-center gap-2">
+            <span>📊 Seleccionar Columnas</span>
+        </h3>
+        <button class="side-panel-close" data-panel="selector-columnas">✕</button>
+    </div>
+    <div class="side-panel-body">
+        <div class="flex flex-col gap-4">
+            <p class="text-sm text-slate-600 mb-3">
+                <span id="contador-seleccionadas-panel" class="font-semibold text-blue-600"><?= count($columnas_seleccionadas) ?></span> de 
+                <?= count($clasificaciones_disponibles) ?> seleccionadas
+            </p>
+            
+            <div class="flex flex-wrap gap-2">
+                <button onclick="seleccionarTodasColumnas()" 
+                        class="text-xs px-3 py-1.5 rounded-lg border border-green-300 bg-green-50 text-green-700 hover:bg-green-100 transition">
+                    ✅ Seleccionar todas
+                </button>
+                <button onclick="deseleccionarTodasColumnas()" 
+                        class="text-xs px-3 py-1.5 rounded-lg border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 transition">
+                    ❌ Deseleccionar todas
+                </button>
+                <button onclick="guardarSeleccionColumnas()" 
+                        class="text-xs px-3 py-1.5 rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 transition">
+                    💾 Guardar
+                </button>
+            </div>
+            
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[60vh] overflow-y-auto p-2 border border-slate-200 rounded-lg">
+                <?php foreach ($clasificaciones_disponibles as $clasif): 
+                    $estilo = obtenerEstiloClasificacion($clasif);
+                    $seleccionada = in_array($clasif, $columnas_seleccionadas);
+                ?>
+                <div class="columna-checkbox-item flex items-center gap-2 p-3 border border-slate-200 rounded-lg cursor-pointer transition <?= $seleccionada ? 'selected' : '' ?>"
+                     data-columna="<?= htmlspecialchars($clasif) ?>"
+                     onclick="toggleColumna('<?= htmlspecialchars($clasif) ?>')">
+                    <div class="checkbox-columna <?= $seleccionada ? 'checked' : '' ?>" 
+                         id="checkbox-<?= htmlspecialchars($clasif) ?>"></div>
+                    <div class="flex-1 flex flex-col">
+                        <span class="text-sm font-medium whitespace-nowrap <?= $estilo['text'] ?>">
+                            <?php 
+                                $nombres = [
+                                    'completo' => 'Viaje Completo', 'medio' => 'Viaje Medio', 'extra' => 'Viaje Extra',
+                                    'carrotanque' => 'Carrotanque', 'siapana' => 'Siapana', 'riohacha' => 'Riohacha',
+                                    'pru' => 'Pru', 'maco' => 'Maco'
+                                ];
+                                echo $nombres[$clasif] ?? ucfirst($clasif);
+                            ?>
+                        </span>
+                        <span class="text-xs text-slate-500 mt-0.5"><?= htmlspecialchars($clasif) ?></span>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Overlay para paneles -->
+<div class="side-panel-overlay" id="sidePanelOverlay"></div>
+<!-- ===== FIN MÓDULO 8 ===== -->
 
 <!-- =======================================================
    🚀 MÓDULO 9: CONTENIDO PRINCIPAL (TABLA DE CONDUCTORES)
