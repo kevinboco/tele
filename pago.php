@@ -1,4 +1,3 @@
-
 <?php
 session_start();
 
@@ -176,15 +175,20 @@ if (isset($_GET['viajes_conductor'])) {
     $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
     $desde   = $conn->real_escape_string($_GET['desde'] ?? '');
     $hasta   = $conn->real_escape_string($_GET['hasta'] ?? '');
-    $empresa = $conn->real_escape_string($_GET['empresa'] ?? '');
-
+    $empresas = isset($_GET['empresas']) ? $_GET['empresas'] : [];
+    
     $sql = "SELECT fecha, ruta, empresa, tipo_vehiculo
             FROM viajes
             WHERE nombre = '$nombre'
               AND fecha BETWEEN '$desde' AND '$hasta'";
-    if ($empresa !== '') {
-        $sql .= " AND empresa = '$empresa'";
+    
+    if (!empty($empresas) && is_array($empresas)) {
+        $empresas_esc = array_map(function($e) use ($conn) {
+            return "'" . $conn->real_escape_string($e) . "'";
+        }, $empresas);
+        $sql .= " AND empresa IN (" . implode(',', $empresas_esc) . ")";
     }
+    
     $sql .= " ORDER BY fecha ASC";
 
     $res = $conn->query($sql);
@@ -213,7 +217,6 @@ if (isset($_GET['viajes_conductor'])) {
                 $counts[$cat] = 1;
             }
 
-            // Determinar color según categoría (usando colores del primer código)
             $color_class = '';
             switch($cat) {
                 case 'completo': $color_class = 'bg-emerald-100 text-emerald-800 border-emerald-300'; break;
@@ -240,15 +243,13 @@ if (isset($_GET['viajes_conductor'])) {
                   </tr>";
         }
     } else {
-        $rowsHTML .= "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresa.</td></tr>";
+        $rowsHTML .= "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresas seleccionadas.</td></tr>";
     }
 
     ?>
     <div class='space-y-3'>
-        <!-- Leyenda con contadores y filtro -->
         <div class='flex flex-wrap gap-2 text-xs' id="legendFilterBar">
             <?php
-            // Mostrar todas las clasificaciones dinámicamente
             $colores_base = [
                 'completo'         => 'bg-emerald-100 text-emerald-700 border border-emerald-200',
                 'medio'            => 'bg-amber-100 text-amber-800 border border-amber-200',
@@ -257,7 +258,6 @@ if (isset($_GET['viajes_conductor'])) {
                 'carrotanque'      => 'bg-cyan-100 text-cyan-800 border border-cyan-200',
             ];
             
-            // Generar leyenda dinámica
             $legend = [];
             foreach ($todas_clasificaciones as $clas) {
                 $clas_normalizada = strtolower($clas);
@@ -292,7 +292,6 @@ if (isset($_GET['viajes_conductor'])) {
             ?>
         </div>
 
-        <!-- Tabla -->
         <div class='overflow-x-auto'>
             <table class='min-w-full text-sm text-left'>
                 <thead class='bg-blue-600 text-white'>
@@ -335,13 +334,15 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
                 <label class="block"><span class="block text-sm font-medium mb-1">Hasta</span>
                     <input type="date" name="hasta" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
                 </label>
-                <label class="block"><span class="block text-sm font-medium mb-1">Empresa</span>
-                    <select name="empresa" class="w-full rounded-xl border border-slate-300 px-3 py-2">
-                        <option value="">-- Todas --</option>
+                <label class="block"><span class="block text-sm font-medium mb-1">Empresas (puedes seleccionar varias)</span>
+                    <div class="border border-slate-300 rounded-xl p-3 max-h-48 overflow-auto">
                         <?php foreach($empresas as $e): ?>
-                            <option value="<?= htmlspecialchars($e) ?>"><?= htmlspecialchars($e) ?></option>
+                            <label class="flex items-center gap-2 py-1">
+                                <input type="checkbox" name="empresas[]" value="<?= htmlspecialchars($e) ?>" class="rounded border-slate-300">
+                                <span><?= htmlspecialchars($e) ?></span>
+                            </label>
                         <?php endforeach; ?>
-                    </select>
+                    </div>
                 </label>
                 <button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow">Continuar</button>
             </form>
@@ -354,20 +355,32 @@ include("nav.php");
 /* ================= Parámetros ================= */
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
-$empresaFiltro = $_GET['empresa'] ?? "";
-$empresaFiltroEsc = $conn->real_escape_string($empresaFiltro);
+$empresasSeleccionadas = isset($_GET['empresas']) ? $_GET['empresas'] : [];
+if (!is_array($empresasSeleccionadas)) {
+    $empresasSeleccionadas = [];
+}
+
+// Escapar empresas para SQL
+$empresasEscapadas = array_map(function($e) use ($conn) {
+    return "'" . $conn->real_escape_string($e) . "'";
+}, $empresasSeleccionadas);
 
 /* ================= CARGAR TARIFAS ================= */
 $tarifas = [];
-if ($empresaFiltro !== "") {
-    $resT = $conn->query("SELECT * FROM tarifas WHERE empresa='".$empresaFiltroEsc."'");
+if (!empty($empresasSeleccionadas)) {
+    $sqlTarifas = "SELECT * FROM tarifas WHERE empresa IN (" . implode(',', $empresasEscapadas) . ")";
+    $resT = $conn->query($sqlTarifas);
     if ($resT) {
         while($r = $resT->fetch_assoc()) {
             $tarifa_normalizada = [];
             foreach ($r as $key => $value) {
                 $tarifa_normalizada[strtolower($key)] = $value;
             }
-            $tarifas[$r['tipo_vehiculo']] = $tarifa_normalizada;
+            // Guardar por tipo de vehículo y empresa
+            if (!isset($tarifas[$r['tipo_vehiculo']])) {
+                $tarifas[$r['tipo_vehiculo']] = [];
+            }
+            $tarifas[$r['tipo_vehiculo']][$r['empresa']] = $tarifa_normalizada;
         }
     }
 }
@@ -376,9 +389,11 @@ if ($empresaFiltro !== "") {
 $sqlV = "SELECT nombre, ruta, empresa, tipo_vehiculo
          FROM viajes
          WHERE fecha BETWEEN '$desde' AND '$hasta'";
-if ($empresaFiltro !== "") {
-    $sqlV .= " AND empresa = '$empresaFiltroEsc'";
+
+if (!empty($empresasSeleccionadas)) {
+    $sqlV .= " AND empresa IN (" . implode(',', $empresasEscapadas) . ")";
 }
+
 $resV = $conn->query($sqlV);
 
 $contadores = [];
@@ -387,9 +402,10 @@ if ($resV) {
         $nombre = $row['nombre'];
         $ruta = $row['ruta'];
         $vehiculo = $row['tipo_vehiculo'];
+        $empresa = $row['empresa'];
         
         if (!isset($contadores[$nombre])) {
-            $contadores[$nombre] = ['vehiculo' => $vehiculo];
+            $contadores[$nombre] = [];
             foreach ($todas_clasificaciones as $clas) {
                 $clas_normalizada = strtolower($clas);
                 $contadores[$nombre][$clas_normalizada] = 0;
@@ -426,8 +442,8 @@ $qPrest = "
   WHERE (pagado IS NULL OR pagado = 0)
 ";
 
-if ($empresaFiltro !== "") {
-    $qPrest .= " AND empresa = '".$empresaFiltroEsc."'";
+if (!empty($empresasSeleccionadas)) {
+    $qPrest .= " AND empresa IN (" . implode(',', $empresasEscapadas) . ")";
 }
 
 $qPrest .= " GROUP BY deudor";
@@ -446,9 +462,6 @@ $filas = [];
 $total_facturado = 0;
 
 foreach ($contadores as $nombre => $v) {
-    $veh = $v['vehiculo'];
-    $t = $tarifas[$veh] ?? [];
-    
     $total = 0;
     
     foreach ($todas_clasificaciones as $clas) {
@@ -458,16 +471,34 @@ foreach ($contadores as $nombre => $v) {
         if ($cantidad > 0) {
             $precio = 0;
             
-            if (isset($t[$clas_normalizada])) {
-                $precio = (float)$t[$clas_normalizada];
-            } else {
-                $clas_con_guion = str_replace(' ', '_', $clas_normalizada);
-                if (isset($t[$clas_con_guion])) {
-                    $precio = (float)$t[$clas_con_guion];
-                } else {
-                    $clas_con_espacio = str_replace('_', ' ', $clas_normalizada);
-                    if (isset($t[$clas_con_espacio])) {
-                        $precio = (float)$t[$clas_con_espacio];
+            // Necesitamos el tipo de vehículo para este conductor
+            // Por simplicidad, obtenemos el primer viaje del conductor para saber su vehículo
+            $sqlVeh = "SELECT tipo_vehiculo FROM viajes WHERE nombre = '$nombre' LIMIT 1";
+            $resVeh = $conn->query($sqlVeh);
+            $vehiculo = ($resVeh && $resVeh->num_rows > 0) ? $resVeh->fetch_assoc()['tipo_vehiculo'] : '';
+            
+            if (isset($tarifas[$vehiculo])) {
+                // Buscar la mejor tarifa disponible entre las empresas seleccionadas
+                $tarifaEncontrada = false;
+                foreach ($tarifas[$vehiculo] as $empTarifa => $tarifaData) {
+                    if (isset($tarifaData[$clas_normalizada])) {
+                        $precio = (float)$tarifaData[$clas_normalizada];
+                        $tarifaEncontrada = true;
+                        break;
+                    } else {
+                        $clas_con_guion = str_replace(' ', '_', $clas_normalizada);
+                        if (isset($tarifaData[$clas_con_guion])) {
+                            $precio = (float)$tarifaData[$clas_con_guion];
+                            $tarifaEncontrada = true;
+                            break;
+                        } else {
+                            $clas_con_espacio = str_replace('_', ' ', $clas_normalizada);
+                            if (isset($tarifaData[$clas_con_espacio])) {
+                                $precio = (float)$tarifaData[$clas_con_espacio];
+                                $tarifaEncontrada = true;
+                                break;
+                            }
+                        }
                     }
                 }
             }
@@ -488,7 +519,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>Ajuste de Pago (con gestor de cuentas de cobro)</title>
+    <title>Ajuste de Pago (Multiempresa)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
@@ -497,7 +528,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         .table-sticky thead th { position: sticky; top: 0; z-index: 31; background-color: #2563eb !important; color: #fff !important; }
         .table-sticky thead { box-shadow: 0 2px 0 rgba(0,0,0,0.06); }
 
-        /* Modal Viajes - EXACTAMENTE IGUAL AL PRIMER CÓDIGO */
         .viajes-backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:10000; }
         .viajes-backdrop.show{ display:flex; }
         .viajes-card{ width:min(720px,94vw); max-height:90vh; overflow:hidden; border-radius:16px; background:#fff;
@@ -509,35 +539,28 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
         .conductor-link{cursor:pointer; color:#0d6efd; text-decoration:underline;}
 
-        /* Estados de pago */
         .estado-pagado { background-color: #f0fdf4 !important; border-left: 4px solid #22c55e; }
         .estado-pendiente { background-color: #fef2f2 !important; border-left: 4px solid #ef4444; }
         .estado-procesando { background-color: #fffbeb !important; border-left: 4px solid #f59e0b; }
         .estado-parcial { background-color: #eff6ff !important; border-left: 4px solid #3b82f6; }
 
-        /* Fila manual */
         .fila-manual { background-color: #f0f9ff !important; border-left: 4px solid #0ea5e9; }
         .fila-manual td { background-color: #f0f9ff !important; }
         
-        /* Buscador */
         .buscar-container { position: relative; }
         .buscar-clear { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #64748b; cursor: pointer; display: none; }
         .buscar-clear:hover { color: #475569; }
         
-        /* Panel flotante */
         #floatingPanel { box-shadow: 0 10px 40px rgba(0,0,0,0.15); z-index: 9999; }
         #panelDragHandle { user-select: none; }
         .checkbox-conductor { width: 18px; height: 18px; cursor: pointer; }
         .fila-seleccionada { background-color: #f0f9ff !important; }
         
-        /* Leyenda */
         .legend-pill { transition: all 0.2s; }
         .legend-pill.active { box-shadow: 0 0 0 2px #3b82f6, 0 0 0 4px rgba(59, 130, 246, 0.2); }
         
-        /* Badge base datos */
         .bd-badge { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
         
-        /* Colores para viajes - EXACTAMENTE IGUAL AL PRIMER CÓDIGO */
         .row-viaje:hover { background-color: #f8fafc; }
         .cat-completo { background-color: rgba(209, 250, 229, 0.1); }
         .cat-medio { background-color: rgba(254, 243, 199, 0.1); }
@@ -545,42 +568,82 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         .cat-siapana { background-color: rgba(250, 232, 255, 0.1); }
         .cat-carrotanque { background-color: rgba(207, 250, 254, 0.1); }
         .cat-otro { background-color: rgba(243, 244, 246, 0.1); }
+        
+        /* Estilo para multiselect */
+        .empresa-multiselect {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.75rem;
+            padding: 0.5rem;
+            background: white;
+        }
+        .empresa-multiselect label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.375rem;
+            cursor: pointer;
+        }
+        .empresa-multiselect label:hover {
+            background-color: #f8fafc;
+        }
+        .empresa-multiselect input[type="checkbox"] {
+            width: 1rem;
+            height: 1rem;
+            border-radius: 0.25rem;
+            border: 1px solid #cbd5e1;
+        }
+        .empresa-selected-count {
+            font-size: 0.75rem;
+            color: #64748b;
+            margin-top: 0.25rem;
+        }
     </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
 <header class="max-w-[1600px] mx-auto px-3 md:px-4 pt-6">
     <div class="bg-white border border-slate-200 rounded-2xl shadow-sm px-5 py-4">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <h2 class="text-xl md:text-2xl font-bold">🧾 Ajuste de Pago <span class="bd-badge text-xs px-2 py-1 rounded-full ml-2">Base de Datos</span></h2>
+            <h2 class="text-xl md:text-2xl font-bold">🧾 Ajuste de Pago <span class="bd-badge text-xs px-2 py-1 rounded-full ml-2">Multiempresa</span></h2>
             <div class="flex items-center gap-2">
                 <button id="btnShowSaveCuenta" class="rounded-lg border border-amber-300 px-3 py-2 text-sm bg-amber-50 hover:bg-amber-100">⭐ Guardar como cuenta</button>
                 <button id="btnShowGestorCuentas" class="rounded-lg border border-blue-300 px-3 py-2 text-sm bg-blue-50 hover:bg-blue-100">📚 Cuentas guardadas</button>
             </div>
         </div>
 
-        <!-- filtros -->
-        <form id="formFiltros" class="mt-3 grid grid-cols-1 md:grid-cols-6 gap-3" method="get">
-            <label class="block md:col-span-1">
+        <!-- filtros con multiselect -->
+        <form id="formFiltros" class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3" method="get">
+            <label class="block md:col-span-2">
                 <span class="block text-xs font-medium mb-1">Desde</span>
                 <input id="inp_desde" type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
             </label>
-            <label class="block md:col-span-1">
+            <label class="block md:col-span-2">
                 <span class="block text-xs font-medium mb-1">Hasta</span>
                 <input id="inp_hasta" type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
             </label>
-            <label class="block md:col-span-2">
-                <span class="block text-xs font-medium mb-1">Empresa</span>
-                <select id="sel_empresa" name="empresa" class="w-full rounded-xl border border-slate-300 px-3 py-2">
-                    <option value="">-- Todas --</option>
+            <div class="md:col-span-5">
+                <span class="block text-xs font-medium mb-1">Empresas (puedes seleccionar varias)</span>
+                <div class="empresa-multiselect">
                     <?php
                     $resEmp2 = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
-                    if ($resEmp2) while ($e = $resEmp2->fetch_assoc()) {
-                        $sel = ($empresaFiltro==$e['empresa'])?'selected':''; ?>
-                        <option value="<?= htmlspecialchars($e['empresa']) ?>" <?= $sel ?>><?= htmlspecialchars($e['empresa']) ?></option>
-                    <?php } ?>
-                </select>
-            </label>
-            <div class="md:col-span-2 flex md:items-end">
+                    if ($resEmp2) {
+                        while ($e = $resEmp2->fetch_assoc()) {
+                            $checked = in_array($e['empresa'], $empresasSeleccionadas) ? 'checked' : '';
+                            ?>
+                            <label>
+                                <input type="checkbox" name="empresas[]" value="<?= htmlspecialchars($e['empresa']) ?>" <?= $checked ?>>
+                                <span><?= htmlspecialchars($e['empresa']) ?></span>
+                            </label>
+                        <?php } 
+                    } ?>
+                </div>
+                <div class="empresa-selected-count" id="empresaCount">
+                    <?= count($empresasSeleccionadas) ?> empresa(s) seleccionada(s)
+                </div>
+            </div>
+            <div class="md:col-span-3 flex md:items-end">
                 <button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow">Aplicar</button>
             </div>
         </form>
@@ -626,7 +689,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 </div>
             </div>
             <div class="flex flex-col md:flex-row gap-3 w-full md:w-auto">
-                <!-- BUSCADOR DE CONDUCTORES -->
                 <div class="buscar-container w-full md:w-64">
                     <input id="buscadorConductores" type="text" 
                            placeholder="Buscar conductor..." 
@@ -831,7 +893,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- ===== Modal VIAJES (EXACTAMENTE IGUAL AL PRIMER CÓDIGO) ===== -->
+<!-- ===== Modal VIAJES ===== -->
 <div id="viajesModal" class="viajes-backdrop">
     <div class="viajes-card">
         <div class="viajes-header">
@@ -877,7 +939,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             </label>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <label class="block">
-                    <span class="block text-xs font-medium mb-1">Empresa</span>
+                    <span class="block text-xs font-medium mb-1">Empresa(s)</span>
                     <input id="cuenta_empresa" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" readonly>
                 </label>
                 <label class="block">
@@ -922,7 +984,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                     <?php
                     $resEmpCuentas = $conn->query("SELECT DISTINCT empresa FROM cuentas_guardadas WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
                     if ($resEmpCuentas) while ($e = $resEmpCuentas->fetch_assoc()) {
-                        $sel = ($empresaFiltro==$e['empresa'])?'selected':''; ?>
+                        $sel = (in_array($e['empresa'], $empresasSeleccionadas)) ? 'selected' : ''; ?>
                         <option value="<?= htmlspecialchars($e['empresa']) ?>" <?= $sel ?>><?= htmlspecialchars($e['empresa']) ?></option>
                     <?php } ?>
                 </select>
@@ -971,8 +1033,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 </div>
 
 <script>
-    // ===== Claves de persistencia LOCAL (solo para sesión actual) =====
-    const COMPANY_SCOPE = <?= json_encode(($empresaFiltro ?: '__todas__')) ?>;
+    // ===== Claves de persistencia LOCAL =====
+    const EMPRESAS_SELECCIONADAS = <?= json_encode($empresasSeleccionadas) ?>;
+    const COMPANY_SCOPE = 'multi_' + (EMPRESAS_SELECCIONADAS.sort().join('_') || 'todas');
     const ACC_KEY   = 'cuentas_temp:'+COMPANY_SCOPE;
     const SS_KEY    = 'seg_social_temp:'+COMPANY_SCOPE;
     const PREST_SEL_KEY = 'prestamo_sel_multi:v4:'+COMPANY_SCOPE;
@@ -1499,6 +1562,21 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         buscadorConductores.focus();
     });
 
+    // ===== ACTUALIZAR CONTADOR DE EMPRESAS SELECCIONADAS =====
+    const checkboxesEmpresa = document.querySelectorAll('input[name="empresas[]"]');
+    const empresaCountSpan = document.getElementById('empresaCount');
+    
+    function actualizarContadorEmpresas() {
+        const seleccionadas = document.querySelectorAll('input[name="empresas[]"]:checked').length;
+        empresaCountSpan.textContent = seleccionadas + ' empresa(s) seleccionada(s)';
+    }
+    
+    checkboxesEmpresa.forEach(cb => {
+        cb.addEventListener('change', actualizarContadorEmpresas);
+    });
+    
+    actualizarContadorEmpresas();
+
     // ===== EVENTOS =====
     btnAddManual.addEventListener('click', ()=> agregarFilaManual());
     closePanel.addEventListener('click', () => floatingPanel.classList.add('hidden'));
@@ -1687,10 +1765,10 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     prestSearch.addEventListener('input',()=>renderPrestList(prestSearch.value));
 
-    // ===== MODAL DE VIAJES (EXACTAMENTE IGUAL AL PRIMER CÓDIGO) =====
+    // ===== MODAL DE VIAJES =====
     const RANGO_DESDE = <?= json_encode($desde) ?>;
     const RANGO_HASTA = <?= json_encode($hasta) ?>;
-    const RANGO_EMP   = <?= json_encode($empresaFiltro) ?>;
+    const RANGO_EMPRESAS = <?= json_encode($empresasSeleccionadas) ?>;
 
     const viajesModal            = document.getElementById('viajesModal');
     const viajesContent          = document.getElementById('viajesContent');
@@ -1715,7 +1793,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     function attachFiltroViajes(){
         const pills = viajesContent.querySelectorAll('#legendFilterBar .legend-pill');
-        const rows  = viajesContent.querySelectorAll('#viajesTableBody .row-viaje');
+        const rows  = viajesContent.querySelectorAll('#viajesTableBody .viaje-item');
         if (!pills.length || !rows.length) return;
 
         let activeCat = null;
@@ -1765,8 +1843,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         const qs = new URLSearchParams({
             viajes_conductor: nombre,
             desde: RANGO_DESDE,
-            hasta: RANGO_HASTA,
-            empresa: RANGO_EMP
+            hasta: RANGO_HASTA
+        });
+        
+        // Agregar empresas seleccionadas
+        RANGO_EMPRESAS.forEach(emp => {
+            qs.append('empresas[]', emp);
         });
 
         fetch('<?= basename(__FILE__) ?>?' + qs.toString())
@@ -1782,7 +1864,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     function abrirModalViajes(nombreInicial){
         viajesRango.textContent   = RANGO_DESDE + " → " + RANGO_HASTA;
-        viajesEmpresa.textContent = (RANGO_EMP && RANGO_EMP !== "") ? RANGO_EMP : "Todas las empresas";
+        viajesEmpresa.textContent = RANGO_EMPRESAS.length > 0 ? RANGO_EMPRESAS.join(', ') : "Todas las empresas";
 
         initViajesSelect(nombreInicial);
 
@@ -1807,7 +1889,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         loadViajes(nuevo);
     });
 
-    // Conectar botones de conductor al modal (EXACTAMENTE IGUAL AL PRIMER CÓDIGO)
+    // Conectar botones de conductor al modal
     document.querySelectorAll('#tbody .conductor-link').forEach(btn=>{
         btn.addEventListener('click', ()=>{
             abrirModalViajes(btn.textContent.trim());
@@ -1887,7 +1969,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const formFiltros = document.getElementById('formFiltros');
     const inpDesde = document.getElementById('inp_desde');
     const inpHasta = document.getElementById('inp_hasta');
-    const selEmpresa = document.getElementById('sel_empresa');
     const inpFact = document.getElementById('inp_facturado');
     const inpPorcentaje = document.getElementById('inp_porcentaje_ajuste');
 
@@ -1905,20 +1986,24 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     // ===== GUARDAR CUENTA EN BASE DE DATOS =====
     async function openSaveCuenta(){
-        const emp = selEmpresa.value.trim();
-        if(!emp){ 
+        const empresasSeleccionadas = [];
+        document.querySelectorAll('input[name="empresas[]"]:checked').forEach(cb => {
+            empresasSeleccionadas.push(cb.value);
+        });
+        
+        if(empresasSeleccionadas.length === 0){ 
             Swal.fire({
-                title: '⚠️ Empresa requerida',
-                text: 'Selecciona una EMPRESA antes de guardar la cuenta.',
+                title: '⚠️ Empresa(s) requerida',
+                text: 'Selecciona al menos una EMPRESA antes de guardar la cuenta.',
                 icon: 'warning'
             });
             return; 
         }
         const d = inpDesde.value; const h = inpHasta.value;
 
-        iEmpresa.value = emp;
+        iEmpresa.value = empresasSeleccionadas.join(', ');
         iRango.value = `${d} → ${h}`;
-        iNombre.value = `${emp} ${d} a ${h}`;
+        iNombre.value = `${empresasSeleccionadas.join('_')} ${d} a ${h}`;
         iCFact.value = fmt(toInt(inpFact.value));
         iCPorcentaje.value = parseFloat(inpPorcentaje.value) || 0;
 
@@ -2197,7 +2282,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 const cuenta = resultado.cuenta;
                 
                 // Cargar datos básicos
-                selEmpresa.value = cuenta.empresa;
+                // Nota: No se pueden cargar múltiples empresas en el filtro actual
+                // pero se mantiene el nombre de empresas en el campo de texto
                 inpDesde.value = cuenta.desde;
                 inpHasta.value = cuenta.hasta;
                 inpFact.value = fmt(cuenta.facturado || 0);
