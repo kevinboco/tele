@@ -199,22 +199,41 @@ if (!empty($empresasSeleccionadas)) {
 }
 
 // ========== CONSULTA CORREGIDA PARA LISTA DE CONDUCTORES ==========
-// CONSULTA PARA LISTA DE CONDUCTORES - Únicos con sus datos (RESPETANDO FILTROS)
-// CORREGIDO: Usa GROUP BY para obtener una fila por nombre con la cédula más significativa.
+// Obtenemos los conductores que tienen viajes en el período,
+// pero buscamos su cédula en TODA la base de datos (sin límite de fecha)
 $sqlConductores = "
     SELECT 
-        nombre, 
-        -- Intenta tomar la primera cédula NO NULA que encuentre para ese nombre.
-        -- Si todas son NULL, el resultado será NULL.
-        MAX(IF(cedula IS NOT NULL AND cedula != '', cedula, NULL)) as cedula, 
-        -- Para tipo_vehiculo, tomamos el valor más común (o el primero no nulo)
-        MAX(tipo_vehiculo) as tipo_vehiculo 
-    FROM viajes 
-    WHERE fecha >= '$desdeIni' AND fecha <= '$hastaFin' 
-    AND nombre IS NOT NULL AND nombre <> ''
-    $condicionEmpresa
-    GROUP BY nombre
-    ORDER BY nombre ASC
+        v_periodo.nombre,
+        -- Buscamos la cédula más reciente (no nula) de este conductor en TODA la tabla
+        (
+            SELECT v2.cedula 
+            FROM viajes v2 
+            WHERE v2.nombre = v_periodo.nombre 
+              AND v2.cedula IS NOT NULL 
+              AND v2.cedula != ''
+            ORDER BY v2.fecha DESC 
+            LIMIT 1
+        ) as cedula,
+        -- Para el tipo de vehículo, tomamos el más común en el período
+        (
+            SELECT v3.tipo_vehiculo 
+            FROM viajes v3 
+            WHERE v3.nombre = v_periodo.nombre 
+              AND v3.tipo_vehiculo IS NOT NULL
+            ORDER BY v3.fecha DESC 
+            LIMIT 1
+        ) as tipo_vehiculo
+    FROM (
+        -- Primero obtenemos los nombres ÚNICOS que viajaron en el período
+        SELECT DISTINCT nombre 
+        FROM viajes 
+        WHERE fecha >= '$desdeIni' 
+          AND fecha <= '$hastaFin'
+          AND nombre IS NOT NULL 
+          AND nombre <> ''
+          $condicionEmpresa
+    ) v_periodo
+    ORDER BY v_periodo.nombre ASC
 ";
 $resConductores = $conn->query($sqlConductores);
 
@@ -266,7 +285,7 @@ if ($resConductores && $resConductores->num_rows > 0) {
     while ($row = $resConductores->fetch_assoc()) {
         $tableConductores->addRow();
         $tableConductores->addCell(3000)->addText($row['nombre'] ?: '-');
-        // AHORA SÍ DEBERÍA MOSTRAR LA CÉDULA CORRECTAMENTE
+        // AHORA SÍ DEBERÍA MOSTRAR LA CÉDULA CORRECTAMENTE, BUSCÁNDOLA EN TODA LA BD
         $tableConductores->addCell(2500)->addText($row['cedula'] ?: 'N/A');
         
         // Tipo de vehículo formateado
