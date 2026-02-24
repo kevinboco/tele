@@ -343,7 +343,7 @@ $section->addTextBreak(2);
 $section->addText("NUMAS JOSÉ IGUARÁN IGUARÁN", ['bold' => true]);
 $section->addText("Representante Legal");
 
-// Envío directo al navegador
+// Envío directo al navegado
 $filename = "informe_viajes_{$desde}_a_{$hasta}.docx";
 header("Content-Description: File Transfer");
 header("Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document");
