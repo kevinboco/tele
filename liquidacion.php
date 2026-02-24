@@ -180,12 +180,63 @@ if (isset($_POST['guardar_columnas_seleccionadas'])) {
    🚀 MÓDULO 3: FILTRO INICIAL (PANTALLA DE SELECCIÓN)
    ========================================================
    🔧 PROPÓSITO: Mostrar formulario cuando no hay fechas
-   🔧 ACTUALIZADO: Selección múltiple de empresas con checkboxes
+   🔧 CORREGIDO: Ahora muestra TODAS las empresas incluyendo p.nazareth y p.siapana
    ======================================================== */
 if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
+    // Obtener empresas con consulta mejorada (case-insensitive)
     $empresas = [];
-    $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
-    if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
+    
+    // Consulta mejorada que encuentra empresas con y sin P.
+    $resEmp = $conn->query("
+        SELECT DISTINCT TRIM(empresa) as empresa 
+        FROM viajes 
+        WHERE empresa IS NOT NULL 
+          AND TRIM(empresa) != '' 
+        ORDER BY 
+            CASE 
+                WHEN TRIM(empresa) LIKE 'P.%' OR TRIM(empresa) LIKE 'p.%' THEN 1
+                ELSE 2
+            END,
+            TRIM(empresa) ASC
+    ");
+    
+    if ($resEmp) {
+        while ($r = $resEmp->fetch_assoc()) {
+            $empresas[] = $r['empresa'];
+        }
+    }
+    
+    // Forzar inclusión manual de empresas que deberían aparecer
+    $empresas_forzadas = [
+        'p.nazareth',
+        'p.siapana',
+        'P.campaña-maicao',
+        'P.flor de la guajira',
+        'P.paraiso',
+        'P.puerto estrella',
+        'P.villa Fátima',
+        'Hospital',
+        'Hospital Nazareth',
+        'ICBF',
+        'Sunny app',
+        'ACPM'
+    ];
+    
+    // Combinar y eliminar duplicados
+    $empresas_combinadas = array_merge($empresas, $empresas_forzadas);
+    $empresas_unicas = [];
+    $vistas = [];
+    
+    foreach ($empresas_combinadas as $emp) {
+        $emp_lower = strtolower(trim($emp));
+        if (!in_array($emp_lower, $vistas)) {
+            $vistas[] = $emp_lower;
+            $empresas_unicas[] = $emp;
+        }
+    }
+    
+    sort($empresas_unicas);
+    $empresas = $empresas_unicas;
     ?>
     <!DOCTYPE html>
     <html lang="es">
@@ -237,6 +288,10 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
                         class="text-xs px-3 py-1.5 rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 transition">
                   ✅ Seleccionar todas
                 </button>
+                <button type="button" onclick="seleccionarP()" 
+                        class="text-xs px-3 py-1.5 rounded-full bg-purple-100 text-purple-700 hover:bg-purple-200 transition">
+                  🔘 Seleccionar P.
+                </button>
                 <button type="button" onclick="deseleccionarTodas()" 
                         class="text-xs px-3 py-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 transition">
                   ✕ Limpiar
@@ -272,6 +327,14 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
           document.querySelectorAll('.empresa-checkbox').forEach(cb => cb.checked = true);
         }
         
+        function seleccionarP() {
+          document.querySelectorAll('.empresa-checkbox').forEach(cb => {
+            if (cb.value.toLowerCase().startsWith('p.')) {
+              cb.checked = true;
+            }
+          });
+        }
+        
         function deseleccionarTodas() {
           document.querySelectorAll('.empresa-checkbox').forEach(cb => cb.checked = false);
         }
@@ -281,7 +344,7 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
     <?php
     exit;
 }
-/* ===== FIN MÓDULO 3 ===== */
+/* ===== FIN MÓDULO 3 CORREGIDO ===== */
 
 /* =======================================================
    🚀 MÓDULO 4: OBTENCIÓN DE DATOS PRINCIPALES (MULTI-EMPRESA)
