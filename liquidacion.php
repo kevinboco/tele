@@ -832,7 +832,7 @@ function deseleccionarTodasHeader() {
   document.querySelectorAll('.empresa-checkbox-header').forEach(cb => cb.checked = false);
 }
 </script>
-<!-- ===== FIN MÓDULO 6 ===== -->
+<!-- ===== FIN MÓDULO 6 =====-->
 
 <!-- =======================================================
    🚀 MÓDULO 7: BOLITAS FLOTANTES (NAVEGACIÓN RÁPIDA)
