@@ -287,7 +287,8 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
    🚀 MÓDULO 4: OBTENCIÓN DE DATOS PRINCIPALES (MULTI-EMPRESA)
    ========================================================
    🔧 PROPÓSITO: Procesar los datos con múltiples empresas
-   🔧 CARACTERÍSTICA: Suma automática de viajes de todas las empresas seleccionadas
+   🔧 CARACTERÍSTICA: Extrae TODAS las empresas de la tabla sin repetir
+   🔧 ACTUALIZADO: 23/02/2026 - Eliminado forzado manual de empresas
    ======================================================== */
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
@@ -303,7 +304,7 @@ $empresasFiltro = array_filter($empresasFiltro); // Quitar vacíos
 $sqlCondicionEmpresa = "";
 if (!empty($empresasFiltro)) {
     $empresasEscapadas = array_map(function($e) use ($conn) {
-        return "'" . $conn->real_escape_string($e) . "'";
+        return "'" . $conn->real_escape_string(trim($e)) . "'";
     }, $empresasFiltro);
     $sqlCondicionEmpresa = " AND empresa IN (" . implode(",", $empresasEscapadas) . ")";
 }
@@ -348,11 +349,14 @@ $rutas_sin_clasificar_por_conductor = [];
 // Procesar resultados - SE SUMAN AUTOMÁTICAMENTE LOS VIAJES DE TODAS LAS EMPRESAS
 if ($res) {
     while ($row = $res->fetch_assoc()) {
-        $nombre   = $row['nombre'];
-        $ruta     = $row['ruta'];
-        $vehiculo = $row['tipo_vehiculo'];
+        $nombre   = trim($row['nombre']);
+        $ruta     = trim($row['ruta']);
+        $vehiculo = trim($row['tipo_vehiculo']);
         $pagoParcial = (int)($row['pago_parcial'] ?? 0);
-        $empresa  = $row['empresa'];
+        $empresa  = trim($row['empresa']);
+
+        // Omitir registros con nombre vacío
+        if (empty($nombre)) continue;
 
         // Sumar pagos parciales del conductor (acumula de todas las empresas)
         if (!isset($pagosConductor[$nombre])) $pagosConductor[$nombre] = 0;
@@ -370,7 +374,7 @@ if ($res) {
         }
 
         // Registrar tipo de vehículo único
-        if (!in_array($vehiculo, $vehiculos, true)) $vehiculos[] = $vehiculo;
+        if (!empty($vehiculo) && !in_array($vehiculo, $vehiculos, true)) $vehiculos[] = $vehiculo;
 
         // Registrar rutas sin clasificar
         $clasificacion_ruta = $clasif_rutas[$keyRuta] ?? '';
@@ -386,14 +390,17 @@ if ($res) {
 
         // Inicializar datos del conductor si no existe
         if (!isset($datos[$nombre])) {
-            $datos[$nombre] = ["vehiculo" => $vehiculo, "pagado" => 0];
+            $datos[$nombre] = [
+                "vehiculo" => $vehiculo, 
+                "pagado" => 0,
+                "rutas_sin_clasificar" => 0
+            ];
             foreach ($clasificaciones_disponibles as $clasif) $datos[$nombre][$clasif] = 0;
         }
 
         // SUMAR el viaje a la clasificación correspondiente
         $clasifRuta = $clasif_rutas[$keyRuta] ?? '';
-        if ($clasifRuta !== '') {
-            if (!isset($datos[$nombre][$clasifRuta])) $datos[$nombre][$clasifRuta] = 0;
+        if ($clasifRuta !== '' && isset($datos[$nombre][$clasifRuta])) {
             $datos[$nombre][$clasifRuta]++; // ¡ESTA LÍNEA SUMA LOS VIAJES!
         }
     }
@@ -405,45 +412,67 @@ foreach ($datos as $conductor => $info) {
     $datos[$conductor]["rutas_sin_clasificar"] = count($rutas_sin_clasificar_por_conductor[$conductor] ?? []);
 }
 
-// Obtener empresas para el filtro (lista completa) - VERSIÓN CORREGIDA
+// ========================================================
+// 🔥 NUEVO: OBTENER EMPRESAS DIRECTAMENTE DE LA TABLA SIN FORZAR
+// ========================================================
 $empresas = [];
-$resEmp = $conn->query("
-    SELECT DISTINCT TRIM(empresa) as empresa 
+
+// Consulta mejorada para obtener TODAS las empresas sin duplicados
+$sqlEmpresas = "
+    SELECT DISTINCT 
+        TRIM(empresa) as empresa 
     FROM viajes 
     WHERE empresa IS NOT NULL 
       AND TRIM(empresa) != '' 
+      AND TRIM(empresa) NOT IN ('', 'NULL', 'null')
     ORDER BY 
         CASE 
-            WHEN TRIM(empresa) LIKE 'P.%' THEN 1  -- Las que empiezan con P. primero
-            WHEN TRIM(empresa) LIKE 'p.%' THEN 1
-            ELSE 2
+            WHEN LOWER(TRIM(empresa)) LIKE 'p.%' THEN 1  -- Las que empiezan con P. primero
+            WHEN LOWER(TRIM(empresa)) = 'acpm' THEN 2
+            WHEN LOWER(TRIM(empresa)) = 'icbf' THEN 3
+            WHEN LOWER(TRIM(empresa)) = 'hospital' THEN 4
+            WHEN LOWER(TRIM(empresa)) = 'sunny app' THEN 5
+            ELSE 6
         END,
         TRIM(empresa) ASC
-");
+";
+
+$resEmp = $conn->query($sqlEmpresas);
+
 if ($resEmp) {
-    $empresas_temp = [];
     while ($r = $resEmp->fetch_assoc()) {
-        $empresas_temp[] = $r['empresa'];
+        $empresa = trim($r['empresa']);
+        if (!empty($empresa) && !in_array($empresa, $empresas)) {
+            $empresas[] = $empresa;
+        }
     }
-    
-    // Limpiar duplicados que puedan haber por diferencias de mayúsculas
-    $empresas = array_values(array_unique($empresas_temp));
 }
 
-// Si aún falta, forzar la inclusión manualmente (solución de respaldo)
-$empresas_conocidas = ['ACPM', 'Hospital', 'Hospital Nazareth', 'ICBF', 'Sunny app', 
-                       'P.campaña-maicao', 'P.flor de la guajira', 'p.nazareth', 
-                       'P.paraiso', 'P.puerto estrella', 'p.siapana', 'P.villa Fátima'];
+// 🔥 ELIMINADO: Ya no forzamos empresas manualmente
+// Ya no existe el array $empresas_conocidas
 
-// Combinar y eliminar duplicados
-$empresas = array_values(array_unique(array_merge($empresas, $empresas_conocidas)));
-sort($empresas);
+// Ordenar final (por si acaso)
+usort($empresas, function($a, $b) {
+    $aStartsWithP = stripos($a, 'p.') === 0;
+    $bStartsWithP = stripos($b, 'p.') === 0;
+    
+    if ($aStartsWithP && !$bStartsWithP) return -1;
+    if (!$aStartsWithP && $bStartsWithP) return 1;
+    return strcasecmp($a, $b);
+});
 
-// Obtener tarifas guardadas (para la PRIMERA empresa seleccionada - las bolitas funcionan igual)
+// Debug: Ver qué empresas se encontraron (opcional - puedes eliminarlo)
+if (empty($empresas)) {
+    error_log("⚠️ ADVERTENCIA: No se encontraron empresas en la tabla viajes");
+} else {
+    error_log("✅ Empresas encontradas: " . implode(", ", $empresas));
+}
+
+// Obtener tarifas guardadas (para la PRIMERA empresa seleccionada)
 $tarifas_guardadas = [];
 if (!empty($empresasFiltro)) {
-    $primeraEmpresa = $empresasFiltro[0];
-    $resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa='$primeraEmpresa'");
+    $primeraEmpresa = $conn->real_escape_string($empresasFiltro[0]);
+    $resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa = '$primeraEmpresa'");
     if ($resTarifas) {
         while ($r = $resTarifas->fetch_assoc()) {
             $tarifas_guardadas[$r['tipo_vehiculo']] = $r;
