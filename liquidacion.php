@@ -741,6 +741,7 @@ if (isset($_GET['viajes_conductor'])) {
    ========================================================
    🔧 PROPÓSITO: Barra superior con filtros y título
    🔧 ACTUALIZADO: Muestra múltiples empresas seleccionadas
+   🔧 NUEVO: Símbolo ⚠️ al lado de empresas con rutas sin clasificar
    ======================================================== -->
 <header class="max-w-[1800px] mx-auto px-3 md:px-4 pt-6">
   <div class="bg-white border border-slate-200 rounded-2xl shadow-sm px-5 py-4">
@@ -774,26 +775,70 @@ if (isset($_GET['viajes_conductor'])) {
                      class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition">
             </label>
             
-            <!-- Selector de empresas en el header (para recargar) -->
+            <!-- ======================================================== -->
+            <!-- 🔥 SELECTOR DE EMPRESAS CON INDICADOR DE RUTAS SIN CLASIFICAR -->
+            <!-- ======================================================== -->
             <details class="relative">
               <summary class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm cursor-pointer bg-white hover:bg-slate-50">
                 <?= count($empresasFiltro) ?> empresa(s) seleccionada(s) ▼
               </summary>
-              <div class="absolute right-0 mt-1 w-64 bg-white border border-slate-200 rounded-lg shadow-lg p-3 z-50 max-h-80 overflow-y-auto">
-                <div class="flex justify-between mb-2">
+              <div class="absolute right-0 mt-1 w-72 bg-white border border-slate-200 rounded-lg shadow-lg p-3 z-50 max-h-96 overflow-y-auto">
+                <div class="flex justify-between mb-2 sticky top-0 bg-white pb-2 border-b">
                   <button type="button" onclick="seleccionarTodasHeader()" class="text-xs text-blue-600 hover:underline">Todas</button>
                   <button type="button" onclick="deseleccionarTodasHeader()" class="text-xs text-gray-600 hover:underline">Ninguna</button>
                 </div>
-                <?php foreach($empresas as $emp): ?>
-                  <label class="flex items-center gap-2 py-1">
+                
+                <?php 
+                // ========================================================
+                // CALCULAR RUTAS SIN CLASIFICAR POR EMPRESA
+                // ========================================================
+                $rutasSinClasificarPorEmpresa = [];
+                
+                $sqlRutasSinClasif = "
+                    SELECT DISTINCT v.empresa, v.ruta, v.tipo_vehiculo
+                    FROM viajes v
+                    LEFT JOIN ruta_clasificacion rc 
+                        ON LOWER(TRIM(v.ruta)) = LOWER(TRIM(rc.ruta)) 
+                        AND LOWER(TRIM(v.tipo_vehiculo)) = LOWER(TRIM(rc.tipo_vehiculo))
+                    WHERE v.fecha BETWEEN '$desde' AND '$hasta'
+                      AND v.empresa IS NOT NULL 
+                      AND TRIM(v.empresa) != ''
+                      AND (rc.clasificacion IS NULL OR rc.clasificacion = '' OR rc.clasificacion = 'otro')
+                ";
+                
+                $resRutasSinClasif = $conn->query($sqlRutasSinClasif);
+                if ($resRutasSinClasif) {
+                    while ($row = $resRutasSinClasif->fetch_assoc()) {
+                        $empresa = trim($row['empresa']);
+                        if (!isset($rutasSinClasificarPorEmpresa[$empresa])) {
+                            $rutasSinClasificarPorEmpresa[$empresa] = 0;
+                        }
+                        $rutasSinClasificarPorEmpresa[$empresa]++;
+                    }
+                }
+                ?>
+                
+                <?php foreach($empresas as $emp): 
+                    $tieneRutasSinClasificar = isset($rutasSinClasificarPorEmpresa[$emp]) && $rutasSinClasificarPorEmpresa[$emp] > 0;
+                ?>
+                  <label class="flex items-center gap-2 py-2 px-1 hover:bg-slate-50 rounded-lg transition <?= $tieneRutasSinClasificar ? 'bg-amber-50/50' : '' ?>">
                     <input type="checkbox" name="empresas[]" value="<?= htmlspecialchars($emp) ?>" 
                            <?= in_array($emp, $empresasFiltro) ? 'checked' : '' ?>
-                           class="empresa-checkbox-header w-4 h-4 text-blue-600 rounded">
-                    <span class="text-sm truncate"><?= htmlspecialchars($emp) ?></span>
+                           class="empresa-checkbox-header w-4 h-4 text-blue-600 rounded flex-shrink-0">
+                    <span class="text-sm truncate flex-1"><?= htmlspecialchars($emp) ?></span>
+                    
+                    <!-- 🔥 INDICADOR DE RUTAS SIN CLASIFICAR -->
+                    <?php if ($tieneRutasSinClasificar): ?>
+                      <span class="flex-shrink-0 text-amber-600 font-bold text-lg animate-pulse" 
+                            title="<?= $rutasSinClasificarPorEmpresa[$emp] ?> ruta(s) sin clasificar">
+                        ⚠️
+                      </span>
+                    <?php endif; ?>
                   </label>
                 <?php endforeach; ?>
               </div>
             </details>
+            <!-- ======================================================== -->
             
             <button type="submit" 
                     class="rounded-lg bg-blue-600 text-white px-4 py-1.5 text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 focus:ring-2 focus:ring-blue-200 transition whitespace-nowrap">
