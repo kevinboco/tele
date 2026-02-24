@@ -198,13 +198,24 @@ if (!empty($empresasSeleccionadas)) {
     $condicionEmpresa = " AND empresa IN (" . implode(",", $empresasEscapadas) . ")";
 }
 
+// ========== CONSULTA CORREGIDA PARA LISTA DE CONDUCTORES ==========
 // CONSULTA PARA LISTA DE CONDUCTORES - Únicos con sus datos (RESPETANDO FILTROS)
-$sqlConductores = "SELECT DISTINCT nombre, cedula, tipo_vehiculo 
-                   FROM viajes 
-                   WHERE fecha >= '$desdeIni' AND fecha <= '$hastaFin' 
-                   AND nombre IS NOT NULL AND nombre <> ''";
-$sqlConductores .= $condicionEmpresa;
-$sqlConductores .= " ORDER BY nombre ASC";
+// CORREGIDO: Usa GROUP BY para obtener una fila por nombre con la cédula más significativa.
+$sqlConductores = "
+    SELECT 
+        nombre, 
+        -- Intenta tomar la primera cédula NO NULA que encuentre para ese nombre.
+        -- Si todas son NULL, el resultado será NULL.
+        MAX(IF(cedula IS NOT NULL AND cedula != '', cedula, NULL)) as cedula, 
+        -- Para tipo_vehiculo, tomamos el valor más común (o el primero no nulo)
+        MAX(tipo_vehiculo) as tipo_vehiculo 
+    FROM viajes 
+    WHERE fecha >= '$desdeIni' AND fecha <= '$hastaFin' 
+    AND nombre IS NOT NULL AND nombre <> ''
+    $condicionEmpresa
+    GROUP BY nombre
+    ORDER BY nombre ASC
+";
 $resConductores = $conn->query($sqlConductores);
 
 // CONSULTA PRINCIPAL - Todos los viajes (RESPETANDO FILTROS)
@@ -255,6 +266,7 @@ if ($resConductores && $resConductores->num_rows > 0) {
     while ($row = $resConductores->fetch_assoc()) {
         $tableConductores->addRow();
         $tableConductores->addCell(3000)->addText($row['nombre'] ?: '-');
+        // AHORA SÍ DEBERÍA MOSTRAR LA CÉDULA CORRECTAMENTE
         $tableConductores->addCell(2500)->addText($row['cedula'] ?: 'N/A');
         
         // Tipo de vehículo formateado
