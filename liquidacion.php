@@ -14,7 +14,7 @@ include("nav.php");
    🚀 MÓDULO 1: CONFIGURACIÓN INICIAL Y BASE DE DATOS
    ========================================================
    🔧 PROPÓSITO: Conexión BD y funciones COMPARTIDAS entre módulos
-   🔧 SI MODIFICAS: Afecta a TODOS los módulos
+   🔧 CORREGIDO: 25/02/2026 - Funciones de tarifas optimizadas
    ======================================================== */
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
 if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); }
@@ -94,7 +94,7 @@ function obtenerColorVehiculo($vehiculo) {
     $color_index = abs($hash) % count($colores_genericos);
     return $colores_genericos[$color_index];
 }
-/* ===== FIN MÓDULO 1 ===== */
+/* ===== FIN MÓDULO 1 CORREGIDO ===== */
 
 /* =======================================================
    🚀 MÓDULO 2: PROCESAMIENTO DE ENDPOINTS AJAX
@@ -287,8 +287,7 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
    🚀 MÓDULO 4: OBTENCIÓN DE DATOS PRINCIPALES (MULTI-EMPRESA)
    ========================================================
    🔧 PROPÓSITO: Procesar los datos con múltiples empresas
-   🔧 CARACTERÍSTICA: Extrae TODAS las empresas de la tabla sin repetir
-   🔧 ACTUALIZADO: 23/02/2026 - Eliminado forzado manual de empresas
+   🔧 CORREGIDO: 25/02/2026 - Agregada variable EMPRESA_TARIFAS_ACTUAL
    ======================================================== */
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
@@ -299,6 +298,9 @@ if (!is_array($empresasFiltro)) {
     $empresasFiltro = $empresasFiltro ? [$empresasFiltro] : [];
 }
 $empresasFiltro = array_filter($empresasFiltro); // Quitar vacíos
+
+// ✅ NUEVA: Variable para tarifas (USA LA PRIMERA EMPRESA SELECCIONADA)
+$empresaTarifasActual = !empty($empresasFiltro) ? $empresasFiltro[0] : '';
 
 // Construir condición SQL para múltiples empresas
 $sqlCondicionEmpresa = "";
@@ -412,12 +414,8 @@ foreach ($datos as $conductor => $info) {
     $datos[$conductor]["rutas_sin_clasificar"] = count($rutas_sin_clasificar_por_conductor[$conductor] ?? []);
 }
 
-// ========================================================
-// 🔥 NUEVO: OBTENER EMPRESAS DIRECTAMENTE DE LA TABLA SIN FORZAR
-// ========================================================
+// Obtener empresas de la tabla
 $empresas = [];
-
-// Consulta mejorada para obtener TODAS las empresas sin duplicados
 $sqlEmpresas = "
     SELECT DISTINCT 
         TRIM(empresa) as empresa 
@@ -427,7 +425,7 @@ $sqlEmpresas = "
       AND TRIM(empresa) NOT IN ('', 'NULL', 'null')
     ORDER BY 
         CASE 
-            WHEN LOWER(TRIM(empresa)) LIKE 'p.%' THEN 1  -- Las que empiezan con P. primero
+            WHEN LOWER(TRIM(empresa)) LIKE 'p.%' THEN 1
             WHEN LOWER(TRIM(empresa)) = 'acpm' THEN 2
             WHEN LOWER(TRIM(empresa)) = 'icbf' THEN 3
             WHEN LOWER(TRIM(empresa)) = 'hospital' THEN 4
@@ -438,7 +436,6 @@ $sqlEmpresas = "
 ";
 
 $resEmp = $conn->query($sqlEmpresas);
-
 if ($resEmp) {
     while ($r = $resEmp->fetch_assoc()) {
         $empresa = trim($r['empresa']);
@@ -448,10 +445,7 @@ if ($resEmp) {
     }
 }
 
-// 🔥 ELIMINADO: Ya no forzamos empresas manualmente
-// Ya no existe el array $empresas_conocidas
-
-// Ordenar final (por si acaso)
+// Ordenar final
 usort($empresas, function($a, $b) {
     $aStartsWithP = stripos($a, 'p.') === 0;
     $bStartsWithP = stripos($b, 'p.') === 0;
@@ -461,17 +455,10 @@ usort($empresas, function($a, $b) {
     return strcasecmp($a, $b);
 });
 
-// Debug: Ver qué empresas se encontraron (opcional - puedes eliminarlo)
-if (empty($empresas)) {
-    error_log("⚠️ ADVERTENCIA: No se encontraron empresas en la tabla viajes");
-} else {
-    error_log("✅ Empresas encontradas: " . implode(", ", $empresas));
-}
-
-// Obtener tarifas guardadas (para la PRIMERA empresa seleccionada)
+// ✅ Obtener tarifas guardadas para la EMPRESA_TARIFAS_ACTUAL
 $tarifas_guardadas = [];
-if (!empty($empresasFiltro)) {
-    $primeraEmpresa = $conn->real_escape_string($empresasFiltro[0]);
+if (!empty($empresaTarifasActual)) {
+    $primeraEmpresa = $conn->real_escape_string($empresaTarifasActual);
     $resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa = '$primeraEmpresa'");
     if ($resTarifas) {
         while ($r = $resTarifas->fetch_assoc()) {
@@ -479,7 +466,7 @@ if (!empty($empresasFiltro)) {
         }
     }
 }
-/* ===== FIN MÓDULO 4 ===== */
+/* ===== FIN MÓDULO 4 CORREGIDO ===== */
 
 /* =======================================================
    🚀 MÓDULO 5: ENDPOINT VIAJES POR CONDUCTOR (AJAX) - MULTI-EMPRESA
@@ -1770,18 +1757,22 @@ function loadViajes(nombre) {
 </script>
 <!-- ===== FIN MÓDULO 10 ===== -->
 
-<!-- =======================================================
-   🚀 MÓDULO 11: JAVASCRIPT PRINCIPAL (TODAS LAS FUNCIONES)
-   ========================================================
-   🔧 PROPÓSITO: Lógica de negocio del sistema
-   🔧 ACTUALIZADO: Soporte multi-empresa en modal de viajes
-   ======================================================== -->
 <script>
-// ===== VARIABLES GLOBALES =====
+// =======================================================
+// 🚀 MÓDULO 11: JAVASCRIPT PRINCIPAL (CORREGIDO)
+// ========================================================
+// 🔧 CORREGIDO: 25/02/2026 - Variable EMPRESA_ACTUAL_TARIFAS agregada
+// ========================================================
+
+// ===== VARIABLES GLOBALES CORREGIDAS =====
 let activePanel = null;
 const RANGO_DESDE = <?= json_encode($desde) ?>;
 const RANGO_HASTA = <?= json_encode($hasta) ?>;
 const RANGO_EMPS   = <?= json_encode($empresasFiltro) ?>; // Array de empresas seleccionadas
+
+// ✅ NUEVA: Variable para tarifas (USA LA PRIMERA EMPRESA SELECCIONADA)
+const EMPRESA_ACTUAL_TARIFAS = <?= json_encode($empresaTarifasActual) ?>;
+
 const CONDUCTORES_LIST = <?= json_encode(array_keys($datos), JSON_UNESCAPED_UNICODE); ?>;
 let columnasSeleccionadas = <?= json_encode($columnas_seleccionadas) ?>;
 
@@ -1812,7 +1803,7 @@ function togglePanel(panelId) {
     }
 }
 
-// ===== FUNCIONES DE TARIFAS =====
+// ===== FUNCIONES DE TARIFAS (CORREGIDAS) =====
 function toggleAcordeon(vehiculoId) {
     const content = document.getElementById('content-' + vehiculoId);
     const icon = document.getElementById('icon-' + vehiculoId);
@@ -2009,7 +2000,7 @@ function actualizarColumnasTabla() {
 function guardarSeleccionColumnas() {
     const desde = "<?= htmlspecialchars($desde) ?>";
     const hasta = "<?= htmlspecialchars($hasta) ?>";
-    const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
+    const empresa = "<?= htmlspecialchars($empresaTarifasActual) ?>";
     
     fetch('<?= basename(__FILE__) ?>', {
         method: 'POST',
@@ -2091,6 +2082,40 @@ function cerrarModalViajes(){
     document.getElementById('viajesModal').classList.remove('show');
     document.getElementById('viajesContent').innerHTML = '';
     viajesConductorActual = null;
+}
+
+function abrirModalViajes(nombreInicial){
+    document.getElementById('viajesRango').textContent = RANGO_DESDE + " → " + RANGO_HASTA;
+    const empresasText = (RANGO_EMPS && RANGO_EMPS.length > 0) 
+        ? RANGO_EMPS.join(' • ') 
+        : "Todas las empresas";
+    document.getElementById('viajesEmpresas').textContent = empresasText;
+    
+    initViajesSelect(nombreInicial);
+    document.getElementById('viajesModal').classList.add('show');
+    loadViajes(nombreInicial);
+}
+
+function loadViajes(nombre) {
+    const content = document.getElementById('viajesContent');
+    content.innerHTML = '<p class="text-center m-0 animate-pulse">Cargando…</p>';
+    viajesConductorActual = nombre;
+    document.getElementById('viajesTitle').textContent = nombre;
+
+    const params = new URLSearchParams();
+    params.append('viajes_conductor', nombre);
+    params.append('desde', RANGO_DESDE);
+    params.append('hasta', RANGO_HASTA);
+    
+    if (RANGO_EMPS && RANGO_EMPS.length > 0) {
+        params.append('empresas', JSON.stringify(RANGO_EMPS));
+    }
+
+    fetch('<?= basename(__FILE__) ?>?' + params.toString())
+        .then(r => r.text())
+        .then(html => {
+            content.innerHTML = html;
+        });
 }
 
 // ===== RUTAS SIN CLASIFICAR =====
@@ -2191,15 +2216,24 @@ function crearYAsignarClasificacion() {
     });
 }
 
-// ===== INICIALIZACIÓN =====
-document.addEventListener('DOMContentLoaded', function() {
-    // Configurar eventos de tarifas
+// ===== CONFIGURACIÓN DE EVENTOS DE TARIFAS (CORREGIDA) =====
+function configurarEventosTarifas() {
     document.addEventListener('change', function(e) {
         if (e.target.matches('.tarifa-input')) {
             const input = e.target;
             const card = input.closest('.tarjeta-tarifa-acordeon');
             const tipoVehiculo = card.dataset.vehiculo;
-            const empresa = "<?= htmlspecialchars($empresaFiltro) ?>";
+            
+            // ✅ USAR LA VARIABLE CORRECTA (EMPRESA_ACTUAL_TARIFAS)
+            const empresa = EMPRESA_ACTUAL_TARIFAS;
+            
+            // Validar que hay una empresa seleccionada
+            if (!empresa) {
+                mostrarNotificacion('❌ Debes seleccionar una empresa en el filtro', 'error');
+                input.value = input.defaultValue;
+                return;
+            }
+            
             const campo = input.dataset.campo.toLowerCase();
             const valor = parseFloat(input.value) || 0;
             
@@ -2219,13 +2253,24 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (t.trim() === 'ok') {
                     input.defaultValue = input.value;
                     recalcular();
+                    mostrarNotificacion('✅ Tarifa guardada', 'success');
                 } else {
                     input.value = input.defaultValue;
+                    mostrarNotificacion('❌ Error al guardar', 'error');
                 }
             })
-            .catch(() => input.value = input.defaultValue);
+            .catch(() => {
+                input.value = input.defaultValue;
+                mostrarNotificacion('❌ Error de conexión', 'error');
+            });
         }
     });
+}
+
+// ===== INICIALIZACIÓN =====
+document.addEventListener('DOMContentLoaded', function() {
+    // Configurar eventos de tarifas (CORREGIDO)
+    configurarEventosTarifas();
     
     // Click en conductor
     document.querySelectorAll('.conductor-link').forEach(btn=>{
@@ -2292,10 +2337,16 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('sidePanelOverlay')?.addEventListener('click', () => {
         if (activePanel) togglePanel(activePanel);
     });
+    
+    // Validar que hay una empresa seleccionada para tarifas
+    if (!EMPRESA_ACTUAL_TARIFAS) {
+        console.warn('⚠️ No hay empresa seleccionada para tarifas');
+    } else {
+        console.log('✅ Empresa para tarifas:', EMPRESA_ACTUAL_TARIFAS);
+    }
 });
 </script>
-<!-- ===== FIN MÓDULO 11 ===== -->
-<?php
+<!-- ===== FIN MÓDULO 11 CORREGIDO ===== -->
 /* =======================================================
    🚀 MÓDULO 12: SISTEMA DE ALERTAS - VERSIÓN SIN AJAX
    ========================================================
