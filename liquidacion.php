@@ -287,7 +287,7 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
    🚀 MÓDULO 4: OBTENCIÓN DE DATOS PRINCIPALES (MULTI-EMPRESA)
    ========================================================
    🔧 PROPÓSITO: Procesar los datos con múltiples empresas
-   🔧 CORREGIDO: 25/02/2026 - Agregada variable EMPRESA_TARIFAS_ACTUAL
+   🔧 CORREGIDO: 26/02/2026 - Agregado sistema de alertas de tarifas
    ======================================================== */
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
@@ -299,7 +299,7 @@ if (!is_array($empresasFiltro)) {
 }
 $empresasFiltro = array_filter($empresasFiltro); // Quitar vacíos
 
-// ✅ NUEVA: Variable para tarifas (USA LA PRIMERA EMPRESA SELECCIONADA)
+// ✅ Variable para tarifas (USA LA PRIMERA EMPRESA SELECCIONADA)
 $empresaTarifasActual = !empty($empresasFiltro) ? $empresasFiltro[0] : '';
 
 // Construir condición SQL para múltiples empresas
@@ -466,6 +466,85 @@ if (!empty($empresaTarifasActual)) {
         }
     }
 }
+
+/* =======================================================
+   🚀 SUBMÓDULO 4.1: SISTEMA DE ALERTAS DE TARIFAS FALTANTES
+   ======================================================== */
+// Detectar combinaciones (tipo_vehículo + clasificación) que tienen rutas
+// pero no tienen valor en tarifas (o valor = 0)
+$tarifas_faltantes_por_conductor = [];
+$conteo_tarifas_faltantes_global = [];
+
+// Solo procesar si hay datos y empresa seleccionada para tarifas
+if (!empty($empresaTarifasActual) && !empty($datos)) {
+    
+    // Obtener todas las combinaciones únicas de (vehículo, clasificación)
+    // que aparecen en los viajes de los conductores
+    $combinaciones_faltantes = [];
+    
+    // Revisar cada conductor y sus viajes clasificados
+    foreach ($datos as $conductor => $info) {
+        $vehiculo_conductor = $info['vehiculo'];
+        $tarifas_faltantes_por_conductor[$conductor] = [];
+        
+        // Revisar cada clasificación que tiene viajes este conductor
+        foreach ($clasificaciones_disponibles as $clasif) {
+            $cantidad_viajes = (int)($info[$clasif] ?? 0);
+            
+            if ($cantidad_viajes > 0) {
+                // Verificar si existe tarifa para esta combinación
+                $tarifa_existe = false;
+                $valor_tarifa = 0;
+                
+                if (isset($tarifas_guardadas[$vehiculo_conductor][$clasif])) {
+                    $valor_tarifa = (float)$tarifas_guardadas[$vehiculo_conductor][$clasif];
+                    $tarifa_existe = ($valor_tarifa > 0);
+                }
+                
+                // Si no hay tarifa o es cero, registrar la alerta
+                if (!$tarifa_existe) {
+                    $combinacion_key = $vehiculo_conductor . '|' . $clasif;
+                    
+                    // Registrar para este conductor
+                    $tarifas_faltantes_por_conductor[$conductor][] = [
+                        'vehiculo' => $vehiculo_conductor,
+                        'clasificacion' => $clasif,
+                        'cantidad_viajes' => $cantidad_viajes
+                    ];
+                    
+                    // Acumular para el resumen global
+                    if (!isset($conteo_tarifas_faltantes_global[$combinacion_key])) {
+                        $conteo_tarifas_faltantes_global[$combinacion_key] = [
+                            'vehiculo' => $vehiculo_conductor,
+                            'clasificacion' => $clasif,
+                            'total_conductores' => 0,
+                            'total_viajes' => 0,
+                            'conductores' => []
+                        ];
+                    }
+                    $conteo_tarifas_faltantes_global[$combinacion_key]['total_conductores']++;
+                    $conteo_tarifas_faltantes_global[$combinacion_key]['total_viajes'] += $cantidad_viajes;
+                    
+                    if (!in_array($conductor, $conteo_tarifas_faltantes_global[$combinacion_key]['conductores'])) {
+                        $conteo_tarifas_faltantes_global[$combinacion_key]['conductores'][] = $conductor;
+                    }
+                }
+            }
+        }
+        
+        // Si no hay tarifas faltantes para este conductor, eliminar entrada vacía
+        if (empty($tarifas_faltantes_por_conductor[$conductor])) {
+            unset($tarifas_faltantes_por_conductor[$conductor]);
+        }
+    }
+}
+
+// Contar total de alertas de tarifas
+$total_tarifas_faltantes_global = 0;
+foreach ($conteo_tarifas_faltantes_global as $item) {
+    $total_tarifas_faltantes_global += $item['total_viajes'];
+}
+/* ===== FIN SUBMÓDULO 4.1 ===== */
 /* ===== FIN MÓDULO 4 CORREGIDO ===== */
 
 /* =======================================================
@@ -1330,6 +1409,7 @@ function deseleccionarTodasHeader() {
    ========================================================
    🔧 PROPÓSITO: Tabla principal con liquidación
    🔧 CARACTERÍSTICA: Cada fila tiene color según tipo de vehículo
+   🔧 ACTUALIZADO: 26/02/2026 - Alertas de tarifas faltantes
    ======================================================== -->
 <main class="max-w-[1800px] mx-auto px-3 md:px-4 py-6">
     <div class="table-container-wrapper" id="tableContainerWrapper">
@@ -1350,77 +1430,27 @@ function deseleccionarTodasHeader() {
             background: none; border: none; color: #64748b; cursor: pointer; display: none; 
         }
         
-        /* ===== ESTILOS PARA FILAS POR TIPO DE VEHÍCULO (MÁS VISIBLES) ===== */
-        .fila-vehiculo-mensual { 
-            background-color: #ffedd5 !important;  /* naranja más fuerte */
-        }
-        .fila-vehiculo-mensual:hover { 
-            background-color: #fed7aa !important;  /* naranja más oscuro al hover */
-        }
-        
-        .fila-vehiculo-camioneta { 
-            background-color: #dbeafe !important;  /* azul más fuerte */
-        }
-        .fila-vehiculo-camioneta:hover { 
-            background-color: #bfdbfe !important;
-        }
-        
-        .fila-vehiculo-turbo { 
-            background-color: #d1fae5 !important;  /* verde más fuerte */
-        }
-        .fila-vehiculo-turbo:hover { 
-            background-color: #a7f3d0 !important;
-        }
-        
-        .fila-vehiculo-camión { 
-            background-color: #ede9fe !important;  /* morado más fuerte */
-        }
-        .fila-vehiculo-camión:hover { 
-            background-color: #ddd6fe !important;
-        }
-        
-        .fila-vehiculo-buseta { 
-            background-color: #fee2e2 !important;  /* rojo más fuerte */
-        }
-        .fila-vehiculo-buseta:hover { 
-            background-color: #fecaca !important;
-        }
-        
-        .fila-vehiculo-minivan { 
-            background-color: #ccfbf1 !important;  /* teal más fuerte */
-        }
-        .fila-vehiculo-minivan:hover { 
-            background-color: #99f6e4 !important;
-        }
-        
-        .fila-vehiculo-automóvil { 
-            background-color: #ffe4e6 !important;  /* rosa más fuerte */
-        }
-        .fila-vehiculo-automóvil:hover { 
-            background-color: #fecdd3 !important;
-        }
-        
-        .fila-vehiculo-moto { 
-            background-color: #e0e7ff !important;  /* indigo más fuerte */
-        }
-        .fila-vehiculo-moto:hover { 
-            background-color: #c7d2fe !important;
-        }
-        
-        .fila-vehiculo-furgoneta { 
-            background-color: #fef3c7 !important;  /* amarillo más fuerte */
-        }
-        .fila-vehiculo-furgoneta:hover { 
-            background-color: #fde68a !important;
-        }
-        
-        /* Clase por defecto para tipos no definidos */
-        .fila-vehiculo-default { 
-            background-color: #f1f5f9 !important;  /* gris más fuerte */
-        }
-        .fila-vehiculo-default:hover { 
-            background-color: #e2e8f0 !important;
-        }
+        /* ===== ESTILOS PARA FILAS POR TIPO DE VEHÍCULO ===== */
+        .fila-vehiculo-mensual { background-color: #ffedd5 !important; }
+        .fila-vehiculo-mensual:hover { background-color: #fed7aa !important; }
+        .fila-vehiculo-camioneta { background-color: #dbeafe !important; }
+        .fila-vehiculo-camioneta:hover { background-color: #bfdbfe !important; }
+        .fila-vehiculo-turbo { background-color: #d1fae5 !important; }
+        .fila-vehiculo-turbo:hover { background-color: #a7f3d0 !important; }
+        .fila-vehiculo-camión { background-color: #ede9fe !important; }
+        .fila-vehiculo-camión:hover { background-color: #ddd6fe !important; }
+        .fila-vehiculo-buseta { background-color: #fee2e2 !important; }
+        .fila-vehiculo-buseta:hover { background-color: #fecaca !important; }
+        .fila-vehiculo-minivan { background-color: #ccfbf1 !important; }
+        .fila-vehiculo-minivan:hover { background-color: #99f6e4 !important; }
+        .fila-vehiculo-automóvil { background-color: #ffe4e6 !important; }
+        .fila-vehiculo-automóvil:hover { background-color: #fecdd3 !important; }
+        .fila-vehiculo-moto { background-color: #e0e7ff !important; }
+        .fila-vehiculo-moto:hover { background-color: #c7d2fe !important; }
+        .fila-vehiculo-furgoneta { background-color: #fef3c7 !important; }
+        .fila-vehiculo-furgoneta:hover { background-color: #fde68a !important; }
+        .fila-vehiculo-default { background-color: #f1f5f9 !important; }
+        .fila-vehiculo-default:hover { background-color: #e2e8f0 !important; }
         
         .vehiculo-mensual { 
             background-color: #fef3c7 !important; 
@@ -1428,23 +1458,14 @@ function deseleccionarTodasHeader() {
             color: #92400e !important; 
             font-weight: 600; 
         }
-        .alerta-sin-clasificar { 
-            animation: pulse-alerta 2s infinite; 
-        }
-        @keyframes pulse-alerta { 
-            0%, 100% { opacity: 1; } 
-            50% { opacity: 0.7; } 
-        }
-        .conductor-link{ 
-            cursor:pointer; 
-            color:#0d6efd; 
-            text-decoration:underline; 
-        }
+        .alerta-sin-clasificar { animation: pulse-alerta 2s infinite; }
+        .alerta-tarifa-faltante { animation: pulse-rosa 2s infinite; }
+        @keyframes pulse-alerta { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+        @keyframes pulse-rosa { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; background-color: #fff1f2; } }
+        .conductor-link{ cursor:pointer; color:#0d6efd; text-decoration:underline; }
         
-        /* Asegurar que las celdas también hereden el color de fondo */
-        #tabla_conductores tbody tr td {
-            background-color: inherit !important;
-        }
+        /* Asegurar que las celdas hereden el color de fondo */
+        #tabla_conductores tbody tr td { background-color: inherit !important; }
         </style>
 
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
@@ -1456,10 +1477,16 @@ function deseleccionarTodasHeader() {
                             Mostrando <?= count($datos) ?> conductores
                         </div>
                     </div>
-                    <button onclick="mostrarResumenRutasSinClasificar()" 
-                            class="text-sm px-4 py-2 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600 transition flex items-center gap-2 shadow-md">
-                        ⚠️ Ver rutas sin clasificar
-                    </button>
+                    <div class="flex gap-2">
+                        <button onclick="mostrarResumenRutasSinClasificar()" 
+                                class="text-sm px-4 py-2 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600 transition flex items-center gap-2 shadow-md">
+                            ⚠️ Rutas sin clasificar
+                        </button>
+                        <button onclick="mostrarResumenTarifasFaltantes()" 
+                                class="text-sm px-4 py-2 rounded-full bg-gradient-to-r from-rose-500 to-pink-500 text-white hover:from-rose-600 hover:to-pink-600 transition flex items-center gap-2 shadow-md">
+                            💰⚠️ Tarifas sin configurar
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -1490,6 +1517,7 @@ function deseleccionarTodasHeader() {
                     </div>
                 </div>
 
+                <!-- ===== RESUMEN DE RUTAS SIN CLASIFICAR ===== -->
                 <div id="resumenRutasSinClasificar" class="hidden mb-6">
                     <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
                         <div class="flex items-center justify-between mb-4">
@@ -1504,6 +1532,62 @@ function deseleccionarTodasHeader() {
                             <button onclick="irAClasificacionRutas()" 
                                     class="w-full py-3 bg-amber-100 text-amber-700 hover:bg-amber-200 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2">
                                 🧭 Ir a clasificar rutas
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ===== RESUMEN DE TARIFAS FALTANTES ===== -->
+                <div id="resumenTarifasFaltantes" class="hidden mb-6">
+                    <div class="bg-rose-50 border border-rose-200 rounded-xl p-4">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center gap-2">
+                                <span class="text-rose-600 font-bold text-lg">💰⚠️</span>
+                                <h4 class="font-semibold text-rose-800">Tarifas sin configurar</h4>
+                            </div>
+                            <span id="contadorTarifasFaltantesGlobal" class="px-3 py-1 bg-rose-500 text-white text-sm font-bold rounded-full"><?= $total_tarifas_faltantes_global ?></span>
+                        </div>
+                        
+                        <div id="listaTarifasFaltantesGlobal" class="space-y-3 max-h-60 overflow-y-auto">
+                            <?php if (!empty($conteo_tarifas_faltantes_global)): ?>
+                                <?php foreach ($conteo_tarifas_faltantes_global as $key => $item): 
+                                    $estilo_clasif = obtenerEstiloClasificacion($item['clasificacion']);
+                                    $color_vehiculo = obtenerColorVehiculo($item['vehiculo']);
+                                ?>
+                                <div class="flex flex-col p-3 bg-white rounded-lg border border-rose-100 hover:bg-rose-50/50 transition">
+                                    <div class="flex items-center justify-between">
+                                        <div class="flex items-center gap-2 flex-wrap">
+                                            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium <?= $color_vehiculo['bg'] ?> <?= $color_vehiculo['text'] ?>">
+                                                🚗 <?= htmlspecialchars($item['vehiculo']) ?>
+                                            </span>
+                                            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium <?= $estilo_clasif['bg'] ?> <?= $estilo_clasif['text'] ?>">
+                                                📋 <?= htmlspecialchars($estilo_clasif['label']) ?>
+                                            </span>
+                                            <span class="text-xs bg-rose-100 text-rose-700 px-2 py-1 rounded-full">
+                                                <?= $item['total_viajes'] ?> viaje(s)
+                                            </span>
+                                        </div>
+                                        <button onclick="abrirPanelTarifas('<?= htmlspecialchars($item['vehiculo']) ?>', '<?= htmlspecialchars($item['clasificacion']) ?>')" 
+                                                class="text-xs px-2 py-1 bg-rose-100 text-rose-700 hover:bg-rose-200 rounded transition">
+                                            Configurar →
+                                        </button>
+                                    </div>
+                                    <div class="mt-2 text-xs text-slate-500">
+                                        Afecta a: <?= implode(', ', array_slice($item['conductores'], 0, 3)) ?><?= count($item['conductores']) > 3 ? ' y ' . (count($item['conductores']) - 3) . ' más' : '' ?>
+                                    </div>
+                                </div>
+                                <?php endforeach; ?>
+                            <?php else: ?>
+                                <div class="text-center py-4 text-emerald-600">
+                                    🎉 ¡Excelente! Todas las tarifas están configuradas.
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                        
+                        <div class="mt-4 pt-4 border-t border-rose-100">
+                            <button onclick="irATarifas()" 
+                                    class="w-full py-3 bg-rose-100 text-rose-700 hover:bg-rose-200 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2">
+                                🚐 Ir a configurar tarifas
                             </button>
                         </div>
                     </div>
@@ -1546,13 +1630,15 @@ function deseleccionarTodasHeader() {
                             $esMensual = (stripos($vehiculo, 'mensual') !== false);
                             $claseVehiculoBadge = $esMensual ? 'vehiculo-mensual' : '';
                             $rutasSinClasificar = $info['rutas_sin_clasificar'] ?? 0;
+                            $tieneTarifasFaltantes = isset($tarifas_faltantes_por_conductor[$conductor]);
+                            $cantTarifasFaltantes = $tieneTarifasFaltantes ? count($tarifas_faltantes_por_conductor[$conductor]) : 0;
+                            
                             $color_vehiculo = obtenerColorVehiculo($vehiculo);
                             
-                            // Determinar la clase CSS para la fila según el tipo de vehículo
+                            // Determinar la clase CSS para la fila
                             $vehiculo_lower = strtolower($vehiculo);
-                            $clase_fila = 'fila-vehiculo-default'; // Por defecto
+                            $clase_fila = 'fila-vehiculo-default';
                             
-                            // Mapear tipos de vehículo a clases específicas
                             $mapa_clases = [
                                 'mensual' => 'fila-vehiculo-mensual',
                                 'camioneta' => 'fila-vehiculo-camioneta',
@@ -1571,28 +1657,54 @@ function deseleccionarTodasHeader() {
                                     break;
                                 }
                             }
+                            
+                            $clase_alerta = '';
+                            if ($rutasSinClasificar > 0 && $tieneTarifasFaltantes) {
+                                $clase_alerta = 'alerta-sin-clasificar alerta-tarifa-faltante';
+                            } elseif ($rutasSinClasificar > 0) {
+                                $clase_alerta = 'alerta-sin-clasificar';
+                            } elseif ($tieneTarifasFaltantes) {
+                                $clase_alerta = 'alerta-tarifa-faltante';
+                            }
                         ?>
                             <tr data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>" 
                                 data-conductor="<?= htmlspecialchars($conductor) ?>" 
                                 data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
                                 data-pagado="<?= (int)($info['pagado'] ?? 0) ?>"
                                 data-sin-clasificar="<?= $rutasSinClasificar ?>"
-                                class="<?= $clase_fila ?> hover:bg-opacity-80 transition-colors <?php echo $rutasSinClasificar > 0 ? 'alerta-sin-clasificar' : ''; ?>">
+                                data-tarifas-faltantes="<?= $cantTarifasFaltantes ?>"
+                                class="<?= $clase_fila ?> <?= $clase_alerta ?> hover:bg-opacity-80 transition-colors">
                                 
                                 <td class="px-4 py-3 text-center">
-                                    <?php if ($rutasSinClasificar > 0): ?>
-                                        <div class="flex flex-col items-center justify-center gap-1">
-                                            <span class="text-amber-600 font-bold animate-pulse">⚠️</span>
-                                            <span class="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded-full font-bold">
-                                                <?= $rutasSinClasificar ?>
-                                            </span>
-                                        </div>
-                                    <?php else: ?>
-                                        <div class="flex flex-col items-center justify-center gap-1">
-                                            <span class="text-emerald-600">✅</span>
-                                            <span class="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full font-bold">0</span>
-                                        </div>
-                                    <?php endif; ?>
+                                    <div class="flex flex-col items-center justify-center gap-1">
+                                        <!-- Alerta de rutas sin clasificar -->
+                                        <?php if ($rutasSinClasificar > 0): ?>
+                                            <div class="flex items-center justify-center gap-1" title="Rutas sin clasificar">
+                                                <span class="text-amber-600 font-bold animate-pulse">⚠️</span>
+                                                <span class="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded-full font-bold">
+                                                    R:<?= $rutasSinClasificar ?>
+                                                </span>
+                                            </div>
+                                        <?php endif; ?>
+                                        
+                                        <!-- Alerta de tarifas faltantes -->
+                                        <?php if ($tieneTarifasFaltantes): ?>
+                                            <div class="flex items-center justify-center gap-1 mt-1" title="Tarifas sin configurar">
+                                                <span class="text-rose-600 font-bold animate-pulse">💰⚠️</span>
+                                                <span class="text-xs bg-rose-100 text-rose-800 px-2 py-1 rounded-full font-bold">
+                                                    T:<?= $cantTarifasFaltantes ?>
+                                                </span>
+                                            </div>
+                                        <?php endif; ?>
+                                        
+                                        <!-- Todo OK -->
+                                        <?php if (!$rutasSinClasificar && !$tieneTarifasFaltantes): ?>
+                                            <div class="flex flex-col items-center justify-center gap-1">
+                                                <span class="text-emerald-600">✅</span>
+                                                <span class="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full font-bold">OK</span>
+                                            </div>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
                                 
                                 <td class="px-4 py-3">
@@ -1600,6 +1712,9 @@ function deseleccionarTodasHeader() {
                                             class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition flex items-center gap-2">
                                         <?php if ($rutasSinClasificar > 0): ?>
                                             <span class="text-amber-600">⚠️</span>
+                                        <?php endif; ?>
+                                        <?php if ($tieneTarifasFaltantes): ?>
+                                            <span class="text-rose-600">💰⚠️</span>
                                         <?php endif; ?>
                                         <?= htmlspecialchars($conductor) ?>
                                     </button>
@@ -1651,7 +1766,7 @@ function deseleccionarTodasHeader() {
         </div>
     </div>
 </main>
-<!-- ===== FIN MÓDULO 9 ===== -->
+<!-- ===== FIN MÓDULO 9 CORREGIDO ===== -->
 
 <!-- =======================================================
    🚀 MÓDULO 10: MODAL DE VIAJES (ACTUALIZADO MULTI-EMPRESA)
@@ -1761,18 +1876,15 @@ function loadViajes(nombre) {
 // =======================================================
 // 🚀 MÓDULO 11: JAVASCRIPT PRINCIPAL (CORREGIDO)
 // ========================================================
-// 🔧 CORREGIDO: 25/02/2026 - Variable EMPRESA_ACTUAL_TARIFAS agregada
+// 🔧 CORREGIDO: 26/02/2026 - Funciones de alertas de tarifas agregadas
 // ========================================================
 
-// ===== VARIABLES GLOBALES CORREGIDAS =====
+// ===== VARIABLES GLOBALES =====
 let activePanel = null;
 const RANGO_DESDE = <?= json_encode($desde) ?>;
 const RANGO_HASTA = <?= json_encode($hasta) ?>;
-const RANGO_EMPS   = <?= json_encode($empresasFiltro) ?>; // Array de empresas seleccionadas
-
-// ✅ NUEVA: Variable para tarifas (USA LA PRIMERA EMPRESA SELECCIONADA)
+const RANGO_EMPS   = <?= json_encode($empresasFiltro) ?>;
 const EMPRESA_ACTUAL_TARIFAS = <?= json_encode($empresaTarifasActual) ?>;
-
 const CONDUCTORES_LIST = <?= json_encode(array_keys($datos), JSON_UNESCAPED_UNICODE); ?>;
 let columnasSeleccionadas = <?= json_encode($columnas_seleccionadas) ?>;
 
@@ -1803,7 +1915,7 @@ function togglePanel(panelId) {
     }
 }
 
-// ===== FUNCIONES DE TARIFAS (CORREGIDAS) =====
+// ===== FUNCIONES DE TARIFAS =====
 function toggleAcordeon(vehiculoId) {
     const content = document.getElementById('content-' + vehiculoId);
     const icon = document.getElementById('icon-' + vehiculoId);
@@ -2038,16 +2150,21 @@ function normalizarTexto(texto) {
 }
 
 function filtrarConductores() {
+    const buscadorConductores = document.getElementById('buscadorConductores');
+    if (!buscadorConductores) return;
+    
     const textoBusqueda = normalizarTexto(buscadorConductores.value);
+    const tablaConductoresBody = document.getElementById('tabla_conductores_body');
     const filas = tablaConductoresBody.querySelectorAll('tr');
+    const clearBuscar = document.getElementById('clearBuscar');
     let filasVisibles = 0;
     
     if (textoBusqueda === '') {
         filas.forEach(fila => { fila.style.display = ''; filasVisibles++; });
-        clearBuscar.style.display = 'none';
+        if (clearBuscar) clearBuscar.style.display = 'none';
     } else {
         filas.forEach(fila => {
-            const nombreConductor = fila.querySelector('.conductor-link').textContent;
+            const nombreConductor = fila.querySelector('.conductor-link').textContent.trim();
             const nombreNormalizado = normalizarTexto(nombreConductor);
             if (nombreNormalizado.includes(textoBusqueda)) {
                 fila.style.display = '';
@@ -2056,7 +2173,7 @@ function filtrarConductores() {
                 fila.style.display = 'none';
             }
         });
-        clearBuscar.style.display = 'block';
+        if (clearBuscar) clearBuscar.style.display = 'block';
     }
     
     document.getElementById('contador-conductores').textContent = `Mostrando ${filasVisibles} de ${filas.length} conductores`;
@@ -2068,6 +2185,7 @@ let viajesConductorActual = null;
 
 function initViajesSelect(selectedName) {
     const select = document.getElementById('viajesSelectConductor');
+    if (!select) return;
     select.innerHTML = "";
     CONDUCTORES_LIST.forEach(nombre => {
         const opt = document.createElement('option');
@@ -2124,6 +2242,8 @@ function mostrarResumenRutasSinClasificar() {
     const listaDiv = document.getElementById('listaRutasSinClasificarGlobal');
     const contadorSpan = document.getElementById('contadorRutasSinClasificarGlobal');
     
+    if (!resumenDiv || !listaDiv || !contadorSpan) return;
+    
     const filas = document.querySelectorAll('#tabla_conductores_body tr');
     let totalRutasSinClasificar = 0;
     let contenidoHTML = '';
@@ -2132,7 +2252,7 @@ function mostrarResumenRutasSinClasificar() {
         const sinClasificar = parseInt(fila.dataset.sinClasificar || '0');
         if (sinClasificar > 0) {
             totalRutasSinClasificar += sinClasificar;
-            const conductor = fila.querySelector('.conductor-link').textContent;
+            const conductor = fila.querySelector('.conductor-link').textContent.trim();
             contenidoHTML += `
                 <div class="flex items-center justify-between p-3 bg-amber-50 rounded-lg border border-amber-100 hover:bg-amber-100 transition">
                     <div class="flex items-center gap-2">
@@ -2141,7 +2261,7 @@ function mostrarResumenRutasSinClasificar() {
                     </div>
                     <div class="flex items-center gap-2">
                         <span class="text-xs bg-amber-500 text-white px-2 py-1 rounded-full">${sinClasificar}</span>
-                        <button onclick="verViajesConductor('${conductor}')" class="text-xs text-amber-600 hover:text-amber-800 hover:underline">Ver viajes</button>
+                        <button onclick="verViajesConductor('${conductor.replace(/'/g, "\\'")}')" class="text-xs text-amber-600 hover:text-amber-800 hover:underline">Ver viajes</button>
                     </div>
                 </div>
             `;
@@ -2158,6 +2278,9 @@ function mostrarResumenRutasSinClasificar() {
         contadorSpan.textContent = '0';
         resumenDiv.classList.remove('hidden');
     }
+    
+    // También mostrar alertas de tarifas si existen
+    mostrarResumenTarifasFaltantes();
 }
 
 function verViajesConductor(nombre) {
@@ -2166,12 +2289,56 @@ function verViajesConductor(nombre) {
             boton.click();
         }
     });
-    document.getElementById('resumenRutasSinClasificar').classList.add('hidden');
+    document.getElementById('resumenRutasSinClasificar')?.classList.add('hidden');
 }
 
 function irAClasificacionRutas() {
     togglePanel('clasif-rutas');
-    document.getElementById('resumenRutasSinClasificar').classList.add('hidden');
+    document.getElementById('resumenRutasSinClasificar')?.classList.add('hidden');
+}
+
+// ===== FUNCIONES PARA ALERTAS DE TARIFAS FALTANTES =====
+function mostrarResumenTarifasFaltantes() {
+    const resumenDiv = document.getElementById('resumenTarifasFaltantes');
+    if (resumenDiv) {
+        resumenDiv.classList.remove('hidden');
+    }
+}
+
+function abrirPanelTarifas(vehiculo, clasificacion) {
+    // Abrir el panel de tarifas
+    togglePanel('tarifas');
+    
+    // Expandir el acordeón del vehículo correspondiente
+    setTimeout(() => {
+        const acordeonId = 'acordeon-' + vehiculo.toLowerCase().replace(/[^a-z0-9]/g, '-');
+        const acordeon = document.getElementById(acordeonId);
+        
+        if (acordeon) {
+            // Expandir el acordeón
+            const content = document.getElementById('content-' + acordeonId.replace('acordeon-', ''));
+            const icon = document.getElementById('icon-' + acordeonId.replace('acordeon-', ''));
+            
+            if (content && !content.classList.contains('expanded')) {
+                content.classList.add('expanded');
+                content.style.maxHeight = content.scrollHeight + 'px';
+                if (icon) icon.classList.add('expanded');
+            }
+            
+            // Hacer scroll al input correspondiente
+            const input = acordeon.querySelector(`input[data-campo="${clasificacion.toLowerCase()}"]`);
+            if (input) {
+                input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                input.focus();
+                input.classList.add('ring-4', 'ring-rose-200');
+                setTimeout(() => input.classList.remove('ring-4', 'ring-rose-200'), 2000);
+            }
+        }
+    }, 300);
+}
+
+function irATarifas() {
+    togglePanel('tarifas');
 }
 
 // ===== CREAR NUEVA CLASIFICACIÓN =====
@@ -2216,18 +2383,15 @@ function crearYAsignarClasificacion() {
     });
 }
 
-// ===== CONFIGURACIÓN DE EVENTOS DE TARIFAS (CORREGIDA) =====
+// ===== CONFIGURACIÓN DE EVENTOS DE TARIFAS =====
 function configurarEventosTarifas() {
     document.addEventListener('change', function(e) {
         if (e.target.matches('.tarifa-input')) {
             const input = e.target;
             const card = input.closest('.tarjeta-tarifa-acordeon');
             const tipoVehiculo = card.dataset.vehiculo;
-            
-            // ✅ USAR LA VARIABLE CORRECTA (EMPRESA_ACTUAL_TARIFAS)
             const empresa = EMPRESA_ACTUAL_TARIFAS;
             
-            // Validar que hay una empresa seleccionada
             if (!empresa) {
                 mostrarNotificacion('❌ Debes seleccionar una empresa en el filtro', 'error');
                 input.value = input.defaultValue;
@@ -2269,14 +2433,15 @@ function configurarEventosTarifas() {
 
 // ===== INICIALIZACIÓN =====
 document.addEventListener('DOMContentLoaded', function() {
-    // Configurar eventos de tarifas (CORREGIDO)
+    // Configurar eventos de tarifas
     configurarEventosTarifas();
     
     // Click en conductor
     document.querySelectorAll('.conductor-link').forEach(btn=>{
         btn.addEventListener('click', (e)=>{
             e.preventDefault();
-            abrirModalViajes(btn.textContent.trim().replace('⚠️', '').trim());
+            const nombre = btn.textContent.trim().replace('⚠️', '').replace('💰⚠️', '').trim();
+            abrirModalViajes(nombre);
         });
     });
     
@@ -2290,14 +2455,20 @@ document.addEventListener('DOMContentLoaded', function() {
     // Buscador
     const buscadorConductores = document.getElementById('buscadorConductores');
     const clearBuscar = document.getElementById('clearBuscar');
-    const tablaConductoresBody = document.getElementById('tabla_conductores_body');
     
-    buscadorConductores?.addEventListener('input', filtrarConductores);
-    clearBuscar?.addEventListener('click', () => {
-        buscadorConductores.value = '';
-        filtrarConductores();
-        buscadorConductores.focus();
-    });
+    if (buscadorConductores) {
+        buscadorConductores.addEventListener('input', filtrarConductores);
+    }
+    
+    if (clearBuscar) {
+        clearBuscar.addEventListener('click', () => {
+            if (buscadorConductores) {
+                buscadorConductores.value = '';
+                filtrarConductores();
+                buscadorConductores.focus();
+            }
+        });
+    }
     
     // Cerrar modal
     document.getElementById('viajesCloseBtn')?.addEventListener('click', cerrarModalViajes);
@@ -2325,6 +2496,11 @@ document.addEventListener('DOMContentLoaded', function() {
     const totalSinClasificar = <?= array_sum(array_column($datos, 'rutas_sin_clasificar')) ?>;
     if (totalSinClasificar > 0) mostrarResumenRutasSinClasificar();
     
+    // Mostrar resumen de tarifas faltantes automáticamente
+    <?php if ($total_tarifas_faltantes_global > 0): ?>
+    mostrarResumenTarifasFaltantes();
+    <?php endif; ?>
+    
     // Configurar paneles
     document.querySelectorAll('.floating-ball').forEach(ball => {
         ball.addEventListener('click', () => togglePanel(ball.dataset.panel));
@@ -2346,7 +2522,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 </script>
-<!-- ===== FIN MÓDULO 11 CORREGIDO ==== -->
+<!-- ===== FIN MÓDULO 11 CORREGIDO ===== -->
 <?php
 /* =======================================================
    🚀 MÓDULO 12: SISTEMA DE ALERTAS - VERSIÓN SIN AJAX
@@ -2891,6 +3067,98 @@ document.addEventListener('keydown', function(e) {
     }
 });
 </script>
+<!-- fin modulo 12 -->
+
+
+<?php
+/* =======================================================
+   🚀 MÓDULO 13: SISTEMA DE ALERTAS DE TARIFAS FALTANTES
+   ========================================================
+   🔧 PROPÓSITO: Detectar clasificaciones que tienen rutas asignadas
+                pero no tienen valor configurado en tarifas
+   🔧 CREADO: 26/02/2026
+   🔧 UBICACIÓN: Agregar después del MÓDULO 4 y antes del HTML
+   ======================================================== */
+
+// Detectar combinaciones (tipo_vehículo + clasificación) que tienen rutas
+// pero no tienen valor en tarifas (o valor = 0)
+$tarifas_faltantes_por_conductor = [];
+$conteo_tarifas_faltantes_global = [];
+
+// Solo procesar si hay datos y empresa seleccionada para tarifas
+if (!empty($empresaTarifasActual) && !empty($datos)) {
+    
+    // Obtener todas las combinaciones únicas de (vehículo, clasificación)
+    // que aparecen en los viajes de los conductores
+    $combinaciones_faltantes = [];
+    
+    // Revisar cada conductor y sus viajes clasificados
+    foreach ($datos as $conductor => $info) {
+        $vehiculo_conductor = $info['vehiculo'];
+        $tarifas_faltantes_por_conductor[$conductor] = [];
+        
+        // Revisar cada clasificación que tiene viajes este conductor
+        foreach ($clasificaciones_disponibles as $clasif) {
+            $cantidad_viajes = (int)($info[$clasif] ?? 0);
+            
+            if ($cantidad_viajes > 0) {
+                // Verificar si existe tarifa para esta combinación
+                $tarifa_existe = false;
+                $valor_tarifa = 0;
+                
+                if (isset($tarifas_guardadas[$vehiculo_conductor][$clasif])) {
+                    $valor_tarifa = (float)$tarifas_guardadas[$vehiculo_conductor][$clasif];
+                    $tarifa_existe = ($valor_tarifa > 0);
+                }
+                
+                // Si no hay tarifa o es cero, registrar la alerta
+                if (!$tarifa_existe) {
+                    $combinacion_key = $vehiculo_conductor . '|' . $clasif;
+                    
+                    // Registrar para este conductor
+                    $tarifas_faltantes_por_conductor[$conductor][] = [
+                        'vehiculo' => $vehiculo_conductor,
+                        'clasificacion' => $clasif,
+                        'cantidad_viajes' => $cantidad_viajes
+                    ];
+                    
+                    // Acumular para el resumen global
+                    if (!isset($conteo_tarifas_faltantes_global[$combinacion_key])) {
+                        $conteo_tarifas_faltantes_global[$combinacion_key] = [
+                            'vehiculo' => $vehiculo_conductor,
+                            'clasificacion' => $clasif,
+                            'total_conductores' => 0,
+                            'total_viajes' => 0,
+                            'conductores' => []
+                        ];
+                    }
+                    $conteo_tarifas_faltantes_global[$combinacion_key]['total_conductores']++;
+                    $conteo_tarifas_faltantes_global[$combinacion_key]['total_viajes'] += $cantidad_viajes;
+                    
+                    if (!in_array($conductor, $conteo_tarifas_faltantes_global[$combinacion_key]['conductores'])) {
+                        $conteo_tarifas_faltantes_global[$combinacion_key]['conductores'][] = $conductor;
+                    }
+                }
+            }
+        }
+        
+        // Si no hay tarifas faltantes para este conductor, eliminar entrada vacía
+        if (empty($tarifas_faltantes_por_conductor[$conductor])) {
+            unset($tarifas_faltantes_por_conductor[$conductor]);
+        }
+    }
+}
+
+// Contar total de alertas de tarifas
+$total_tarifas_faltantes_global = 0;
+foreach ($conteo_tarifas_faltantes_global as $item) {
+    $total_tarifas_faltantes_global += $item['total_viajes'];
+}
+
+// =======================================================
+// 🚀 FIN MÓDULO 13
+// =======================================================
+?>
 </body>
 </html>
 <?php $conn->close(); ?>
