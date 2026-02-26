@@ -285,22 +285,17 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
 
 /* =======================================================
    🚀 MÓDULO 4: OBTENCIÓN DE DATOS PRINCIPALES (MULTI-EMPRESA)
-   ========================================================
-   🔧 PROPÓSITO: Procesar los datos con múltiples empresas
-   🔧 CORREGIDO: 26/02/2026 - Agregado sistema de alertas de tarifas
+   🔧 CORREGIDO: 26/02/2026 - AHORA RESPETA TARIFAS POR EMPRESA
    ======================================================== */
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
 $empresasFiltro = $_GET['empresas'] ?? [];
 
-// Si viene vacío o no es array, lo convertimos a array vacío
+// Procesar empresas seleccionadas
 if (!is_array($empresasFiltro)) {
     $empresasFiltro = $empresasFiltro ? [$empresasFiltro] : [];
 }
-$empresasFiltro = array_filter($empresasFiltro); // Quitar vacíos
-
-// ✅ Variable para tarifas (USA LA PRIMERA EMPRESA SELECCIONADA)
-$empresaTarifasActual = !empty($empresasFiltro) ? $empresasFiltro[0] : '';
+$empresasFiltro = array_filter($empresasFiltro);
 
 // Construir condición SQL para múltiples empresas
 $sqlCondicionEmpresa = "";
@@ -314,7 +309,7 @@ if (!empty($empresasFiltro)) {
 $columnas_tarifas = obtenerColumnasTarifas($conn);
 $clasificaciones_disponibles = obtenerClasificacionesDisponibles($conn);
 
-// Session key basado en TODAS las empresas seleccionadas
+// Session key para columnas seleccionadas
 $session_key = "columnas_seleccionadas_" . md5(implode('|', $empresasFiltro) . $desde . $hasta);
 $columnas_seleccionadas = [];
 if (isset($_COOKIE[$session_key])) {
@@ -323,7 +318,7 @@ if (isset($_COOKIE[$session_key])) {
     $columnas_seleccionadas = $clasificaciones_disponibles;
 }
 
-// Cargar clasificaciones de rutas (global, no depende de empresas)
+// Cargar clasificaciones de rutas
 $clasif_rutas = [];
 $resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
 if ($resClasif) {
@@ -333,11 +328,11 @@ if ($resClasif) {
     }
 }
 
-// 📊 CONSULTA PRINCIPAL - Trae viajes de TODAS las empresas seleccionadas
+// 📊 CONSULTA PRINCIPAL - Trae TODOS los viajes
 $sql = "SELECT nombre, ruta, empresa, tipo_vehiculo, COALESCE(pago_parcial,0) AS pago_parcial
         FROM viajes
         WHERE fecha BETWEEN '$desde' AND '$hasta'";
-$sql .= $sqlCondicionEmpresa; // Agregar condición multi-empresa
+$sql .= $sqlCondicionEmpresa;
 
 $res = $conn->query($sql);
 
@@ -348,7 +343,30 @@ $rutasUnicas = [];
 $pagosConductor = [];
 $rutas_sin_clasificar_por_conductor = [];
 
-// Procesar resultados - SE SUMAN AUTOMÁTICAMENTE LOS VIAJES DE TODAS LAS EMPRESAS
+// ✅ Cargar TODAS las tarifas de TODAS las empresas seleccionadas
+$tarifas_por_empresa = [];
+if (!empty($empresasFiltro)) {
+    $empresasParaTarifas = array_map(function($e) use ($conn) {
+        return "'" . $conn->real_escape_string($e) . "'";
+    }, $empresasFiltro);
+    
+    $sqlTarifas = "SELECT * FROM tarifas WHERE empresa IN (" . implode(",", $empresasParaTarifas) . ")";
+    $resTarifas = $conn->query($sqlTarifas);
+    
+    if ($resTarifas) {
+        while ($r = $resTarifas->fetch_assoc()) {
+            $empresa = $r['empresa'];
+            $vehiculo = $r['tipo_vehiculo'];
+            
+            if (!isset($tarifas_por_empresa[$empresa])) {
+                $tarifas_por_empresa[$empresa] = [];
+            }
+            $tarifas_por_empresa[$empresa][$vehiculo] = $r;
+        }
+    }
+}
+
+// Procesar resultados - CADA VIAJE MANTIENE SU EMPRESA
 if ($res) {
     while ($row = $res->fetch_assoc()) {
         $nombre   = trim($row['nombre']);
@@ -357,29 +375,16 @@ if ($res) {
         $pagoParcial = (int)($row['pago_parcial'] ?? 0);
         $empresa  = trim($row['empresa']);
 
-        // Omitir registros con nombre vacío
         if (empty($nombre)) continue;
 
-        // Sumar pagos parciales del conductor (acumula de todas las empresas)
+        // Sumar pagos parciales
         if (!isset($pagosConductor[$nombre])) $pagosConductor[$nombre] = 0;
         $pagosConductor[$nombre] += $pagoParcial;
 
         $keyRuta = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
-
-        // Registrar ruta única para el panel de clasificación
-        if (!isset($rutasUnicas[$keyRuta])) {
-            $rutasUnicas[$keyRuta] = [
-                'ruta'          => $ruta,
-                'vehiculo'      => $vehiculo,
-                'clasificacion' => $clasif_rutas[$keyRuta] ?? ''
-            ];
-        }
-
-        // Registrar tipo de vehículo único
-        if (!empty($vehiculo) && !in_array($vehiculo, $vehiculos, true)) $vehiculos[] = $vehiculo;
+        $clasificacion_ruta = $clasif_rutas[$keyRuta] ?? '';
 
         // Registrar rutas sin clasificar
-        $clasificacion_ruta = $clasif_rutas[$keyRuta] ?? '';
         if ($clasificacion_ruta === '' || $clasificacion_ruta === 'otro') {
             if (!isset($rutas_sin_clasificar_por_conductor[$nombre])) {
                 $rutas_sin_clasificar_por_conductor[$nombre] = [];
@@ -395,46 +400,62 @@ if ($res) {
             $datos[$nombre] = [
                 "vehiculo" => $vehiculo, 
                 "pagado" => 0,
-                "rutas_sin_clasificar" => 0
+                "rutas_sin_clasificar" => 0,
+                "empresas" => [] // Nuevo: guardar desglose por empresa
             ];
-            foreach ($clasificaciones_disponibles as $clasif) $datos[$nombre][$clasif] = 0;
         }
 
-        // SUMAR el viaje a la clasificación correspondiente
-        $clasifRuta = $clasif_rutas[$keyRuta] ?? '';
-        if ($clasifRuta !== '' && isset($datos[$nombre][$clasifRuta])) {
-            $datos[$nombre][$clasifRuta]++; // ¡ESTA LÍNEA SUMA LOS VIAJES!
+        // Inicializar empresa para este conductor si no existe
+        if (!isset($datos[$nombre]['empresas'][$empresa])) {
+            $datos[$nombre]['empresas'][$empresa] = [
+                'vehiculo' => $vehiculo,
+                'viajes' => []
+            ];
+            foreach ($clasificaciones_disponibles as $clasif) {
+                $datos[$nombre]['empresas'][$empresa]['viajes'][$clasif] = 0;
+            }
+        }
+
+        // ✅ CONTAR el viaje en la empresa correspondiente
+        if ($clasificacion_ruta !== '') {
+            $datos[$nombre]['empresas'][$empresa]['viajes'][$clasificacion_ruta]++;
         }
     }
 }
 
-// Asignar pagos totales a cada conductor (ya están sumados de todas las empresas)
-foreach ($datos as $conductor => $info) {
-    $datos[$conductor]["pagado"] = (int)($pagosConductor[$conductor] ?? 0);
-    $datos[$conductor]["rutas_sin_clasificar"] = count($rutas_sin_clasificar_por_conductor[$conductor] ?? []);
+// ✅ CALCULAR VALORES POR CONDUCTOR (respetando tarifas por empresa)
+foreach ($datos as $conductor => &$info) {
+    $total_conductor = 0;
+    
+    foreach ($info['empresas'] as $empresa => $datos_empresa) {
+        $vehiculo = $datos_empresa['vehiculo'];
+        
+        // Obtener tarifas de esta empresa para este vehículo
+        $tarifas_empresa = $tarifas_por_empresa[$empresa][$vehiculo] ?? [];
+        
+        foreach ($datos_empresa['viajes'] as $clasif => $cantidad) {
+            if ($cantidad > 0) {
+                // ✅ Usar la tarifa específica de esta empresa
+                $tarifa = (float)($tarifas_empresa[$clasif] ?? 0);
+                $total_conductor += $cantidad * $tarifa;
+                
+                // Acumular en el array principal para la tabla
+                if (!isset($info[$clasif])) {
+                    $info[$clasif] = 0;
+                }
+                $info[$clasif] += $cantidad;
+            }
+        }
+    }
+    
+    $info['pagado'] = (int)($pagosConductor[$conductor] ?? 0);
+    $info['rutas_sin_clasificar'] = count($rutas_sin_clasificar_por_conductor[$conductor] ?? []);
+    $info['total_calculado'] = $total_conductor; // Guardar el total calculado
 }
 
-// Obtener empresas de la tabla
+// Obtener empresas para el header
 $empresas = [];
-$sqlEmpresas = "
-    SELECT DISTINCT 
-        TRIM(empresa) as empresa 
-    FROM viajes 
-    WHERE empresa IS NOT NULL 
-      AND TRIM(empresa) != '' 
-      AND TRIM(empresa) NOT IN ('', 'NULL', 'null')
-    ORDER BY 
-        CASE 
-            WHEN LOWER(TRIM(empresa)) LIKE 'p.%' THEN 1
-            WHEN LOWER(TRIM(empresa)) = 'acpm' THEN 2
-            WHEN LOWER(TRIM(empresa)) = 'icbf' THEN 3
-            WHEN LOWER(TRIM(empresa)) = 'hospital' THEN 4
-            WHEN LOWER(TRIM(empresa)) = 'sunny app' THEN 5
-            ELSE 6
-        END,
-        TRIM(empresa) ASC
-";
-
+$sqlEmpresas = "SELECT DISTINCT TRIM(empresa) as empresa FROM viajes WHERE empresa IS NOT NULL AND TRIM(empresa) != '' ORDER BY empresa ASC";
 $resEmp = $conn->query($sqlEmpresas);
 if ($resEmp) {
     while ($r = $resEmp->fetch_assoc()) {
@@ -445,7 +466,7 @@ if ($resEmp) {
     }
 }
 
-// Ordenar final
+// Ordenar empresas
 usort($empresas, function($a, $b) {
     $aStartsWithP = stripos($a, 'p.') === 0;
     $bStartsWithP = stripos($b, 'p.') === 0;
@@ -455,96 +476,13 @@ usort($empresas, function($a, $b) {
     return strcasecmp($a, $b);
 });
 
-// ✅ Obtener tarifas guardadas para la EMPRESA_TARIFAS_ACTUAL
-$tarifas_guardadas = [];
-if (!empty($empresaTarifasActual)) {
-    $primeraEmpresa = $conn->real_escape_string($empresaTarifasActual);
-    $resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa = '$primeraEmpresa'");
-    if ($resTarifas) {
-        while ($r = $resTarifas->fetch_assoc()) {
-            $tarifas_guardadas[$r['tipo_vehiculo']] = $r;
-        }
+// También necesitamos pasar las tarifas por empresa al JavaScript
+$tarifas_json = [];
+foreach ($tarifas_por_empresa as $empresa => $vehiculos) {
+    foreach ($vehiculos as $vehiculo => $tarifas) {
+        $tarifas_json[$empresa][$vehiculo] = $tarifas;
     }
 }
-
-/* =======================================================
-   🚀 SUBMÓDULO 4.1: SISTEMA DE ALERTAS DE TARIFAS FALTANTES
-   ======================================================== */
-// Detectar combinaciones (tipo_vehículo + clasificación) que tienen rutas
-// pero no tienen valor en tarifas (o valor = 0)
-$tarifas_faltantes_por_conductor = [];
-$conteo_tarifas_faltantes_global = [];
-
-// Solo procesar si hay datos y empresa seleccionada para tarifas
-if (!empty($empresaTarifasActual) && !empty($datos)) {
-    
-    // Obtener todas las combinaciones únicas de (vehículo, clasificación)
-    // que aparecen en los viajes de los conductores
-    $combinaciones_faltantes = [];
-    
-    // Revisar cada conductor y sus viajes clasificados
-    foreach ($datos as $conductor => $info) {
-        $vehiculo_conductor = $info['vehiculo'];
-        $tarifas_faltantes_por_conductor[$conductor] = [];
-        
-        // Revisar cada clasificación que tiene viajes este conductor
-        foreach ($clasificaciones_disponibles as $clasif) {
-            $cantidad_viajes = (int)($info[$clasif] ?? 0);
-            
-            if ($cantidad_viajes > 0) {
-                // Verificar si existe tarifa para esta combinación
-                $tarifa_existe = false;
-                $valor_tarifa = 0;
-                
-                if (isset($tarifas_guardadas[$vehiculo_conductor][$clasif])) {
-                    $valor_tarifa = (float)$tarifas_guardadas[$vehiculo_conductor][$clasif];
-                    $tarifa_existe = ($valor_tarifa > 0);
-                }
-                
-                // Si no hay tarifa o es cero, registrar la alerta
-                if (!$tarifa_existe) {
-                    $combinacion_key = $vehiculo_conductor . '|' . $clasif;
-                    
-                    // Registrar para este conductor
-                    $tarifas_faltantes_por_conductor[$conductor][] = [
-                        'vehiculo' => $vehiculo_conductor,
-                        'clasificacion' => $clasif,
-                        'cantidad_viajes' => $cantidad_viajes
-                    ];
-                    
-                    // Acumular para el resumen global
-                    if (!isset($conteo_tarifas_faltantes_global[$combinacion_key])) {
-                        $conteo_tarifas_faltantes_global[$combinacion_key] = [
-                            'vehiculo' => $vehiculo_conductor,
-                            'clasificacion' => $clasif,
-                            'total_conductores' => 0,
-                            'total_viajes' => 0,
-                            'conductores' => []
-                        ];
-                    }
-                    $conteo_tarifas_faltantes_global[$combinacion_key]['total_conductores']++;
-                    $conteo_tarifas_faltantes_global[$combinacion_key]['total_viajes'] += $cantidad_viajes;
-                    
-                    if (!in_array($conductor, $conteo_tarifas_faltantes_global[$combinacion_key]['conductores'])) {
-                        $conteo_tarifas_faltantes_global[$combinacion_key]['conductores'][] = $conductor;
-                    }
-                }
-            }
-        }
-        
-        // Si no hay tarifas faltantes para este conductor, eliminar entrada vacía
-        if (empty($tarifas_faltantes_por_conductor[$conductor])) {
-            unset($tarifas_faltantes_por_conductor[$conductor]);
-        }
-    }
-}
-
-// Contar total de alertas de tarifas
-$total_tarifas_faltantes_global = 0;
-foreach ($conteo_tarifas_faltantes_global as $item) {
-    $total_tarifas_faltantes_global += $item['total_viajes'];
-}
-/* ===== FIN SUBMÓDULO 4.1 ===== */
 /* ===== FIN MÓDULO 4 CORREGIDO ===== */
 
 /* =======================================================
@@ -1872,11 +1810,13 @@ function loadViajes(nombre) {
 </script>
 <!-- ===== FIN MÓDULO 10 ===== -->
 
+
+
 <script>
 // =======================================================
 // 🚀 MÓDULO 11: JAVASCRIPT PRINCIPAL (CORREGIDO)
 // ========================================================
-// 🔧 CORREGIDO: 26/02/2026 - Funciones de alertas de tarifas agregadas
+// 🔧 CORREGIDO: 26/02/2026 - Los cálculos vienen desde PHP
 // ========================================================
 
 // ===== VARIABLES GLOBALES =====
@@ -1971,42 +1911,52 @@ function formatNumber(num){
     return new Intl.NumberFormat('es-CO').format(num || 0);
 }
 
+// ===== FUNCIÓN RECALCULAR CORREGIDA =====
+// 🔧 AHORA USA LOS VALORES CALCULADOS DESDE PHP
 function recalcular(){
-    const tarifas = getTarifas();
     const filas = document.querySelectorAll('#tabla_conductores_body tr');
-    const todasColumnas = <?= json_encode($clasificaciones_disponibles) ?>;
     
-    let totalViajes = 0, totalPagado = 0, totalFaltante = 0;
+    let totalViajes = 0;
+    let totalPagado = 0;
+    let totalFaltante = 0;
 
     filas.forEach(fila => {
         if (fila.style.display === 'none') return;
 
-        const veh = fila.dataset.vehiculo;
-        const tarifasVeh = tarifas[veh] || {};
-        let totalFila = 0;
+        // Obtener el total calculado desde PHP (guardado en data-total-calculado)
+        const totalFila = parseInt(fila.dataset.totalCalculado || '0');
         
-        todasColumnas.forEach(columna => {
-            const celda = fila.querySelector(`td[data-columna="${columna}"]`);
-            const cantidad = parseInt(celda?.textContent || 0);
-            const tarifa = tarifasVeh[columna] || 0;
-            totalFila += cantidad * tarifa;
-        });
-
+        // Obtener el pagado desde PHP
         const pagado = parseInt(fila.dataset.pagado || '0') || 0;
+        
+        // Calcular faltante
         let faltante = Math.max(totalFila - pagado, 0);
 
-        fila.querySelector('input.totales').value = formatNumber(totalFila);
-        fila.querySelector('input.faltante').value = formatNumber(faltante);
+        // Mostrar los valores en los inputs
+        const inputTotales = fila.querySelector('input.totales');
+        const inputFaltante = fila.querySelector('input.faltante');
+        
+        if (inputTotales) inputTotales.value = formatNumber(totalFila);
+        if (inputFaltante) inputFaltante.value = formatNumber(faltante);
 
+        // Acumular totales generales
         totalViajes += totalFila;
         totalPagado += pagado;
         totalFaltante += faltante;
     });
 
-    document.getElementById('total_viajes').innerText = formatNumber(totalViajes);
-    document.getElementById('total_general').innerText = formatNumber(totalViajes);
-    document.getElementById('total_pagado').innerText = formatNumber(totalPagado);
-    document.getElementById('total_faltante').innerText = formatNumber(totalFaltante);
+    // Actualizar los totales en el header
+    const totalViajesEl = document.getElementById('total_viajes');
+    const totalGeneralEl = document.getElementById('total_general');
+    const totalPagadoEl = document.getElementById('total_pagado');
+    const totalFaltanteEl = document.getElementById('total_faltante');
+    
+    if (totalViajesEl) totalViajesEl.innerText = formatNumber(totalViajes);
+    if (totalGeneralEl) totalGeneralEl.innerText = formatNumber(totalViajes);
+    if (totalPagadoEl) totalPagadoEl.innerText = formatNumber(totalPagado);
+    if (totalFaltanteEl) totalFaltanteEl.innerText = formatNumber(totalFaltante);
+    
+    console.log('✅ Recalcular ejecutado con valores desde PHP');
 }
 
 // ===== CLASIFICACIÓN DE RUTAS =====
@@ -2279,7 +2229,6 @@ function mostrarResumenRutasSinClasificar() {
         resumenDiv.classList.remove('hidden');
     }
     
-    // También mostrar alertas de tarifas si existen
     mostrarResumenTarifasFaltantes();
 }
 
@@ -2306,16 +2255,13 @@ function mostrarResumenTarifasFaltantes() {
 }
 
 function abrirPanelTarifas(vehiculo, clasificacion) {
-    // Abrir el panel de tarifas
     togglePanel('tarifas');
     
-    // Expandir el acordeón del vehículo correspondiente
     setTimeout(() => {
         const acordeonId = 'acordeon-' + vehiculo.toLowerCase().replace(/[^a-z0-9]/g, '-');
         const acordeon = document.getElementById(acordeonId);
         
         if (acordeon) {
-            // Expandir el acordeón
             const content = document.getElementById('content-' + acordeonId.replace('acordeon-', ''));
             const icon = document.getElementById('icon-' + acordeonId.replace('acordeon-', ''));
             
@@ -2325,7 +2271,6 @@ function abrirPanelTarifas(vehiculo, clasificacion) {
                 if (icon) icon.classList.add('expanded');
             }
             
-            // Hacer scroll al input correspondiente
             const input = acordeon.querySelector(`input[data-campo="${clasificacion.toLowerCase()}"]`);
             if (input) {
                 input.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -2416,8 +2361,9 @@ function configurarEventosTarifas() {
             .then(t => {
                 if (t.trim() === 'ok') {
                     input.defaultValue = input.value;
-                    recalcular();
                     mostrarNotificacion('✅ Tarifa guardada', 'success');
+                    // Recargar la página para actualizar los cálculos con la nueva tarifa
+                    location.reload();
                 } else {
                     input.value = input.defaultValue;
                     mostrarNotificacion('❌ Error al guardar', 'error');
@@ -2489,7 +2435,7 @@ document.addEventListener('DOMContentLoaded', function() {
     actualizarContadorColumnas();
     actualizarColumnasTabla();
     
-    // Recalcular
+    // Recalcular (ahora solo muestra los valores que ya vienen de PHP)
     recalcular();
     
     // Mostrar resumen si hay rutas sin clasificar
@@ -2521,8 +2467,8 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('✅ Empresa para tarifas:', EMPRESA_ACTUAL_TARIFAS);
     }
 });
+// ===== FIN MÓDULO 11 CORREGIDO =====
 </script>
-<!-- ===== FIN MÓDULO 11 CORREGIDO ===== -->
 <?php
 /* =======================================================
    🚀 MÓDULO 12: SISTEMA DE ALERTAS - VERSIÓN SIN AJAX
