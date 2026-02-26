@@ -2346,7 +2346,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 </script>
-<!-- ===== FIN MÓDULO 11 CORREGIDO ===== -->
+<!-- ===== FIN MÓDULO 11 CORREGIDO ==== -->
 <?php
 /* =======================================================
    🚀 MÓDULO 12: SISTEMA DE ALERTAS - VERSIÓN SIN AJAX
