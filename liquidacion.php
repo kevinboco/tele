@@ -3149,7 +3149,7 @@ if (!empty($empresaTarifasActual) && !empty($datos)) {
     }
 }
 
-// Contar total de alertas de tarifas
+// Contar total de alertas de tarifa
 $total_tarifas_faltantes_global = 0;
 foreach ($conteo_tarifas_faltantes_global as $item) {
     $total_tarifas_faltantes_global += $item['total_viajes'];
