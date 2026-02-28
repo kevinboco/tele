@@ -5,7 +5,7 @@ if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); 
 $conn->set_charset("utf8mb4");
 
 /* =======================================================
-   🔹 FUNCIONES DINÁMICAS 
+   🔹 FUNCIONES DINÁMICAS (sin cambios)
 ======================================================= */
 
 // Obtener columnas de tarifas dinámicamente
@@ -126,7 +126,7 @@ function obtenerColorVehiculo($vehiculo) {
 }
 
 /* =======================================================
-   🔹 PROCESAR POST (AJAX)
+   🔹 PROCESAR POST (sin cambios)
 ======================================================= */
 if (isset($_POST['crear_clasificacion'])) {
     $nombre_clasificacion = trim($conn->real_escape_string($_POST['nombre_clasificacion']));
@@ -187,7 +187,7 @@ if (isset($_POST['guardar_columnas_seleccionadas'])) {
 }
 
 /* =======================================================
-   🔹 Endpoint AJAX: viajes por conductor
+   🔹 Endpoint AJAX: viajes por conductor (sin cambios)
 ======================================================= */
 if (isset($_GET['viajes_conductor'])) {
     $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
@@ -403,413 +403,212 @@ if (isset($_GET['viajes_conductor'])) {
 }
 
 /* =======================================================
-   🔹 Endpoint AJAX: Obtener datos filtrados
+   🔹 Formulario inicial (con CHECKBOXES)
 ======================================================= */
-if (isset($_GET['ajax_filtrar'])) {
-    $desde = $_GET['desde'];
-    $hasta = $_GET['hasta'];
-    $empresasSeleccionadas = isset($_GET['empresas']) ? explode(',', $_GET['empresas']) : [];
-    
-    // Si no hay empresas seleccionadas, obtener todas
-    if (empty($empresasSeleccionadas)) {
-        $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
-        $empresasSeleccionadas = [];
-        if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresasSeleccionadas[] = $r['empresa'];
-    }
-    
-    // Escapar empresas
-    $empresasSeleccionadas = array_map(function($e) use ($conn) {
-        return $conn->real_escape_string($e);
-    }, $empresasSeleccionadas);
-    
-    $columnas_tarifas = obtenerColumnasTarifas($conn);
-    $clasificaciones_disponibles = obtenerClasificacionesDisponibles($conn);
-    
-    // Cargar clasificaciones de rutas
-    $clasif_rutas = [];
-    $resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
-    if ($resClasif) {
-        while ($r = $resClasif->fetch_assoc()) {
-            $key = mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo']), 'UTF-8');
-            $clasif_rutas[$key] = strtolower($r['clasificacion']);
-        }
-    }
-    
-    // Función para procesar datos de una empresa
-    function procesarDatosEmpresaAjax($conn, $empresa, $desde, $hasta, $clasificaciones_disponibles, $clasif_rutas) {
-        $sql = "SELECT nombre, ruta, empresa, tipo_vehiculo, COALESCE(pago_parcial,0) AS pago_parcial
-                FROM viajes
-                WHERE fecha BETWEEN '$desde' AND '$hasta'
-                  AND empresa = '$empresa'";
-        
-        $res = $conn->query($sql);
-        
-        $datos = [];
-        $vehiculos = [];
-        $pagosConductor = [];
-        $rutas_sin_clasificar_por_conductor = [];
-        
-        if ($res) {
-            while ($row = $res->fetch_assoc()) {
-                $nombre   = $row['nombre'];
-                $ruta     = $row['ruta'];
-                $vehiculo = $row['tipo_vehiculo'];
-                $pagoParcial = (int)($row['pago_parcial'] ?? 0);
-
-                if (!isset($pagosConductor[$nombre])) $pagosConductor[$nombre] = 0;
-                $pagosConductor[$nombre] += $pagoParcial;
-
-                $keyRuta = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
-
-                if (!in_array($vehiculo, $vehiculos, true)) {
-                    $vehiculos[] = $vehiculo;
-                }
-
-                $clasificacion_ruta = $clasif_rutas[$keyRuta] ?? '';
-                if ($clasificacion_ruta === '' || $clasificacion_ruta === 'otro') {
-                    if (!isset($rutas_sin_clasificar_por_conductor[$nombre])) {
-                        $rutas_sin_clasificar_por_conductor[$nombre] = [];
-                    }
-                    $ruta_key = $ruta . '|' . $vehiculo;
-                    if (!in_array($ruta_key, $rutas_sin_clasificar_por_conductor[$nombre])) {
-                        $rutas_sin_clasificar_por_conductor[$nombre][] = $ruta_key;
-                    }
-                }
-
-                if (!isset($datos[$nombre])) {
-                    $datos[$nombre] = [
-                        "vehiculo" => $vehiculo,
-                        "pagado"   => 0
-                    ];
-                    foreach ($clasificaciones_disponibles as $clasif) {
-                        $datos[$nombre][$clasif] = 0;
-                    }
-                }
-
-                $clasifRuta = $clasif_rutas[$keyRuta] ?? '';
-
-                if ($clasifRuta !== '') {
-                    if (!isset($datos[$nombre][$clasifRuta])) {
-                        $datos[$nombre][$clasifRuta] = 0;
-                    }
-                    $datos[$nombre][$clasifRuta]++;
-                }
-            }
-        }
-
-        foreach ($datos as $conductor => $info) {
-            $datos[$conductor]["pagado"] = (int)($pagosConductor[$conductor] ?? 0);
-            $datos[$conductor]["rutas_sin_clasificar"] = count($rutas_sin_clasificar_por_conductor[$conductor] ?? []);
-        }
-
-        return [
-            'datos' => $datos,
-            'vehiculos' => $vehiculos
-        ];
-    }
-    
-    // Procesar datos para cada empresa
-    $empresasData = [];
-    foreach ($empresasSeleccionadas as $empresa) {
-        $empresasData[$empresa] = procesarDatosEmpresaAjax($conn, $empresa, $desde, $hasta, $clasificaciones_disponibles, $clasif_rutas);
-    }
-    
-    // Cargar tarifas guardadas
-    $tarifas_guardadas = [];
-    if (!empty($empresasSeleccionadas)) {
-        $empresasList = "'" . implode("','", $empresasSeleccionadas) . "'";
-        $resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa IN ($empresasList)");
-        if ($resTarifas) {
-            while ($r = $resTarifas->fetch_assoc()) {
-                $tarifas_guardadas[$r['empresa']][$r['tipo_vehiculo']] = $r;
-            }
-        }
-    }
-    
-    // Cargar columnas seleccionadas desde cookie
-    $session_key = "columnas_seleccionadas_" . md5(implode(',', $empresasSeleccionadas) . $desde . $hasta);
-    $columnas_seleccionadas = [];
-    if (isset($_COOKIE[$session_key])) {
-        $columnas_seleccionadas = json_decode($_COOKIE[$session_key], true);
-    } else {
-        $columnas_seleccionadas = $clasificaciones_disponibles;
-    }
-    
-    // Devolver HTML de las tablas
-    header('Content-Type: application/json');
-    echo json_encode([
-        'html' => generarTablasHTML($empresasSeleccionadas, $empresasData, $clasificaciones_disponibles, $columnas_seleccionadas, $tarifas_guardadas),
-        'empresas' => $empresasSeleccionadas
-    ]);
+if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
+    $empresas = [];
+    $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
+    if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
+    ?>
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+      <title>Filtrar viajes</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="min-h-screen bg-slate-100 text-slate-800">
+      <div class="max-w-lg mx-auto p-6">
+        <div class="bg-white shadow-sm rounded-2xl p-6 border border-slate-200">
+          <h2 class="text-2xl font-bold text-center mb-2">📅 Filtrar viajes por rango</h2>
+          <p class="text-center text-slate-500 mb-6">Selecciona el periodo y una o varias empresas.</p>
+          <form method="get" class="space-y-4">
+            <label class="block">
+              <span class="block text-sm font-medium mb-1">Desde</span>
+              <input type="date" name="desde" required
+                     class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"/>
+            </label>
+            <label class="block">
+              <span class="block text-sm font-medium mb-1">Hasta</span>
+              <input type="date" name="hasta" required
+                     class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"/>
+            </label>
+            
+            <!-- EMPRESAS CON CHECKBOX (MÚLTIPLE SELECCIÓN) -->
+            <div class="block">
+              <span class="block text-sm font-medium mb-2">Empresas (selecciona una o varias)</span>
+              <div class="space-y-2 max-h-60 overflow-y-auto border border-slate-200 rounded-xl p-3">
+                <label class="flex items-center gap-2 p-2 hover:bg-slate-50 rounded-lg">
+                  <input type="checkbox" name="empresas[]" value="" class="rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                  <span class="text-sm font-medium">-- Todas --</span>
+                </label>
+                <?php foreach($empresas as $e): ?>
+                  <label class="flex items-center gap-2 p-2 hover:bg-slate-50 rounded-lg">
+                    <input type="checkbox" name="empresas[]" value="<?= htmlspecialchars($e) ?>" class="rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                    <span class="text-sm font-medium"><?= htmlspecialchars($e) ?></span>
+                  </label>
+                <?php endforeach; ?>
+              </div>
+              <p class="text-xs text-slate-500 mt-1">Puedes seleccionar múltiples empresas. Cada una mostrará su propia tabla.</p>
+            </div>
+            
+            <button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow hover:bg-blue-700 active:bg-blue-800 focus:ring-4 focus:ring-blue-200 transition">
+              Filtrar
+            </button>
+          </form>
+        </div>
+      </div>
+    </body>
+    </html>
+    <?php
     exit;
 }
 
 /* =======================================================
-   🔹 Función para generar HTML de tablas
+   🔹 Cálculo y armado de tablas DINÁMICO - CON HEADER MEJORADO
 ======================================================= */
-function generarTablasHTML($empresasSeleccionadas, $empresasData, $clasificaciones_disponibles, $columnas_seleccionadas, $tarifas_guardadas) {
-    ob_start();
-    
-    $hayDatos = false;
-    foreach ($empresasSeleccionadas as $empresa) {
-        if (!empty($empresasData[$empresa]['datos'])) {
-            $hayDatos = true;
-            break;
-        }
-    }
-    
-    if (!$hayDatos): 
-    ?>
-    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-12 text-center">
-        <span class="text-6xl mb-4 block">📭</span>
-        <h3 class="text-xl font-bold text-slate-700 mb-2">No hay datos para mostrar</h3>
-        <p class="text-slate-500">No se encontraron viajes en el período seleccionado para las empresas elegidas.</p>
-    </div>
-    <?php else: 
-        $empresaIndex = 0;
-        foreach ($empresasSeleccionadas as $empresa): 
-            $empresaData = $empresasData[$empresa]['datos'] ?? [];
-            if (empty($empresaData)) continue;
-            $empresaIndex++;
-    ?>
-    
-    <?php if ($empresaIndex > 1): ?>
-    <div class="empresa-separator my-8"></div>
-    <?php endif; ?>
-    
-    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden mb-8 empresa-table" 
-         data-empresa="<?= htmlspecialchars($empresa) ?>"
-         id="empresa-table-<?= md5($empresa) ?>">
-        
-        <div class="p-5 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-white">
-            <div class="flex items-center justify-between">
-                <div>
-                    <h3 class="text-xl font-bold flex items-center gap-2">
-                        <span>🏢</span>
-                        <?= htmlspecialchars($empresa) ?>
-                    </h3>
-                    <div class="text-sm text-slate-500 mt-1">
-                        Conductores: <?= count($empresaData) ?> • 
-                        <span class="empresa-conductores-count" data-empresa="<?= htmlspecialchars($empresa) ?>"><?= count($empresaData) ?></span>
-                    </div>
-                </div>
-                
-                <div class="flex gap-4 text-sm">
-                    <div class="text-right">
-                        <div class="text-slate-500">Viajes</div>
-                        <div class="font-bold text-blue-600 empresa-total-viajes" id="empresa-total-viajes-<?= md5($empresa) ?>">0</div>
-                    </div>
-                    <div class="text-right">
-                        <div class="text-slate-500">Pagado</div>
-                        <div class="font-bold text-emerald-600 empresa-total-pagado" id="empresa-total-pagado-<?= md5($empresa) ?>">0</div>
-                    </div>
-                    <div class="text-right">
-                        <div class="text-slate-500">Faltante</div>
-                        <div class="font-bold text-rose-600 empresa-total-faltante" id="empresa-total-faltante-<?= md5($empresa) ?>">0</div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="mt-4 flex gap-3">
-                <div class="buscar-container w-64">
-                    <input type="text" 
-                           placeholder="Buscar conductor en <?= htmlspecialchars($empresa) ?>..." 
-                           class="buscador-empresa w-full rounded-xl border border-slate-300 px-4 py-2 pr-10 text-sm"
-                           data-empresa="<?= htmlspecialchars($empresa) ?>">
-                    <button class="buscar-clear-empresa buscar-clear" data-empresa="<?= htmlspecialchars($empresa) ?>">✕</button>
-                </div>
-                <span class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-700 text-xs font-medium">
-                    <span class="empresa-visibles" data-empresa="<?= htmlspecialchars($empresa) ?>"><?= count($empresaData) ?></span>/<span class="empresa-total" data-empresa="<?= htmlspecialchars($empresa) ?>"><?= count($empresaData) ?></span> conductores
-                </span>
-            </div>
-        </div>
+$desde = $_GET['desde'];
+$hasta = $_GET['hasta'];
+$empresasSeleccionadas = $_GET['empresas'] ?? [];
 
-        <div class="p-5">
-            <div class="overflow-x-auto rounded-xl border border-slate-200 max-h-[70vh]">
-                <table class="w-full text-sm empresa-tabla" data-empresa="<?= htmlspecialchars($empresa) ?>">
-                    <thead class="bg-blue-600 text-white sticky top-0 z-20">
-                        <tr>
-                            <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 70px;">Estado</th>
-                            <th class="px-4 py-3 text-left sticky top-0 bg-blue-600" style="min-width: 220px;">Conductor</th>
-                            <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 120px;">Tipo</th>
-                            
-                            <?php foreach ($clasificaciones_disponibles as $clasif): 
-                                $estilo = obtenerEstiloClasificacion($clasif);
-                                $abreviaturas = [
-                                    'completo' => 'COM', 'medio' => 'MED', 'extra' => 'EXT',
-                                    'carrotanque' => 'CTK', 'siapana' => 'SIA', 'riohacha' => 'RIO',
-                                    'pru' => 'PRU', 'maco' => 'MAC'
-                                ];
-                                $abreviatura = $abreviaturas[$clasif] ?? strtoupper(substr($clasif, 0, 3));
-                                
-                                $visible = in_array($clasif, $columnas_seleccionadas);
-                                $clase_visibilidad = $visible ? 'columna-visualizada' : 'columna-oculta';
-                                
-                                $colorMap = [
-                                    'bg-emerald-100' => '#d1fae5', 'text-emerald-700' => '#047857',
-                                    'bg-amber-100' => '#fef3c7', 'text-amber-800' => '#92400e',
-                                    'bg-slate-200' => '#e2e8f0', 'text-slate-800' => '#1e293b',
-                                    'bg-fuchsia-100' => '#fae8ff', 'text-fuchsia-700' => '#a21caf',
-                                    'bg-cyan-100' => '#cffafe', 'text-cyan-800' => '#155e75',
-                                    'bg-indigo-100' => '#e0e7ff', 'text-indigo-700' => '#4338ca',
-                                    'bg-teal-100' => '#ccfbf1', 'text-teal-700' => '#0f766e',
-                                    'bg-rose-100' => '#ffe4e6', 'text-rose-700' => '#be123c',
-                                ];
-                                
-                                $bg_color = $colorMap[$estilo['bg']] ?? '#f1f5f9';
-                                $text_color = $colorMap[$estilo['text']] ?? '#1e293b';
-                            ?>
-                            <th class="px-4 py-3 text-center sticky top-0 <?= $clase_visibilidad ?> columna-tabla" 
-                                data-columna="<?= htmlspecialchars($clasif) ?>"
-                                style="min-width: 80px; background-color: <?= $bg_color ?>; color: <?= $text_color ?>; z-index: 19;">
-                                <?= htmlspecialchars($abreviatura) ?>
-                            </th>
-                            <?php endforeach; ?>
-                            <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 140px;">Total</th>
-                            <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 120px;">Pagado</th>
-                            <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 100px;">Faltante</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100 bg-white empresa-tbody" data-empresa="<?= htmlspecialchars($empresa) ?>">
-                    <?php foreach ($empresaData as $conductor => $info): 
-                        $esMensual = (stripos($info['vehiculo'], 'mensual') !== false);
-                        $claseVehiculo = $esMensual ? 'vehiculo-mensual' : '';
-                        $rutasSinClasificar = $info['rutas_sin_clasificar'] ?? 0;
-                        $color_vehiculo = obtenerColorVehiculo($info['vehiculo']);
-                    ?>
-                        <tr data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>" 
-                            data-conductor="<?= htmlspecialchars($conductor) ?>" 
-                            data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
-                            data-pagado="<?= (int)($info['pagado'] ?? 0) ?>"
-                            data-sin-clasificar="<?= $rutasSinClasificar ?>"
-                            data-empresa="<?= htmlspecialchars($empresa) ?>"
-                            class="hover:bg-blue-50/40 transition-colors <?php echo $rutasSinClasificar > 0 ? 'alerta-sin-clasificar' : ''; ?>">
-                            
-                            <td class="px-4 py-3 text-center">
-                                <?php if ($rutasSinClasificar > 0): ?>
-                                    <div class="flex flex-col items-center justify-center gap-1" title="<?= $rutasSinClasificar ?> ruta(s) sin clasificar">
-                                        <span class="text-amber-600 font-bold animate-pulse">⚠️</span>
-                                        <span class="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded-full font-bold">
-                                            <?= $rutasSinClasificar ?>
-                                        </span>
-                                    </div>
-                                <?php else: ?>
-                                    <div class="flex flex-col items-center justify-center gap-1" title="Todas las rutas clasificadas">
-                                        <span class="text-emerald-600">✅</span>
-                                        <span class="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full font-bold">0</span>
-                                    </div>
-                                <?php endif; ?>
-                            </td>
-                            
-                            <td class="px-4 py-3">
-                                <button type="button"
-                                        class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition flex items-center gap-2"
-                                        data-empresa="<?= htmlspecialchars($empresa) ?>"
-                                        data-conductor="<?= htmlspecialchars($conductor) ?>"
-                                        onclick="abrirModalViajes('<?= htmlspecialchars($conductor) ?>', '<?= htmlspecialchars($empresa) ?>')">
-                                    <?php if ($rutasSinClasificar > 0): ?>
-                                        <span class="text-amber-600">⚠️</span>
-                                    <?php endif; ?>
-                                    <?= htmlspecialchars($conductor) ?>
-                                </button>
-                            </td>
-                            
-                            <td class="px-4 py-3 text-center">
-                                <span class="inline-block <?= $claseVehiculo ?> px-3 py-1.5 rounded-lg text-xs font-medium border <?= $color_vehiculo['border'] ?> <?= $color_vehiculo['text'] ?> <?= $color_vehiculo['bg'] ?>">
-                                    <?= htmlspecialchars($info['vehiculo']) ?>
-                                    <?php if ($esMensual): ?>
-                                        <span class="ml-1">📅</span>
-                                    <?php endif; ?>
-                                </span>
-                            </td>
-                            
-                            <?php foreach ($clasificaciones_disponibles as $clasif): 
-                                $estilo = obtenerEstiloClasificacion($clasif);
-                                $cantidad = (int)($info[$clasif] ?? 0);
-                                $visible = in_array($clasif, $columnas_seleccionadas);
-                                $clase_visibilidad = $visible ? 'columna-visualizada' : 'columna-oculta';
-                                
-                                $colorMap = [
-                                    'bg-emerald-100' => '#f0fdf4', 'text-emerald-700' => '#047857',
-                                    'bg-amber-100' => '#fffbeb', 'text-amber-800' => '#92400e',
-                                    'bg-slate-200' => '#f8fafc', 'text-slate-800' => '#1e293b',
-                                    'bg-fuchsia-100' => '#fdf4ff', 'text-fuchsia-700' => '#a21caf',
-                                    'bg-cyan-100' => '#ecfeff', 'text-cyan-800' => '#155e75',
-                                    'bg-indigo-100' => '#eef2ff', 'text-indigo-700' => '#4338ca',
-                                    'bg-teal-100' => '#f0fdfa', 'text-teal-700' => '#0f766e',
-                                    'bg-rose-100' => '#fff1f2', 'text-rose-700' => '#be123c',
-                                ];
-                                
-                                $bg_cell_color = $colorMap[$estilo['bg']] ?? '#f8fafc';
-                                $text_cell_color = $colorMap[$estilo['text']] ?? '#1e293b';
-                            ?>
-                            <td class="px-4 py-3 text-center font-medium <?= $clase_visibilidad ?> columna-tabla" 
-                                data-columna="<?= htmlspecialchars($clasif) ?>"
-                                style="min-width: 80px; background-color: <?= $bg_cell_color ?>; color: <?= $text_cell_color ?>;">
-                                <?= $cantidad ?>
-                            </td>
-                            <?php endforeach; ?>
-
-                            <td class="px-4 py-3">
-                                <input type="text"
-                                       class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none"
-                                       readonly dir="ltr"
-                                       data-empresa="<?= htmlspecialchars($empresa) ?>">
-                            </td>
-                            <td class="px-4 py-3">
-                                <input type="text"
-                                       class="pagado w-full rounded-xl border border-emerald-200 px-3 py-2 text-right bg-emerald-50 outline-none"
-                                       readonly dir="ltr"
-                                       data-empresa="<?= htmlspecialchars($empresa) ?>"
-                                       value="<?= number_format((int)($info['pagado'] ?? 0), 0, ',', '.') ?>">
-                            </td>
-                            <td class="px-4 py-3">
-                                <input type="text"
-                                       class="faltante w-full rounded-xl border border-rose-200 px-3 py-2 text-right bg-rose-50 outline-none"
-                                       readonly dir="ltr"
-                                       data-empresa="<?= htmlspecialchars($empresa) ?>"
-                                       value="0">
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-    <?php 
-        endforeach; 
-    endif;
-    
-    return ob_get_clean();
+// Si "Todas" está seleccionado o no hay selección, obtener todas las empresas
+if (empty($empresasSeleccionadas) || in_array("", $empresasSeleccionadas)) {
+    $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
+    $empresasSeleccionadas = [];
+    if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresasSeleccionadas[] = $r['empresa'];
 }
 
-/* =======================================================
-   🔹 Página principal con filtros siempre visibles
-======================================================= */
+// Obtener datos dinámicos
+$columnas_tarifas = obtenerColumnasTarifas($conn);
+$clasificaciones_disponibles = obtenerClasificacionesDisponibles($conn);
 
-// Obtener todas las empresas para los checkboxes
+// Cargar columnas seleccionadas desde cookie
+$session_key = "columnas_seleccionadas_" . md5(implode(',', $empresasSeleccionadas) . $desde . $hasta);
+$columnas_seleccionadas = [];
+
+if (isset($_COOKIE[$session_key])) {
+    $columnas_seleccionadas = json_decode($_COOKIE[$session_key], true);
+} else {
+    $columnas_seleccionadas = $clasificaciones_disponibles;
+}
+
+// Cargar clasificaciones de rutas desde BD
+$clasif_rutas = [];
+$resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
+if ($resClasif) {
+    while ($r = $resClasif->fetch_assoc()) {
+        $key = mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo']), 'UTF-8');
+        $clasif_rutas[$key] = strtolower($r['clasificacion']);
+    }
+}
+
+// Función para procesar datos de UNA empresa
+function procesarDatosEmpresa($conn, $empresa, $desde, $hasta, $clasificaciones_disponibles, $clasif_rutas) {
+    $sql = "SELECT nombre, ruta, empresa, tipo_vehiculo, COALESCE(pago_parcial,0) AS pago_parcial
+            FROM viajes
+            WHERE fecha BETWEEN '$desde' AND '$hasta'
+              AND empresa = '$empresa'";
+    
+    $res = $conn->query($sql);
+    
+    $datos = [];
+    $vehiculos = [];
+    $pagosConductor = [];
+    $rutas_sin_clasificar_por_conductor = [];
+    
+    if ($res) {
+        while ($row = $res->fetch_assoc()) {
+            $nombre   = $row['nombre'];
+            $ruta     = $row['ruta'];
+            $vehiculo = $row['tipo_vehiculo'];
+            $pagoParcial = (int)($row['pago_parcial'] ?? 0);
+
+            if (!isset($pagosConductor[$nombre])) $pagosConductor[$nombre] = 0;
+            $pagosConductor[$nombre] += $pagoParcial;
+
+            $keyRuta = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
+
+            if (!in_array($vehiculo, $vehiculos, true)) {
+                $vehiculos[] = $vehiculo;
+            }
+
+            $clasificacion_ruta = $clasif_rutas[$keyRuta] ?? '';
+            if ($clasificacion_ruta === '' || $clasificacion_ruta === 'otro') {
+                if (!isset($rutas_sin_clasificar_por_conductor[$nombre])) {
+                    $rutas_sin_clasificar_por_conductor[$nombre] = [];
+                }
+                $ruta_key = $ruta . '|' . $vehiculo;
+                if (!in_array($ruta_key, $rutas_sin_clasificar_por_conductor[$nombre])) {
+                    $rutas_sin_clasificar_por_conductor[$nombre][] = $ruta_key;
+                }
+            }
+
+            if (!isset($datos[$nombre])) {
+                $datos[$nombre] = [
+                    "vehiculo" => $vehiculo,
+                    "pagado"   => 0
+                ];
+                foreach ($clasificaciones_disponibles as $clasif) {
+                    $datos[$nombre][$clasif] = 0;
+                }
+            }
+
+            $clasifRuta = $clasif_rutas[$keyRuta] ?? '';
+
+            if ($clasifRuta !== '') {
+                if (!isset($datos[$nombre][$clasifRuta])) {
+                    $datos[$nombre][$clasifRuta] = 0;
+                }
+                $datos[$nombre][$clasifRuta]++;
+            }
+        }
+    }
+
+    foreach ($datos as $conductor => $info) {
+        $datos[$conductor]["pagado"] = (int)($pagosConductor[$conductor] ?? 0);
+        $datos[$conductor]["rutas_sin_clasificar"] = count($rutas_sin_clasificar_por_conductor[$conductor] ?? []);
+    }
+
+    return [
+        'datos' => $datos,
+        'vehiculos' => $vehiculos
+    ];
+}
+
+// Procesar datos para cada empresa seleccionada
+$empresasData = [];
+foreach ($empresasSeleccionadas as $empresa) {
+    $empresa = $conn->real_escape_string($empresa);
+    $empresasData[$empresa] = procesarDatosEmpresa($conn, $empresa, $desde, $hasta, $clasificaciones_disponibles, $clasif_rutas);
+}
+
+// Obtener todas las empresas para el listado
 $todasEmpresas = [];
 $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
 if ($resEmp) while ($r = $resEmp->fetch_assoc()) $todasEmpresas[] = $r['empresa'];
 
-// Obtener empresas seleccionadas de la URL (si existen)
-$empresasSeleccionadas = isset($_GET['empresas']) ? explode(',', $_GET['empresas']) : [];
-
-// Fechas por defecto
-$desde = isset($_GET['desde']) ? $_GET['desde'] : date('Y-m-01');
-$hasta = isset($_GET['hasta']) ? $_GET['hasta'] : date('Y-m-d');
-
+// Tarifas guardadas
+$tarifas_guardadas = [];
+if (!empty($empresasSeleccionadas)) {
+    $empresasList = "'" . implode("','", array_map([$conn, 'real_escape_string'], $empresasSeleccionadas)) . "'";
+    $resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa IN ($empresasList)");
+    if ($resTarifas) {
+        while ($r = $resTarifas->fetch_assoc()) {
+            $tarifas_guardadas[$r['empresa']][$r['tipo_vehiculo']] = $r;
+        }
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Liquidación de Conductores - Filtros Siempre Visibles</title>
+<title>Liquidación de Conductores - Múltiples Empresas</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
-  /* Estilos existentes se mantienen igual */
+  /* ===== ESTILOS ORIGINALES (sin cambios) ===== */
   ::-webkit-scrollbar{height:10px;width:10px}
   ::-webkit-slider-thumb{background:#d1d5db;border-radius:999px}
   ::-webkit-slider-thumb:hover{background:#9ca3af}
@@ -1222,60 +1021,6 @@ $hasta = isset($_GET['hasta']) ? $_GET['hasta'] : date('Y-m-d');
     padding: 12px 20px;
   }
   
-  /* Estilo para los checkboxes de empresas */
-  .empresa-checkbox-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 10px;
-    max-height: 200px;
-    overflow-y: auto;
-    padding: 10px;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    background: white;
-  }
-  
-  .empresa-checkbox-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
-    border-radius: 8px;
-    transition: all 0.2s;
-    cursor: pointer;
-  }
-  
-  .empresa-checkbox-item:hover {
-    background-color: #f1f5f9;
-  }
-  
-  .empresa-checkbox-item.selected {
-    background-color: #eff6ff;
-    border: 1px solid #3b82f6;
-  }
-  
-  .empresa-checkbox-item input[type="checkbox"] {
-    width: 18px;
-    height: 18px;
-    border-radius: 4px;
-    border: 2px solid #cbd5e1;
-    cursor: pointer;
-  }
-  
-  .empresa-checkbox-item input[type="checkbox"]:checked {
-    background-color: #3b82f6;
-    border-color: #3b82f6;
-  }
-  
-  .filtros-header {
-    position: sticky;
-    top: 0;
-    z-index: 30;
-    background: white;
-    border-bottom: 1px solid #e2e8f0;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-  }
-  
   @media (max-width: 768px) {
     .floating-balls-container {
       bottom: 20px;
@@ -1308,16 +1053,12 @@ $hasta = isset($_GET['hasta']) ? $_GET['hasta'] : date('Y-m-d');
     .ball-tooltip {
       display: none;
     }
-    
-    .empresa-checkbox-grid {
-      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    }
   }
 </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
 
-  <!-- BOLITAS FLOTANTES -->
+  <!-- BOLITAS FLOTANTES (sin cambios) -->
   <div class="floating-balls-container">
     <div class="floating-ball ball-tarifas" id="ball-tarifas" data-panel="tarifas">
       <div class="ball-content">🚐</div>
@@ -1337,198 +1078,118 @@ $hasta = isset($_GET['hasta']) ? $_GET['hasta'] : date('Y-m-d');
     </div>
   </div>
 
-  <!-- PANELES -->
-  <div class="side-panel" id="panel-tarifas">
-    <div class="side-panel-header">
-      <h3 class="text-lg font-semibold flex items-center gap-2">
-        <span>🚐 Tarifas por Tipo de Vehículo</span>
-        <span class="text-xs text-slate-500">(<?= count($columnas_tarifas ?? obtenerColumnasTarifas($conn)) ?> tipos)</span>
-      </h3>
-      <button class="side-panel-close" data-panel="tarifas">✕</button>
-    </div>
-    <div class="side-panel-body">
-      <div id="tarifas-panel-content">
-        <p class="text-center text-slate-500 py-4">Selecciona filtros para cargar tarifas</p>
-      </div>
-    </div>
-  </div>
-  
-  <div class="side-panel" id="panel-crear-clasif">
-    <div class="side-panel-header">
-      <h3 class="text-lg font-semibold flex items-center gap-2">
-        <span>➕ Crear Nueva Clasificación</span>
-      </h3>
-      <button class="side-panel-close" data-panel="crear-clasif">✕</button>
-    </div>
-    <div class="side-panel-body">
-      <p class="text-sm text-slate-600 mb-4">
-        Crea una nueva clasificación. Se agregará a la tabla tarifas.
-      </p>
-      <div class="space-y-4">
-        <div>
-          <label class="block text-sm font-medium mb-2">Nombre de la nueva clasificación</label>
-          <input id="txt_nueva_clasificacion" type="text"
-                 class="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
-                 placeholder="Ej: Premium, Nocturno, Express...">
-        </div>
-        <div>
-          <label class="block text-sm font-medium mb-2">Texto que deben contener las rutas (opcional)</label>
-          <input id="txt_patron_ruta" type="text"
-                 class="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
-                 placeholder="Dejar vacío para solo crear la clasificación">
-        </div>
-        <button type="button"
-                onclick="crearYAsignarClasificacion()"
-                class="w-full inline-flex items-center justify-center rounded-xl bg-green-600 text-white px-4 py-3 text-sm font-semibold hover:bg-green-700 active:bg-green-800 focus:ring-4 focus:ring-green-200 transition">
-          ⚙️ Crear y Aplicar
-        </button>
-      </div>
-      <p class="text-xs text-slate-500 mt-4">
-        La nueva clasificación se creará en la tabla tarifas. Vuelve a dar <strong>Filtrar</strong> para ver los cambios.
-      </p>
-    </div>
-  </div>
-
-  <div class="side-panel" id="panel-clasif-rutas">
-    <div class="side-panel-header">
-      <h3 class="text-lg font-semibold flex items-center gap-2">
-        <span>🧭 Clasificar Rutas Existentes</span>
-      </h3>
-      <button class="side-panel-close" data-panel="clasif-rutas">✕</button>
-    </div>
-    <div class="side-panel-body">
-      <div id="clasif-rutas-content">
-        <p class="text-center text-slate-500 py-4">Selecciona filtros para cargar rutas</p>
-      </div>
-    </div>
-  </div>
-
-  <div class="side-panel" id="panel-selector-columnas">
-    <div class="side-panel-header">
-      <h3 class="text-lg font-semibold flex items-center gap-2">
-        <span>📊 Seleccionar Columnas</span>
-      </h3>
-      <button class="side-panel-close" data-panel="selector-columnas">✕</button>
-    </div>
-    <div class="side-panel-body">
+  <!-- ===== HEADER MEJORADO CON SELECTOR DE EMPRESAS SIEMPRE VISIBLE ===== -->
+  <header class="max-w-[1800px] mx-auto px-3 md:px-4 pt-6">
+    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm px-5 py-4">
+      
+      <!-- Fila superior: Título y selector de empresas -->
       <div class="flex flex-col gap-4">
-        <div>
-          <p class="text-sm text-slate-600 mb-3">
-            Marca/desmarca las columnas que quieres ver en las tablas.
-            <span id="contador-seleccionadas-panel" class="font-semibold text-blue-600">0</span> de 
-            <?= count(obtenerClasificacionesDisponibles($conn)) ?> seleccionadas
-          </p>
+        
+        <!-- Título y contador -->
+        <div class="flex items-center justify-between">
+          <h2 class="text-xl md:text-2xl font-bold">🪙 Liquidación de Conductores</h2>
+          <span class="text-sm bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-medium">
+            📊 <?= count($empresasSeleccionadas) ?> empresa(s) seleccionada(s)
+          </span>
         </div>
         
-        <div class="flex flex-wrap gap-2">
-          <button onclick="seleccionarTodasColumnas()" 
-                  class="text-xs px-3 py-1.5 rounded-lg border border-green-300 bg-green-50 text-green-700 hover:bg-green-100 transition">
-            ✅ Seleccionar todas
-          </button>
-          <button onclick="deseleccionarTodasColumnas()" 
-                  class="text-xs px-3 py-1.5 rounded-lg border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 transition">
-            ❌ Deseleccionar todas
-          </button>
-          <button onclick="guardarSeleccionColumnas()" 
-                  class="text-xs px-3 py-1.5 rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 transition">
-            💾 Guardar selección
-          </button>
-        </div>
-        
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[60vh] overflow-y-auto p-2 border border-slate-200 rounded-lg" id="columnas-panel">
-          <?php 
-          $clasificaciones = obtenerClasificacionesDisponibles($conn);
-          foreach ($clasificaciones as $clasif): 
-            $estilo = obtenerEstiloClasificacion($clasif);
-          ?>
-          <div class="columna-checkbox-item flex items-center gap-2 p-3 border border-slate-200 rounded-lg cursor-pointer transition"
-               data-columna="<?= htmlspecialchars($clasif) ?>"
-               onclick="toggleColumna('<?= htmlspecialchars($clasif) ?>')">
-            <div class="checkbox-columna" id="checkbox-<?= htmlspecialchars($clasif) ?>"></div>
-            <div class="flex-1 flex flex-col">
-              <span class="text-sm font-medium <?= $estilo['text'] ?>">
-                <?= ucfirst($clasif) ?>
-              </span>
-              <span class="text-xs text-slate-500">Columna: <?= htmlspecialchars($clasif) ?></span>
-            </div>
-            <div class="w-3 h-3 rounded-full" style="background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>;"></div>
-          </div>
-          <?php endforeach; ?>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Overlay -->
-  <div class="side-panel-overlay" id="sidePanelOverlay"></div>
-
-  <!-- HEADER CON FILTROS SIEMPRE VISIBLES -->
-  <header class="filtros-header">
-    <div class="max-w-[1800px] mx-auto px-3 md:px-4 py-4">
-      <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-        <h2 class="text-xl md:text-2xl font-bold mb-4 flex items-center gap-2">
-          🪙 Liquidación de Conductores
-          <span class="text-sm font-normal text-slate-500 ml-2">Filtros siempre visibles</span>
-        </h2>
-        
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-          <!-- Fechas -->
-          <div class="lg:col-span-3">
-            <label class="block text-xs font-medium text-slate-600 mb-1">📅 Desde</label>
-            <input type="date" id="filtro_desde" value="<?= htmlspecialchars($desde) ?>" 
-                   class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
+        <!-- FORMULARIO COMPLETO (Fechas + Empresas con Checkboxes) - SIEMPRE VISIBLE -->
+        <form method="get" class="space-y-4">
+          
+          <!-- Fila de fechas -->
+          <div class="flex flex-col md:flex-row gap-3">
+            <label class="flex-1">
+              <span class="block text-xs font-medium text-slate-600 mb-1">Desde</span>
+              <input type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" required
+                     class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
+            </label>
+            
+            <label class="flex-1">
+              <span class="block text-xs font-medium text-slate-600 mb-1">Hasta</span>
+              <input type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" required
+                     class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
+            </label>
           </div>
           
-          <div class="lg:col-span-3">
-            <label class="block text-xs font-medium text-slate-600 mb-1">📅 Hasta</label>
-            <input type="date" id="filtro_hasta" value="<?= htmlspecialchars($hasta) ?>" 
-                   class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
-          </div>
-          
-          <div class="lg:col-span-5">
-            <label class="block text-xs font-medium text-slate-600 mb-1">🏢 Empresas (selecciona las que quieras ver)</label>
-            <div class="empresa-checkbox-grid" id="empresasCheckboxContainer">
-              <?php foreach ($todasEmpresas as $empresa): 
-                $checked = in_array($empresa, $empresasSeleccionadas) ? 'checked' : '';
+          <!-- 🔥 SECCIÓN DE EMPRESAS (EXACTAMENTE IGUAL AL FORMULARIO INICIAL) -->
+          <div class="block">
+            <span class="block text-sm font-medium mb-2">Empresas (selecciona una o varias)</span>
+            
+            <div class="space-y-2 max-h-60 overflow-y-auto border border-slate-200 rounded-xl p-3 bg-white">
+              <?php
+              // Obtener todas las empresas (ya las tenemos en $todasEmpresas)
               ?>
-              <label class="empresa-checkbox-item <?= $checked ? 'selected' : '' ?>">
-                <input type="checkbox" class="empresa-checkbox" value="<?= htmlspecialchars($empresa) ?>" <?= $checked ?>>
-                <span class="text-sm truncate"><?= htmlspecialchars($empresa) ?></span>
+              
+              <!-- Opción "Todas" -->
+              <label class="flex items-center gap-2 p-2 hover:bg-slate-50 rounded-lg cursor-pointer">
+                <input type="checkbox" name="empresas[]" value="" 
+                       <?= in_array("", $empresasSeleccionadas) ? 'checked' : '' ?>
+                       class="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer">
+                <span class="text-sm font-medium">🌐 -- Todas las empresas --</span>
               </label>
+              
+              <!-- Lista de empresas individuales -->
+              <?php foreach($todasEmpresas as $emp): ?>
+                <label class="flex items-center gap-2 p-2 hover:bg-slate-50 rounded-lg cursor-pointer">
+                  <input type="checkbox" name="empresas[]" value="<?= htmlspecialchars($emp) ?>"
+                         <?= in_array($emp, $empresasSeleccionadas) ? 'checked' : '' ?>
+                         class="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer">
+                  <span class="text-sm font-medium">🏢 <?= htmlspecialchars($emp) ?></span>
+                </label>
               <?php endforeach; ?>
             </div>
+            
+            <p class="text-xs text-slate-500 mt-2">
+              💡 Puedes seleccionar múltiples empresas. Cada una mostrará su propia tabla.
+            </p>
           </div>
           
-          <div class="lg:col-span-1 flex items-end">
-            <button onclick="aplicarFiltros()" 
-                    class="w-full rounded-xl bg-blue-600 text-white px-4 py-2.5 text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 focus:ring-4 focus:ring-blue-200 transition flex items-center justify-center gap-2">
-              <span>🔍</span> Filtrar
+          <!-- Botón de aplicar filtros -->
+          <div class="flex justify-end">
+            <button type="submit" 
+                    class="inline-flex items-center gap-2 rounded-xl bg-blue-600 text-white px-6 py-2.5 text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 focus:ring-4 focus:ring-blue-200 transition">
+              🔄 Aplicar filtros
             </button>
           </div>
+        </form>
+        
+        <!-- Resumen de empresas seleccionadas (feedback visual) -->
+        <div class="flex flex-wrap items-center gap-2 mt-2 pt-3 border-t border-slate-100">
+          <span class="text-sm font-medium text-slate-600">Empresas seleccionadas:</span>
+          <?php if (in_array("", $empresasSeleccionadas)): ?>
+            <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-purple-100 text-purple-700 text-xs font-medium border border-purple-200">
+              🌐 TODAS LAS EMPRESAS
+            </span>
+          <?php else: ?>
+            <?php foreach ($empresasSeleccionadas as $emp): ?>
+              <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-medium border border-blue-200">
+                🏢 <?= htmlspecialchars($emp) ?>
+              </span>
+            <?php endforeach; ?>
+          <?php endif; ?>
+          
+          <span class="text-sm text-slate-500 ml-auto">
+            📅 <?= htmlspecialchars($desde) ?> → <?= htmlspecialchars($hasta) ?>
+          </span>
         </div>
         
-        <div class="mt-3 text-sm text-slate-600 flex items-center gap-2">
-          <span class="font-medium">Empresas seleccionadas:</span>
-          <span id="contadorEmpresasSeleccionadas" class="bg-blue-100 text-blue-700 px-2 py-1 rounded-lg text-xs font-semibold">
-            <?= count($empresasSeleccionadas) ?>
-          </span>
-          <span class="text-slate-400">|</span>
-          <span class="text-xs text-slate-500">Los cambios se aplican al hacer clic en Filtrar</span>
-        </div>
       </div>
     </div>
   </header>
 
-  <!-- CONTENIDO PRINCIPAL (TABLAS) -->
+  <!-- Overlay -->
+  <div class="side-panel-overlay" id="sidePanelOverlay"></div>
+
+  <!-- Contenido principal -->
   <main class="max-w-[1800px] mx-auto px-3 md:px-4 py-6">
     <div class="table-container-wrapper" id="tableContainerWrapper">
       
-      <!-- Totales generales (se actualizan vía JS) -->
+      <!-- Totales generales (SUMA DE TODAS LAS EMPRESAS) -->
       <div class="totales-generales mb-6">
         <div class="flex items-center gap-3 mb-4">
           <span class="text-2xl">📊</span>
           <h3 class="text-xl font-bold">TOTALES GENERALES</h3>
-          <span class="bg-white/20 px-3 py-1 rounded-full text-sm" id="totalEmpresasCount"><?= count($empresasSeleccionadas) ?></span>
+          <span class="bg-white/20 px-3 py-1 rounded-full text-sm"><?= count($empresasSeleccionadas) ?> empresas</span>
         </div>
         
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -1560,55 +1221,243 @@ $hasta = isset($_GET['hasta']) ? $_GET['hasta'] : date('Y-m-d');
         </button>
       </div>
 
-      <!-- Contenedor de tablas (se actualiza vía AJAX) -->
-      <div id="tablasContainer">
-        <?php
-        // Procesar datos para las empresas seleccionadas (carga inicial)
-        $clasificaciones_disponibles = obtenerClasificacionesDisponibles($conn);
+      <!-- TABLAS POR EMPRESA (UNA DEBAJO DE OTRA) -->
+      <?php 
+      $empresaIndex = 0;
+      foreach ($empresasSeleccionadas as $empresa): 
+        $empresaData = $empresasData[$empresa]['datos'] ?? [];
+        if (empty($empresaData)) continue;
+        $empresaIndex++;
+      ?>
+      
+      <!-- Separador visual entre empresas -->
+      <?php if ($empresaIndex > 1): ?>
+      <div class="empresa-separator my-8"></div>
+      <?php endif; ?>
+      
+      <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden mb-8 empresa-table" 
+           data-empresa="<?= htmlspecialchars($empresa) ?>"
+           id="empresa-table-<?= md5($empresa) ?>">
         
-        // Cargar clasificaciones de rutas
-        $clasif_rutas = [];
-        $resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
-        if ($resClasif) {
-            while ($r = $resClasif->fetch_assoc()) {
-                $key = mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo']), 'UTF-8');
-                $clasif_rutas[$key] = strtolower($r['clasificacion']);
-            }
-        }
-        
-        // Procesar datos para cada empresa
-        $empresasData = [];
-        foreach ($empresasSeleccionadas as $empresa) {
-            $empresa = $conn->real_escape_string($empresa);
-            $empresasData[$empresa] = procesarDatosEmpresaAjax($conn, $empresa, $desde, $hasta, $clasificaciones_disponibles, $clasif_rutas);
-        }
-        
-        // Cargar tarifas guardadas
-        $tarifas_guardadas = [];
-        if (!empty($empresasSeleccionadas)) {
-            $empresasList = "'" . implode("','", array_map(function($e) use ($conn) {
-                return $conn->real_escape_string($e);
-            }, $empresasSeleccionadas)) . "'";
-            $resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa IN ($empresasList)");
-            if ($resTarifas) {
-                while ($r = $resTarifas->fetch_assoc()) {
-                    $tarifas_guardadas[$r['empresa']][$r['tipo_vehiculo']] = $r;
-                }
-            }
-        }
-        
-        // Cargar columnas seleccionadas desde cookie
-        $session_key = "columnas_seleccionadas_" . md5(implode(',', $empresasSeleccionadas) . $desde . $hasta);
-        $columnas_seleccionadas = [];
-        if (isset($_COOKIE[$session_key])) {
-            $columnas_seleccionadas = json_decode($_COOKIE[$session_key], true);
-        } else {
-            $columnas_seleccionadas = $clasificaciones_disponibles;
-        }
-        
-        echo generarTablasHTML($empresasSeleccionadas, $empresasData, $clasificaciones_disponibles, $columnas_seleccionadas, $tarifas_guardadas);
-        ?>
+        <!-- Encabezado de la empresa -->
+        <div class="p-5 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-white">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="text-xl font-bold flex items-center gap-2">
+                <span>🏢</span>
+                <?= htmlspecialchars($empresa) ?>
+              </h3>
+              <div class="text-sm text-slate-500 mt-1">
+                Conductores: <?= count($empresaData) ?> • 
+                <span class="empresa-conductores-count" data-empresa="<?= htmlspecialchars($empresa) ?>"><?= count($empresaData) ?></span>
+              </div>
+            </div>
+            
+            <!-- Totales por empresa (se actualizarán vía JS) -->
+            <div class="flex gap-4 text-sm">
+              <div class="text-right">
+                <div class="text-slate-500">Viajes</div>
+                <div class="font-bold text-blue-600 empresa-total-viajes" id="empresa-total-viajes-<?= md5($empresa) ?>">0</div>
+              </div>
+              <div class="text-right">
+                <div class="text-slate-500">Pagado</div>
+                <div class="font-bold text-emerald-600 empresa-total-pagado" id="empresa-total-pagado-<?= md5($empresa) ?>">0</div>
+              </div>
+              <div class="text-right">
+                <div class="text-slate-500">Faltante</div>
+                <div class="font-bold text-rose-600 empresa-total-faltante" id="empresa-total-faltante-<?= md5($empresa) ?>">0</div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Buscador específico para esta empresa -->
+          <div class="mt-4 flex gap-3">
+            <div class="buscar-container w-64">
+              <input type="text" 
+                     placeholder="Buscar conductor en <?= htmlspecialchars($empresa) ?>..." 
+                     class="buscador-empresa w-full rounded-xl border border-slate-300 px-4 py-2 pr-10 text-sm"
+                     data-empresa="<?= htmlspecialchars($empresa) ?>">
+              <button class="buscar-clear-empresa buscar-clear" data-empresa="<?= htmlspecialchars($empresa) ?>">✕</button>
+            </div>
+            <span class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-blue-700 text-xs font-medium">
+              <span class="empresa-visibles" data-empresa="<?= htmlspecialchars($empresa) ?>"><?= count($empresaData) ?></span>/<span class="empresa-total" data-empresa="<?= htmlspecialchars($empresa) ?>"><?= count($empresaData) ?></span> conductores
+            </span>
+          </div>
+        </div>
+
+        <!-- Tabla de la empresa -->
+        <div class="p-5">
+          <div class="overflow-x-auto rounded-xl border border-slate-200 max-h-[70vh]">
+            <table class="w-full text-sm empresa-tabla" data-empresa="<?= htmlspecialchars($empresa) ?>">
+              <thead class="bg-blue-600 text-white sticky top-0 z-20">
+                <tr>
+                  <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 70px;">Estado</th>
+                  <th class="px-4 py-3 text-left sticky top-0 bg-blue-600" style="min-width: 220px;">Conductor</th>
+                  <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 120px;">Tipo</th>
+                  
+                  <?php foreach ($clasificaciones_disponibles as $clasif): 
+                    $estilo = obtenerEstiloClasificacion($clasif);
+                    $abreviaturas = [
+                        'completo' => 'COM', 'medio' => 'MED', 'extra' => 'EXT',
+                        'carrotanque' => 'CTK', 'siapana' => 'SIA', 'riohacha' => 'RIO',
+                        'pru' => 'PRU', 'maco' => 'MAC'
+                    ];
+                    $abreviatura = $abreviaturas[$clasif] ?? strtoupper(substr($clasif, 0, 3));
+                    
+                    $visible = in_array($clasif, $columnas_seleccionadas);
+                    $clase_visibilidad = $visible ? 'columna-visualizada' : 'columna-oculta';
+                    
+                    $colorMap = [
+                        'bg-emerald-100' => '#d1fae5', 'text-emerald-700' => '#047857',
+                        'bg-amber-100' => '#fef3c7', 'text-amber-800' => '#92400e',
+                        'bg-slate-200' => '#e2e8f0', 'text-slate-800' => '#1e293b',
+                        'bg-fuchsia-100' => '#fae8ff', 'text-fuchsia-700' => '#a21caf',
+                        'bg-cyan-100' => '#cffafe', 'text-cyan-800' => '#155e75',
+                        'bg-indigo-100' => '#e0e7ff', 'text-indigo-700' => '#4338ca',
+                        'bg-teal-100' => '#ccfbf1', 'text-teal-700' => '#0f766e',
+                        'bg-rose-100' => '#ffe4e6', 'text-rose-700' => '#be123c',
+                    ];
+                    
+                    $bg_color = $colorMap[$estilo['bg']] ?? '#f1f5f9';
+                    $text_color = $colorMap[$estilo['text']] ?? '#1e293b';
+                  ?>
+                  <th class="px-4 py-3 text-center sticky top-0 <?= $clase_visibilidad ?> columna-tabla" 
+                      data-columna="<?= htmlspecialchars($clasif) ?>"
+                      style="min-width: 80px; background-color: <?= $bg_color ?>; color: <?= $text_color ?>; z-index: 19;">
+                    <?= htmlspecialchars($abreviatura) ?>
+                  </th>
+                  <?php endforeach; ?>
+                  <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 140px;">Total</th>
+                  <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 120px;">Pagado</th>
+                  <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 100px;">Faltante</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100 bg-white empresa-tbody" data-empresa="<?= htmlspecialchars($empresa) ?>">
+              <?php foreach ($empresaData as $conductor => $info): 
+                $esMensual = (stripos($info['vehiculo'], 'mensual') !== false);
+                $claseVehiculo = $esMensual ? 'vehiculo-mensual' : '';
+                $rutasSinClasificar = $info['rutas_sin_clasificar'] ?? 0;
+                $color_vehiculo = obtenerColorVehiculo($info['vehiculo']);
+              ?>
+                <tr data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>" 
+                    data-conductor="<?= htmlspecialchars($conductor) ?>" 
+                    data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
+                    data-pagado="<?= (int)($info['pagado'] ?? 0) ?>"
+                    data-sin-clasificar="<?= $rutasSinClasificar ?>"
+                    data-empresa="<?= htmlspecialchars($empresa) ?>"
+                    class="hover:bg-blue-50/40 transition-colors <?php echo $rutasSinClasificar > 0 ? 'alerta-sin-clasificar' : ''; ?>">
+                  
+                  <td class="px-4 py-3 text-center">
+                    <?php if ($rutasSinClasificar > 0): ?>
+                      <div class="flex flex-col items-center justify-center gap-1" title="<?= $rutasSinClasificar ?> ruta(s) sin clasificar">
+                        <span class="text-amber-600 font-bold animate-pulse">⚠️</span>
+                        <span class="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded-full font-bold">
+                          <?= $rutasSinClasificar ?>
+                        </span>
+                      </div>
+                    <?php else: ?>
+                      <div class="flex flex-col items-center justify-center gap-1" title="Todas las rutas clasificadas">
+                        <span class="text-emerald-600">✅</span>
+                        <span class="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full font-bold">0</span>
+                      </div>
+                    <?php endif; ?>
+                  </td>
+                  
+                  <td class="px-4 py-3">
+                    <button type="button"
+                            class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition flex items-center gap-2"
+                            data-empresa="<?= htmlspecialchars($empresa) ?>"
+                            data-conductor="<?= htmlspecialchars($conductor) ?>"
+                            onclick="abrirModalViajes('<?= htmlspecialchars($conductor) ?>', '<?= htmlspecialchars($empresa) ?>')">
+                      <?php if ($rutasSinClasificar > 0): ?>
+                        <span class="text-amber-600">⚠️</span>
+                      <?php endif; ?>
+                      <?= htmlspecialchars($conductor) ?>
+                    </button>
+                  </td>
+                  
+                  <td class="px-4 py-3 text-center">
+                    <span class="inline-block <?= $claseVehiculo ?> px-3 py-1.5 rounded-lg text-xs font-medium border <?= $color_vehiculo['border'] ?> <?= $color_vehiculo['text'] ?> <?= $color_vehiculo['bg'] ?>">
+                      <?= htmlspecialchars($info['vehiculo']) ?>
+                      <?php if ($esMensual): ?>
+                        <span class="ml-1">📅</span>
+                      <?php endif; ?>
+                    </span>
+                  </td>
+                  
+                  <?php foreach ($clasificaciones_disponibles as $clasif): 
+                    $estilo = obtenerEstiloClasificacion($clasif);
+                    $cantidad = (int)($info[$clasif] ?? 0);
+                    $visible = in_array($clasif, $columnas_seleccionadas);
+                    $clase_visibilidad = $visible ? 'columna-visualizada' : 'columna-oculta';
+                    
+                    $colorMap = [
+                        'bg-emerald-100' => '#f0fdf4', 'text-emerald-700' => '#047857',
+                        'bg-amber-100' => '#fffbeb', 'text-amber-800' => '#92400e',
+                        'bg-slate-200' => '#f8fafc', 'text-slate-800' => '#1e293b',
+                        'bg-fuchsia-100' => '#fdf4ff', 'text-fuchsia-700' => '#a21caf',
+                        'bg-cyan-100' => '#ecfeff', 'text-cyan-800' => '#155e75',
+                        'bg-indigo-100' => '#eef2ff', 'text-indigo-700' => '#4338ca',
+                        'bg-teal-100' => '#f0fdfa', 'text-teal-700' => '#0f766e',
+                        'bg-rose-100' => '#fff1f2', 'text-rose-700' => '#be123c',
+                    ];
+                    
+                    $bg_cell_color = $colorMap[$estilo['bg']] ?? '#f8fafc';
+                    $text_cell_color = $colorMap[$estilo['text']] ?? '#1e293b';
+                  ?>
+                  <td class="px-4 py-3 text-center font-medium <?= $clase_visibilidad ?> columna-tabla" 
+                      data-columna="<?= htmlspecialchars($clasif) ?>"
+                      style="min-width: 80px; background-color: <?= $bg_cell_color ?>; color: <?= $text_cell_color ?>;">
+                    <?= $cantidad ?>
+                  </td>
+                  <?php endforeach; ?>
+
+                  <td class="px-4 py-3">
+                    <input type="text"
+                           class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none"
+                           readonly dir="ltr"
+                           data-empresa="<?= htmlspecialchars($empresa) ?>">
+                  </td>
+                  <td class="px-4 py-3">
+                    <input type="text"
+                           class="pagado w-full rounded-xl border border-emerald-200 px-3 py-2 text-right bg-emerald-50 outline-none"
+                           readonly dir="ltr"
+                           data-empresa="<?= htmlspecialchars($empresa) ?>"
+                           value="<?= number_format((int)($info['pagado'] ?? 0), 0, ',', '.') ?>">
+                  </td>
+                  <td class="px-4 py-3">
+                    <input type="text"
+                           class="faltante w-full rounded-xl border border-rose-200 px-3 py-2 text-right bg-rose-50 outline-none"
+                           readonly dir="ltr"
+                           data-empresa="<?= htmlspecialchars($empresa) ?>"
+                           value="0">
+                  </td>
+                </tr>
+              <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
+      <?php endforeach; ?>
+
+      <!-- Mensaje si no hay datos -->
+      <?php 
+      $hayDatos = false;
+      foreach ($empresasSeleccionadas as $empresa) {
+          if (!empty($empresasData[$empresa]['datos'])) {
+              $hayDatos = true;
+              break;
+          }
+      }
+      if (!$hayDatos): 
+      ?>
+      <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-12 text-center">
+        <span class="text-6xl mb-4 block">📭</span>
+        <h3 class="text-xl font-bold text-slate-700 mb-2">No hay datos para mostrar</h3>
+        <p class="text-slate-500">No se encontraron viajes en el período seleccionado para las empresas elegidas.</p>
+      </div>
+      <?php endif; ?>
     </div>
   </main>
 
@@ -1638,10 +1487,12 @@ $hasta = isset($_GET['hasta']) ? $_GET['hasta'] : date('Y-m-d');
 
   <script>
     // ===== VARIABLES GLOBALES =====
-    const CLASIFICACIONES_DISPONIBLES = <?= json_encode(obtenerClasificacionesDisponibles($conn)) ?>;
-    let columnasSeleccionadas = <?= json_encode($columnas_seleccionadas ?? obtenerClasificacionesDisponibles($conn)) ?>;
+    const RANGO_DESDE = <?= json_encode($desde) ?>;
+    const RANGO_HASTA = <?= json_encode($hasta) ?>;
+    const EMPRESAS_SELECCIONADAS = <?= json_encode($empresasSeleccionadas) ?>;
+    const CLASIFICACIONES_DISPONIBLES = <?= json_encode($clasificaciones_disponibles) ?>;
     
-    // ===== SISTEMA DE BOLITAS Y PANELES =====
+    // ===== SISTEMA DE BOLITAS Y PANELES (sin cambios) =====
     let activePanel = null;
     const panels = ['tarifas', 'crear-clasif', 'clasif-rutas', 'selector-columnas'];
     
@@ -1672,19 +1523,14 @@ $hasta = isset($_GET['hasta']) ? $_GET['hasta'] : date('Y-m-d');
         if (e.key === 'Escape' && activePanel) togglePanel(activePanel);
       });
       
-      // Inicializar eventos
-      inicializarEventosCheckboxesEmpresa();
+      colapsarTodosTarifas();
+      inicializarColoresClasificacion();
       inicializarSeleccionColumnas();
+      configurarEventosTarifas();
+      configurarBuscadoresPorEmpresa();
       
-      // Cargar datos iniciales
-      setTimeout(() => {
-        if (document.querySelector('.empresa-tbody')) {
-          configurarEventosTarifas();
-          configurarBuscadoresPorEmpresa();
-          colapsarTodosTarifas();
-          recalcularTodo();
-        }
-      }, 500);
+      // Recalcular todo
+      setTimeout(recalcularTodo, 100);
     });
     
     function togglePanel(panelId) {
@@ -1712,128 +1558,7 @@ $hasta = isset($_GET['hasta']) ? $_GET['hasta'] : date('Y-m-d');
         overlay?.classList.add('active');
         tableWrapper?.classList.add('with-panel');
         activePanel = panelId;
-        
-        // Cargar contenido según el panel
-        if (panelId === 'tarifas') {
-          cargarPanelTarifas();
-        } else if (panelId === 'clasif-rutas') {
-          cargarPanelClasifRutas();
-        }
       }
-    }
-    
-    // ===== FUNCIONES PARA CARGAR PANELES =====
-    function cargarPanelTarifas() {
-      const desde = document.getElementById('filtro_desde').value;
-      const hasta = document.getElementById('filtro_hasta').value;
-      const empresas = obtenerEmpresasSeleccionadas();
-      
-      if (empresas.length === 0) {
-        document.getElementById('panel-tarifas').querySelector('.side-panel-body').innerHTML = 
-          '<p class="text-center text-amber-600 py-4">Selecciona al menos una empresa en los filtros</p>';
-        return;
-      }
-      
-      // Aquí cargarías las tarifas via AJAX
-      // Por ahora mostramos un mensaje
-      document.getElementById('panel-tarifas').querySelector('.side-panel-body').innerHTML = 
-        '<p class="text-center text-slate-500 py-4">Cargando tarifas... (implementar AJAX)</p>';
-    }
-    
-    function cargarPanelClasifRutas() {
-      const desde = document.getElementById('filtro_desde').value;
-      const hasta = document.getElementById('filtro_hasta').value;
-      const empresas = obtenerEmpresasSeleccionadas();
-      
-      if (empresas.length === 0) {
-        document.getElementById('panel-clasif-rutas').querySelector('.side-panel-body').innerHTML = 
-          '<p class="text-center text-amber-600 py-4">Selecciona al menos una empresa en los filtros</p>';
-        return;
-      }
-      
-      // Aquí cargarías las rutas via AJAX
-      // Por ahora mostramos un mensaje
-      document.getElementById('panel-clasif-rutas').querySelector('.side-panel-body').innerHTML = 
-        '<p class="text-center text-slate-500 py-4">Cargando rutas... (implementar AJAX)</p>';
-    }
-    
-    // ===== FUNCIONES DE FILTROS =====
-    function inicializarEventosCheckboxesEmpresa() {
-      document.querySelectorAll('.empresa-checkbox').forEach(checkbox => {
-        checkbox.addEventListener('change', function() {
-          const label = this.closest('.empresa-checkbox-item');
-          if (this.checked) {
-            label.classList.add('selected');
-          } else {
-            label.classList.remove('selected');
-          }
-          actualizarContadorEmpresas();
-        });
-      });
-    }
-    
-    function obtenerEmpresasSeleccionadas() {
-      const empresas = [];
-      document.querySelectorAll('.empresa-checkbox:checked').forEach(cb => {
-        empresas.push(cb.value);
-      });
-      return empresas;
-    }
-    
-    function actualizarContadorEmpresas() {
-      const count = document.querySelectorAll('.empresa-checkbox:checked').length;
-      document.getElementById('contadorEmpresasSeleccionadas').textContent = count;
-      document.getElementById('totalEmpresasCount').textContent = count;
-    }
-    
-    function aplicarFiltros() {
-      const desde = document.getElementById('filtro_desde').value;
-      const hasta = document.getElementById('filtro_hasta').value;
-      const empresas = obtenerEmpresasSeleccionadas();
-      
-      if (!desde || !hasta) {
-        alert('Selecciona fecha desde y hasta');
-        return;
-      }
-      
-      // Mostrar loading
-      document.getElementById('tablasContainer').innerHTML = 
-        '<div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-12 text-center"><div class="animate-pulse">Cargando datos...</div></div>';
-      
-      // Construir URL
-      const params = new URLSearchParams({
-        ajax_filtrar: 1,
-        desde: desde,
-        hasta: hasta,
-        empresas: empresas.join(',')
-      });
-      
-      fetch('<?= basename(__FILE__) ?>?' + params.toString())
-        .then(r => r.json())
-        .then(data => {
-          document.getElementById('tablasContainer').innerHTML = data.html;
-          
-          // Actualizar URL sin recargar
-          const url = new URL(window.location);
-          url.searchParams.set('desde', desde);
-          url.searchParams.set('hasta', hasta);
-          url.searchParams.set('empresas', empresas.join(','));
-          window.history.pushState({}, '', url);
-          
-          // Reinicializar eventos
-          setTimeout(() => {
-            configurarEventosTarifas();
-            configurarBuscadoresPorEmpresa();
-            colapsarTodosTarifas();
-            inicializarSeleccionColumnas();
-            recalcularTodo();
-          }, 200);
-        })
-        .catch(error => {
-          console.error('Error:', error);
-          document.getElementById('tablasContainer').innerHTML = 
-            '<div class="bg-white border border-rose-200 rounded-2xl shadow-sm p-12 text-center text-rose-600">Error al cargar datos</div>';
-        });
     }
     
     // ===== FUNCIONES DE ACORDEÓN =====
@@ -1877,13 +1602,60 @@ $hasta = isset($_GET['hasta']) ? $_GET['hasta'] : date('Y-m-d');
       });
     }
     
+    // ===== CLASIFICACIÓN DE RUTAS =====
+    function inicializarColoresClasificacion() {
+      document.querySelectorAll('.fila-ruta').forEach(fila => {
+        const select = fila.querySelector('.select-clasif-ruta');
+        if (select) actualizarColorFila(select);
+      });
+    }
+    
+    function actualizarColorFila(selectElement) {
+      const fila = selectElement.closest('tr');
+      const clasificacion = selectElement.value.toLowerCase();
+      const ruta = fila.dataset.ruta;
+      const vehiculo = fila.dataset.vehiculo;
+      
+      fila.classList.forEach(className => {
+        if (className.startsWith('fila-clasificada-')) {
+          fila.classList.remove(className);
+        }
+      });
+      
+      fila.dataset.clasificacion = clasificacion;
+      
+      if (clasificacion) {
+        fila.classList.add('fila-clasificada-' + clasificacion);
+      }
+      
+      guardarClasificacionRuta(ruta, vehiculo, clasificacion);
+    }
+    
+    function guardarClasificacionRuta(ruta, vehiculo, clasificacion) {
+      fetch('<?= basename(__FILE__) ?>', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          guardar_clasificacion: 1,
+          ruta: ruta,
+          tipo_vehiculo: vehiculo,
+          clasificacion: clasificacion
+        })
+      })
+      .then(r => r.text())
+      .then(t => {
+        if (t.trim() !== 'ok') console.error('Error guardando clasificación:', t);
+      });
+    }
+    
     // ===== SELECCIÓN DE COLUMNAS =====
+    let columnasSeleccionadas = <?= json_encode($columnas_seleccionadas) ?>;
+    
     function inicializarSeleccionColumnas() {
-      // Marcar columnas seleccionadas en el panel
       columnasSeleccionadas.forEach(columna => {
         const checkbox = document.getElementById('checkbox-' + columna);
         if (checkbox) checkbox.classList.add('checked');
-        const item = document.querySelector(`.columna-checkbox-item[data-columna="${columna}"]`);
+        const item = document.querySelector('[data-columna="' + columna + '"]');
         if (item) item.classList.add('selected');
       });
       actualizarContadorColumnas();
@@ -1892,7 +1664,7 @@ $hasta = isset($_GET['hasta']) ? $_GET['hasta'] : date('Y-m-d');
     
     function toggleColumna(columna) {
       const checkbox = document.getElementById('checkbox-' + columna);
-      const item = document.querySelector(`.columna-checkbox-item[data-columna="${columna}"]`);
+      const item = document.querySelector('[data-columna="' + columna + '"]');
       
       if (columnasSeleccionadas.includes(columna)) {
         columnasSeleccionadas = columnasSeleccionadas.filter(c => c !== columna);
@@ -1952,9 +1724,9 @@ $hasta = isset($_GET['hasta']) ? $_GET['hasta'] : date('Y-m-d');
     }
     
     function guardarSeleccionColumnas() {
-      const desde = document.getElementById('filtro_desde').value;
-      const hasta = document.getElementById('filtro_hasta').value;
-      const empresas = obtenerEmpresasSeleccionadas().join(',');
+      const desde = RANGO_DESDE;
+      const hasta = RANGO_HASTA;
+      const empresas = EMPRESAS_SELECCIONADAS.join(',');
       
       fetch('<?= basename(__FILE__) ?>', {
         method: 'POST',
@@ -2046,16 +1818,12 @@ $hasta = isset($_GET['hasta']) ? $_GET['hasta'] : date('Y-m-d');
         const empresa = input.dataset.empresa;
         const clearBtn = document.querySelector(`.buscar-clear-empresa[data-empresa="${empresa}"]`);
         
-        // Remover event listeners anteriores
-        const nuevoInput = input.cloneNode(true);
-        input.parentNode.replaceChild(nuevoInput, input);
-        
-        nuevoInput.addEventListener('input', () => filtrarEmpresa(empresa));
+        input.addEventListener('input', () => filtrarEmpresa(empresa));
         if (clearBtn) {
           clearBtn.addEventListener('click', () => {
-            nuevoInput.value = '';
+            input.value = '';
             filtrarEmpresa(empresa);
-            nuevoInput.focus();
+            input.focus();
           });
         }
       });
@@ -2179,12 +1947,11 @@ $hasta = isset($_GET['hasta']) ? $_GET['hasta'] : date('Y-m-d');
     
     function recalcularTodo() {
       const tarifas = getTarifas();
-      const empresas = obtenerEmpresasSeleccionadas();
       let totalViajesGlobal = 0;
       let totalPagadoGlobal = 0;
       let totalFaltanteGlobal = 0;
       
-      empresas.forEach(empresa => {
+      EMPRESAS_SELECCIONADAS.forEach(empresa => {
         const resultado = recalcularEmpresa(empresa);
         if (resultado) {
           totalViajesGlobal += resultado.viajes;
@@ -2222,8 +1989,20 @@ $hasta = isset($_GET['hasta']) ? $_GET['hasta'] : date('Y-m-d');
       .then(respuesta => {
         if (respuesta.trim() === 'ok') {
           if (patronRuta) {
-            // Aquí implementarías la asignación automática
-            alert(`✅ Se creó "${nombreClasif}". Ahora puedes asignarlo manualmente en el panel de rutas.`);
+            const filas = document.querySelectorAll('.fila-ruta');
+            let contador = 0;
+            
+            filas.forEach(row => {
+              const ruta = row.dataset.ruta.toLowerCase();
+              if (ruta.includes(patronRuta)) {
+                const sel = row.querySelector('.select-clasif-ruta');
+                sel.value = nombreClasif.toLowerCase();
+                actualizarColorFila(sel);
+                contador++;
+              }
+            });
+            
+            alert(`✅ Se creó "${nombreClasif}" y se aplicó a ${contador} rutas. Recarga la página.`);
           } else {
             alert(`✅ Se creó la clasificación "${nombreClasif}". Recarga la página.`);
           }
@@ -2246,17 +2025,14 @@ $hasta = isset($_GET['hasta']) ? $_GET['hasta'] : date('Y-m-d');
     const viajesEmpresa = document.getElementById('viajesEmpresa');
     
     function abrirModalViajes(nombreConductor, empresa) {
-      const desde = document.getElementById('filtro_desde').value;
-      const hasta = document.getElementById('filtro_hasta').value;
-      
-      viajesRango.textContent = desde + " → " + hasta;
+      viajesRango.textContent = RANGO_DESDE + " → " + RANGO_HASTA;
       viajesEmpresa.textContent = empresa || "Todas las empresas";
       viajesTitle.textContent = nombreConductor;
       
       const qs = new URLSearchParams({
         viajes_conductor: nombreConductor,
-        desde: desde,
-        hasta: hasta,
+        desde: RANGO_DESDE,
+        hasta: RANGO_HASTA,
         empresa: empresa
       });
       
@@ -2300,12 +2076,306 @@ $hasta = isset($_GET['hasta']) ? $_GET['hasta'] : date('Y-m-d');
         recalcularTodo();
       }
     });
-    
-    // Cargar datos si hay parámetros en la URL
-    window.addEventListener('load', function() {
-      actualizarContadorEmpresas();
-    });
   </script>
+
+<?php
+// ===== PANELES (deben ir después del header pero antes del cierre de body) =====
+?>
+
+  <!-- Panel tarifas -->
+  <div class="side-panel" id="panel-tarifas">
+    <div class="side-panel-header">
+      <h3 class="text-lg font-semibold flex items-center gap-2">
+        <span>🚐 Tarifas por Tipo de Vehículo</span>
+        <span class="text-xs text-slate-500">(<?= count($columnas_tarifas) ?> tipos)</span>
+      </h3>
+      <button class="side-panel-close" data-panel="tarifas">✕</button>
+    </div>
+    <div class="side-panel-body">
+      <div class="flex justify-end gap-2 mb-4">
+        <button onclick="expandirTodosTarifas()" 
+                class="text-xs px-3 py-1.5 rounded-lg border border-green-300 hover:bg-green-50 transition text-green-600">
+          Expandir todos
+        </button>
+        <button onclick="colapsarTodosTarifas()" 
+                class="text-xs px-3 py-1.5 rounded-lg border border-amber-300 hover:bg-amber-50 transition text-amber-600">
+          Colapsar todos
+        </button>
+      </div>
+      
+      <!-- Tarifas agrupadas por empresa -->
+      <?php foreach ($empresasSeleccionadas as $empresa): 
+        $vehiculosEmpresa = $empresasData[$empresa]['vehiculos'] ?? [];
+        if (empty($vehiculosEmpresa)) continue;
+      ?>
+      <div class="mb-6">
+        <h4 class="text-md font-bold mb-3 flex items-center gap-2 border-b pb-2">
+          <span>🏢 <?= htmlspecialchars($empresa) ?></span>
+        </h4>
+        <div id="tarifas_grid_<?= md5($empresa) ?>" class="grid grid-cols-1 gap-3">
+          <?php foreach ($vehiculosEmpresa as $veh):
+            $color_vehiculo = obtenerColorVehiculo($veh);
+            $t = $tarifas_guardadas[$empresa][$veh] ?? [];
+            $veh_id = preg_replace('/[^a-z0-9]/i', '-', strtolower($veh . '-' . $empresa));
+          ?>
+          <div class="tarjeta-tarifa-acordeon rounded-xl border <?= $color_vehiculo['border'] ?> overflow-hidden shadow-sm"
+               data-vehiculo="<?= htmlspecialchars($veh) ?>"
+               data-empresa="<?= htmlspecialchars($empresa) ?>"
+               id="acordeon-<?= $veh_id ?>"
+               style="background-color: <?= str_replace('bg-', '#', $color_vehiculo['dark']) ?>;">
+            
+            <div class="acordeon-header flex items-center justify-between px-4 py-3.5 cursor-pointer transition <?= $color_vehiculo['bg'] ?> hover:opacity-90"
+                 onclick="toggleAcordeon('<?= $veh_id ?>')"
+                 style="background-color: <?= str_replace('bg-', '#', $color_vehiculo['bg']) ?>;">
+              <div class="flex items-center gap-3">
+                <span class="acordeon-icon text-lg transition-transform duration-300 <?= $color_vehiculo['text'] ?>" id="icon-<?= $veh_id ?>">▶️</span>
+                <div>
+                  <div class="text-base font-semibold <?= $color_vehiculo['text'] ?>">
+                    <?= htmlspecialchars($veh) ?>
+                  </div>
+                  <div class="text-xs text-slate-500 mt-0.5">
+                    <?= count($columnas_tarifas) ?> tipos de tarifas
+                  </div>
+                </div>
+              </div>
+              <span class="text-xs px-2 py-1 rounded-full <?= $color_vehiculo['text'] ?> border <?= $color_vehiculo['border'] ?> bg-white/80">
+                Configurar
+              </span>
+            </div>
+            
+            <div class="acordeon-content px-4 py-3 border-t <?= $color_vehiculo['border'] ?> bg-white" id="content-<?= $veh_id ?>">
+              <div class="space-y-3">
+                <?php foreach ($columnas_tarifas as $columna): 
+                  $valor = isset($t[$columna]) ? (float)$t[$columna] : 0;
+                  $etiqueta = ucfirst($columna);
+                  
+                  $etiquetas_especiales = [
+                      'completo' => 'Viaje Completo',
+                      'medio' => 'Viaje Medio',
+                      'extra' => 'Viaje Extra',
+                      'carrotanque' => 'Carrotanque',
+                      'siapana' => 'Siapana',
+                      'riohacha' => 'Riohacha',
+                      'pru' => 'Pru',
+                      'maco' => 'Maco'
+                  ];
+                  
+                  $etiqueta_final = $etiquetas_especiales[$columna] ?? $etiqueta;
+                  $estilo_clasif = obtenerEstiloClasificacion($columna);
+                ?>
+                <label class="block">
+                  <span class="block text-sm font-medium mb-1 <?= $estilo_clasif['text'] ?>">
+                    <?= htmlspecialchars($etiqueta_final) ?>
+                  </span>
+                  <div class="relative">
+                    <input type="number" step="1000" value="<?= $valor ?>"
+                           data-campo="<?= htmlspecialchars($columna) ?>"
+                           data-empresa="<?= htmlspecialchars($empresa) ?>"
+                           data-vehiculo="<?= htmlspecialchars($veh) ?>"
+                           class="w-full rounded-xl border <?= $estilo_clasif['border'] ?> px-3 py-2 pr-10 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition tarifa-input"
+                           style="border-color: <?= str_replace('border-', '#', $estilo_clasif['border']) ?>;">
+                    <span class="absolute right-3 top-1/2 transform -translate-y-1/2 text-sm font-semibold <?= $estilo_clasif['text'] ?>">
+                      $
+                    </span>
+                  </div>
+                </label>
+                <?php endforeach; ?>
+              </div>
+            </div>
+          </div>
+          <?php endforeach; ?>
+        </div>
+      </div>
+      <?php endforeach; ?>
+      
+      <p class="text-xs text-slate-500 mt-4">
+        Los cambios se guardan automáticamente al modificar cualquier valor.
+      </p>
+    </div>
+  </div>
+  
+  <!-- Panel crear clasificación -->
+  <div class="side-panel" id="panel-crear-clasif">
+    <div class="side-panel-header">
+      <h3 class="text-lg font-semibold flex items-center gap-2">
+        <span>➕ Crear Nueva Clasificación</span>
+      </h3>
+      <button class="side-panel-close" data-panel="crear-clasif">✕</button>
+    </div>
+    <div class="side-panel-body">
+      <p class="text-sm text-slate-600 mb-4">
+        Crea una nueva clasificación. Se agregará a la tabla tarifas.
+      </p>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium mb-2">Nombre de la nueva clasificación</label>
+          <input id="txt_nueva_clasificacion" type="text"
+                 class="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
+                 placeholder="Ej: Premium, Nocturno, Express...">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-2">Texto que deben contener las rutas (opcional)</label>
+          <input id="txt_patron_ruta" type="text"
+                 class="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
+                 placeholder="Dejar vacío para solo crear la clasificación">
+        </div>
+        <button type="button"
+                onclick="crearYAsignarClasificacion()"
+                class="w-full inline-flex items-center justify-center rounded-xl bg-green-600 text-white px-4 py-3 text-sm font-semibold hover:bg-green-700 active:bg-green-800 focus:ring-4 focus:ring-green-200 transition">
+          ⚙️ Crear y Aplicar
+        </button>
+      </div>
+      <p class="text-xs text-slate-500 mt-4">
+        La nueva clasificación se creará en la tabla tarifas. Vuelve a dar <strong>Filtrar</strong> para ver los cambios.
+      </p>
+    </div>
+  </div>
+
+  <!-- Panel clasificación rutas -->
+  <div class="side-panel" id="panel-clasif-rutas">
+    <div class="side-panel-header">
+      <h3 class="text-lg font-semibold flex items-center gap-2">
+        <span>🧭 Clasificar Rutas Existentes</span>
+        <span class="text-xs text-slate-500"><?= count($rutasUnicas ?? []) ?> rutas</span>
+      </h3>
+      <button class="side-panel-close" data-panel="clasif-rutas">✕</button>
+    </div>
+    <div class="side-panel-body">
+      <div class="max-h-[calc(100vh-180px)] overflow-y-auto border border-slate-200 rounded-xl">
+        <?php
+        // Obtener rutas únicas de todas las empresas seleccionadas
+        $rutasUnicas = [];
+        foreach ($empresasSeleccionadas as $empresa) {
+            $sqlRutas = "SELECT DISTINCT ruta, tipo_vehiculo FROM viajes 
+                         WHERE empresa = '$empresa' AND fecha BETWEEN '$desde' AND '$hasta'";
+            $resRutas = $conn->query($sqlRutas);
+            if ($resRutas) {
+                while ($r = $resRutas->fetch_assoc()) {
+                    $key = $r['ruta'] . '|' . $r['tipo_vehiculo'];
+                    $clasificacion = $clasif_rutas[mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo']), 'UTF-8')] ?? '';
+                    $rutasUnicas[$key] = [
+                        'ruta' => $r['ruta'],
+                        'vehiculo' => $r['tipo_vehiculo'],
+                        'clasificacion' => $clasificacion
+                    ];
+                }
+            }
+        }
+        ?>
+        <table class="w-full text-sm">
+          <thead class="bg-slate-100 text-slate-600 sticky top-0 z-10">
+            <tr>
+              <th class="px-3 py-2 text-left">Ruta</th>
+              <th class="px-3 py-2 text-center">Vehículo</th>
+              <th class="px-3 py-2 text-center">Clasificación</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100" id="tablaClasificacionRutas">
+          <?php foreach($rutasUnicas as $info): 
+            $clasificacion_actual = $info['clasificacion'] ?? '';
+            $estilo = obtenerEstiloClasificacion($clasificacion_actual);
+            $clase_fila = $clasificacion_actual ? 'fila-clasificada-' . $clasificacion_actual : '';
+          ?>
+            <tr class="fila-ruta hover:bg-slate-50 <?= $clase_fila ?>"
+                data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
+                data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>"
+                data-clasificacion="<?= htmlspecialchars($clasificacion_actual) ?>">
+              <td class="px-3 py-2 whitespace-nowrap text-left font-medium">
+                <?= htmlspecialchars($info['ruta']) ?>
+              </td>
+              <td class="px-3 py-2 text-center">
+                <?php 
+                  $color_vehiculo = obtenerColorVehiculo($info['vehiculo']);
+                ?>
+                <span class="inline-block px-2 py-1 rounded-md text-xs font-medium <?= $color_vehiculo['bg'] ?> <?= $color_vehiculo['text'] ?> border <?= $color_vehiculo['border'] ?>">
+                  <?= htmlspecialchars($info['vehiculo']) ?>
+                </span>
+              </td>
+              <td class="px-3 py-2 text-center">
+                <select class="select-clasif-ruta rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100 w-full"
+                        data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
+                        data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>"
+                        onchange="actualizarColorFila(this)">
+                  <option value="">Sin clasificar</option>
+                  <?php foreach ($clasificaciones_disponibles as $clasif): 
+                    $estilo_opcion = obtenerEstiloClasificacion($clasif);
+                  ?>
+                  <option value="<?= htmlspecialchars($clasif) ?>" 
+                          <?= $info['clasificacion']===$clasif ? 'selected' : '' ?>
+                          style="background-color: <?= str_replace('bg-', '#', $estilo_opcion['bg']) ?>20; color: <?= str_replace('text-', '#', $estilo_opcion['text']) ?>;">
+                    <?= htmlspecialchars(ucfirst($clasif)) ?>
+                  </option>
+                  <?php endforeach; ?>
+                </select>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+      <p class="text-xs text-slate-500 mt-4">
+        Selecciona una clasificación para cada ruta. Los cambios se guardan automáticamente.
+      </p>
+    </div>
+  </div>
+
+  <!-- Panel selector columnas -->
+  <div class="side-panel" id="panel-selector-columnas">
+    <div class="side-panel-header">
+      <h3 class="text-lg font-semibold flex items-center gap-2">
+        <span>📊 Seleccionar Columnas</span>
+      </h3>
+      <button class="side-panel-close" data-panel="selector-columnas">✕</button>
+    </div>
+    <div class="side-panel-body">
+      <div class="flex flex-col gap-4">
+        <div>
+          <p class="text-sm text-slate-600 mb-3">
+            Marca/desmarca las columnas que quieres ver en las tablas.
+            <span id="contador-seleccionadas-panel" class="font-semibold text-blue-600"><?= count($columnas_seleccionadas) ?></span> de 
+            <?= count($clasificaciones_disponibles) ?> seleccionadas
+          </p>
+        </div>
+        
+        <div class="flex flex-wrap gap-2">
+          <button onclick="seleccionarTodasColumnas()" 
+                  class="text-xs px-3 py-1.5 rounded-lg border border-green-300 bg-green-50 text-green-700 hover:bg-green-100 transition">
+            ✅ Seleccionar todas
+          </button>
+          <button onclick="deseleccionarTodasColumnas()" 
+                  class="text-xs px-3 py-1.5 rounded-lg border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 transition">
+            ❌ Deseleccionar todas
+          </button>
+          <button onclick="guardarSeleccionColumnas()" 
+                  class="text-xs px-3 py-1.5 rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 transition">
+            💾 Guardar selección
+          </button>
+        </div>
+        
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[60vh] overflow-y-auto p-2 border border-slate-200 rounded-lg">
+          <?php foreach ($clasificaciones_disponibles as $clasif): 
+            $estilo = obtenerEstiloClasificacion($clasif);
+            $seleccionada = in_array($clasif, $columnas_seleccionadas);
+          ?>
+          <div class="columna-checkbox-item flex items-center gap-2 p-3 border border-slate-200 rounded-lg cursor-pointer transition <?= $seleccionada ? 'selected' : '' ?>"
+               data-columna="<?= htmlspecialchars($clasif) ?>"
+               onclick="toggleColumna('<?= htmlspecialchars($clasif) ?>')">
+            <div class="checkbox-columna <?= $seleccionada ? 'checked' : '' ?>" 
+                 id="checkbox-<?= htmlspecialchars($clasif) ?>"></div>
+            <div class="flex-1 flex flex-col">
+              <span class="text-sm font-medium <?= $estilo['text'] ?>">
+                <?= ucfirst($clasif) ?>
+              </span>
+              <span class="text-xs text-slate-500">Columna: <?= htmlspecialchars($clasif) ?></span>
+            </div>
+            <div class="w-3 h-3 rounded-full" style="background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>;"></div>
+          </div>
+          <?php endforeach; ?>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>
 <?php
