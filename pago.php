@@ -1,4 +1,3 @@
-
 <?php
 session_start();
 
@@ -31,11 +30,13 @@ CREATE TABLE IF NOT EXISTS cuentas_guardadas (
     hasta DATE NOT NULL,
     facturado DECIMAL(15,2) NOT NULL,
     porcentaje_ajuste DECIMAL(5,2) NOT NULL,
+    pagado TINYINT(1) NOT NULL DEFAULT 0,
     datos_json LONGTEXT NOT NULL,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     usuario VARCHAR(100),
     INDEX idx_empresa (empresa),
-    INDEX idx_fecha (fecha_creacion)
+    INDEX idx_fecha (fecha_creacion),
+    INDEX idx_pagado (pagado)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 ");
 
@@ -44,8 +45,9 @@ if (isset($_GET['obtener_cuentas'])) {
     header('Content-Type: application/json');
     
     $empresa = $conn->real_escape_string($_GET['empresa'] ?? '');
+    $incluir_pagado = isset($_GET['incluir_pagado']) ? intval($_GET['incluir_pagado']) : 1;
     
-    $sql = "SELECT id, nombre, empresa, desde, hasta, facturado, porcentaje_ajuste, 
+    $sql = "SELECT id, nombre, empresa, desde, hasta, facturado, porcentaje_ajuste, pagado, 
                    datos_json, fecha_creacion, usuario 
             FROM cuentas_guardadas";
     
@@ -80,6 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     $hasta = $conn->real_escape_string($_POST['hasta'] ?? '');
     $facturado = floatval($_POST['facturado'] ?? 0);
     $porcentaje_ajuste = floatval($_POST['porcentaje_ajuste'] ?? 0);
+    $pagado = isset($_POST['pagado']) ? intval($_POST['pagado']) : 0;
     $datos_json = $conn->real_escape_string($_POST['datos_json'] ?? '{}');
     $usuario = $conn->real_escape_string($_SESSION['usuario'] ?? 'Sistema');
     
@@ -88,8 +91,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
         exit;
     }
     
-    $sql = "INSERT INTO cuentas_guardadas (nombre, empresa, desde, hasta, facturado, porcentaje_ajuste, datos_json, usuario) 
-            VALUES ('$nombre', '$empresa', '$desde', '$hasta', $facturado, $porcentaje_ajuste, '$datos_json', '$usuario')";
+    $sql = "INSERT INTO cuentas_guardadas (nombre, empresa, desde, hasta, facturado, porcentaje_ajuste, pagado, datos_json, usuario) 
+            VALUES ('$nombre', '$empresa', '$desde', '$hasta', $facturado, $porcentaje_ajuste, $pagado, '$datos_json', '$usuario')";
     
     $resultado = $conn->query($sql);
     
@@ -98,6 +101,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     } else {
         echo json_encode(['success' => false, 'message' => 'Error al guardar: ' . $conn->error]);
     }
+    exit;
+}
+
+// AJAX para actualizar estado de pagado
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'toggle_pagado') {
+    header('Content-Type: application/json');
+    $id = intval($_POST['id']);
+    $pagado = intval($_POST['pagado']);
+    
+    $sql = "UPDATE cuentas_guardadas SET pagado = $pagado WHERE id = $id";
+    $resultado = $conn->query($sql);
+    
+    echo json_encode(['success' => $resultado, 'message' => $resultado ? 'Estado actualizado' : 'Error al actualizar']);
     exit;
 }
 
@@ -213,7 +229,7 @@ if (isset($_GET['viajes_conductor'])) {
                 $counts[$cat] = 1;
             }
 
-            // Determinar color según categoría (usando colores del primer código)
+            // Determinar color según categoría
             $color_class = '';
             switch($cat) {
                 case 'completo': $color_class = 'bg-emerald-100 text-emerald-800 border-emerald-300'; break;
@@ -497,7 +513,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         .table-sticky thead th { position: sticky; top: 0; z-index: 31; background-color: #2563eb !important; color: #fff !important; }
         .table-sticky thead { box-shadow: 0 2px 0 rgba(0,0,0,0.06); }
 
-        /* Modal Viajes - EXACTAMENTE IGUAL AL PRIMER CÓDIGO */
+        /* Modal Viajes */
         .viajes-backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:10000; }
         .viajes-backdrop.show{ display:flex; }
         .viajes-card{ width:min(720px,94vw); max-height:90vh; overflow:hidden; border-radius:16px; background:#fff;
@@ -537,7 +553,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         /* Badge base datos */
         .bd-badge { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
         
-        /* Colores para viajes - EXACTAMENTE IGUAL AL PRIMER CÓDIGO */
+        /* Colores para viajes */
         .row-viaje:hover { background-color: #f8fafc; }
         .cat-completo { background-color: rgba(209, 250, 229, 0.1); }
         .cat-medio { background-color: rgba(254, 243, 199, 0.1); }
@@ -545,6 +561,54 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         .cat-siapana { background-color: rgba(250, 232, 255, 0.1); }
         .cat-carrotanque { background-color: rgba(207, 250, 254, 0.1); }
         .cat-otro { background-color: rgba(243, 244, 246, 0.1); }
+
+        /* Switch de pagado */
+        .switch-pagado {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+        }
+        .switch-pagado input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .switch-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ef4444;
+            transition: .3s;
+            border-radius: 34px;
+        }
+        .switch-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .3s;
+            border-radius: 50%;
+        }
+        input:checked + .switch-slider {
+            background-color: #22c55e;
+        }
+        input:checked + .switch-slider:before {
+            transform: translateX(26px);
+        }
+        .switch-label {
+            margin-left: 8px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        .pagado-verde { color: #22c55e; }
+        .pagado-rojo { color: #ef4444; }
     </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
@@ -831,7 +895,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- ===== Modal VIAJES (EXACTAMENTE IGUAL AL PRIMER CÓDIGO) ===== -->
+<!-- ===== Modal VIAJES ===== -->
 <div id="viajesModal" class="viajes-backdrop">
     <div class="viajes-card">
         <div class="viajes-header">
@@ -862,7 +926,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- ===== Modal GUARDAR CUENTA ===== -->
+<!-- ===== Modal GUARDAR CUENTA (MODIFICADO con switch de pagado) ===== -->
 <div id="saveCuentaModal" class="hidden fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-10 w-full max-w-lg bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
@@ -895,6 +959,19 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                     <input id="cuenta_porcentaje" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
                 </label>
             </div>
+            
+            <!-- NUEVO: Switch de estado de pagado -->
+            <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <div class="flex items-center gap-2">
+                    <span class="text-sm font-medium">Estado de pago:</span>
+                    <span id="pagadoLabel" class="text-xs px-2 py-1 rounded-full font-semibold bg-red-100 text-red-700">NO PAGADO</span>
+                </div>
+                <label class="switch-pagado">
+                    <input type="checkbox" id="cuenta_pagado">
+                    <span class="switch-slider"></span>
+                </label>
+            </div>
+            
             <div class="text-xs text-slate-500 mt-2">
                 <strong>⚠️ NOTA:</strong> Se guardarán todos los datos: conductores, préstamos asignados, seguridad social, cuentas bancarias, estados de pago y filas manuales.
             </div>
@@ -906,10 +983,10 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- ===== Modal GESTOR DE CUENTAS (BASE DE DATOS) ===== -->
+<!-- ===== Modal GESTOR DE CUENTAS (MODIFICADO con switch de pagado) ===== -->
 <div id="gestorCuentasModal" class="hidden fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
-    <div class="relative mx-auto my-10 w-full max-w-4xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+    <div class="relative mx-auto my-10 w-full max-w-5xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
         <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
             <h3 class="text-lg font-semibold">📚 Cuentas guardadas <span class="bd-badge text-xs px-2 py-1 rounded-full ml-2">Base de Datos</span></h3>
             <button id="btnCloseGestor" class="p-2 rounded hover:bg-slate-100" title="Cerrar">✕</button>
@@ -926,6 +1003,14 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                         <option value="<?= htmlspecialchars($e['empresa']) ?>" <?= $sel ?>><?= htmlspecialchars($e['empresa']) ?></option>
                     <?php } ?>
                 </select>
+                
+                <!-- NUEVO: Filtro por estado de pagado -->
+                <select id="filtroEstadoPagado" class="rounded-xl border border-slate-300 px-3 py-2 min-w-[150px]">
+                    <option value="">Todos los estados</option>
+                    <option value="0">🔴 No pagadas</option>
+                    <option value="1">🟢 Pagadas</option>
+                </select>
+                
                 <div class="flex-1"></div>
                 <div class="buscar-container w-full md:w-64">
                     <input id="buscaCuentaBD" type="text" placeholder="Buscar por nombre..." 
@@ -935,6 +1020,15 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 <button id="btnRecargarCuentas" class="rounded-lg border border-blue-300 px-3 py-2 bg-blue-50 hover:bg-blue-100">
                     🔄 Recargar
                 </button>
+            </div>
+            
+            <div class="flex items-center gap-2 text-xs">
+                <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-100 text-green-700">
+                    <span class="w-2 h-2 rounded-full bg-green-500"></span> Pagada
+                </span>
+                <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-red-100 text-red-700">
+                    <span class="w-2 h-2 rounded-full bg-red-500"></span> No pagada
+                </span>
             </div>
             
             <div class="text-xs text-slate-500 mt-1" id="contador-cuentas">
@@ -951,12 +1045,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                         <th class="px-3 py-2 text-right">% Ajuste</th>
                         <th class="px-3 py-2 text-center">Datos</th>
                         <th class="px-3 py-2 text-center">Fecha</th>
-                        <th class="px-3 py-2 text-right">Acciones</th>
+                        <th class="px-3 py-2 text-center" colspan="2">Acciones</th>
                     </tr>
                     </thead>
                     <tbody id="tbodyCuentasBD" class="divide-y divide-slate-100 bg-white">
                         <tr>
-                            <td colspan="7" class="px-3 py-8 text-center text-slate-500">
+                            <td colspan="8" class="px-3 py-8 text-center text-slate-500">
                                 <div class="animate-pulse">Cargando cuentas desde Base de Datos...</div>
                             </td>
                         </tr>
@@ -964,14 +1058,22 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 </table>
             </div>
         </div>
-        <div class="px-5 py-4 border-t border-slate-200 text-right">
-            <button id="btnAddDesdeFiltro" class="rounded-lg border border-amber-300 px-3 py-2 text-sm bg-amber-50 hover:bg-amber-100">⭐ Guardar rango actual</button>
+        <div class="px-5 py-4 border-t border-slate-200 flex justify-between items-center">
+            <button id="btnFiltrarPagadas" class="rounded-lg border border-green-300 px-3 py-2 text-sm bg-green-50 hover:bg-green-100">
+                ✅ Ver solo pagadas
+            </button>
+            <button id="btnFiltrarNoPagadas" class="rounded-lg border border-red-300 px-3 py-2 text-sm bg-red-50 hover:bg-red-100">
+                ❌ Ver solo no pagadas
+            </button>
+            <button id="btnAddDesdeFiltro" class="rounded-lg border border-amber-300 px-3 py-2 text-sm bg-amber-50 hover:bg-amber-100">
+                ⭐ Guardar rango actual
+            </button>
         </div>
     </div>
 </div>
 
 <script>
-    // ===== Claves de persistencia LOCAL (solo para sesión actual) =====
+    // ===== Claves de persistencia LOCAL =====
     const COMPANY_SCOPE = <?= json_encode(($empresaFiltro ?: '__todas__')) ?>;
     const ACC_KEY   = 'cuentas_temp:'+COMPANY_SCOPE;
     const SS_KEY    = 'seg_social_temp:'+COMPANY_SCOPE;
@@ -1687,7 +1789,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     prestSearch.addEventListener('input',()=>renderPrestList(prestSearch.value));
 
-    // ===== MODAL DE VIAJES (EXACTAMENTE IGUAL AL PRIMER CÓDIGO) =====
+    // ===== MODAL DE VIAJES =====
     const RANGO_DESDE = <?= json_encode($desde) ?>;
     const RANGO_HASTA = <?= json_encode($hasta) ?>;
     const RANGO_EMP   = <?= json_encode($empresaFiltro) ?>;
@@ -1807,7 +1909,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         loadViajes(nuevo);
     });
 
-    // Conectar botones de conductor al modal (EXACTAMENTE IGUAL AL PRIMER CÓDIGO)
+    // Conectar botones de conductor al modal
     document.querySelectorAll('#tbody .conductor-link').forEach(btn=>{
         btn.addEventListener('click', ()=>{
             abrirModalViajes(btn.textContent.trim());
@@ -1883,7 +1985,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         actualizarPanelFlotante();
     }
 
-    // ===== GESTIÓN DE CUENTAS GUARDADAS EN BD =====
+    // ===== GESTIÓN DE CUENTAS GUARDADAS EN BD (MODIFICADO) =====
     const formFiltros = document.getElementById('formFiltros');
     const inpDesde = document.getElementById('inp_desde');
     const inpHasta = document.getElementById('inp_hasta');
@@ -1896,12 +1998,25 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const btnCloseSaveCuenta = document.getElementById('btnCloseSaveCuenta');
     const btnCancelSaveCuenta = document.getElementById('btnCancelSaveCuenta');
     const btnDoSaveCuenta = document.getElementById('btnDoSaveCuenta');
+    const cuentaPagadoCheckbox = document.getElementById('cuenta_pagado');
+    const pagadoLabel = document.getElementById('pagadoLabel');
 
     const iNombre = document.getElementById('cuenta_nombre');
     const iEmpresa = document.getElementById('cuenta_empresa');
     const iRango = document.getElementById('cuenta_rango');
     const iCFact = document.getElementById('cuenta_facturado');
     const iCPorcentaje  = document.getElementById('cuenta_porcentaje');
+
+    // Actualizar label del switch
+    cuentaPagadoCheckbox.addEventListener('change', function() {
+        if (this.checked) {
+            pagadoLabel.textContent = 'PAGADA';
+            pagadoLabel.className = 'text-xs px-2 py-1 rounded-full font-semibold bg-green-100 text-green-700';
+        } else {
+            pagadoLabel.textContent = 'NO PAGADA';
+            pagadoLabel.className = 'text-xs px-2 py-1 rounded-full font-semibold bg-red-100 text-red-700';
+        }
+    });
 
     // ===== GUARDAR CUENTA EN BASE DE DATOS =====
     async function openSaveCuenta(){
@@ -1921,6 +2036,11 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         iNombre.value = `${emp} ${d} a ${h}`;
         iCFact.value = fmt(toInt(inpFact.value));
         iCPorcentaje.value = parseFloat(inpPorcentaje.value) || 0;
+        
+        // Resetear switch a no pagado por defecto
+        cuentaPagadoCheckbox.checked = false;
+        pagadoLabel.textContent = 'NO PAGADA';
+        pagadoLabel.className = 'text-xs px-2 py-1 rounded-full font-semibold bg-red-100 text-red-700';
 
         saveCuentaModal.classList.remove('hidden');
         setTimeout(()=> iNombre.focus(), 0);
@@ -1940,6 +2060,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         const nombre = iNombre.value.trim() || `${emp} ${desde} a ${hasta}`;
         const facturado = toInt(iCFact.value);
         const porcentaje  = parseFloat(iCPorcentaje.value) || 0;
+        const pagado = cuentaPagadoCheckbox.checked ? 1 : 0;
 
         // OBTENER TODOS LOS DATOS ACTUALES PARA JSON
         const datosParaGuardar = {
@@ -1978,6 +2099,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         formData.append('hasta', hasta);
         formData.append('facturado', facturado);
         formData.append('porcentaje_ajuste', porcentaje);
+        formData.append('pagado', pagado);
         formData.append('datos_json', JSON.stringify(datosParaGuardar));
 
         try {
@@ -2015,13 +2137,16 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         }
     });
 
-    // ===== GESTOR DE CUENTAS DESDE BASE DE DATOS =====
+    // ===== GESTOR DE CUENTAS DESDE BASE DE DATOS (MODIFICADO) =====
     const gestorModal = document.getElementById('gestorCuentasModal');
     const btnShowGestor = document.getElementById('btnShowGestorCuentas');
     const btnCloseGestor = document.getElementById('btnCloseGestor');
     const btnAddDesdeFiltro = document.getElementById('btnAddDesdeFiltro');
     const btnRecargarCuentas = document.getElementById('btnRecargarCuentas');
+    const btnFiltrarPagadas = document.getElementById('btnFiltrarPagadas');
+    const btnFiltrarNoPagadas = document.getElementById('btnFiltrarNoPagadas');
     const filtroEmpresaCuentas = document.getElementById('filtroEmpresaCuentas');
+    const filtroEstadoPagado = document.getElementById('filtroEstadoPagado');
     const buscaCuentaBD = document.getElementById('buscaCuentaBD');
     const clearBuscarBD = document.getElementById('clearBuscarBD');
     const tbodyCuentasBD = document.getElementById('tbodyCuentasBD');
@@ -2056,32 +2181,70 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         return cuenta.datos_json.filasManuales.length;
     }
 
+    // Función para actualizar el estado de pagado
+    async function togglePagadoCuenta(id, nuevoEstado) {
+        try {
+            const formData = new FormData();
+            formData.append('accion', 'toggle_pagado');
+            formData.append('id', id);
+            formData.append('pagado', nuevoEstado ? 1 : 0);
+            
+            const response = await fetch('', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const resultado = await response.json();
+            
+            if (!resultado.success) {
+                throw new Error(resultado.message);
+            }
+            
+            return true;
+        } catch (error) {
+            Swal.fire({
+                title: '❌ Error',
+                text: error.message,
+                icon: 'error',
+                timer: 2000
+            });
+            return false;
+        }
+    }
+
     // Renderizar cuentas desde BD
     async function renderCuentasBD() {
         const empresa = filtroEmpresaCuentas.value;
-        const filtro = (buscaCuentaBD.value || '').toLowerCase();
+        const filtroEstado = filtroEstadoPagado.value;
+        const filtroTexto = (buscaCuentaBD.value || '').toLowerCase();
         
         try {
             const response = await fetch(`?obtener_cuentas=1&empresa=${encodeURIComponent(empresa)}`);
-            const cuentas = await response.json();
+            let cuentas = await response.json();
             
-            // Filtrar por búsqueda
-            const cuentasFiltradas = cuentas.filter(cuenta => 
-                !filtro || 
-                cuenta.nombre.toLowerCase().includes(filtro) ||
-                cuenta.usuario?.toLowerCase().includes(filtro)
-            );
+            // Filtrar por estado de pagado
+            if (filtroEstado !== '') {
+                cuentas = cuentas.filter(c => c.pagado == filtroEstado);
+            }
             
-            contadorCuentas.textContent = `Mostrando ${cuentasFiltradas.length} de ${cuentas.length} cuentas`;
+            // Filtrar por búsqueda de texto
+            if (filtroTexto) {
+                cuentas = cuentas.filter(cuenta => 
+                    cuenta.nombre.toLowerCase().includes(filtroTexto) ||
+                    cuenta.usuario?.toLowerCase().includes(filtroTexto)
+                );
+            }
             
-            if (cuentasFiltradas.length === 0) {
+            contadorCuentas.textContent = `Mostrando ${cuentas.length} cuentas`;
+            
+            if (cuentas.length === 0) {
                 tbodyCuentasBD.innerHTML = `
                     <tr>
-                        <td colspan="7" class="px-3 py-8 text-center text-slate-500">
+                        <td colspan="8" class="px-3 py-8 text-center text-slate-500">
                             <div class="flex flex-col items-center gap-2">
                                 <div class="text-3xl">📭</div>
                                 <div>No hay cuentas guardadas</div>
-                                ${filtro ? '<div class="text-xs text-slate-400">No se encontraron cuentas con ese filtro</div>' : ''}
+                                ${filtroTexto ? '<div class="text-xs text-slate-400">No se encontraron cuentas con ese filtro</div>' : ''}
                             </div>
                         </td>
                     </tr>`;
@@ -2089,9 +2252,11 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             }
             
             let html = '';
-            cuentasFiltradas.forEach(cuenta => {
+            cuentas.forEach(cuenta => {
                 const totalPrestamos = contarPrestamosEnCuenta(cuenta);
                 const totalFilasManuales = contarFilasManuales(cuenta);
+                const pagadoClass = cuenta.pagado == 1 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700';
+                const pagadoText = cuenta.pagado == 1 ? 'Pagada' : 'No pagada';
                 
                 html += `
                 <tr class="hover:bg-slate-50">
@@ -2117,6 +2282,14 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                     </td>
                     <td class="px-3 py-3 text-center text-xs text-slate-500">
                         ${formatFecha(cuenta.fecha_creacion)}
+                    </td>
+                    <td class="px-3 py-3 text-center">
+                        <!-- NUEVO: Switch de pagado -->
+                        <label class="switch-pagado inline-block align-middle">
+                            <input type="checkbox" class="toggle-pagado" data-id="${cuenta.id}" ${cuenta.pagado == 1 ? 'checked' : ''}>
+                            <span class="switch-slider"></span>
+                        </label>
+                        <span class="switch-label ${pagadoClass}">${pagadoText}</span>
                     </td>
                     <td class="px-3 py-3 text-right">
                         <div class="inline-flex gap-2">
@@ -2152,11 +2325,45 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 });
             });
             
+            // Agregar eventos a los switches de pagado
+            document.querySelectorAll('.toggle-pagado').forEach(checkbox => {
+                checkbox.addEventListener('change', async function() {
+                    const id = this.dataset.id;
+                    const nuevoEstado = this.checked ? 1 : 0;
+                    const tr = this.closest('tr');
+                    const labelSpan = tr.querySelector('.switch-label');
+                    
+                    // Actualizar UI inmediatamente
+                    if (nuevoEstado) {
+                        labelSpan.textContent = 'Pagada';
+                        labelSpan.className = 'switch-label bg-green-100 text-green-700 px-2 py-1 rounded-full text-xs';
+                    } else {
+                        labelSpan.textContent = 'No pagada';
+                        labelSpan.className = 'switch-label bg-red-100 text-red-700 px-2 py-1 rounded-full text-xs';
+                    }
+                    
+                    // Guardar en BD
+                    const exito = await togglePagadoCuenta(id, nuevoEstado);
+                    
+                    if (!exito) {
+                        // Revertir si falla
+                        this.checked = !this.checked;
+                        if (this.checked) {
+                            labelSpan.textContent = 'Pagada';
+                            labelSpan.className = 'switch-label bg-green-100 text-green-700 px-2 py-1 rounded-full text-xs';
+                        } else {
+                            labelSpan.textContent = 'No pagada';
+                            labelSpan.className = 'switch-label bg-red-100 text-red-700 px-2 py-1 rounded-full text-xs';
+                        }
+                    }
+                });
+            });
+            
         } catch (error) {
             console.error('Error al cargar cuentas:', error);
             tbodyCuentasBD.innerHTML = `
                 <tr>
-                    <td colspan="7" class="px-3 py-8 text-center text-rose-600">
+                    <td colspan="8" class="px-3 py-8 text-center text-rose-600">
                         <div class="flex flex-col items-center gap-2">
                             <div class="text-3xl">❌</div>
                             <div>Error al cargar cuentas</div>
@@ -2374,18 +2581,31 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     function closeGestor(){ 
         gestorModal.classList.add('hidden'); 
         buscaCuentaBD.value = '';
+        filtroEstadoPagado.value = '';
     }
 
     btnShowGestor.addEventListener('click', openGestor);
     btnCloseGestor.addEventListener('click', closeGestor);
     btnRecargarCuentas.addEventListener('click', renderCuentasBD);
     filtroEmpresaCuentas.addEventListener('change', renderCuentasBD);
+    filtroEstadoPagado.addEventListener('change', renderCuentasBD);
     buscaCuentaBD.addEventListener('input', renderCuentasBD);
     clearBuscarBD.addEventListener('click', () => {
         buscaCuentaBD.value = '';
         renderCuentasBD();
         buscaCuentaBD.focus();
     });
+    
+    btnFiltrarPagadas.addEventListener('click', () => {
+        filtroEstadoPagado.value = '1';
+        renderCuentasBD();
+    });
+    
+    btnFiltrarNoPagadas.addEventListener('click', () => {
+        filtroEstadoPagado.value = '0';
+        renderCuentasBD();
+    });
+    
     btnAddDesdeFiltro.addEventListener('click', ()=>{ 
         closeGestor(); 
         setTimeout(() => openSaveCuenta(), 300);
