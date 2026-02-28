@@ -284,10 +284,9 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
 /* ===== FIN MÓDULO 3 ===== */
 
 /* =======================================================
-   🚀 MÓDULO 4: OBTENCIÓN DE DATOS PRINCIPALES (MULTI-EMPRESA)
+   🚀 MÓDULO 4: OBTENCIÓN DE DATOS PRINCIPALES (MULTI-EMPRESA CON TABLAS SEPARADAS)
    ========================================================
-   🔧 PROPÓSITO: Procesar los datos con múltiples empresas
-   🔧 CORREGIDO: 26/02/2026 - Agregado sistema de alertas de tarifas
+   🔧 CORREGIDO: 28/02/2026 - Tablas separadas por empresa
    ======================================================== */
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
@@ -299,29 +298,8 @@ if (!is_array($empresasFiltro)) {
 }
 $empresasFiltro = array_filter($empresasFiltro); // Quitar vacíos
 
-// ✅ Variable para tarifas (USA LA PRIMERA EMPRESA SELECCIONADA)
-$empresaTarifasActual = !empty($empresasFiltro) ? $empresasFiltro[0] : '';
-
-// Construir condición SQL para múltiples empresas
-$sqlCondicionEmpresa = "";
-if (!empty($empresasFiltro)) {
-    $empresasEscapadas = array_map(function($e) use ($conn) {
-        return "'" . $conn->real_escape_string(trim($e)) . "'";
-    }, $empresasFiltro);
-    $sqlCondicionEmpresa = " AND empresa IN (" . implode(",", $empresasEscapadas) . ")";
-}
-
 $columnas_tarifas = obtenerColumnasTarifas($conn);
 $clasificaciones_disponibles = obtenerClasificacionesDisponibles($conn);
-
-// Session key basado en TODAS las empresas seleccionadas
-$session_key = "columnas_seleccionadas_" . md5(implode('|', $empresasFiltro) . $desde . $hasta);
-$columnas_seleccionadas = [];
-if (isset($_COOKIE[$session_key])) {
-    $columnas_seleccionadas = json_decode($_COOKIE[$session_key], true);
-} else {
-    $columnas_seleccionadas = $clasificaciones_disponibles;
-}
 
 // Cargar clasificaciones de rutas (global, no depende de empresas)
 $clasif_rutas = [];
@@ -333,108 +311,124 @@ if ($resClasif) {
     }
 }
 
-// 📊 CONSULTA PRINCIPAL - Trae viajes de TODAS las empresas seleccionadas
-$sql = "SELECT nombre, ruta, empresa, tipo_vehiculo, COALESCE(pago_parcial,0) AS pago_parcial
-        FROM viajes
-        WHERE fecha BETWEEN '$desde' AND '$hasta'";
-$sql .= $sqlCondicionEmpresa; // Agregar condición multi-empresa
+// ========================================================
+// 📊 PROCESAR DATOS POR SEPARADO PARA CADA EMPRESA
+// ========================================================
+$datos_por_empresa = [];
+$totales_globales = [
+    'total_viajes' => 0,
+    'total_pagado' => 0,
+    'total_faltante' => 0
+];
 
-$res = $conn->query($sql);
+foreach ($empresasFiltro as $empresaActual) {
+    $empresaActual = trim($empresaActual);
+    if (empty($empresaActual)) continue;
+    
+    $empresaEscapada = $conn->real_escape_string($empresaActual);
+    
+    // 📊 CONSULTA PARA ESTA EMPRESA
+    $sql = "SELECT nombre, ruta, empresa, tipo_vehiculo, COALESCE(pago_parcial,0) AS pago_parcial
+            FROM viajes
+            WHERE fecha BETWEEN '$desde' AND '$hasta'
+            AND empresa = '$empresaEscapada'";
+    
+    $res = $conn->query($sql);
+    
+    // Inicializar arrays para esta empresa
+    $datos = [];
+    $vehiculos = [];
+    $rutasUnicas = [];
+    $pagosConductor = [];
+    $rutas_sin_clasificar_por_conductor = [];
+    
+    // Procesar resultados
+    if ($res) {
+        while ($row = $res->fetch_assoc()) {
+            $nombre   = trim($row['nombre']);
+            $ruta     = trim($row['ruta']);
+            $vehiculo = trim($row['tipo_vehiculo']);
+            $pagoParcial = (int)($row['pago_parcial'] ?? 0);
 
-// Inicializar arrays
-$datos = [];
-$vehiculos = [];
-$rutasUnicas = [];
-$pagosConductor = [];
-$rutas_sin_clasificar_por_conductor = [];
+            // Omitir registros con nombre vacío
+            if (empty($nombre)) continue;
 
-// Procesar resultados - SE SUMAN AUTOMÁTICAMENTE LOS VIAJES DE TODAS LAS EMPRESAS
-if ($res) {
-    while ($row = $res->fetch_assoc()) {
-        $nombre   = trim($row['nombre']);
-        $ruta     = trim($row['ruta']);
-        $vehiculo = trim($row['tipo_vehiculo']);
-        $pagoParcial = (int)($row['pago_parcial'] ?? 0);
-        $empresa  = trim($row['empresa']);
+            // Sumar pagos parciales del conductor
+            if (!isset($pagosConductor[$nombre])) $pagosConductor[$nombre] = 0;
+            $pagosConductor[$nombre] += $pagoParcial;
 
-        // Omitir registros con nombre vacío
-        if (empty($nombre)) continue;
+            $keyRuta = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
 
-        // Sumar pagos parciales del conductor (acumula de todas las empresas)
-        if (!isset($pagosConductor[$nombre])) $pagosConductor[$nombre] = 0;
-        $pagosConductor[$nombre] += $pagoParcial;
-
-        $keyRuta = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
-
-        // Registrar ruta única para el panel de clasificación
-        if (!isset($rutasUnicas[$keyRuta])) {
-            $rutasUnicas[$keyRuta] = [
-                'ruta'          => $ruta,
-                'vehiculo'      => $vehiculo,
-                'clasificacion' => $clasif_rutas[$keyRuta] ?? ''
-            ];
-        }
-
-        // Registrar tipo de vehículo único
-        if (!empty($vehiculo) && !in_array($vehiculo, $vehiculos, true)) $vehiculos[] = $vehiculo;
-
-        // Registrar rutas sin clasificar
-        $clasificacion_ruta = $clasif_rutas[$keyRuta] ?? '';
-        if ($clasificacion_ruta === '' || $clasificacion_ruta === 'otro') {
-            if (!isset($rutas_sin_clasificar_por_conductor[$nombre])) {
-                $rutas_sin_clasificar_por_conductor[$nombre] = [];
+            // Registrar ruta única
+            if (!isset($rutasUnicas[$keyRuta])) {
+                $rutasUnicas[$keyRuta] = [
+                    'ruta'          => $ruta,
+                    'vehiculo'      => $vehiculo,
+                    'clasificacion' => $clasif_rutas[$keyRuta] ?? ''
+                ];
             }
-            $ruta_key = $ruta . '|' . $vehiculo;
-            if (!in_array($ruta_key, $rutas_sin_clasificar_por_conductor[$nombre])) {
-                $rutas_sin_clasificar_por_conductor[$nombre][] = $ruta_key;
+
+            // Registrar tipo de vehículo único
+            if (!empty($vehiculo) && !in_array($vehiculo, $vehiculos, true)) $vehiculos[] = $vehiculo;
+
+            // Registrar rutas sin clasificar
+            $clasificacion_ruta = $clasif_rutas[$keyRuta] ?? '';
+            if ($clasificacion_ruta === '' || $clasificacion_ruta === 'otro') {
+                if (!isset($rutas_sin_clasificar_por_conductor[$nombre])) {
+                    $rutas_sin_clasificar_por_conductor[$nombre] = [];
+                }
+                $ruta_key = $ruta . '|' . $vehiculo;
+                if (!in_array($ruta_key, $rutas_sin_clasificar_por_conductor[$nombre])) {
+                    $rutas_sin_clasificar_por_conductor[$nombre][] = $ruta_key;
+                }
             }
-        }
 
-        // Inicializar datos del conductor si no existe
-        if (!isset($datos[$nombre])) {
-            $datos[$nombre] = [
-                "vehiculo" => $vehiculo, 
-                "pagado" => 0,
-                "rutas_sin_clasificar" => 0
-            ];
-            foreach ($clasificaciones_disponibles as $clasif) $datos[$nombre][$clasif] = 0;
-        }
+            // Inicializar datos del conductor si no existe
+            if (!isset($datos[$nombre])) {
+                $datos[$nombre] = [
+                    "vehiculo" => $vehiculo, 
+                    "pagado" => 0,
+                    "rutas_sin_clasificar" => 0
+                ];
+                foreach ($clasificaciones_disponibles as $clasif) $datos[$nombre][$clasif] = 0;
+            }
 
-        // SUMAR el viaje a la clasificación correspondiente
-        $clasifRuta = $clasif_rutas[$keyRuta] ?? '';
-        if ($clasifRuta !== '' && isset($datos[$nombre][$clasifRuta])) {
-            $datos[$nombre][$clasifRuta]++; // ¡ESTA LÍNEA SUMA LOS VIAJES!
+            // SUMAR el viaje a la clasificación correspondiente
+            $clasifRuta = $clasif_rutas[$keyRuta] ?? '';
+            if ($clasifRuta !== '' && isset($datos[$nombre][$clasifRuta])) {
+                $datos[$nombre][$clasifRuta]++;
+            }
         }
     }
+
+    // Asignar pagos totales a cada conductor
+    foreach ($datos as $conductor => $info) {
+        $datos[$conductor]["pagado"] = (int)($pagosConductor[$conductor] ?? 0);
+        $datos[$conductor]["rutas_sin_clasificar"] = count($rutas_sin_clasificar_por_conductor[$conductor] ?? []);
+    }
+
+    // ✅ Obtener tarifas guardadas para esta empresa
+    $tarifas_guardadas = [];
+    $resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa = '$empresaEscapada'");
+    if ($resTarifas) {
+        while ($r = $resTarifas->fetch_assoc()) {
+            $tarifas_guardadas[$r['tipo_vehiculo']] = $r;
+        }
+    }
+
+    // Guardar todo para esta empresa
+    $datos_por_empresa[$empresaActual] = [
+        'datos' => $datos,
+        'vehiculos' => $vehiculos,
+        'tarifas' => $tarifas_guardadas,
+        'rutasUnicas' => $rutasUnicas,
+        'total_conductores' => count($datos)
+    ];
 }
 
-// Asignar pagos totales a cada conductor (ya están sumados de todas las empresas)
-foreach ($datos as $conductor => $info) {
-    $datos[$conductor]["pagado"] = (int)($pagosConductor[$conductor] ?? 0);
-    $datos[$conductor]["rutas_sin_clasificar"] = count($rutas_sin_clasificar_por_conductor[$conductor] ?? []);
-}
-
-// Obtener empresas de la tabla
+// Obtener lista completa de empresas para el selector
 $empresas = [];
-$sqlEmpresas = "
-    SELECT DISTINCT 
-        TRIM(empresa) as empresa 
-    FROM viajes 
-    WHERE empresa IS NOT NULL 
-      AND TRIM(empresa) != '' 
-      AND TRIM(empresa) NOT IN ('', 'NULL', 'null')
-    ORDER BY 
-        CASE 
-            WHEN LOWER(TRIM(empresa)) LIKE 'p.%' THEN 1
-            WHEN LOWER(TRIM(empresa)) = 'acpm' THEN 2
-            WHEN LOWER(TRIM(empresa)) = 'icbf' THEN 3
-            WHEN LOWER(TRIM(empresa)) = 'hospital' THEN 4
-            WHEN LOWER(TRIM(empresa)) = 'sunny app' THEN 5
-            ELSE 6
-        END,
-        TRIM(empresa) ASC
-";
-
+$sqlEmpresas = "SELECT DISTINCT TRIM(empresa) as empresa FROM viajes WHERE empresa IS NOT NULL AND TRIM(empresa) != '' ORDER BY empresa ASC";
 $resEmp = $conn->query($sqlEmpresas);
 if ($resEmp) {
     while ($r = $resEmp->fetch_assoc()) {
@@ -445,106 +439,14 @@ if ($resEmp) {
     }
 }
 
-// Ordenar final
-usort($empresas, function($a, $b) {
-    $aStartsWithP = stripos($a, 'p.') === 0;
-    $bStartsWithP = stripos($b, 'p.') === 0;
-    
-    if ($aStartsWithP && !$bStartsWithP) return -1;
-    if (!$aStartsWithP && $bStartsWithP) return 1;
-    return strcasecmp($a, $b);
-});
-
-// ✅ Obtener tarifas guardadas para la EMPRESA_TARIFAS_ACTUAL
-$tarifas_guardadas = [];
-if (!empty($empresaTarifasActual)) {
-    $primeraEmpresa = $conn->real_escape_string($empresaTarifasActual);
-    $resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa = '$primeraEmpresa'");
-    if ($resTarifas) {
-        while ($r = $resTarifas->fetch_assoc()) {
-            $tarifas_guardadas[$r['tipo_vehiculo']] = $r;
-        }
-    }
+// Session key para columnas seleccionadas
+$session_key = "columnas_seleccionadas_" . md5(implode('|', $empresasFiltro) . $desde . $hasta);
+$columnas_seleccionadas = [];
+if (isset($_COOKIE[$session_key])) {
+    $columnas_seleccionadas = json_decode($_COOKIE[$session_key], true);
+} else {
+    $columnas_seleccionadas = $clasificaciones_disponibles;
 }
-
-/* =======================================================
-   🚀 SUBMÓDULO 4.1: SISTEMA DE ALERTAS DE TARIFAS FALTANTES
-   ======================================================== */
-// Detectar combinaciones (tipo_vehículo + clasificación) que tienen rutas
-// pero no tienen valor en tarifas (o valor = 0)
-$tarifas_faltantes_por_conductor = [];
-$conteo_tarifas_faltantes_global = [];
-
-// Solo procesar si hay datos y empresa seleccionada para tarifas
-if (!empty($empresaTarifasActual) && !empty($datos)) {
-    
-    // Obtener todas las combinaciones únicas de (vehículo, clasificación)
-    // que aparecen en los viajes de los conductores
-    $combinaciones_faltantes = [];
-    
-    // Revisar cada conductor y sus viajes clasificados
-    foreach ($datos as $conductor => $info) {
-        $vehiculo_conductor = $info['vehiculo'];
-        $tarifas_faltantes_por_conductor[$conductor] = [];
-        
-        // Revisar cada clasificación que tiene viajes este conductor
-        foreach ($clasificaciones_disponibles as $clasif) {
-            $cantidad_viajes = (int)($info[$clasif] ?? 0);
-            
-            if ($cantidad_viajes > 0) {
-                // Verificar si existe tarifa para esta combinación
-                $tarifa_existe = false;
-                $valor_tarifa = 0;
-                
-                if (isset($tarifas_guardadas[$vehiculo_conductor][$clasif])) {
-                    $valor_tarifa = (float)$tarifas_guardadas[$vehiculo_conductor][$clasif];
-                    $tarifa_existe = ($valor_tarifa > 0);
-                }
-                
-                // Si no hay tarifa o es cero, registrar la alerta
-                if (!$tarifa_existe) {
-                    $combinacion_key = $vehiculo_conductor . '|' . $clasif;
-                    
-                    // Registrar para este conductor
-                    $tarifas_faltantes_por_conductor[$conductor][] = [
-                        'vehiculo' => $vehiculo_conductor,
-                        'clasificacion' => $clasif,
-                        'cantidad_viajes' => $cantidad_viajes
-                    ];
-                    
-                    // Acumular para el resumen global
-                    if (!isset($conteo_tarifas_faltantes_global[$combinacion_key])) {
-                        $conteo_tarifas_faltantes_global[$combinacion_key] = [
-                            'vehiculo' => $vehiculo_conductor,
-                            'clasificacion' => $clasif,
-                            'total_conductores' => 0,
-                            'total_viajes' => 0,
-                            'conductores' => []
-                        ];
-                    }
-                    $conteo_tarifas_faltantes_global[$combinacion_key]['total_conductores']++;
-                    $conteo_tarifas_faltantes_global[$combinacion_key]['total_viajes'] += $cantidad_viajes;
-                    
-                    if (!in_array($conductor, $conteo_tarifas_faltantes_global[$combinacion_key]['conductores'])) {
-                        $conteo_tarifas_faltantes_global[$combinacion_key]['conductores'][] = $conductor;
-                    }
-                }
-            }
-        }
-        
-        // Si no hay tarifas faltantes para este conductor, eliminar entrada vacía
-        if (empty($tarifas_faltantes_por_conductor[$conductor])) {
-            unset($tarifas_faltantes_por_conductor[$conductor]);
-        }
-    }
-}
-
-// Contar total de alertas de tarifas
-$total_tarifas_faltantes_global = 0;
-foreach ($conteo_tarifas_faltantes_global as $item) {
-    $total_tarifas_faltantes_global += $item['total_viajes'];
-}
-/* ===== FIN SUBMÓDULO 4.1 ===== */
 /* ===== FIN MÓDULO 4 CORREGIDO ===== */
 
 /* =======================================================
@@ -1405,16 +1307,20 @@ function deseleccionarTodasHeader() {
 <!-- ===== FIN MÓDULO 8 ===== -->
 
 <!-- =======================================================
-   🚀 MÓDULO 9: CONTENIDO PRINCIPAL (TABLA DE CONDUCTORES)
+   🚀 MÓDULO 9: CONTENIDO PRINCIPAL (TABLAS POR EMPRESA)
    ========================================================
-   🔧 PROPÓSITO: Tabla principal con liquidación
-   🔧 CARACTERÍSTICA: Cada fila tiene color según tipo de vehículo
-   🔧 ACTUALIZADO: 26/02/2026 - Alertas de tarifas faltantes
+   🔧 CORREGIDO: 28/02/2026 - Muestra una tabla por empresa
    ======================================================== -->
 <main class="max-w-[1800px] mx-auto px-3 md:px-4 py-6">
     <div class="table-container-wrapper" id="tableContainerWrapper">
         
-        <div class="mb-4 flex justify-end">
+        <div class="mb-4 flex justify-between items-center">
+            <div>
+                <h2 class="text-xl font-bold">📊 Liquidación por Empresa</h2>
+                <p class="text-sm text-slate-500">
+                    Mostrando <?= count($empresasFiltro) ?> empresa(s): <?= implode(' • ', $empresasFiltro) ?>
+                </p>
+            </div>
             <button onclick="togglePanel('selector-columnas')" 
                     class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500 text-white hover:from-purple-600 hover:to-indigo-600 transition shadow-md">
                 <span>📊</span>
@@ -1430,7 +1336,7 @@ function deseleccionarTodasHeader() {
             background: none; border: none; color: #64748b; cursor: pointer; display: none; 
         }
         
-        /* ===== ESTILOS PARA FILAS POR TIPO DE VEHÍCULO ===== */
+        /* Estilos para filas por tipo de vehículo */
         .fila-vehiculo-mensual { background-color: #ffedd5 !important; }
         .fila-vehiculo-mensual:hover { background-color: #fed7aa !important; }
         .fila-vehiculo-camioneta { background-color: #dbeafe !important; }
@@ -1439,330 +1345,204 @@ function deseleccionarTodasHeader() {
         .fila-vehiculo-turbo:hover { background-color: #a7f3d0 !important; }
         .fila-vehiculo-camión { background-color: #ede9fe !important; }
         .fila-vehiculo-camión:hover { background-color: #ddd6fe !important; }
-        .fila-vehiculo-buseta { background-color: #fee2e2 !important; }
-        .fila-vehiculo-buseta:hover { background-color: #fecaca !important; }
-        .fila-vehiculo-minivan { background-color: #ccfbf1 !important; }
-        .fila-vehiculo-minivan:hover { background-color: #99f6e4 !important; }
-        .fila-vehiculo-automóvil { background-color: #ffe4e6 !important; }
-        .fila-vehiculo-automóvil:hover { background-color: #fecdd3 !important; }
-        .fila-vehiculo-moto { background-color: #e0e7ff !important; }
-        .fila-vehiculo-moto:hover { background-color: #c7d2fe !important; }
-        .fila-vehiculo-furgoneta { background-color: #fef3c7 !important; }
-        .fila-vehiculo-furgoneta:hover { background-color: #fde68a !important; }
         .fila-vehiculo-default { background-color: #f1f5f9 !important; }
         .fila-vehiculo-default:hover { background-color: #e2e8f0 !important; }
         
-        .vehiculo-mensual { 
-            background-color: #fef3c7 !important; 
-            border: 1px solid #f59e0b !important; 
-            color: #92400e !important; 
-            font-weight: 600; 
-        }
-        .alerta-sin-clasificar { animation: pulse-alerta 2s infinite; }
-        .alerta-tarifa-faltante { animation: pulse-rosa 2s infinite; }
-        @keyframes pulse-alerta { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
-        @keyframes pulse-rosa { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; background-color: #fff1f2; } }
         .conductor-link{ cursor:pointer; color:#0d6efd; text-decoration:underline; }
         
-        /* Asegurar que las celdas hereden el color de fondo */
-        #tabla_conductores tbody tr td { background-color: inherit !important; }
+        /* Separador entre tablas */
+        .empresa-table-container {
+            margin-bottom: 2rem;
+            border-radius: 1rem;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        
+        .empresa-header {
+            background: linear-gradient(135deg, #1e293b, #0f172a);
+            color: white;
+            padding: 1rem 1.5rem;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
         </style>
 
-        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-            <div class="p-5 border-b border-slate-200">
-                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div>
-                        <h3 class="text-xl font-semibold">🧑‍✈️ Resumen por Conductor</h3>
-                        <div id="contador-conductores" class="text-sm text-slate-500 mt-1">
-                            Mostrando <?= count($datos) ?> conductores
-                        </div>
-                    </div>
-                    <div class="flex gap-2">
-                        <button onclick="mostrarResumenRutasSinClasificar()" 
-                                class="text-sm px-4 py-2 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600 transition flex items-center gap-2 shadow-md">
-                            ⚠️ Rutas sin clasificar
-                        </button>
-                        <button onclick="mostrarResumenTarifasFaltantes()" 
-                                class="text-sm px-4 py-2 rounded-full bg-gradient-to-r from-rose-500 to-pink-500 text-white hover:from-rose-600 hover:to-pink-600 transition flex items-center gap-2 shadow-md">
-                            💰⚠️ Tarifas sin configurar
-                        </button>
-                    </div>
-                </div>
+        <!-- ===== RESUMEN GLOBAL ===== -->
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 mb-6">
+            <div class="flex flex-wrap items-center gap-4">
+                <span class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 font-semibold text-sm">
+                    🔢 Total Viajes: <span id="total_viajes_global">0</span>
+                </span>
+                <span class="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-4 py-2 text-purple-700 font-semibold text-sm">
+                    💰 Total General: <span id="total_general_global">0</span>
+                </span>
+                <span class="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-emerald-700 font-semibold text-sm">
+                    ✅ Total Pagado: <span id="total_pagado_global">0</span>
+                </span>
+                <span class="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-rose-700 font-semibold text-sm">
+                    ⏳ Total Faltante: <span id="total_faltante_global">0</span>
+                </span>
             </div>
+        </div>
 
-            <div class="p-5">
-                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-                    <div class="flex flex-col md:flex-row gap-4 w-full md:w-auto">
+        <!-- ===== TABLAS POR EMPRESA ===== -->
+        <div id="empresas-tables-container">
+            <?php foreach ($datos_por_empresa as $empresaActual => $data): 
+                $datos = $data['datos'];
+                $tarifas_guardadas = $data['tarifas'];
+            ?>
+            <div class="empresa-table-container bg-white border border-slate-200" data-empresa="<?= htmlspecialchars($empresaActual) ?>">
+                <div class="empresa-header flex justify-between items-center">
+                    <span>🏢 <?= htmlspecialchars($empresaActual) ?></span>
+                    <span class="text-sm bg-white/20 px-3 py-1 rounded-full">
+                        <?= count($datos) ?> conductor(es)
+                    </span>
+                </div>
+                
+                <div class="p-5">
+                    <!-- Buscador por empresa -->
+                    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                         <div class="buscar-container w-full md:w-64">
-                            <input id="buscadorConductores" type="text" 
-                                   placeholder="Buscar conductor..." 
-                                   class="w-full rounded-xl border border-slate-300 px-4 py-3 pl-4 pr-10 text-sm">
-                            <button id="clearBuscar" class="buscar-clear">✕</button>
-                        </div>
-
-                        <div class="flex flex-wrap items-center gap-3">
-                            <span class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-blue-700 font-semibold text-sm">
-                                🔢 Viajes: <span id="total_viajes">0</span>
-                            </span>
-                            <span class="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-4 py-2 text-purple-700 font-semibold text-sm">
-                                💰 Total: <span id="total_general">0</span>
-                            </span>
-                            <span class="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-emerald-700 font-semibold text-sm">
-                                ✅ Pagado: <span id="total_pagado">0</span>
-                            </span>
-                            <span class="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-rose-700 font-semibold text-sm">
-                                ⏳ Faltante: <span id="total_faltante">0</span>
-                            </span>
+                            <input type="text" 
+                                   placeholder="Buscar conductor en <?= htmlspecialchars($empresaActual) ?>..." 
+                                   class="buscador-empresa w-full rounded-xl border border-slate-300 px-4 py-3 pl-4 pr-10 text-sm"
+                                   data-empresa="<?= htmlspecialchars($empresaActual) ?>">
+                            <button class="buscar-clear" style="display: none;">✕</button>
                         </div>
                     </div>
-                </div>
 
-                <!-- ===== RESUMEN DE RUTAS SIN CLASIFICAR ===== -->
-                <div id="resumenRutasSinClasificar" class="hidden mb-6">
-                    <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
-                        <div class="flex items-center justify-between mb-4">
-                            <div class="flex items-center gap-2">
-                                <span class="text-amber-600 font-bold text-lg">⚠️</span>
-                                <h4 class="font-semibold text-amber-800">Rutas sin clasificar</h4>
-                            </div>
-                            <span id="contadorRutasSinClasificarGlobal" class="px-3 py-1 bg-amber-500 text-white text-sm font-bold rounded-full">0</span>
-                        </div>
-                        <div id="listaRutasSinClasificarGlobal" class="space-y-2 max-h-60 overflow-y-auto"></div>
-                        <div class="mt-4 pt-4 border-t border-amber-100">
-                            <button onclick="irAClasificacionRutas()" 
-                                    class="w-full py-3 bg-amber-100 text-amber-700 hover:bg-amber-200 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2">
-                                🧭 Ir a clasificar rutas
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- ===== RESUMEN DE TARIFAS FALTANTES ===== -->
-                <div id="resumenTarifasFaltantes" class="hidden mb-6">
-                    <div class="bg-rose-50 border border-rose-200 rounded-xl p-4">
-                        <div class="flex items-center justify-between mb-4">
-                            <div class="flex items-center gap-2">
-                                <span class="text-rose-600 font-bold text-lg">💰⚠️</span>
-                                <h4 class="font-semibold text-rose-800">Tarifas sin configurar</h4>
-                            </div>
-                            <span id="contadorTarifasFaltantesGlobal" class="px-3 py-1 bg-rose-500 text-white text-sm font-bold rounded-full"><?= $total_tarifas_faltantes_global ?></span>
-                        </div>
-                        
-                        <div id="listaTarifasFaltantesGlobal" class="space-y-3 max-h-60 overflow-y-auto">
-                            <?php if (!empty($conteo_tarifas_faltantes_global)): ?>
-                                <?php foreach ($conteo_tarifas_faltantes_global as $key => $item): 
-                                    $estilo_clasif = obtenerEstiloClasificacion($item['clasificacion']);
-                                    $color_vehiculo = obtenerColorVehiculo($item['vehiculo']);
-                                ?>
-                                <div class="flex flex-col p-3 bg-white rounded-lg border border-rose-100 hover:bg-rose-50/50 transition">
-                                    <div class="flex items-center justify-between">
-                                        <div class="flex items-center gap-2 flex-wrap">
-                                            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium <?= $color_vehiculo['bg'] ?> <?= $color_vehiculo['text'] ?>">
-                                                🚗 <?= htmlspecialchars($item['vehiculo']) ?>
-                                            </span>
-                                            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium <?= $estilo_clasif['bg'] ?> <?= $estilo_clasif['text'] ?>">
-                                                📋 <?= htmlspecialchars($estilo_clasif['label']) ?>
-                                            </span>
-                                            <span class="text-xs bg-rose-100 text-rose-700 px-2 py-1 rounded-full">
-                                                <?= $item['total_viajes'] ?> viaje(s)
-                                            </span>
-                                        </div>
-                                        <button onclick="abrirPanelTarifas('<?= htmlspecialchars($item['vehiculo']) ?>', '<?= htmlspecialchars($item['clasificacion']) ?>')" 
-                                                class="text-xs px-2 py-1 bg-rose-100 text-rose-700 hover:bg-rose-200 rounded transition">
-                                            Configurar →
-                                        </button>
-                                    </div>
-                                    <div class="mt-2 text-xs text-slate-500">
-                                        Afecta a: <?= implode(', ', array_slice($item['conductores'], 0, 3)) ?><?= count($item['conductores']) > 3 ? ' y ' . (count($item['conductores']) - 3) . ' más' : '' ?>
-                                    </div>
-                                </div>
-                                <?php endforeach; ?>
-                            <?php else: ?>
-                                <div class="text-center py-4 text-emerald-600">
-                                    🎉 ¡Excelente! Todas las tarifas están configuradas.
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                        
-                        <div class="mt-4 pt-4 border-t border-rose-100">
-                            <button onclick="irATarifas()" 
-                                    class="w-full py-3 bg-rose-100 text-rose-700 hover:bg-rose-200 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2">
-                                🚐 Ir a configurar tarifas
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <div id="tableContainer" class="overflow-x-auto rounded-xl border border-slate-200 max-h-[70vh]">
-                    <table id="tabla_conductores" class="w-full text-sm">
-                        <thead class="bg-blue-600 text-white sticky top-0 z-20">
-                            <tr>
-                                <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 70px;">Estado</th>
-                                <th class="px-4 py-3 text-left sticky top-0 bg-blue-600" style="min-width: 220px;">Conductor</th>
-                                <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 120px;">Tipo</th>
+                    <!-- Tabla de la empresa -->
+                    <div class="overflow-x-auto rounded-xl border border-slate-200">
+                        <table class="tabla-empresa w-full text-sm" data-empresa="<?= htmlspecialchars($empresaActual) ?>">
+                            <thead class="bg-blue-600 text-white">
+                                <tr>
+                                    <th class="px-4 py-3 text-center" style="min-width: 70px;">Estado</th>
+                                    <th class="px-4 py-3 text-left" style="min-width: 220px;">Conductor</th>
+                                    <th class="px-4 py-3 text-center" style="min-width: 120px;">Tipo</th>
+                                    
+                                    <?php foreach ($clasificaciones_disponibles as $clasif): 
+                                        $estilo = obtenerEstiloClasificacion($clasif);
+                                        $abreviaturas = [
+                                            'completo' => 'COM', 'medio' => 'MED', 'extra' => 'EXT',
+                                            'carrotanque' => 'CTK', 'siapana' => 'SIA', 'riohacha' => 'RIO',
+                                            'pru' => 'PRU', 'maco' => 'MAC'
+                                        ];
+                                        $abreviatura = $abreviaturas[$clasif] ?? strtoupper(substr($clasif, 0, 3));
+                                        $visible = in_array($clasif, $columnas_seleccionadas);
+                                        $clase_visibilidad = $visible ? 'columna-visualizada' : 'columna-oculta';
+                                    ?>
+                                    <th class="px-4 py-3 text-center <?= $clase_visibilidad ?> columna-tabla" 
+                                        data-columna="<?= htmlspecialchars($clasif) ?>"
+                                        style="min-width: 80px;">
+                                        <?= htmlspecialchars($abreviatura) ?>
+                                    </th>
+                                    <?php endforeach; ?>
+                                    
+                                    <th class="px-4 py-3 text-center" style="min-width: 140px;">Total</th>
+                                    <th class="px-4 py-3 text-center" style="min-width: 120px;">Pagado</th>
+                                    <th class="px-4 py-3 text-center" style="min-width: 100px;">Faltante</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                            <?php foreach ($datos as $conductor => $info): 
+                                $vehiculo = $info['vehiculo'];
+                                $esMensual = (stripos($vehiculo, 'mensual') !== false);
                                 
-                                <?php foreach ($clasificaciones_disponibles as $clasif): 
-                                    $estilo = obtenerEstiloClasificacion($clasif);
-                                    $abreviaturas = [
-                                        'completo' => 'COM', 'medio' => 'MED', 'extra' => 'EXT',
-                                        'carrotanque' => 'CTK', 'siapana' => 'SIA', 'riohacha' => 'RIO',
-                                        'pru' => 'PRU', 'maco' => 'MAC'
-                                    ];
-                                    $abreviatura = $abreviaturas[$clasif] ?? strtoupper(substr($clasif, 0, 3));
-                                    $visible = in_array($clasif, $columnas_seleccionadas);
-                                    $clase_visibilidad = $visible ? 'columna-visualizada' : 'columna-oculta';
-                                ?>
-                                <th class="px-4 py-3 text-center sticky top-0 <?= $clase_visibilidad ?> columna-tabla" 
-                                    data-columna="<?= htmlspecialchars($clasif) ?>"
-                                    style="min-width: 80px;">
-                                    <?= htmlspecialchars($abreviatura) ?>
-                                </th>
-                                <?php endforeach; ?>
+                                $color_vehiculo = obtenerColorVehiculo($vehiculo);
                                 
-                                <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 140px;">Total</th>
-                                <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 120px;">Pagado</th>
-                                <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 100px;">Faltante</th>
-                            </tr>
-                        </thead>
-                        <tbody id="tabla_conductores_body" class="divide-y divide-slate-100">
-                        <?php foreach ($datos as $conductor => $info): 
-                            $vehiculo = $info['vehiculo'];
-                            $esMensual = (stripos($vehiculo, 'mensual') !== false);
-                            $claseVehiculoBadge = $esMensual ? 'vehiculo-mensual' : '';
-                            $rutasSinClasificar = $info['rutas_sin_clasificar'] ?? 0;
-                            $tieneTarifasFaltantes = isset($tarifas_faltantes_por_conductor[$conductor]);
-                            $cantTarifasFaltantes = $tieneTarifasFaltantes ? count($tarifas_faltantes_por_conductor[$conductor]) : 0;
-                            
-                            $color_vehiculo = obtenerColorVehiculo($vehiculo);
-                            
-                            // Determinar la clase CSS para la fila
-                            $vehiculo_lower = strtolower($vehiculo);
-                            $clase_fila = 'fila-vehiculo-default';
-                            
-                            $mapa_clases = [
-                                'mensual' => 'fila-vehiculo-mensual',
-                                'camioneta' => 'fila-vehiculo-camioneta',
-                                'turbo' => 'fila-vehiculo-turbo',
-                                'camión' => 'fila-vehiculo-camión',
-                                'buseta' => 'fila-vehiculo-buseta',
-                                'minivan' => 'fila-vehiculo-minivan',
-                                'automóvil' => 'fila-vehiculo-automóvil',
-                                'moto' => 'fila-vehiculo-moto',
-                                'furgoneta' => 'fila-vehiculo-furgoneta'
-                            ];
-                            
-                            foreach ($mapa_clases as $tipo => $clase) {
-                                if (strpos($vehiculo_lower, $tipo) !== false) {
-                                    $clase_fila = $clase;
-                                    break;
+                                // Determinar la clase CSS para la fila
+                                $vehiculo_lower = strtolower($vehiculo);
+                                $clase_fila = 'fila-vehiculo-default';
+                                
+                                $mapa_clases = [
+                                    'mensual' => 'fila-vehiculo-mensual',
+                                    'camioneta' => 'fila-vehiculo-camioneta',
+                                    'turbo' => 'fila-vehiculo-turbo',
+                                    'camión' => 'fila-vehiculo-camión'
+                                ];
+                                
+                                foreach ($mapa_clases as $tipo => $clase) {
+                                    if (strpos($vehiculo_lower, $tipo) !== false) {
+                                        $clase_fila = $clase;
+                                        break;
+                                    }
                                 }
-                            }
-                            
-                            $clase_alerta = '';
-                            if ($rutasSinClasificar > 0 && $tieneTarifasFaltantes) {
-                                $clase_alerta = 'alerta-sin-clasificar alerta-tarifa-faltante';
-                            } elseif ($rutasSinClasificar > 0) {
-                                $clase_alerta = 'alerta-sin-clasificar';
-                            } elseif ($tieneTarifasFaltantes) {
-                                $clase_alerta = 'alerta-tarifa-faltante';
-                            }
-                        ?>
-                            <tr data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>" 
-                                data-conductor="<?= htmlspecialchars($conductor) ?>" 
-                                data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
-                                data-pagado="<?= (int)($info['pagado'] ?? 0) ?>"
-                                data-sin-clasificar="<?= $rutasSinClasificar ?>"
-                                data-tarifas-faltantes="<?= $cantTarifasFaltantes ?>"
-                                class="<?= $clase_fila ?> <?= $clase_alerta ?> hover:bg-opacity-80 transition-colors">
-                                
-                                <td class="px-4 py-3 text-center">
-                                    <div class="flex flex-col items-center justify-center gap-1">
-                                        <!-- Alerta de rutas sin clasificar -->
-                                        <?php if ($rutasSinClasificar > 0): ?>
-                                            <div class="flex items-center justify-center gap-1" title="Rutas sin clasificar">
-                                                <span class="text-amber-600 font-bold animate-pulse">⚠️</span>
-                                                <span class="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded-full font-bold">
-                                                    R:<?= $rutasSinClasificar ?>
-                                                </span>
-                                            </div>
+                            ?>
+                                <tr data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>" 
+                                    data-conductor="<?= htmlspecialchars($conductor) ?>" 
+                                    data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
+                                    data-pagado="<?= (int)($info['pagado'] ?? 0) ?>"
+                                    data-sin-clasificar="<?= $info['rutas_sin_clasificar'] ?? 0 ?>"
+                                    data-empresa="<?= htmlspecialchars($empresaActual) ?>"
+                                    class="<?= $clase_fila ?> hover:bg-opacity-80 transition-colors">
+                                    
+                                    <td class="px-4 py-3 text-center">
+                                        <?php if (($info['rutas_sin_clasificar'] ?? 0) > 0): ?>
+                                            <span class="text-amber-600 font-bold animate-pulse" title="Rutas sin clasificar">⚠️</span>
+                                        <?php else: ?>
+                                            <span class="text-emerald-600">✅</span>
                                         <?php endif; ?>
-                                        
-                                        <!-- Alerta de tarifas faltantes -->
-                                        <?php if ($tieneTarifasFaltantes): ?>
-                                            <div class="flex items-center justify-center gap-1 mt-1" title="Tarifas sin configurar">
-                                                <span class="text-rose-600 font-bold animate-pulse">💰⚠️</span>
-                                                <span class="text-xs bg-rose-100 text-rose-800 px-2 py-1 rounded-full font-bold">
-                                                    T:<?= $cantTarifasFaltantes ?>
-                                                </span>
-                                            </div>
-                                        <?php endif; ?>
-                                        
-                                        <!-- Todo OK -->
-                                        <?php if (!$rutasSinClasificar && !$tieneTarifasFaltantes): ?>
-                                            <div class="flex flex-col items-center justify-center gap-1">
-                                                <span class="text-emerald-600">✅</span>
-                                                <span class="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full font-bold">OK</span>
-                                            </div>
-                                        <?php endif; ?>
-                                    </div>
-                                </td>
-                                
-                                <td class="px-4 py-3">
-                                    <button type="button"
-                                            class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition flex items-center gap-2">
-                                        <?php if ($rutasSinClasificar > 0): ?>
-                                            <span class="text-amber-600">⚠️</span>
-                                        <?php endif; ?>
-                                        <?php if ($tieneTarifasFaltantes): ?>
-                                            <span class="text-rose-600">💰⚠️</span>
-                                        <?php endif; ?>
-                                        <?= htmlspecialchars($conductor) ?>
-                                    </button>
-                                </td>
-                                
-                                <td class="px-4 py-3 text-center">
-                                    <span class="inline-block <?= $claseVehiculoBadge ?> px-3 py-1.5 rounded-lg text-xs font-medium border <?= $color_vehiculo['border'] ?> <?= $color_vehiculo['text'] ?> <?= $color_vehiculo['bg'] ?>">
-                                        <?= htmlspecialchars($info['vehiculo']) ?>
-                                    </span>
-                                </td>
-                                
-                                <?php foreach ($clasificaciones_disponibles as $clasif): 
-                                    $cantidad = (int)($info[$clasif] ?? 0);
-                                    $visible = in_array($clasif, $columnas_seleccionadas);
-                                    $clase_visibilidad = $visible ? 'columna-visualizada' : 'columna-oculta';
-                                    $estilo = obtenerEstiloClasificacion($clasif);
-                                ?>
-                                <td class="px-4 py-3 text-center font-medium <?= $clase_visibilidad ?> columna-tabla" 
-                                    data-columna="<?= htmlspecialchars($clasif) ?>"
-                                    style="min-width: 80px;">
-                                    <?= $cantidad ?>
-                                </td>
-                                <?php endforeach; ?>
+                                    </td>
+                                    
+                                    <td class="px-4 py-3">
+                                        <button type="button"
+                                                class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition flex items-center gap-2"
+                                                data-conductor="<?= htmlspecialchars($conductor) ?>"
+                                                data-empresa="<?= htmlspecialchars($empresaActual) ?>">
+                                            <?= htmlspecialchars($conductor) ?>
+                                        </button>
+                                    </td>
+                                    
+                                    <td class="px-4 py-3 text-center">
+                                        <span class="inline-block px-3 py-1.5 rounded-lg text-xs font-medium border <?= $color_vehiculo['border'] ?> <?= $color_vehiculo['text'] ?> <?= $color_vehiculo['bg'] ?>">
+                                            <?= htmlspecialchars($info['vehiculo']) ?>
+                                        </span>
+                                    </td>
+                                    
+                                    <?php foreach ($clasificaciones_disponibles as $clasif): 
+                                        $cantidad = (int)($info[$clasif] ?? 0);
+                                        $visible = in_array($clasif, $columnas_seleccionadas);
+                                        $clase_visibilidad = $visible ? 'columna-visualizada' : 'columna-oculta';
+                                    ?>
+                                    <td class="px-4 py-3 text-center font-medium <?= $clase_visibilidad ?> columna-tabla" 
+                                        data-columna="<?= htmlspecialchars($clasif) ?>"
+                                        data-cantidad="<?= $cantidad ?>">
+                                        <?= $cantidad ?>
+                                    </td>
+                                    <?php endforeach; ?>
 
-                                <td class="px-4 py-3">
-                                    <input type="text"
-                                           class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white bg-opacity-50 outline-none whitespace-nowrap tabular-nums"
-                                           readonly>
-                                </td>
+                                    <td class="px-4 py-3">
+                                        <input type="text"
+                                               class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-white bg-opacity-50 outline-none whitespace-nowrap tabular-nums"
+                                               readonly>
+                                    </td>
 
-                                <td class="px-4 py-3">
-                                    <input type="text"
-                                           class="pagado w-full rounded-xl border border-emerald-200 px-3 py-2 text-right bg-emerald-50 bg-opacity-50 outline-none whitespace-nowrap tabular-nums"
-                                           readonly
-                                           value="<?= number_format((int)($info['pagado'] ?? 0), 0, ',', '.') ?>">
-                                </td>
+                                    <td class="px-4 py-3">
+                                        <input type="text"
+                                               class="pagado w-full rounded-xl border border-emerald-200 px-3 py-2 text-right bg-emerald-50 bg-opacity-50 outline-none whitespace-nowrap tabular-nums"
+                                               readonly
+                                               value="<?= number_format((int)($info['pagado'] ?? 0), 0, ',', '.') ?>">
+                                    </td>
 
-                                <td class="px-4 py-3">
-                                    <input type="text"
-                                           class="faltante w-full rounded-xl border border-rose-200 px-3 py-2 text-right bg-rose-50 bg-opacity-50 outline-none whitespace-nowrap tabular-nums"
-                                           readonly>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                        </tbody>
-                    </table>
+                                    <td class="px-4 py-3">
+                                        <input type="text"
+                                               class="faltante w-full rounded-xl border border-rose-200 px-3 py-2 text-right bg-rose-50 bg-opacity-50 outline-none whitespace-nowrap tabular-nums"
+                                               readonly>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- Totales por empresa -->
+                    <div class="mt-4 flex justify-end gap-4 text-sm">
+                        <span class="font-medium">Total <?= htmlspecialchars($empresaActual) ?>:</span>
+                        <span class="empresa-total px-3 py-1 bg-blue-100 text-blue-700 rounded-full">$0</span>
+                    </div>
                 </div>
             </div>
+            <?php endforeach; ?>
         </div>
     </div>
 </main>
