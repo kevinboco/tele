@@ -2622,7 +2622,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             actualizarPanelFlotante();
         }
         
-        // Configurar eventos de entrada para recalcular
+        // Configurar eventos de entrada para recalcula
         document.getElementById('inp_porcentaje_ajuste').addEventListener('input', recalc);
         document.getElementById('inp_facturado').addEventListener('input', recalc);
     });
