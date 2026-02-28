@@ -395,12 +395,19 @@ if (!empty($empresasSeleccionadasEsc)) {
     $resT = $conn->query("SELECT * FROM tarifas WHERE empresa IN ($empresasStr)");
     if ($resT) {
         while($r = $resT->fetch_assoc()) {
+            $empresa = $r['empresa'];
+            $tipo_vehiculo = $r['tipo_vehiculo'];
+            
+            if (!isset($tarifas[$empresa])) {
+                $tarifas[$empresa] = [];
+            }
+            
             $tarifa_normalizada = [];
             foreach ($r as $key => $value) {
                 $tarifa_normalizada[strtolower($key)] = $value;
             }
-            // Guardar tarifas por empresa y tipo de vehículo
-            $tarifas[$r['empresa']][$r['tipo_vehiculo']] = $tarifa_normalizada;
+            
+            $tarifas[$empresa][$tipo_vehiculo] = $tarifa_normalizada;
         }
     }
 }
@@ -415,7 +422,9 @@ if (!empty($empresasSeleccionadasEsc)) {
 }
 $resV = $conn->query($sqlV);
 
-$contadores = []; // Aquí se acumularán los totales por conductor
+$viajesPorConductor = [];
+$contadores = [];
+
 if ($resV) {
     while ($row = $resV->fetch_assoc()) {
         $nombre = $row['nombre'];
@@ -423,23 +432,23 @@ if ($resV) {
         $ruta = $row['ruta'];
         $vehiculo = $row['tipo_vehiculo'];
         
-        // Inicializar contador para este conductor si no existe
+        if (!isset($viajesPorConductor[$nombre])) {
+            $viajesPorConductor[$nombre] = [];
+        }
+        $viajesPorConductor[$nombre][] = [
+            'empresa' => $empresa,
+            'ruta' => $ruta,
+            'vehiculo' => $vehiculo
+        ];
+        
         if (!isset($contadores[$nombre])) {
             $contadores[$nombre] = [];
             foreach ($todas_clasificaciones as $clas) {
                 $clas_normalizada = strtolower($clas);
                 $contadores[$nombre][$clas_normalizada] = 0;
             }
-            // También guardar qué empresas ha trabajado este conductor
-            $contadores[$nombre]['_empresas'] = [];
-            $contadores[$nombre]['_vehiculos'] = [];
         }
         
-        // Registrar empresa y vehículo
-        $contadores[$nombre]['_empresas'][$empresa] = true;
-        $contadores[$nombre]['_vehiculos'][$vehiculo] = true;
-        
-        // Obtener clasificación
         $key = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
         $clasif = isset($clasificaciones[$key]) ? strtolower($clasificaciones[$key]) : '';
         
@@ -491,60 +500,40 @@ $total_facturado = 0;
 foreach ($contadores as $nombre => $v) {
     $total = 0;
     
-    // Por cada empresa que trabajó este conductor, necesitamos la tarifa correspondiente
-    $empresasConductor = array_keys($v['_empresas']);
-    $vehiculosConductor = array_keys($v['_vehiculos']);
+    // Obtener todos los viajes de este conductor
+    $viajesConductor = $viajesPorConductor[$nombre] ?? [];
     
-    // Para calcular el total, necesitamos saber cuántos viajes de cada clasificación
-    // y aplicar la tarifa de la empresa correspondiente
-    // Pero como no tenemos por cada viaje individual aquí, vamos a estimar:
-    // NOTA: En una implementación más precisa, deberíamos guardar los viajes individuales
-    
-    foreach ($todas_clasificaciones as $clas) {
-        $clas_normalizada = strtolower($clas);
-        $cantidad = $v[$clas_normalizada] ?? 0;
+    // Para cada clasificación, calcular el total usando las tarifas correctas por empresa
+    foreach ($viajesConductor as $viaje) {
+        $empresa = $viaje['empresa'];
+        $ruta = $viaje['ruta'];
+        $vehiculo = $viaje['vehiculo'];
         
-        if ($cantidad > 0) {
-            // Para cada empresa que trabajó el conductor, necesitamos saber qué tarifa aplicar
-            // Asumimos una distribución proporcional o usamos la primera empresa como referencia
-            // Para ser más precisos, necesitaríamos los viajes individuales con su empresa
-            // Como no los tenemos, usaremos un promedio ponderado o la primera empresa
-            $precio = 0;
-            $empresasConTarifa = 0;
+        // Obtener clasificación para este viaje
+        $key = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
+        $clasif = isset($clasificaciones[$key]) ? strtolower($clasificaciones[$key]) : 'otro';
+        
+        // Buscar tarifa para esta empresa y tipo de vehículo
+        $precio = 0;
+        if (isset($tarifas[$empresa][$vehiculo])) {
+            $t = $tarifas[$empresa][$vehiculo];
             
-            foreach ($empresasConductor as $emp) {
-                // Determinar qué tipo de vehículo usó en esta empresa (asumimos el primero)
-                $veh = $vehiculosConductor[0] ?? 'SENCILLO';
-                
-                if (isset($tarifas[$emp][$veh])) {
-                    $t = $tarifas[$emp][$veh];
-                    
-                    if (isset($t[$clas_normalizada])) {
-                        $precio += (float)$t[$clas_normalizada];
-                        $empresasConTarifa++;
-                    } else {
-                        $clas_con_guion = str_replace(' ', '_', $clas_normalizada);
-                        if (isset($t[$clas_con_guion])) {
-                            $precio += (float)$t[$clas_con_guion];
-                            $empresasConTarifa++;
-                        } else {
-                            $clas_con_espacio = str_replace('_', ' ', $clas_normalizada);
-                            if (isset($t[$clas_con_espacio])) {
-                                $precio += (float)$t[$clas_con_espacio];
-                                $empresasConTarifa++;
-                            }
-                        }
+            if (isset($t[$clasif])) {
+                $precio = (float)$t[$clasif];
+            } else {
+                $clasif_guion = str_replace(' ', '_', $clasif);
+                if (isset($t[$clasif_guion])) {
+                    $precio = (float)$t[$clasif_guion];
+                } else {
+                    $clasif_espacio = str_replace('_', ' ', $clasif);
+                    if (isset($t[$clasif_espacio])) {
+                        $precio = (float)$t[$clasif_espacio];
                     }
                 }
             }
-            
-            if ($empresasConTarifa > 0) {
-                $precio = $precio / $empresasConTarifa; // Promedio de tarifas entre empresas
-            }
-            
-            $subtotal = $cantidad * $precio;
-            $total += $subtotal;
         }
+        
+        $total += $precio;
     }
 
     $filas[] = ['nombre'=>$nombre, 'total_bruto'=>(int)$total];
@@ -1024,7 +1013,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- ===== Modal GUARDAR CUENTA (MODIFICADO con múltiples empresas) ===== -->
+<!-- ===== Modal GUARDAR CUENTA ===== -->
 <div id="saveCuentaModal" class="hidden fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-10 w-full max-w-lg bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
@@ -1038,7 +1027,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 <input id="cuenta_nombre" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" placeholder="Ej: Hospital Sep 2025">
             </label>
             <label class="block">
-                <span class="block text-xs font-medium mb-1">Empresas (separadas por • )</span>
+                <span class="block text-xs font-medium mb-1">Empresas</span>
                 <input id="cuenta_empresas" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50" readonly>
             </label>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1058,7 +1047,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 </label>
             </div>
             
-            <!-- Switch de estado de pagado -->
             <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
                 <div class="flex items-center gap-2">
                     <span class="text-sm font-medium">Estado de pago:</span>
@@ -1069,10 +1057,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                     <span class="switch-slider"></span>
                 </label>
             </div>
-            
-            <div class="text-xs text-slate-500 mt-2">
-                <strong>⚠️ NOTA:</strong> Se guardarán todos los datos con las <?= count($empresasSeleccionadas) ?> empresas seleccionadas.
-            </div>
         </div>
         <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
             <button id="btnCancelSaveCuenta" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
@@ -1081,7 +1065,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- ===== Modal GESTOR DE CUENTAS (MODIFICADO para mostrar empresas múltiples) ===== -->
+<!-- ===== Modal GESTOR DE CUENTAS ===== -->
 <div id="gestorCuentasModal" class="hidden fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-10 w-full max-w-5xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
@@ -1115,7 +1099,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                     ?>
                 </select>
                 
-                <!-- Filtro por estado de pagado -->
                 <select id="filtroEstadoPagado" class="rounded-xl border border-slate-300 px-3 py-2 min-w-[150px]">
                     <option value="">Todos los estados</option>
                     <option value="0">🔴 No pagadas</option>
@@ -1131,15 +1114,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 <button id="btnRecargarCuentas" class="rounded-lg border border-blue-300 px-3 py-2 bg-blue-50 hover:bg-blue-100">
                     🔄 Recargar
                 </button>
-            </div>
-            
-            <div class="flex items-center gap-2 text-xs">
-                <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-100 text-green-700">
-                    <span class="w-2 h-2 rounded-full bg-green-500"></span> Pagada
-                </span>
-                <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-red-100 text-red-700">
-                    <span class="w-2 h-2 rounded-full bg-red-500"></span> No pagada
-                </span>
             </div>
             
             <div class="text-xs text-slate-500 mt-1" id="contador-cuentas">
@@ -2166,7 +2140,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         iCFact.value = fmt(toInt(inpFact.value));
         iCPorcentaje.value = parseFloat(inpPorcentaje.value) || 0;
         
-        // Resetear switch a no pagado por defecto
         cuentaPagadoCheckbox.checked = false;
         pagadoLabel.textContent = 'NO PAGADA';
         pagadoLabel.className = 'text-xs px-2 py-1 rounded-full font-semibold bg-red-100 text-red-700';
@@ -2191,7 +2164,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         const porcentaje  = parseFloat(iCPorcentaje.value) || 0;
         const pagado = cuentaPagadoCheckbox.checked ? 1 : 0;
 
-        // OBTENER TODOS LOS DATOS ACTUALES PARA JSON
         const datosParaGuardar = {
             prestamos: { ...prestSel },
             segSocial: { ...ssMap },
@@ -2200,7 +2172,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             filasManuales: []
         };
         
-        // Guardar datos de filas manuales
         document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => {
             const conductor = tr.querySelector('.conductor-select')?.value || '';
             const base = toInt(tr.querySelector('.base-manual')?.value || '0');
@@ -2219,7 +2190,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             }
         });
 
-        // Preparar datos para enviar
         const formData = new FormData();
         formData.append('accion', 'guardar_cuenta');
         formData.append('nombre', nombre);
@@ -2250,7 +2220,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 
                 closeSaveCuenta();
                 
-                // Recargar lista en el gestor si está abierto
                 if (!gestorModal.classList.contains('hidden')) {
                     await renderCuentasBD();
                 }
@@ -2281,7 +2250,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const tbodyCuentasBD = document.getElementById('tbodyCuentasBD');
     const contadorCuentas = document.getElementById('contador-cuentas');
 
-    // Función para formatear fecha
     function formatFecha(fechaStr) {
         if (!fechaStr) return '';
         const fecha = new Date(fechaStr);
@@ -2294,23 +2262,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         });
     }
 
-    // Función para contar préstamos en cuenta
-    function contarPrestamosEnCuenta(cuenta) {
-        if (!cuenta.datos_json || !cuenta.datos_json.prestamos) return 0;
-        let total = 0;
-        Object.values(cuenta.datos_json.prestamos).forEach(prestamosArray => {
-            total += prestamosArray.length;
-        });
-        return total;
-    }
-
-    // Función para contar filas manuales
-    function contarFilasManuales(cuenta) {
-        if (!cuenta.datos_json || !cuenta.datos_json.filasManuales) return 0;
-        return cuenta.datos_json.filasManuales.length;
-    }
-
-    // Función para actualizar el estado de pagado
     async function togglePagadoCuenta(id, nuevoEstado) {
         try {
             const formData = new FormData();
@@ -2341,7 +2292,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         }
     }
 
-    // Renderizar cuentas desde BD
     async function renderCuentasBD() {
         const empresa = filtroEmpresaCuentas.value;
         const filtroEstado = filtroEstadoPagado.value;
@@ -2351,12 +2301,10 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             const response = await fetch(`?obtener_cuentas=1&empresa=${encodeURIComponent(empresa)}`);
             let cuentas = await response.json();
             
-            // Filtrar por estado de pagado
             if (filtroEstado !== '') {
                 cuentas = cuentas.filter(c => c.pagado == filtroEstado);
             }
             
-            // Filtrar por búsqueda de texto
             if (filtroTexto) {
                 cuentas = cuentas.filter(cuenta => 
                     cuenta.nombre.toLowerCase().includes(filtroTexto) ||
@@ -2373,7 +2321,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                             <div class="flex flex-col items-center gap-2">
                                 <div class="text-3xl">📭</div>
                                 <div>No hay cuentas guardadas</div>
-                                ${filtroTexto ? '<div class="text-xs text-slate-400">No se encontraron cuentas con ese filtro</div>' : ''}
                             </div>
                         </td>
                     </tr>`;
@@ -2382,12 +2329,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             
             let html = '';
             cuentas.forEach(cuenta => {
-                const totalPrestamos = contarPrestamosEnCuenta(cuenta);
-                const totalFilasManuales = contarFilasManuales(cuenta);
                 const pagadoClass = cuenta.pagado == 1 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700';
                 const pagadoText = cuenta.pagado == 1 ? 'Pagada' : 'No pagada';
                 
-                // Limitar empresas mostradas
                 const empresasMostrar = cuenta.empresas.length > 40 ? cuenta.empresas.substring(0, 40) + '...' : cuenta.empresas;
                 
                 html += `
@@ -2407,7 +2351,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                         ${formatFecha(cuenta.fecha_creacion)}
                     </td>
                     <td class="px-3 py-3 text-center">
-                        <!-- Switch de pagado -->
                         <label class="switch-pagado inline-block align-middle">
                             <input type="checkbox" class="toggle-pagado" data-id="${cuenta.id}" ${cuenta.pagado == 1 ? 'checked' : ''}>
                             <span class="switch-slider"></span>
@@ -2433,7 +2376,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             
             tbodyCuentasBD.innerHTML = html;
             
-            // Agregar eventos a los botones
             document.querySelectorAll('.btnCargarCuenta').forEach(btn => {
                 btn.addEventListener('click', async () => {
                     const id = btn.dataset.id;
@@ -2448,7 +2390,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 });
             });
             
-            // Agregar eventos a los switches de pagado
             document.querySelectorAll('.toggle-pagado').forEach(checkbox => {
                 checkbox.addEventListener('change', async function() {
                     const id = this.dataset.id;
@@ -2456,7 +2397,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                     const tr = this.closest('tr');
                     const labelSpan = tr.querySelector('.switch-label');
                     
-                    // Actualizar UI inmediatamente
                     if (nuevoEstado) {
                         labelSpan.textContent = 'Pagada';
                         labelSpan.className = 'switch-label bg-green-100 text-green-700 px-2 py-1 rounded-full text-xs';
@@ -2465,11 +2405,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                         labelSpan.className = 'switch-label bg-red-100 text-red-700 px-2 py-1 rounded-full text-xs';
                     }
                     
-                    // Guardar en BD
                     const exito = await togglePagadoCuenta(id, nuevoEstado);
                     
                     if (!exito) {
-                        // Revertir si falla
                         this.checked = !this.checked;
                         if (this.checked) {
                             labelSpan.textContent = 'Pagada';
@@ -2490,14 +2428,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                         <div class="flex flex-col items-center gap-2">
                             <div class="text-3xl">❌</div>
                             <div>Error al cargar cuentas</div>
-                            <div class="text-xs">${error.message}</div>
                         </div>
                     </td>
                 </tr>`;
         }
     }
 
-    // ===== CARGAR CUENTA COMPLETA DESDE BD =====
     async function cargarCuentaCompletaBD(id) {
         const confirmacion = await Swal.fire({
             title: '¿Cargar esta cuenta?',
@@ -2526,9 +2462,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             if (resultado.success) {
                 const cuenta = resultado.cuenta;
                 
-                // Cargar datos básicos
-                // NOTA: No podemos cargar automáticamente las empresas porque el filtro es por checkboxes
-                // Mostramos mensaje al usuario
                 Swal.fire({
                     title: '✅ Cuenta cargada',
                     html: `Se cargaron los datos de "${cuenta.nombre}".<br>
@@ -2544,7 +2477,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 
                 const datos = cuenta.datos_json || {};
                 
-                // Cargar datos asociados a conductores
                 if (datos.prestamos) {
                     prestSel = datos.prestamos;
                     setLS(PREST_SEL_KEY, prestSel);
@@ -2565,16 +2497,13 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                     setLS(ESTADO_PAGO_KEY, estadoPagoMap);
                 }
                 
-                // Limpiar filas manuales existentes
                 document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => tr.remove());
                 manualRows = [];
                 
-                // Cargar filas manuales
                 if (datos.filasManuales && datos.filasManuales.length > 0) {
                     datos.filasManuales.forEach(filaManual => {
                         agregarFilaManual();
                         
-                        // Obtener la última fila agregada
                         const ultimaFila = tbody.querySelector('tr.fila-manual:last-child');
                         if (ultimaFila) {
                             const select = ultimaFila.querySelector('.conductor-select');
@@ -2589,7 +2518,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                             if (ssInput) ssInput.value = fmt(filaManual.segSocial);
                             if (estadoSelect) estadoSelect.value = filaManual.estado;
                             
-                            // Actualizar datos del conductor
                             const nombreConductor = filaManual.conductor;
                             if (nombreConductor) {
                                 if (filaManual.cuenta) accMap[nombreConductor] = filaManual.cuenta;
@@ -2602,9 +2530,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                     localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
                 }
                 
-                // Aplicar cambios a todas las filas
                 setTimeout(() => {
-                    // Aplicar cuentas bancarias
                     document.querySelectorAll('#tbody tr').forEach(tr => {
                         const nombre = obtenerNombreConductorDeFila(tr);
                         if (nombre && accMap[nombre]) {
@@ -2612,13 +2538,11 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                             if (ctaInput) ctaInput.value = accMap[nombre];
                         }
                         
-                        // Aplicar seguridad social
                         if (nombre && ssMap[nombre]) {
                             const ssInput = tr.querySelector('input.ss');
                             if (ssInput) ssInput.value = fmt(ssMap[nombre]);
                         }
                         
-                        // Aplicar estado de pago
                         if (nombre && estadoPagoMap[nombre]) {
                             const estadoSelect = tr.querySelector('select.estado-pago');
                             if (estadoSelect) {
@@ -2628,13 +2552,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                         }
                     });
                     
-                    // Asignar préstamos
                     asignarPrestamosAFilas();
-                    
-                    // Recalcular todo
                     recalc();
-                    
-                    // Cerrar modal
                     closeGestor();
                 }, 100);
             } else {
@@ -2649,7 +2568,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         }
     }
 
-    // ===== ELIMINAR CUENTA DE BD =====
     async function eliminarCuentaBD(id) {
         const confirmacion = await Swal.fire({
             title: '¿Eliminar esta cuenta?',
@@ -2746,7 +2664,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             actualizarPanelFlotante();
         }
         
-        // Configurar eventos de entrada para recalcula
         document.getElementById('inp_porcentaje_ajuste').addEventListener('input', recalc);
         document.getElementById('inp_facturado').addEventListener('input', recalc);
     });
