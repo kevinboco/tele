@@ -2319,7 +2319,7 @@ if (!empty($empresasSeleccionadas)) {
     </div>
   </div>
 
-  <!-- Panel selector columnas -->
+  <!-- Panel selector columna -->
   <div class="side-panel" id="panel-selector-columnas">
     <div class="side-panel-header">
       <h3 class="text-lg font-semibold flex items-center gap-2">
