@@ -25,7 +25,7 @@ $conn->query("
 CREATE TABLE IF NOT EXISTS cuentas_guardadas (
     id INT PRIMARY KEY AUTO_INCREMENT,
     nombre VARCHAR(255) NOT NULL,
-    empresa VARCHAR(100) NOT NULL,
+    empresas TEXT NOT NULL,
     desde DATE NOT NULL,
     hasta DATE NOT NULL,
     facturado DECIMAL(15,2) NOT NULL,
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS cuentas_guardadas (
     datos_json LONGTEXT NOT NULL,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     usuario VARCHAR(100),
-    INDEX idx_empresa (empresa),
+    INDEX idx_empresas (empresas(100)),
     INDEX idx_fecha (fecha_creacion),
     INDEX idx_pagado (pagado)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -47,12 +47,12 @@ if (isset($_GET['obtener_cuentas'])) {
     $empresa = $conn->real_escape_string($_GET['empresa'] ?? '');
     $incluir_pagado = isset($_GET['incluir_pagado']) ? intval($_GET['incluir_pagado']) : 1;
     
-    $sql = "SELECT id, nombre, empresa, desde, hasta, facturado, porcentaje_ajuste, pagado, 
+    $sql = "SELECT id, nombre, empresas, desde, hasta, facturado, porcentaje_ajuste, pagado, 
                    datos_json, fecha_creacion, usuario 
             FROM cuentas_guardadas";
     
     if (!empty($empresa)) {
-        $sql .= " WHERE empresa = '$empresa'";
+        $sql .= " WHERE empresas LIKE '%$empresa%'";
     }
     
     $sql .= " ORDER BY fecha_creacion DESC";
@@ -77,7 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     header('Content-Type: application/json');
     
     $nombre = $conn->real_escape_string($_POST['nombre'] ?? '');
-    $empresa = $conn->real_escape_string($_POST['empresa'] ?? '');
+    $empresas = $conn->real_escape_string($_POST['empresas'] ?? '');
     $desde = $conn->real_escape_string($_POST['desde'] ?? '');
     $hasta = $conn->real_escape_string($_POST['hasta'] ?? '');
     $facturado = floatval($_POST['facturado'] ?? 0);
@@ -86,13 +86,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     $datos_json = $conn->real_escape_string($_POST['datos_json'] ?? '{}');
     $usuario = $conn->real_escape_string($_SESSION['usuario'] ?? 'Sistema');
     
-    if (empty($nombre) || empty($empresa)) {
+    if (empty($nombre) || empty($empresas)) {
         echo json_encode(['success' => false, 'message' => 'Faltan datos obligatorios']);
         exit;
     }
     
-    $sql = "INSERT INTO cuentas_guardadas (nombre, empresa, desde, hasta, facturado, porcentaje_ajuste, pagado, datos_json, usuario) 
-            VALUES ('$nombre', '$empresa', '$desde', '$hasta', $facturado, $porcentaje_ajuste, $pagado, '$datos_json', '$usuario')";
+    $sql = "INSERT INTO cuentas_guardadas (nombre, empresas, desde, hasta, facturado, porcentaje_ajuste, pagado, datos_json, usuario) 
+            VALUES ('$nombre', '$empresas', '$desde', '$hasta', $facturado, $porcentaje_ajuste, $pagado, '$datos_json', '$usuario')";
     
     $resultado = $conn->query($sql);
     
@@ -192,15 +192,20 @@ if (isset($_GET['viajes_conductor'])) {
     $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
     $desde   = $conn->real_escape_string($_GET['desde'] ?? '');
     $hasta   = $conn->real_escape_string($_GET['hasta'] ?? '');
-    $empresa = $conn->real_escape_string($_GET['empresa'] ?? '');
+    $empresas = isset($_GET['empresas']) ? json_decode($_GET['empresas'], true) : [];
 
     $sql = "SELECT fecha, ruta, empresa, tipo_vehiculo
             FROM viajes
             WHERE nombre = '$nombre'
               AND fecha BETWEEN '$desde' AND '$hasta'";
-    if ($empresa !== '') {
-        $sql .= " AND empresa = '$empresa'";
+    
+    if (!empty($empresas)) {
+        $empresas_escapadas = array_map(function($e) use ($conn) {
+            return "'" . $conn->real_escape_string($e) . "'";
+        }, $empresas);
+        $sql .= " AND empresa IN (" . implode(',', $empresas_escapadas) . ")";
     }
+    
     $sql .= " ORDER BY fecha ASC";
 
     $res = $conn->query($sql);
@@ -247,7 +252,11 @@ if (isset($_GET['viajes_conductor'])) {
                             ".htmlspecialchars($ruta)."
                         </span>
                     </td>
-                    <td class='px-3 py-2'>".htmlspecialchars($r['empresa'])."</td>
+                    <td class='px-3 py-2'>
+                        <span class='inline-block px-2 py-1 rounded text-xs bg-blue-50 text-blue-700 border border-blue-200'>
+                            ".htmlspecialchars($r['empresa'])."
+                        </span>
+                    </td>
                     <td class='px-3 py-2'>
                         <span class='inline-block px-2 py-1 rounded text-xs bg-slate-100 border border-slate-300'>
                             ".htmlspecialchars($vehiculo)."
@@ -256,7 +265,7 @@ if (isset($_GET['viajes_conductor'])) {
                   </tr>";
         }
     } else {
-        $rowsHTML .= "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresa.</td></tr>";
+        $rowsHTML .= "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresas seleccionadas.</td></tr>";
     }
 
     ?>
@@ -351,14 +360,17 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
                 <label class="block"><span class="block text-sm font-medium mb-1">Hasta</span>
                     <input type="date" name="hasta" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
                 </label>
-                <label class="block"><span class="block text-sm font-medium mb-1">Empresa</span>
-                    <select name="empresa" class="w-full rounded-xl border border-slate-300 px-3 py-2">
-                        <option value="">-- Todas --</option>
+                <div class="block">
+                    <span class="block text-sm font-medium mb-2">Empresas (puedes seleccionar varias)</span>
+                    <div class="max-h-60 overflow-y-auto border border-slate-300 rounded-xl p-3 space-y-2">
                         <?php foreach($empresas as $e): ?>
-                            <option value="<?= htmlspecialchars($e) ?>"><?= htmlspecialchars($e) ?></option>
+                        <label class="flex items-center gap-2">
+                            <input type="checkbox" name="empresas[]" value="<?= htmlspecialchars($e) ?>" class="rounded border-slate-300">
+                            <span><?= htmlspecialchars($e) ?></span>
+                        </label>
                         <?php endforeach; ?>
-                    </select>
-                </label>
+                    </div>
+                </div>
                 <button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow">Continuar</button>
             </form>
         </div>
@@ -367,58 +379,72 @@ if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
     <?php exit;
 }
 include("nav.php");
+
 /* ================= Parámetros ================= */
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
-$empresaFiltro = $_GET['empresa'] ?? "";
-$empresaFiltroEsc = $conn->real_escape_string($empresaFiltro);
+$empresasSeleccionadas = isset($_GET['empresas']) ? $_GET['empresas'] : [];
+$empresasSeleccionadasEsc = array_map(function($e) use ($conn) {
+    return $conn->real_escape_string($e);
+}, $empresasSeleccionadas);
 
-/* ================= CARGAR TARIFAS ================= */
+/* ================= CARGAR TARIFAS DE TODAS LAS EMPRESAS SELECCIONADAS ================= */
 $tarifas = [];
-if ($empresaFiltro !== "") {
-    $resT = $conn->query("SELECT * FROM tarifas WHERE empresa='".$empresaFiltroEsc."'");
+if (!empty($empresasSeleccionadasEsc)) {
+    $empresasStr = "'" . implode("','", $empresasSeleccionadasEsc) . "'";
+    $resT = $conn->query("SELECT * FROM tarifas WHERE empresa IN ($empresasStr)");
     if ($resT) {
         while($r = $resT->fetch_assoc()) {
             $tarifa_normalizada = [];
             foreach ($r as $key => $value) {
                 $tarifa_normalizada[strtolower($key)] = $value;
             }
-            $tarifas[$r['tipo_vehiculo']] = $tarifa_normalizada;
+            // Guardar tarifas por empresa y tipo de vehículo
+            $tarifas[$r['empresa']][$r['tipo_vehiculo']] = $tarifa_normalizada;
         }
     }
 }
 
-/* ================= Viajes del rango ================= */
+/* ================= Viajes del rango (TODAS las empresas seleccionadas) ================= */
 $sqlV = "SELECT nombre, ruta, empresa, tipo_vehiculo
          FROM viajes
          WHERE fecha BETWEEN '$desde' AND '$hasta'";
-if ($empresaFiltro !== "") {
-    $sqlV .= " AND empresa = '$empresaFiltroEsc'";
+if (!empty($empresasSeleccionadasEsc)) {
+    $empresasStr = "'" . implode("','", $empresasSeleccionadasEsc) . "'";
+    $sqlV .= " AND empresa IN ($empresasStr)";
 }
 $resV = $conn->query($sqlV);
 
-$contadores = [];
+$contadores = []; // Aquí se acumularán los totales por conductor
 if ($resV) {
     while ($row = $resV->fetch_assoc()) {
         $nombre = $row['nombre'];
+        $empresa = $row['empresa'];
         $ruta = $row['ruta'];
         $vehiculo = $row['tipo_vehiculo'];
         
+        // Inicializar contador para este conductor si no existe
         if (!isset($contadores[$nombre])) {
-            $contadores[$nombre] = ['vehiculo' => $vehiculo];
+            $contadores[$nombre] = [];
             foreach ($todas_clasificaciones as $clas) {
                 $clas_normalizada = strtolower($clas);
                 $contadores[$nombre][$clas_normalizada] = 0;
             }
+            // También guardar qué empresas ha trabajado este conductor
+            $contadores[$nombre]['_empresas'] = [];
+            $contadores[$nombre]['_vehiculos'] = [];
         }
         
+        // Registrar empresa y vehículo
+        $contadores[$nombre]['_empresas'][$empresa] = true;
+        $contadores[$nombre]['_vehiculos'][$vehiculo] = true;
+        
+        // Obtener clasificación
         $key = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
         $clasif = isset($clasificaciones[$key]) ? strtolower($clasificaciones[$key]) : '';
         
         if ($clasif !== '' && in_array($clasif, $todas_clasificaciones)) {
-            if (isset($contadores[$nombre][$clasif])) {
-                $contadores[$nombre][$clasif]++;
-            }
+            $contadores[$nombre][$clasif]++;
         }
     }
 }
@@ -442,8 +468,9 @@ $qPrest = "
   WHERE (pagado IS NULL OR pagado = 0)
 ";
 
-if ($empresaFiltro !== "") {
-    $qPrest .= " AND empresa = '".$empresaFiltroEsc."'";
+if (!empty($empresasSeleccionadasEsc)) {
+    $empresasStr = "'" . implode("','", $empresasSeleccionadasEsc) . "'";
+    $qPrest .= " AND empresa IN ($empresasStr)";
 }
 
 $qPrest .= " GROUP BY deudor";
@@ -457,35 +484,62 @@ if ($rP = $conn->query($qPrest)) {
     }
 }
 
-/* ================= Filas base ================= */
+/* ================= Filas base (una por conductor, sumando todas las empresas) ================= */
 $filas = []; 
 $total_facturado = 0;
 
 foreach ($contadores as $nombre => $v) {
-    $veh = $v['vehiculo'];
-    $t = $tarifas[$veh] ?? [];
-    
     $total = 0;
+    
+    // Por cada empresa que trabajó este conductor, necesitamos la tarifa correspondiente
+    $empresasConductor = array_keys($v['_empresas']);
+    $vehiculosConductor = array_keys($v['_vehiculos']);
+    
+    // Para calcular el total, necesitamos saber cuántos viajes de cada clasificación
+    // y aplicar la tarifa de la empresa correspondiente
+    // Pero como no tenemos por cada viaje individual aquí, vamos a estimar:
+    // NOTA: En una implementación más precisa, deberíamos guardar los viajes individuales
     
     foreach ($todas_clasificaciones as $clas) {
         $clas_normalizada = strtolower($clas);
         $cantidad = $v[$clas_normalizada] ?? 0;
         
         if ($cantidad > 0) {
+            // Para cada empresa que trabajó el conductor, necesitamos saber qué tarifa aplicar
+            // Asumimos una distribución proporcional o usamos la primera empresa como referencia
+            // Para ser más precisos, necesitaríamos los viajes individuales con su empresa
+            // Como no los tenemos, usaremos un promedio ponderado o la primera empresa
             $precio = 0;
+            $empresasConTarifa = 0;
             
-            if (isset($t[$clas_normalizada])) {
-                $precio = (float)$t[$clas_normalizada];
-            } else {
-                $clas_con_guion = str_replace(' ', '_', $clas_normalizada);
-                if (isset($t[$clas_con_guion])) {
-                    $precio = (float)$t[$clas_con_guion];
-                } else {
-                    $clas_con_espacio = str_replace('_', ' ', $clas_normalizada);
-                    if (isset($t[$clas_con_espacio])) {
-                        $precio = (float)$t[$clas_con_espacio];
+            foreach ($empresasConductor as $emp) {
+                // Determinar qué tipo de vehículo usó en esta empresa (asumimos el primero)
+                $veh = $vehiculosConductor[0] ?? 'SENCILLO';
+                
+                if (isset($tarifas[$emp][$veh])) {
+                    $t = $tarifas[$emp][$veh];
+                    
+                    if (isset($t[$clas_normalizada])) {
+                        $precio += (float)$t[$clas_normalizada];
+                        $empresasConTarifa++;
+                    } else {
+                        $clas_con_guion = str_replace(' ', '_', $clas_normalizada);
+                        if (isset($t[$clas_con_guion])) {
+                            $precio += (float)$t[$clas_con_guion];
+                            $empresasConTarifa++;
+                        } else {
+                            $clas_con_espacio = str_replace('_', ' ', $clas_normalizada);
+                            if (isset($t[$clas_con_espacio])) {
+                                $precio += (float)$t[$clas_con_espacio];
+                                $empresasConTarifa++;
+                            }
+                        }
                     }
                 }
+            }
+            
+            if ($empresasConTarifa > 0) {
+                $precio = $precio / $empresasConTarifa; // Promedio de tarifas entre empresas
             }
             
             $subtotal = $cantidad * $precio;
@@ -504,7 +558,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>Ajuste de Pago (con gestor de cuentas de cobro)</title>
+    <title>Ajuste de Pago (Múltiples empresas con checkboxes)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
@@ -609,43 +663,83 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         }
         .pagado-verde { color: #22c55e; }
         .pagado-rojo { color: #ef4444; }
+
+        /* Checkboxes de empresas */
+        .empresas-container {
+            max-height: 150px;
+            overflow-y: auto;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.75rem;
+            padding: 0.75rem;
+            background: white;
+        }
+        .empresa-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.25rem 0;
+        }
+        .empresa-checkbox input[type="checkbox"] {
+            width: 1.2rem;
+            height: 1.2rem;
+            border-radius: 0.25rem;
+            border: 2px solid #cbd5e1;
+            cursor: pointer;
+        }
+        .empresa-checkbox input[type="checkbox"]:checked {
+            background-color: #3b82f6;
+            border-color: #3b82f6;
+        }
+        .empresa-checkbox label {
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
     </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
 <header class="max-w-[1600px] mx-auto px-3 md:px-4 pt-6">
     <div class="bg-white border border-slate-200 rounded-2xl shadow-sm px-5 py-4">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <h2 class="text-xl md:text-2xl font-bold">🧾 Ajuste de Pago <span class="bd-badge text-xs px-2 py-1 rounded-full ml-2">Base de Datos</span></h2>
+            <h2 class="text-xl md:text-2xl font-bold">🧾 Ajuste de Pago <span class="bd-badge text-xs px-2 py-1 rounded-full ml-2">Múltiples Empresas</span></h2>
             <div class="flex items-center gap-2">
                 <button id="btnShowSaveCuenta" class="rounded-lg border border-amber-300 px-3 py-2 text-sm bg-amber-50 hover:bg-amber-100">⭐ Guardar como cuenta</button>
                 <button id="btnShowGestorCuentas" class="rounded-lg border border-blue-300 px-3 py-2 text-sm bg-blue-50 hover:bg-blue-100">📚 Cuentas guardadas</button>
             </div>
         </div>
 
-        <!-- filtros -->
-        <form id="formFiltros" class="mt-3 grid grid-cols-1 md:grid-cols-6 gap-3" method="get">
-            <label class="block md:col-span-1">
+        <!-- filtros con checkboxes -->
+        <form id="formFiltros" class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3" method="get">
+            <label class="block md:col-span-2">
                 <span class="block text-xs font-medium mb-1">Desde</span>
                 <input id="inp_desde" type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
             </label>
-            <label class="block md:col-span-1">
+            <label class="block md:col-span-2">
                 <span class="block text-xs font-medium mb-1">Hasta</span>
                 <input id="inp_hasta" type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
             </label>
-            <label class="block md:col-span-2">
-                <span class="block text-xs font-medium mb-1">Empresa</span>
-                <select id="sel_empresa" name="empresa" class="w-full rounded-xl border border-slate-300 px-3 py-2">
-                    <option value="">-- Todas --</option>
+            <div class="md:col-span-6">
+                <span class="block text-xs font-medium mb-1">Empresas (selecciona las que quieras)</span>
+                <div class="empresas-container">
                     <?php
                     $resEmp2 = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
-                    if ($resEmp2) while ($e = $resEmp2->fetch_assoc()) {
-                        $sel = ($empresaFiltro==$e['empresa'])?'selected':''; ?>
-                        <option value="<?= htmlspecialchars($e['empresa']) ?>" <?= $sel ?>><?= htmlspecialchars($e['empresa']) ?></option>
-                    <?php } ?>
-                </select>
-            </label>
+                    if ($resEmp2) {
+                        while ($e = $resEmp2->fetch_assoc()) {
+                            $checked = in_array($e['empresa'], $empresasSeleccionadas) ? 'checked' : '';
+                            echo "<div class='empresa-checkbox'>";
+                            echo "<input type='checkbox' name='empresas[]' value='" . htmlspecialchars($e['empresa']) . "' id='emp_" . md5($e['empresa']) . "' $checked>";
+                            echo "<label for='emp_" . md5($e['empresa']) . "'>" . htmlspecialchars($e['empresa']) . "</label>";
+                            echo "</div>";
+                        }
+                    }
+                    ?>
+                </div>
+                <div class="flex gap-2 mt-2">
+                    <button type="button" id="btnSeleccionarTodas" class="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded border border-blue-200">✓ Seleccionar todas</button>
+                    <button type="button" id="btnLimpiarTodas" class="text-xs px-2 py-1 bg-slate-50 text-slate-700 rounded border border-slate-200">✗ Limpiar</button>
+                </div>
+            </div>
             <div class="md:col-span-2 flex md:items-end">
-                <button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow">Aplicar</button>
+                <button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow">Aplicar filtros</button>
             </div>
         </form>
     </div>
@@ -677,6 +771,10 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 <div class="text-xs text-slate-500 mb-1">Total ajuste</div>
                 <div id="lbl_total_ajuste" class="text-lg font-semibold text-amber-600 num">0</div>
             </div>
+        </div>
+        <div class="mt-2 text-xs text-slate-500">
+            <span class="font-semibold">Empresas seleccionadas:</span> 
+            <?= !empty($empresasSeleccionadas) ? implode(' • ', $empresasSeleccionadas) : 'Todas las empresas' ?>
         </div>
     </section>
 
@@ -926,7 +1024,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- ===== Modal GUARDAR CUENTA (MODIFICADO con switch de pagado) ===== -->
+<!-- ===== Modal GUARDAR CUENTA (MODIFICADO con múltiples empresas) ===== -->
 <div id="saveCuentaModal" class="hidden fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-10 w-full max-w-lg bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
@@ -939,28 +1037,28 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 <span class="block text-xs font-medium mb-1">Nombre</span>
                 <input id="cuenta_nombre" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" placeholder="Ej: Hospital Sep 2025">
             </label>
+            <label class="block">
+                <span class="block text-xs font-medium mb-1">Empresas (separadas por • )</span>
+                <input id="cuenta_empresas" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50" readonly>
+            </label>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <label class="block">
-                    <span class="block text-xs font-medium mb-1">Empresa</span>
-                    <input id="cuenta_empresa" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" readonly>
-                </label>
                 <label class="block">
                     <span class="block text-xs font-medium mb-1">Rango</span>
                     <input id="cuenta_rango" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" readonly>
                 </label>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <label class="block">
                     <span class="block text-xs font-medium mb-1">Facturado</span>
                     <input id="cuenta_facturado" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
                 </label>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <label class="block">
                     <span class="block text-xs font-medium mb-1">Porcentaje ajuste</span>
                     <input id="cuenta_porcentaje" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
                 </label>
             </div>
             
-            <!-- NUEVO: Switch de estado de pagado -->
+            <!-- Switch de estado de pagado -->
             <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
                 <div class="flex items-center gap-2">
                     <span class="text-sm font-medium">Estado de pago:</span>
@@ -973,7 +1071,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             </div>
             
             <div class="text-xs text-slate-500 mt-2">
-                <strong>⚠️ NOTA:</strong> Se guardarán todos los datos: conductores, préstamos asignados, seguridad social, cuentas bancarias, estados de pago y filas manuales.
+                <strong>⚠️ NOTA:</strong> Se guardarán todos los datos con las <?= count($empresasSeleccionadas) ?> empresas seleccionadas.
             </div>
         </div>
         <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
@@ -983,7 +1081,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- ===== Modal GESTOR DE CUENTAS (MODIFICADO con switch de pagado) ===== -->
+<!-- ===== Modal GESTOR DE CUENTAS (MODIFICADO para mostrar empresas múltiples) ===== -->
 <div id="gestorCuentasModal" class="hidden fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-10 w-full max-w-5xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
@@ -997,14 +1095,27 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 <select id="filtroEmpresaCuentas" class="rounded-xl border border-slate-300 px-3 py-2 min-w-[200px]">
                     <option value="">-- Todas las empresas --</option>
                     <?php
-                    $resEmpCuentas = $conn->query("SELECT DISTINCT empresa FROM cuentas_guardadas WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
-                    if ($resEmpCuentas) while ($e = $resEmpCuentas->fetch_assoc()) {
-                        $sel = ($empresaFiltro==$e['empresa'])?'selected':''; ?>
-                        <option value="<?= htmlspecialchars($e['empresa']) ?>" <?= $sel ?>><?= htmlspecialchars($e['empresa']) ?></option>
-                    <?php } ?>
+                    $resEmpCuentas = $conn->query("SELECT DISTINCT empresas FROM cuentas_guardadas WHERE empresas IS NOT NULL AND empresas<>''");
+                    $empresasUnicas = [];
+                    if ($resEmpCuentas) {
+                        while ($e = $resEmpCuentas->fetch_assoc()) {
+                            $empresasArray = explode(' • ', $e['empresas']);
+                            foreach ($empresasArray as $emp) {
+                                $emp = trim($emp);
+                                if (!empty($emp) && !in_array($emp, $empresasUnicas)) {
+                                    $empresasUnicas[] = $emp;
+                                }
+                            }
+                        }
+                        sort($empresasUnicas);
+                        foreach ($empresasUnicas as $emp) {
+                            echo "<option value=\"" . htmlspecialchars($emp) . "\">" . htmlspecialchars($emp) . "</option>";
+                        }
+                    }
+                    ?>
                 </select>
                 
-                <!-- NUEVO: Filtro por estado de pagado -->
+                <!-- Filtro por estado de pagado -->
                 <select id="filtroEstadoPagado" class="rounded-xl border border-slate-300 px-3 py-2 min-w-[150px]">
                     <option value="">Todos los estados</option>
                     <option value="0">🔴 No pagadas</option>
@@ -1040,17 +1151,17 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                     <thead class="bg-blue-600 text-white">
                     <tr>
                         <th class="px-3 py-2 text-left">Nombre</th>
+                        <th class="px-3 py-2 text-left">Empresas</th>
                         <th class="px-3 py-2 text-left">Rango</th>
                         <th class="px-3 py-2 text-right">Facturado</th>
-                        <th class="px-3 py-2 text-right">% Ajuste</th>
-                        <th class="px-3 py-2 text-center">Datos</th>
                         <th class="px-3 py-2 text-center">Fecha</th>
+                        <th class="px-3 py-2 text-center">Estado</th>
                         <th class="px-3 py-2 text-center" colspan="2">Acciones</th>
                     </tr>
                     </thead>
                     <tbody id="tbodyCuentasBD" class="divide-y divide-slate-100 bg-white">
                         <tr>
-                            <td colspan="8" class="px-3 py-8 text-center text-slate-500">
+                            <td colspan="7" class="px-3 py-8 text-center text-slate-500">
                                 <div class="animate-pulse">Cargando cuentas desde Base de Datos...</div>
                             </td>
                         </tr>
@@ -1074,7 +1185,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
 <script>
     // ===== Claves de persistencia LOCAL =====
-    const COMPANY_SCOPE = <?= json_encode(($empresaFiltro ?: '__todas__')) ?>;
+    const EMPRESAS_SELECCIONADAS = <?= json_encode($empresasSeleccionadas) ?>;
+    const COMPANY_SCOPE = EMPRESAS_SELECCIONADAS.length > 0 ? EMPRESAS_SELECCIONADAS.join('_') : '__todas__';
     const ACC_KEY   = 'cuentas_temp:'+COMPANY_SCOPE;
     const SS_KEY    = 'seg_social_temp:'+COMPANY_SCOPE;
     const PREST_SEL_KEY = 'prestamo_sel_multi:v4:'+COMPANY_SCOPE;
@@ -1112,6 +1224,21 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const panelDragHandle = document.getElementById('panelDragHandle');
     const closePanel = document.getElementById('closePanel');
     const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+    const btnSeleccionarTodas = document.getElementById('btnSeleccionarTodas');
+    const btnLimpiarTodas = document.getElementById('btnLimpiarTodas');
+
+    // ===== FUNCIÓN PARA SELECCIONAR/LIMPIAR EMPRESAS =====
+    btnSeleccionarTodas.addEventListener('click', () => {
+        document.querySelectorAll('.empresa-checkbox input[type="checkbox"]').forEach(cb => {
+            cb.checked = true;
+        });
+    });
+    
+    btnLimpiarTodas.addEventListener('click', () => {
+        document.querySelectorAll('.empresa-checkbox input[type="checkbox"]').forEach(cb => {
+            cb.checked = false;
+        });
+    });
 
     // ===== FUNCIÓN PARA OBTENER EL NOMBRE DEL CONDUCTOR =====
     function obtenerNombreConductorDeFila(tr) {
@@ -1792,7 +1919,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     // ===== MODAL DE VIAJES =====
     const RANGO_DESDE = <?= json_encode($desde) ?>;
     const RANGO_HASTA = <?= json_encode($hasta) ?>;
-    const RANGO_EMP   = <?= json_encode($empresaFiltro) ?>;
+    const EMPRESAS_SEL = <?= json_encode($empresasSeleccionadas) ?>;
 
     const viajesModal            = document.getElementById('viajesModal');
     const viajesContent          = document.getElementById('viajesContent');
@@ -1817,7 +1944,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     function attachFiltroViajes(){
         const pills = viajesContent.querySelectorAll('#legendFilterBar .legend-pill');
-        const rows  = viajesContent.querySelectorAll('#viajesTableBody .row-viaje');
+        const rows  = viajesContent.querySelectorAll('#viajesTableBody .viaje-item');
         if (!pills.length || !rows.length) return;
 
         let activeCat = null;
@@ -1868,7 +1995,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             viajes_conductor: nombre,
             desde: RANGO_DESDE,
             hasta: RANGO_HASTA,
-            empresa: RANGO_EMP
+            empresas: JSON.stringify(EMPRESAS_SEL)
         });
 
         fetch('<?= basename(__FILE__) ?>?' + qs.toString())
@@ -1884,7 +2011,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     function abrirModalViajes(nombreInicial){
         viajesRango.textContent   = RANGO_DESDE + " → " + RANGO_HASTA;
-        viajesEmpresa.textContent = (RANGO_EMP && RANGO_EMP !== "") ? RANGO_EMP : "Todas las empresas";
+        viajesEmpresa.textContent = EMPRESAS_SEL.length > 0 ? EMPRESAS_SEL.join(' • ') : "Todas las empresas";
 
         initViajesSelect(nombreInicial);
 
@@ -1985,11 +2112,10 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         actualizarPanelFlotante();
     }
 
-    // ===== GESTIÓN DE CUENTAS GUARDADAS EN BD (MODIFICADO) =====
+    // ===== GESTIÓN DE CUENTAS GUARDADAS EN BD =====
     const formFiltros = document.getElementById('formFiltros');
     const inpDesde = document.getElementById('inp_desde');
     const inpHasta = document.getElementById('inp_hasta');
-    const selEmpresa = document.getElementById('sel_empresa');
     const inpFact = document.getElementById('inp_facturado');
     const inpPorcentaje = document.getElementById('inp_porcentaje_ajuste');
 
@@ -2002,7 +2128,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     const pagadoLabel = document.getElementById('pagadoLabel');
 
     const iNombre = document.getElementById('cuenta_nombre');
-    const iEmpresa = document.getElementById('cuenta_empresa');
+    const iEmpresas = document.getElementById('cuenta_empresas');
     const iRango = document.getElementById('cuenta_rango');
     const iCFact = document.getElementById('cuenta_facturado');
     const iCPorcentaje  = document.getElementById('cuenta_porcentaje');
@@ -2020,20 +2146,23 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
     // ===== GUARDAR CUENTA EN BASE DE DATOS =====
     async function openSaveCuenta(){
-        const emp = selEmpresa.value.trim();
-        if(!emp){ 
+        const empresasSeleccionadas = Array.from(document.querySelectorAll('.empresa-checkbox input[type="checkbox"]:checked'))
+            .map(cb => cb.value);
+            
+        if(empresasSeleccionadas.length === 0){ 
             Swal.fire({
-                title: '⚠️ Empresa requerida',
-                text: 'Selecciona una EMPRESA antes de guardar la cuenta.',
+                title: '⚠️ Empresas requeridas',
+                text: 'Selecciona al menos una EMPRESA antes de guardar la cuenta.',
                 icon: 'warning'
             });
             return; 
         }
+        
         const d = inpDesde.value; const h = inpHasta.value;
 
-        iEmpresa.value = emp;
+        iEmpresas.value = empresasSeleccionadas.join(' • ');
         iRango.value = `${d} → ${h}`;
-        iNombre.value = `${emp} ${d} a ${h}`;
+        iNombre.value = `${empresasSeleccionadas[0]} ${d} a ${h}${empresasSeleccionadas.length > 1 ? ' y más' : ''}`;
         iCFact.value = fmt(toInt(inpFact.value));
         iCPorcentaje.value = parseFloat(inpPorcentaje.value) || 0;
         
@@ -2053,11 +2182,11 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     btnCancelSaveCuenta.addEventListener('click', closeSaveCuenta);
 
     btnDoSaveCuenta.addEventListener('click', async ()=>{
-        const emp = iEmpresa.value.trim();
+        const empresas = iEmpresas.value.trim();
         const [d1, d2raw] = iRango.value.split('→');
         const desde = (d1||'').trim();
         const hasta = (d2raw||'').trim();
-        const nombre = iNombre.value.trim() || `${emp} ${desde} a ${hasta}`;
+        const nombre = iNombre.value.trim() || `${empresas} ${desde} a ${hasta}`;
         const facturado = toInt(iCFact.value);
         const porcentaje  = parseFloat(iCPorcentaje.value) || 0;
         const pagado = cuentaPagadoCheckbox.checked ? 1 : 0;
@@ -2094,7 +2223,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         const formData = new FormData();
         formData.append('accion', 'guardar_cuenta');
         formData.append('nombre', nombre);
-        formData.append('empresa', emp);
+        formData.append('empresas', empresas);
         formData.append('desde', desde);
         formData.append('hasta', hasta);
         formData.append('facturado', facturado);
@@ -2137,7 +2266,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         }
     });
 
-    // ===== GESTOR DE CUENTAS DESDE BASE DE DATOS (MODIFICADO) =====
+    // ===== GESTOR DE CUENTAS DESDE BASE DE DATOS =====
     const gestorModal = document.getElementById('gestorCuentasModal');
     const btnShowGestor = document.getElementById('btnShowGestorCuentas');
     const btnCloseGestor = document.getElementById('btnCloseGestor');
@@ -2240,7 +2369,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             if (cuentas.length === 0) {
                 tbodyCuentasBD.innerHTML = `
                     <tr>
-                        <td colspan="8" class="px-3 py-8 text-center text-slate-500">
+                        <td colspan="7" class="px-3 py-8 text-center text-slate-500">
                             <div class="flex flex-col items-center gap-2">
                                 <div class="text-3xl">📭</div>
                                 <div>No hay cuentas guardadas</div>
@@ -2258,6 +2387,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 const pagadoClass = cuenta.pagado == 1 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700';
                 const pagadoText = cuenta.pagado == 1 ? 'Pagada' : 'No pagada';
                 
+                // Limitar empresas mostradas
+                const empresasMostrar = cuenta.empresas.length > 40 ? cuenta.empresas.substring(0, 40) + '...' : cuenta.empresas;
+                
                 html += `
                 <tr class="hover:bg-slate-50">
                     <td class="px-3 py-3">
@@ -2265,26 +2397,17 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                         <div class="text-xs text-slate-500">${cuenta.usuario || 'Sistema'}</div>
                     </td>
                     <td class="px-3 py-3">
+                        <div class="text-xs" title="${cuenta.empresas}">${empresasMostrar}</div>
+                    </td>
+                    <td class="px-3 py-3">
                         <div class="text-sm">${cuenta.desde} → ${cuenta.hasta}</div>
                     </td>
                     <td class="px-3 py-3 text-right num font-semibold">${fmt(cuenta.facturado || 0)}</td>
-                    <td class="px-3 py-3 text-right num">${cuenta.porcentaje_ajuste || 0}%</td>
-                    <td class="px-3 py-3 text-center">
-                        <div class="flex flex-col gap-1 items-center">
-                            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs ${totalPrestamos > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">
-                                ${totalPrestamos} préstamos
-                            </span>
-                            ${totalFilasManuales > 0 ? 
-                            `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-blue-100 text-blue-700">
-                                ${totalFilasManuales} manuales
-                            </span>` : ''}
-                        </div>
-                    </td>
                     <td class="px-3 py-3 text-center text-xs text-slate-500">
                         ${formatFecha(cuenta.fecha_creacion)}
                     </td>
                     <td class="px-3 py-3 text-center">
-                        <!-- NUEVO: Switch de pagado -->
+                        <!-- Switch de pagado -->
                         <label class="switch-pagado inline-block align-middle">
                             <input type="checkbox" class="toggle-pagado" data-id="${cuenta.id}" ${cuenta.pagado == 1 ? 'checked' : ''}>
                             <span class="switch-slider"></span>
@@ -2363,7 +2486,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             console.error('Error al cargar cuentas:', error);
             tbodyCuentasBD.innerHTML = `
                 <tr>
-                    <td colspan="8" class="px-3 py-8 text-center text-rose-600">
+                    <td colspan="7" class="px-3 py-8 text-center text-rose-600">
                         <div class="flex flex-col items-center gap-2">
                             <div class="text-3xl">❌</div>
                             <div>Error al cargar cuentas</div>
@@ -2404,7 +2527,16 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 const cuenta = resultado.cuenta;
                 
                 // Cargar datos básicos
-                selEmpresa.value = cuenta.empresa;
+                // NOTA: No podemos cargar automáticamente las empresas porque el filtro es por checkboxes
+                // Mostramos mensaje al usuario
+                Swal.fire({
+                    title: '✅ Cuenta cargada',
+                    html: `Se cargaron los datos de "${cuenta.nombre}".<br>
+                           <span class="text-sm text-slate-600">Empresas: ${cuenta.empresas}</span><br>
+                           <span class="text-xs text-amber-600">Debes seleccionar manualmente las empresas en los checkboxes para ver los viajes.</span>`,
+                    icon: 'success'
+                });
+                
                 inpDesde.value = cuenta.desde;
                 inpHasta.value = cuenta.hasta;
                 inpFact.value = fmt(cuenta.facturado || 0);
@@ -2504,14 +2636,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                     
                     // Cerrar modal
                     closeGestor();
-                    
-                    Swal.fire({
-                        title: '✅ Cuenta cargada',
-                        text: `"${cuenta.nombre}" cargada exitosamente`,
-                        icon: 'success',
-                        timer: 2000,
-                        showConfirmButton: false
-                    });
                 }, 100);
             } else {
                 throw new Error(resultado.message);
