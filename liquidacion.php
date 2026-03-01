@@ -5,7 +5,7 @@ if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); 
 $conn->set_charset("utf8mb4");
 
 /* =======================================================
-   🔹 FUNCIONES DINÁMICAS (sin cambios
+   🔹 FUNCIONES DINÁMICAS (sin cambios)
 ======================================================= */
 
 // Obtener columnas de tarifas dinámicamente
@@ -627,12 +627,41 @@ if (!empty($empresasSeleccionadas)) {
 <title>Liquidación de Conductores - Consolidado</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
-  /* ===== ESTILOS ORIGINALES (sin cambios) ===== */
-  ::-webkit-scrollbar{height:10px;width:10px}
-  ::-webkit-slider-thumb{background:#d1d5db;border-radius:999px}
-  ::-webkit-slider-thumb:hover{background:#9ca3af}
+  /* ===== ESTILOS CORREGIDOS CON BARRAS DE DESPLAZAMIENTO VISIBLES ===== */
+  
+  /* BARRAS DE DESPLAZAMIENTO VISIBLES - CORREGIDO */
+  ::-webkit-scrollbar {
+    height: 12px;
+    width: 12px;
+    background: #f1f5f9;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: #94a3b8;
+    border-radius: 999px;
+    border: 3px solid #f1f5f9;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    background: #64748b;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 999px;
+  }
+  
+  /* Para Firefox */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #94a3b8 #f1f5f9;
+  }
+  
   input[type=number]::-webkit-inner-spin-button,
-  input[type=number]::-webkit-outer-spin-button{ -webkit-appearance: none; margin: 0; }
+  input[type=number]::-webkit-outer-spin-button{ 
+    -webkit-appearance: none; 
+    margin: 0; 
+  }
   
   .buscar-container { position: relative; }
   .buscar-clear { 
@@ -647,6 +676,7 @@ if (!empty($empresasSeleccionadas)) {
     display: none; 
   }
   .buscar-clear:hover { color: #475569; }
+  
   .vehiculo-mensual {
     background-color: #fef3c7 !important;
     border: 1px solid #f59e0b !important;
@@ -761,6 +791,7 @@ if (!empty($empresasSeleccionadas)) {
     visibility: visible;
   }
   
+  /* PANELES LATERALES CON SCROLL VISIBLE */
   .side-panel {
     position: fixed;
     left: -450px;
@@ -773,6 +804,8 @@ if (!empty($empresasSeleccionadas)) {
     transition: left 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     overflow-y: auto;
     overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
   }
   
   .side-panel.active {
@@ -786,14 +819,25 @@ if (!empty($empresasSeleccionadas)) {
     border-bottom: 1px solid #e2e8f0;
     padding: 1.25rem;
     z-index: 10;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+    flex-shrink: 0;
   }
   
   .side-panel-body {
     padding: 1.25rem;
     padding-bottom: 2rem;
+    overflow-y: auto;
+    overflow-x: hidden;
+    flex: 1;
+    min-height: 0;
+  }
+  
+  /* Scroll horizontal para el panel de clasificación de rutas */
+  #panel-clasif-rutas .side-panel-body {
+    overflow-x: auto;
+  }
+  
+  #panel-clasif-rutas table {
+    min-width: 600px;
   }
   
   .side-panel-close {
@@ -808,6 +852,7 @@ if (!empty($empresasSeleccionadas)) {
     cursor: pointer;
     transition: all 0.2s;
     color: #64748b;
+    flex-shrink: 0;
   }
   
   .side-panel-close:hover {
@@ -867,15 +912,19 @@ if (!empty($empresasSeleccionadas)) {
     background:#fff;
     box-shadow:0 20px 60px rgba(0,0,0,.25); 
     border:1px solid #e5e7eb; 
+    display: flex;
+    flex-direction: column;
   }
   .viajes-header{
     padding:14px 16px;
-    border-bottom:1px solid #eef2f7
+    border-bottom:1px solid #eef2f7;
+    flex-shrink: 0;
   }
   .viajes-body{
     padding:14px 16px;
-    overflow:auto; 
-    max-height:70vh
+    overflow-y: auto; 
+    flex: 1;
+    min-height: 0;
   }
   .viajes-close{
     padding:6px 10px; 
@@ -920,6 +969,7 @@ if (!empty($empresasSeleccionadas)) {
   
   .acordeon-content.expanded {
     max-height: 2000px;
+    overflow-y: auto;
   }
   
   .acordeon-icon {
@@ -993,6 +1043,7 @@ if (!empty($empresasSeleccionadas)) {
     align-items: center;
     justify-content: center;
     transition: all 0.2s;
+    flex-shrink: 0;
   }
   
   .checkbox-columna.checked {
@@ -1080,7 +1131,7 @@ if (!empty($empresasSeleccionadas)) {
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
 
-  <!-- BOLITAS FLOTANTES (sin cambios) -->
+  <!-- BOLITAS FLOTANTES -->
   <div class="floating-balls-container">
     <div class="floating-ball ball-tarifas" id="ball-tarifas" data-panel="tarifas">
       <div class="ball-content">🚐</div>
@@ -1260,7 +1311,7 @@ if (!empty($empresasSeleccionadas)) {
       <!-- TABLA CONSOLIDADA ÚNICA -->
       <?php if (!empty($datosConsolidados)): ?>
       <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-        <div class="overflow-x-auto rounded-xl border border-slate-200 max-h-[70vh]">
+        <div class="overflow-x-auto overflow-y-auto max-h-[70vh] rounded-xl border border-slate-200">
           <table class="w-full text-sm" id="tablaConsolidada">
             <thead class="bg-blue-600 text-white sticky top-0 z-20">
               <tr>
@@ -1477,7 +1528,7 @@ if (!empty($empresasSeleccionadas)) {
     const EMPRESAS_SELECCIONADAS = <?= json_encode($empresasSeleccionadas) ?>;
     const CLASIFICACIONES_DISPONIBLES = <?= json_encode($clasificaciones_disponibles) ?>;
     
-    // ===== SISTEMA DE BOLITAS Y PANELES (sin cambios) =====
+    // ===== SISTEMA DE BOLITAS Y PANELES =====
     let activePanel = null;
     const panels = ['tarifas', 'crear-clasif', 'clasif-rutas', 'selector-columnas'];
     
