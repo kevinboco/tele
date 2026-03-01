@@ -21,7 +21,6 @@ function norm_person($s){
 }
 
 /* ================= CREAR TABLAS CUENTAS GUARDADAS ================= */
-// Tabla principal de cuentas (igual que antes)
 $conn->query("
 CREATE TABLE IF NOT EXISTS cuentas_guardadas (
     id INT PRIMARY KEY AUTO_INCREMENT,
@@ -39,7 +38,6 @@ CREATE TABLE IF NOT EXISTS cuentas_guardadas (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 ");
 
-// Tabla pivote para la relación muchos-a-muchos con empresas
 $conn->query("
 CREATE TABLE IF NOT EXISTS cuentas_guardadas_empresas (
     cuenta_id INT NOT NULL,
@@ -51,7 +49,6 @@ CREATE TABLE IF NOT EXISTS cuentas_guardadas_empresas (
 ");
 
 /* ================= AJAX HANDLERS ================= */
-// Obtener lista de cuentas guardadas
 if (isset($_GET['obtener_cuentas'])) {
     header('Content-Type: application/json');
     
@@ -83,10 +80,12 @@ if (isset($_GET['obtener_cuentas'])) {
     
     if ($result && $result->num_rows > 0) {
         while ($row = $result->fetch_assoc()) {
+            // 👈 CORREGIDO: Forzar pagado a entero
+            $row['pagado'] = (int)$row['pagado'];
+            
             $datos_json = json_decode($row['datos_json'], true);
             $row['datos_json'] = ($datos_json === null) ? [] : $datos_json;
             
-            // Convertir lista de empresas a array
             $row['empresas'] = !empty($row['empresas_list']) 
                 ? explode('||', $row['empresas_list']) 
                 : [];
@@ -100,7 +99,6 @@ if (isset($_GET['obtener_cuentas'])) {
     exit;
 }
 
-// Guardar nueva cuenta
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'guardar_cuenta') {
     header('Content-Type: application/json');
     
@@ -119,11 +117,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
         exit;
     }
     
-    // Iniciar transacción
     $conn->begin_transaction();
     
     try {
-        // Insertar en tabla principal
         $sql = "INSERT INTO cuentas_guardadas (nombre, desde, hasta, facturado, porcentaje_ajuste, pagado, datos_json, usuario) 
                 VALUES ('$nombre', '$desde', '$hasta', $facturado, $porcentaje_ajuste, $pagado, '$datos_json', '$usuario')";
         
@@ -133,7 +129,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
         
         $cuenta_id = $conn->insert_id;
         
-        // Insertar empresas relacionadas
         foreach ($empresas as $empresa) {
             $empresa_esc = $conn->real_escape_string($empresa);
             $sql_emp = "INSERT INTO cuentas_guardadas_empresas (cuenta_id, empresa_nombre) VALUES ($cuenta_id, '$empresa_esc')";
@@ -152,12 +147,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     exit;
 }
 
-// Eliminar cuenta
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'eliminar_cuenta') {
     header('Content-Type: application/json');
     $id = intval($_POST['id']);
     
-    // La eliminación en cascada se encarga de borrar las empresas relacionadas
     $sql = "DELETE FROM cuentas_guardadas WHERE id = $id";
     $resultado = $conn->query($sql);
     
@@ -165,7 +158,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     exit;
 }
 
-// Cargar cuenta específica
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'cargar_cuenta') {
     header('Content-Type: application/json');
     $id = intval($_POST['id']);
@@ -180,10 +172,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     
     if ($result && $result->num_rows > 0) {
         $row = $result->fetch_assoc();
+        // 👈 CORREGIDO: Forzar pagado a entero
+        $row['pagado'] = (int)$row['pagado'];
+        
         $datos_json = json_decode($row['datos_json'], true);
         $row['datos_json'] = ($datos_json === null) ? [] : $datos_json;
         
-        // Convertir lista de empresas a array
         $row['empresas'] = !empty($row['empresas_list']) 
             ? explode('||', $row['empresas_list']) 
             : [];
@@ -196,7 +190,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     exit;
 }
 
-// ===== HANDLER: Actualizar estado de pago de una cuenta guardada =====
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'actualizar_pagado_cuenta') {
     header('Content-Type: application/json');
     $id = intval($_POST['id']);
@@ -635,7 +628,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         input:checked + .switch-slider { background-color: #22c55e; }
         input:checked + .switch-slider:before { transform: translateX(26px); }
         .bd-badge { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
-        /* Estilo para el switch pequeño en la tabla */
         .switch-small { width: 40px; height: 20px; }
         .switch-small .switch-slider:before { height: 14px; width: 14px; left: 3px; bottom: 3px; }
         input:checked + .switch-small .switch-slider:before { transform: translateX(20px); }
@@ -1621,7 +1613,6 @@ async function actualizarEstadoCuenta(id, nuevoEstado, switchElement) {
             const slider = switchElement.nextElementSibling;
             slider.style.backgroundColor = nuevoEstado ? '#22c55e' : '#ef4444';
             
-            // Mostrar notificación de éxito (toast pequeña)
             Swal.fire({
                 title: nuevoEstado ? '🟢 Pagado' : '🔴 No pagado',
                 text: 'Estado actualizado correctamente',
@@ -1632,7 +1623,8 @@ async function actualizarEstadoCuenta(id, nuevoEstado, switchElement) {
                 position: 'top-end'
             });
             
-            // NO recargar toda la tabla - solo mantener el estado actual
+            // 👈 CORREGIDO: Recargar la lista para asegurar consistencia
+            await renderCuentasBD();
             
         } else {
             throw new Error(resultado.message);
@@ -1797,7 +1789,7 @@ btnDoSaveCuenta.addEventListener('click', async () => {
     }
 });
 
-// Renderizar cuentas en el gestor
+// 👇 FUNCIÓN COMPLETAMENTE CORREGIDA: Renderizar cuentas en el gestor
 async function renderCuentasBD() {
     const empresa = filtroEmpresaCuentas.value;
     const estado = filtroEstadoPagado.value;
@@ -1836,11 +1828,8 @@ async function renderCuentasBD() {
             const empresasStr = (cuenta.empresas || []).slice(0, 3).join(', ') + 
                 ((cuenta.empresas || []).length > 3 ? ` +${(cuenta.empresas.length - 3)} más` : '');
             
-            const totalPrestamos = cuenta.datos_json?.prestamos 
-                ? Object.values(cuenta.datos_json.prestamos).reduce((a, b) => a + b.length, 0) 
-                : 0;
-            
-            const totalManuales = cuenta.datos_json?.filasManuales?.length || 0;
+            // 👈 CORREGIDO: Comparación explícita con == 1 para manejar strings o números
+            const estaPagado = cuenta.pagado == 1;
             
             html += `
             <tr class="hover:bg-slate-50">
@@ -1858,14 +1847,13 @@ async function renderCuentasBD() {
                 </td>
                 <td class="px-3 py-3 text-right num font-semibold">${fmt(cuenta.facturado || 0)}</td>
                 <td class="px-3 py-3 text-center">
-                    <!-- Switch interactivo para cambiar estado -->
                     <div class="flex justify-center">
                         <label class="switch-pagado switch-small" style="width: 40px; height: 20px;">
                             <input type="checkbox" 
                                    class="switch-estado-cuenta" 
                                    data-id="${cuenta.id}" 
-                                   ${cuenta.pagado ? 'checked' : ''}>
-                            <span class="switch-slider" style="background-color: ${cuenta.pagado ? '#22c55e' : '#ef4444'};"></span>
+                                   ${estaPagado ? 'checked' : ''}>
+                            <span class="switch-slider" style="background-color: ${estaPagado ? '#22c55e' : '#ef4444'};"></span>
                         </label>
                     </div>
                 </td>
@@ -2060,7 +2048,6 @@ async function cargarCuentaCompletaBD(id) {
                 timer: 2000,
                 showConfirmButton: false,
                 willClose: () => {
-                    // Enviar el formulario para recargar la página con los nuevos filtros
                     document.querySelector('form').submit();
                 }
             });
