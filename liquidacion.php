@@ -627,34 +627,34 @@ if (!empty($empresasSeleccionadas)) {
 <title>Liquidación de Conductores - Consolidado</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
-  /* ===== ESTILOS CORREGIDOS CON BARRAS DE DESPLAZAMIENTO VISIBLES ===== */
+  /* ===== ESTILOS ORIGINALES CORREGIDOS ===== */
   
   /* BARRAS DE DESPLAZAMIENTO VISIBLES - CORREGIDO */
   ::-webkit-scrollbar {
-    height: 12px;
-    width: 12px;
-    background: #f1f5f9;
+    height: 10px;
+    width: 10px;
+    background: #f1f1f1;
   }
   
   ::-webkit-scrollbar-thumb {
-    background: #94a3b8;
+    background: #d1d5db;
     border-radius: 999px;
-    border: 3px solid #f1f5f9;
+    border: 2px solid #f1f1f1;
   }
   
   ::-webkit-scrollbar-thumb:hover {
-    background: #64748b;
+    background: #9ca3af;
   }
   
   ::-webkit-scrollbar-track {
-    background: #f1f5f9;
+    background: #f1f1f1;
     border-radius: 999px;
   }
   
   /* Para Firefox */
   * {
     scrollbar-width: thin;
-    scrollbar-color: #94a3b8 #f1f5f9;
+    scrollbar-color: #d1d5db #f1f1f1;
   }
   
   input[type=number]::-webkit-inner-spin-button,
@@ -837,7 +837,7 @@ if (!empty($empresasSeleccionadas)) {
   }
   
   #panel-clasif-rutas table {
-    min-width: 600px;
+    min-width: 600px; /* Asegura que la tabla tenga ancho mínimo */
   }
   
   .side-panel-close {
@@ -912,19 +912,15 @@ if (!empty($empresasSeleccionadas)) {
     background:#fff;
     box-shadow:0 20px 60px rgba(0,0,0,.25); 
     border:1px solid #e5e7eb; 
-    display: flex;
-    flex-direction: column;
   }
   .viajes-header{
     padding:14px 16px;
-    border-bottom:1px solid #eef2f7;
-    flex-shrink: 0;
+    border-bottom:1px solid #eef2f7
   }
   .viajes-body{
     padding:14px 16px;
-    overflow-y: auto; 
-    flex: 1;
-    min-height: 0;
+    overflow:auto; 
+    max-height:70vh
   }
   .viajes-close{
     padding:6px 10px; 
@@ -1131,7 +1127,7 @@ if (!empty($empresasSeleccionadas)) {
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
 
-  <!-- BOLITAS FLOTANTES -->
+  <!-- BOLITAS FLOTANTES (sin cambios) -->
   <div class="floating-balls-container">
     <div class="floating-ball ball-tarifas" id="ball-tarifas" data-panel="tarifas">
       <div class="ball-content">🚐</div>
@@ -1311,7 +1307,7 @@ if (!empty($empresasSeleccionadas)) {
       <!-- TABLA CONSOLIDADA ÚNICA -->
       <?php if (!empty($datosConsolidados)): ?>
       <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-        <div class="overflow-x-auto overflow-y-auto max-h-[70vh] rounded-xl border border-slate-200">
+        <div class="overflow-x-auto rounded-xl border border-slate-200 max-h-[70vh]">
           <table class="w-full text-sm" id="tablaConsolidada">
             <thead class="bg-blue-600 text-white sticky top-0 z-20">
               <tr>
@@ -1528,7 +1524,7 @@ if (!empty($empresasSeleccionadas)) {
     const EMPRESAS_SELECCIONADAS = <?= json_encode($empresasSeleccionadas) ?>;
     const CLASIFICACIONES_DISPONIBLES = <?= json_encode($clasificaciones_disponibles) ?>;
     
-    // ===== SISTEMA DE BOLITAS Y PANELES =====
+    // ===== SISTEMA DE BOLITAS Y PANELES (sin cambios) =====
     let activePanel = null;
     const panels = ['tarifas', 'crear-clasif', 'clasif-rutas', 'selector-columnas'];
     
@@ -1565,7 +1561,8 @@ if (!empty($empresasSeleccionadas)) {
       configurarEventosTarifas();
       configurarBuscadorGlobal();
       
-      // Recalcular todo
+      // Inicializar formato de tarifas y recalcular
+      configurarFormatoTarifas();
       setTimeout(recalcularTodo, 100);
     });
     
@@ -1813,7 +1810,9 @@ if (!empty($empresasSeleccionadas)) {
           const empresa = input.dataset.empresa;
           const tipoVehiculo = input.dataset.vehiculo;
           const campo = input.dataset.campo.toLowerCase();
-          const valor = parseFloat(input.value) || 0;
+          
+          // Usar el valor real (sin formato) del dataset
+          const valorReal = parseInt(input.dataset.valorReal || '0', 10);
           
           fetch('<?= basename(__FILE__) ?>', {
             method: 'POST',
@@ -1823,7 +1822,7 @@ if (!empty($empresasSeleccionadas)) {
               empresa: empresa,
               tipo_vehiculo: tipoVehiculo,
               campo: campo,
-              valor: valor
+              valor: valorReal
             })
           })
           .then(r => r.text())
@@ -1846,6 +1845,121 @@ if (!empty($empresasSeleccionadas)) {
       document.querySelectorAll('.tarifa-input').forEach(input => {
         input.defaultValue = input.value;
       });
+    }
+    
+    // ===== FORMATO DE NÚMEROS CON PUNTOS EN INPUTS DE TARIFAS =====
+    function formatearNumeroMiles(valor) {
+        // Eliminar todo lo que no sea dígito
+        let numeros = valor.replace(/\D/g, '');
+        
+        // Si está vacío, retornar vacío
+        if (numeros === '') return '';
+        
+        // Convertir a número y formatear con puntos
+        let numero = parseInt(numeros, 10);
+        return numero.toLocaleString('es-CO').replace(/,/g, '.');
+    }
+    
+    function configurarFormatoTarifas() {
+        // Seleccionar todos los inputs de tarifa
+        document.querySelectorAll('.tarifa-input').forEach(input => {
+            // Guardar el valor original sin formato como atributo data
+            let valorNumerico = input.value.replace(/\D/g, '');
+            if (valorNumerico !== '' && valorNumerico !== '0') {
+                input.dataset.valorReal = valorNumerico;
+                // Formatear el valor inicial si existe
+                input.value = formatearNumeroMiles(valorNumerico);
+            } else {
+                input.dataset.valorReal = '0';
+            }
+            
+            // Evento mientras el usuario escribe
+            input.addEventListener('input', function(e) {
+                let cursorPos = this.selectionStart;
+                let valorOriginal = this.value;
+                let soloNumeros = valorOriginal.replace(/\D/g, '');
+                
+                // Si no hay números, poner valorReal = '0'
+                if (soloNumeros === '') {
+                    this.dataset.valorReal = '0';
+                    this.value = '';
+                    return;
+                }
+                
+                // Guardar el valor real (solo números) en un atributo data
+                this.dataset.valorReal = soloNumeros;
+                
+                // Formatear el número
+                let formateado = formatearNumeroMiles(soloNumeros);
+                
+                // Actualizar el valor en el input (solo visual)
+                this.value = formateado;
+                
+                // Ajustar la posición del cursor después del formateo
+                if (soloNumeros.length > 0) {
+                    // Calcular nueva posición del cursor
+                    let digitosAntesCursor = valorOriginal.slice(0, cursorPos).replace(/\D/g, '').length;
+                    let nuevoCursor = 0;
+                    let contadorDigitos = 0;
+                    
+                    for (let i = 0; i < formateado.length; i++) {
+                        nuevoCursor++;
+                        if (formateado[i].match(/\d/)) {
+                            contadorDigitos++;
+                            if (contadorDigitos === digitosAntesCursor) {
+                                break;
+                            }
+                        }
+                    }
+                    
+                    this.setSelectionRange(nuevoCursor, nuevoCursor);
+                }
+            });
+            
+            // Evento al salir del input - asegurar formato correcto
+            input.addEventListener('blur', function() {
+                let valorReal = this.dataset.valorReal || '0';
+                if (valorReal === '0' || valorReal === '') {
+                    this.value = '';
+                } else {
+                    this.value = formatearNumeroMiles(valorReal);
+                }
+            });
+            
+            // Prevenir que se peguen caracteres no numéricos
+            input.addEventListener('keydown', function(e) {
+                // Permitir teclas de control, números, teclas de navegación
+                if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'ArrowLeft' || 
+                    e.key === 'ArrowRight' || e.key === 'Tab' || e.key === 'Home' || 
+                    e.key === 'End' || e.ctrlKey || e.metaKey) {
+                    return;
+                }
+                
+                // Permitir números
+                if (e.key.match(/\d/)) {
+                    return;
+                }
+                
+                // Bloquear cualquier otra tecla
+                e.preventDefault();
+            });
+            
+            // En el evento paste, limpiar el contenido pegado
+            input.addEventListener('paste', function(e) {
+                e.preventDefault();
+                let pastedText = (e.clipboardData || window.clipboardData).getData('text');
+                let soloNumeros = pastedText.replace(/\D/g, '');
+                
+                if (soloNumeros) {
+                    let nuevoValor = (this.dataset.valorReal || '') + soloNumeros;
+                    this.dataset.valorReal = nuevoValor;
+                    this.value = formatearNumeroMiles(nuevoValor);
+                    
+                    // Disparar evento input para actualizar
+                    this.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            });
+        });
     }
     
     // ===== BUSCADOR GLOBAL =====
@@ -1908,7 +2022,8 @@ if (!empty($empresasSeleccionadas)) {
         
         card.querySelectorAll('input[data-campo]').forEach(input => {
           const campo = input.dataset.campo.toLowerCase();
-          const valor = parseFloat(input.value) || 0;
+          // Usar el valor real del dataset
+          const valor = parseInt(input.dataset.valorReal || '0', 10);
           tarifas[empresa][vehiculo][campo] = valor;
         });
       });
@@ -2179,7 +2294,7 @@ if (!empty($empresasSeleccionadas)) {
                     <?= htmlspecialchars($etiqueta_final) ?>
                   </span>
                   <div class="relative">
-                    <input type="number" step="1000" value="<?= $valor ?>"
+                    <input type="text" step="1000" value="<?= $valor ?>"
                            data-campo="<?= htmlspecialchars($columna) ?>"
                            data-empresa="<?= htmlspecialchars($empresa) ?>"
                            data-vehiculo="<?= htmlspecialchars($veh) ?>"
