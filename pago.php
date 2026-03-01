@@ -196,8 +196,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     exit;
 }
 
-// Actualizar estado de pago
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'actualizar_pagado') {
+// ===== NUEVO HANDLER: Actualizar estado de pago de una cuenta guardada =====
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'actualizar_pagado_cuenta') {
     header('Content-Type: application/json');
     $id = intval($_POST['id']);
     $pagado = intval($_POST['pagado']);
@@ -205,7 +205,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     $sql = "UPDATE cuentas_guardadas SET pagado = $pagado WHERE id = $id";
     $resultado = $conn->query($sql);
     
-    echo json_encode(['success' => $resultado, 'message' => $resultado ? 'Estado actualizado' : 'Error al actualizar']);
+    echo json_encode([
+        'success' => $resultado, 
+        'message' => $resultado ? 'Estado actualizado correctamente' : 'Error al actualizar el estado'
+    ]);
     exit;
 }
 
@@ -632,6 +635,10 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         input:checked + .switch-slider { background-color: #22c55e; }
         input:checked + .switch-slider:before { transform: translateX(26px); }
         .bd-badge { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        /* Estilo para el switch pequeño en la tabla */
+        .switch-small { width: 40px; height: 20px; }
+        .switch-small .switch-slider:before { height: 14px; width: 14px; left: 3px; bottom: 3px; }
+        input:checked + .switch-small .switch-slider:before { transform: translateX(20px); }
     </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
@@ -1598,6 +1605,48 @@ function abrirModalViajes(nombre) {
         .catch(() => document.getElementById('viajesContent').innerHTML = '<p class="text-center text-red-600">Error cargando viajes</p>');
 }
 
+// ===== NUEVA FUNCIÓN: Actualizar estado de pago de una cuenta guardada =====
+async function actualizarEstadoCuenta(id, nuevoEstado) {
+    try {
+        const formData = new FormData();
+        formData.append('accion', 'actualizar_pagado_cuenta');
+        formData.append('id', id);
+        formData.append('pagado', nuevoEstado ? 1 : 0);
+        
+        const response = await fetch('', { method: 'POST', body: formData });
+        const resultado = await response.json();
+        
+        if (resultado.success) {
+            // Mostrar notificación de éxito
+            Swal.fire({
+                title: nuevoEstado ? '🟢 Pagado' : '🔴 No pagado',
+                text: 'Estado actualizado correctamente',
+                icon: 'success',
+                timer: 1500,
+                showConfirmButton: false,
+                toast: true,
+                position: 'top-end'
+            });
+            
+            // Actualizar los contadores de filtros sin recargar todo
+            const filtroEstado = document.getElementById('filtroEstadoPagado');
+            if (filtroEstado.value === '') {
+                // Si el filtro está en "todos", recargamos para reflejar el cambio
+                renderCuentasBD();
+            }
+        } else {
+            throw new Error(resultado.message);
+        }
+    } catch (error) {
+        Swal.fire({
+            title: '❌ Error',
+            text: error.message,
+            icon: 'error',
+            timer: 2000
+        });
+    }
+}
+
 // ===== GESTIÓN DE CUENTAS GUARDADAS EN BD =====
 const saveCuentaModal = document.getElementById('saveCuentaModal');
 const btnShowSaveCuenta = document.getElementById('btnShowSaveCuenta');
@@ -1804,11 +1853,16 @@ async function renderCuentasBD() {
                 </td>
                 <td class="px-3 py-3 text-right num font-semibold">${fmt(cuenta.facturado || 0)}</td>
                 <td class="px-3 py-3 text-center">
-                    <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs ${cuenta.pagado ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">
-                        ${cuenta.pagado ? '🟢 Pagado' : '🔴 No pagado'}
-                    </span>
-                    ${totalPrestamos > 0 ? `<span class="ml-1 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">${totalPrestamos} préstamos</span>` : ''}
-                    ${totalManuales > 0 ? `<span class="ml-1 text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full">${totalManuales} manuales</span>` : ''}
+                    <!-- ===== NUEVO: Switch interactivo para cambiar estado ===== -->
+                    <div class="flex justify-center">
+                        <label class="switch-pagado switch-small" style="width: 40px; height: 20px;">
+                            <input type="checkbox" 
+                                   class="switch-estado-cuenta" 
+                                   data-id="${cuenta.id}" 
+                                   ${cuenta.pagado ? 'checked' : ''}>
+                            <span class="switch-slider" style="background-color: ${cuenta.pagado ? '#22c55e' : '#ef4444'};"></span>
+                        </label>
+                    </div>
                 </td>
                 <td class="px-3 py-3 text-center text-xs text-slate-500">
                     ${new Date(cuenta.fecha_creacion).toLocaleDateString('es-CO')}
@@ -1839,6 +1893,27 @@ async function renderCuentasBD() {
             btn.addEventListener('click', () => eliminarCuentaBD(btn.dataset.id));
         });
         
+        // ===== NUEVO: Eventos para los switches de estado =====
+        document.querySelectorAll('.switch-estado-cuenta').forEach(switchInput => {
+            switchInput.addEventListener('change', async function(e) {
+                e.stopPropagation(); // Evitar que el evento burbujee
+                const id = this.dataset.id;
+                const nuevoEstado = this.checked;
+                
+                // Deshabilitar temporalmente el switch mientras se procesa
+                this.disabled = true;
+                
+                // Actualizar el color del slider inmediatamente para feedback visual
+                const slider = this.nextElementSibling;
+                slider.style.backgroundColor = nuevoEstado ? '#22c55e' : '#ef4444';
+                
+                await actualizarEstadoCuenta(id, nuevoEstado);
+                
+                // Rehabilitar el switch
+                this.disabled = false;
+            });
+        });
+        
     } catch (error) {
         console.error('Error:', error);
         tbodyCuentasBD.innerHTML = `
@@ -1850,7 +1925,7 @@ async function renderCuentasBD() {
     }
 }
 
-// ===== FUNCIÓN MODIFICADA: Cargar cuenta completa desde BD =====
+// Función modificada: Cargar cuenta completa desde BD
 async function cargarCuentaCompletaBD(id) {
     const confirmacion = await Swal.fire({
         title: '¿Cargar esta cuenta?',
@@ -1874,8 +1949,7 @@ async function cargarCuentaCompletaBD(id) {
         if (resultado.success) {
             const cuenta = resultado.cuenta;
             
-            // ===== NUEVO: Actualizar los filtros del formulario =====
-            // Actualizar campos de fecha
+            // Actualizar los filtros del formulario
             document.getElementById('filtro_desde').value = cuenta.desde;
             document.getElementById('filtro_hasta').value = cuenta.hasta;
             
@@ -1963,7 +2037,7 @@ async function cargarCuentaCompletaBD(id) {
             recalcularTodo();
             closeGestor();
             
-            // ===== NUEVO: Mostrar mensaje y luego recargar la página =====
+            // Mostrar mensaje y luego recargar la página
             Swal.fire({
                 title: '✅ Cuenta cargada',
                 text: `"${cuenta.nombre}" cargada exitosamente. Recargando página con los nuevos filtros...`,
