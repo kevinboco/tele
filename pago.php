@@ -2233,7 +2233,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('viajesModal').classList.remove('show');
     });
     
-    // Primer cálculo
+    // Primer cálcu
     setTimeout(recalcularTodo, 100);
 });
 </script>
