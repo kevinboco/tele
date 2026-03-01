@@ -652,15 +652,15 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         <form method="get" class="mt-4 grid grid-cols-1 md:grid-cols-12 gap-3">
             <div class="md:col-span-2">
                 <label class="text-xs font-medium">Desde</label>
-                <input type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" class="w-full border rounded-xl px-3 py-2">
+                <input type="date" name="desde" id="filtro_desde" value="<?= htmlspecialchars($desde) ?>" class="w-full border rounded-xl px-3 py-2">
             </div>
             <div class="md:col-span-2">
                 <label class="text-xs font-medium">Hasta</label>
-                <input type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" class="w-full border rounded-xl px-3 py-2">
+                <input type="date" name="hasta" id="filtro_hasta" value="<?= htmlspecialchars($hasta) ?>" class="w-full border rounded-xl px-3 py-2">
             </div>
             <div class="md:col-span-6">
                 <label class="text-xs font-medium">Empresas</label>
-                <div class="empresas-container">
+                <div class="empresas-container" id="empresasContainer">
                     <?php
                     $resEmp2 = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
                     while ($e = $resEmp2->fetch_assoc()) {
@@ -678,7 +678,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 </div>
             </div>
             <div class="md:col-span-2 flex items-end">
-                <button class="w-full bg-blue-600 text-white py-2.5 rounded-xl font-semibold shadow hover:bg-blue-700 transition">Aplicar</button>
+                <button type="submit" class="w-full bg-blue-600 text-white py-2.5 rounded-xl font-semibold shadow hover:bg-blue-700 transition">Aplicar</button>
             </div>
         </form>
     </div>
@@ -1850,11 +1850,11 @@ async function renderCuentasBD() {
     }
 }
 
-// Cargar cuenta completa desde BD
+// ===== FUNCIÓN MODIFICADA: Cargar cuenta completa desde BD =====
 async function cargarCuentaCompletaBD(id) {
     const confirmacion = await Swal.fire({
         title: '¿Cargar esta cuenta?',
-        text: 'Se restaurarán todos los datos guardados',
+        text: 'Se restaurarán todos los datos guardados y se actualizarán los filtros',
         icon: 'question',
         showCancelButton: true,
         confirmButtonText: 'Sí, cargar',
@@ -1874,7 +1874,18 @@ async function cargarCuentaCompletaBD(id) {
         if (resultado.success) {
             const cuenta = resultado.cuenta;
             
-            // Cargar datos básicos
+            // ===== NUEVO: Actualizar los filtros del formulario =====
+            // Actualizar campos de fecha
+            document.getElementById('filtro_desde').value = cuenta.desde;
+            document.getElementById('filtro_hasta').value = cuenta.hasta;
+            
+            // Actualizar checkboxes de empresas
+            const empresasGuardadas = cuenta.empresas || [];
+            document.querySelectorAll('.empresa-checkbox input').forEach(cb => {
+                cb.checked = empresasGuardadas.includes(cb.value);
+            });
+            
+            // Guardar en localStorage los datos de la cuenta
             const datos = cuenta.datos_json || {};
             
             // Restaurar mapas
@@ -1921,40 +1932,50 @@ async function cargarCuentaCompletaBD(id) {
             }
             
             // Aplicar a todas las filas
-            setTimeout(() => {
-                document.querySelectorAll('#tbody tr').forEach(tr => {
-                    const nombre = obtenerNombreConductorDeFila(tr);
-                    if (nombre) {
-                        if (accMap[nombre]) {
-                            const cta = tr.querySelector('.cta');
-                            if (cta) cta.value = accMap[nombre];
-                        }
-                        if (ssMap[nombre]) {
-                            const ss = tr.querySelector('.ss');
-                            if (ss) ss.value = fmt(ssMap[nombre]);
-                        }
-                        if (estadoPagoMap[nombre]) {
-                            const estado = tr.querySelector('.estado-pago');
-                            if (estado) {
-                                estado.value = estadoPagoMap[nombre];
-                                aplicarEstadoFila(tr, estadoPagoMap[nombre]);
-                            }
+            document.querySelectorAll('#tbody tr').forEach(tr => {
+                const nombre = obtenerNombreConductorDeFila(tr);
+                if (nombre) {
+                    if (accMap[nombre]) {
+                        const cta = tr.querySelector('.cta');
+                        if (cta) cta.value = accMap[nombre];
+                    }
+                    if (ssMap[nombre]) {
+                        const ss = tr.querySelector('.ss');
+                        if (ss) ss.value = fmt(ssMap[nombre]);
+                    }
+                    if (estadoPagoMap[nombre]) {
+                        const estado = tr.querySelector('.estado-pago');
+                        if (estado) {
+                            estado.value = estadoPagoMap[nombre];
+                            aplicarEstadoFila(tr, estadoPagoMap[nombre]);
                         }
                     }
-                });
-                
-                asignarPrestamosAFilas();
-                recalcularTodo();
-                closeGestor();
-                
-                Swal.fire({
-                    title: '✅ Cuenta cargada',
-                    text: `"${cuenta.nombre}" cargada exitosamente`,
-                    icon: 'success',
-                    timer: 2000,
-                    showConfirmButton: false
-                });
-            }, 200);
+                }
+            });
+            
+            asignarPrestamosAFilas();
+            
+            // Actualizar porcentaje de ajuste si está guardado
+            if (cuenta.porcentaje_ajuste) {
+                document.getElementById('inp_porcentaje_ajuste').value = cuenta.porcentaje_ajuste;
+            }
+            
+            recalcularTodo();
+            closeGestor();
+            
+            // ===== NUEVO: Mostrar mensaje y luego recargar la página =====
+            Swal.fire({
+                title: '✅ Cuenta cargada',
+                text: `"${cuenta.nombre}" cargada exitosamente. Recargando página con los nuevos filtros...`,
+                icon: 'success',
+                timer: 2000,
+                showConfirmButton: false,
+                willClose: () => {
+                    // Enviar el formulario para recargar la página con los nuevos filtros
+                    document.querySelector('form').submit();
+                }
+            });
+            
         } else {
             throw new Error(resultado.message);
         }
