@@ -196,7 +196,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     exit;
 }
 
-// ===== NUEVO HANDLER: Actualizar estado de pago de una cuenta guardada =====
+// ===== HANDLER: Actualizar estado de pago de una cuenta guardada =====
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'actualizar_pagado_cuenta') {
     header('Content-Type: application/json');
     $id = intval($_POST['id']);
@@ -1605,8 +1605,8 @@ function abrirModalViajes(nombre) {
         .catch(() => document.getElementById('viajesContent').innerHTML = '<p class="text-center text-red-600">Error cargando viajes</p>');
 }
 
-// ===== NUEVA FUNCIÓN: Actualizar estado de pago de una cuenta guardada =====
-async function actualizarEstadoCuenta(id, nuevoEstado) {
+// ===== FUNCIÓN CORREGIDA: Actualizar estado de pago de una cuenta guardada =====
+async function actualizarEstadoCuenta(id, nuevoEstado, switchElement) {
     try {
         const formData = new FormData();
         formData.append('accion', 'actualizar_pagado_cuenta');
@@ -1617,7 +1617,11 @@ async function actualizarEstadoCuenta(id, nuevoEstado) {
         const resultado = await response.json();
         
         if (resultado.success) {
-            // Mostrar notificación de éxito
+            // Mantener el estado visual del switch (ya está cambiado por el evento change)
+            const slider = switchElement.nextElementSibling;
+            slider.style.backgroundColor = nuevoEstado ? '#22c55e' : '#ef4444';
+            
+            // Mostrar notificación de éxito (toast pequeña)
             Swal.fire({
                 title: nuevoEstado ? '🟢 Pagado' : '🔴 No pagado',
                 text: 'Estado actualizado correctamente',
@@ -1628,16 +1632,17 @@ async function actualizarEstadoCuenta(id, nuevoEstado) {
                 position: 'top-end'
             });
             
-            // Actualizar los contadores de filtros sin recargar todo
-            const filtroEstado = document.getElementById('filtroEstadoPagado');
-            if (filtroEstado.value === '') {
-                // Si el filtro está en "todos", recargamos para reflejar el cambio
-                renderCuentasBD();
-            }
+            // NO recargar toda la tabla - solo mantener el estado actual
+            
         } else {
             throw new Error(resultado.message);
         }
     } catch (error) {
+        // Si hay error, revertir el switch al estado anterior
+        switchElement.checked = !nuevoEstado;
+        const slider = switchElement.nextElementSibling;
+        slider.style.backgroundColor = !nuevoEstado ? '#22c55e' : '#ef4444';
+        
         Swal.fire({
             title: '❌ Error',
             text: error.message,
@@ -1853,7 +1858,7 @@ async function renderCuentasBD() {
                 </td>
                 <td class="px-3 py-3 text-right num font-semibold">${fmt(cuenta.facturado || 0)}</td>
                 <td class="px-3 py-3 text-center">
-                    <!-- ===== NUEVO: Switch interactivo para cambiar estado ===== -->
+                    <!-- Switch interactivo para cambiar estado -->
                     <div class="flex justify-center">
                         <label class="switch-pagado switch-small" style="width: 40px; height: 20px;">
                             <input type="checkbox" 
@@ -1893,10 +1898,17 @@ async function renderCuentasBD() {
             btn.addEventListener('click', () => eliminarCuentaBD(btn.dataset.id));
         });
         
-        // ===== NUEVO: Eventos para los switches de estado =====
+        // ===== Eventos para los switches de estado =====
         document.querySelectorAll('.switch-estado-cuenta').forEach(switchInput => {
-            switchInput.addEventListener('change', async function(e) {
+            // Remover eventos anteriores para evitar duplicados
+            if (switchInput._handler) {
+                switchInput.removeEventListener('change', switchInput._handler);
+            }
+            
+            // Crear nuevo handler
+            switchInput._handler = async function(e) {
                 e.stopPropagation(); // Evitar que el evento burbujee
+                
                 const id = this.dataset.id;
                 const nuevoEstado = this.checked;
                 
@@ -1907,11 +1919,14 @@ async function renderCuentasBD() {
                 const slider = this.nextElementSibling;
                 slider.style.backgroundColor = nuevoEstado ? '#22c55e' : '#ef4444';
                 
-                await actualizarEstadoCuenta(id, nuevoEstado);
+                await actualizarEstadoCuenta(id, nuevoEstado, this);
                 
                 // Rehabilitar el switch
                 this.disabled = false;
-            });
+            };
+            
+            // Asignar el nuevo handler
+            switchInput.addEventListener('change', switchInput._handler);
         });
         
     } catch (error) {
