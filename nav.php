@@ -1,7 +1,6 @@
 <?php
 $desde = "2026-01-31";
 $hasta = date("Y-m-d");
-$empresa = "Hospital";
 ?>
 
 <style>
@@ -38,8 +37,6 @@ $empresa = "Hospital";
   transform: translateX(-120%);
   transition: transform 0.26s ease;
   z-index: 1000;
-  max-height: calc(100vh - 110px);
-  overflow-y: auto;
 }
 
 .mini-rail.is-open {
@@ -60,7 +57,6 @@ $empresa = "Hospital";
   color: #eaeaea;
   font-size: 12px;
   position: relative;
-  flex-shrink: 0;
 }
 
 .rail-item img {
@@ -88,10 +84,12 @@ $empresa = "Hospital";
   z-index: 1001;
 }
 
+/* Mostrar submenú al hacer hover */
 .liquidacion-btn:hover .submenu {
   display: block !important;
 }
 
+/* PUENTE INVISIBLE para poder mover el mouse al submenú */
 .liquidacion-btn::after {
   content: '';
   position: absolute;
@@ -103,6 +101,7 @@ $empresa = "Hospital";
   z-index: 1000;
 }
 
+/* El submenú también se mantiene visible si el mouse está sobre él */
 .submenu:hover {
   display: block !important;
 }
@@ -150,70 +149,43 @@ $empresa = "Hospital";
 <div id="navOverlay" class="nav-overlay"></div>
 
 <nav id="miniRail" class="mini-rail">
-  <!-- INICIO -->
   <a class="rail-item" href="index2.php">
     <img src="https://img.icons8.com/color/48/home--v5.png">
     <span>Inicio</span>
   </a>
 
-  <!-- INFORME -->
   <a class="rail-item" href="informe.php">
     <img src="https://img.icons8.com/color/48/combo-chart--v1.png">
     <span>Informe</span>
   </a>
 
-  <!-- LIQUIDACIÓN CON SUBMENÚ -->
+  <!-- BOTÓN LIQUIDACIÓN CON SUBMENÚ -->
   <div class="rail-item liquidacion-btn">
     <img src="https://img.icons8.com/color/48/bill.png">
     <span>Liquidación</span>
     
     <div class="submenu">
+      <!-- Hospital Maicao -->
       <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresas%5B%5D=Hospital&empresas%5B%5D=P.campa%C3%B1a-maicao">
         🏥 Hospital Maicao
       </a>
       
+      <!-- Puestos de Salud (TODOS los que mencionaste) -->
       <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresas%5B%5D=P.flor+de+la+guajira&empresas%5B%5D=p.nazareth&empresas%5B%5D=P.paraiso&empresas%5B%5D=P.puerto+estrella&empresas%5B%5D=p.siapana&empresas%5B%5D=P.villa+F%C3%A1tima">
         💊 Puestos de Salud
       </a>
     </div>
   </div>
 
-  <!-- MAPA -->
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/prueba.php?view=graph">
     <img src="https://img.icons8.com/color/48/share-3.png">
     <span>Mapa</span>
   </a>
 
-  <!-- PAGO -->
-  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresa=<?= $empresa ?>">
+  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresa=Hospital">
     <img src="https://img.icons8.com/color/48/paid.png">
     <span>Pago</span>
   </a>
-
-  <!-- EDITAR PRÉSTAMOS (NUEVO) -->
-  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/admin_prestamos.php?view=cards">
-    <img src="https://img.icons8.com/color/48/edit-file.png">
-    <span>Editar</span>
-  </a>
-
-  <!-- LIQUIDACIÓN PRESTAMISTAS (NUEVO) -->
-  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/urgente.php">
-    <img src="https://img.icons8.com/color/64/loan.png">
-    <span>Liquidación<br>prestamistas</span>
-  </a>
-
-  <!-- CUENTAS GUARDADAS (NUEVO) -->
-  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/ver_foto_cuenta.php">
-    <img src="https://img.icons8.com/color/48/picture.png">
-    <span>Cuentas de<br>cobro guardadas</span>
-  </a>
-
-  <!-- DÍAS (NUEVO) -->
-  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/tatiana.php">
-    <img src="https://img.icons8.com/color/48/planner.png">
-    <span>Días</span>
-  </a>
-
 </nav>
 
 <script>
