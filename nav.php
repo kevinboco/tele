@@ -111,31 +111,44 @@ $hasta   = date("Y-m-d");
   margin-bottom: 5px;
 }
 
-/* ===== SUBMENÚ CORREGIDO ===== */
+/* ===== SUBMENÚ (VERSIÓN QUE FUNCIONABA) ===== */
 .has-submenu {
   position: relative;
 }
 
-/* El submenú se posiciona a la derecha */
 .submenu {
   position: absolute;
-  top: -10px; /* Ajustado para cubrir mejor el área */
+  top: 0;
   left: 100%;
-  margin-left: 0;
+  margin-left: 10px;
   display: none;
   flex-direction: column;
   gap: 10px;
   z-index: var(--z-submenu);
-  padding-left: 10px; /* Espacio para el puente */
 }
 
-/* Mostrar submenú cuando el mouse está sobre el botón O sobre el propio submenú */
-.has-submenu:hover .submenu,
+/* Mostrar submenú al hacer hover en el botón */
+.has-submenu:hover .submenu {
+  display: flex;
+}
+
+/* PUENTE INVISIBLE - Esto permite mover el mouse al submenú */
+.has-submenu::after {
+  content: '';
+  position: absolute;
+  top: -5px;
+  right: -20px;
+  width: 30px;
+  height: 80px;
+  background: transparent;
+  z-index: var(--z-submenu);
+}
+
+/* El submenú también se mantiene visible si el mouse está sobre él */
 .submenu:hover {
   display: flex;
 }
 
-/* Estilo de las opciones del submenú */
 .submenu-item {
   width: 200px;
   background: #0e0e0e;
@@ -149,42 +162,17 @@ $hasta   = date("Y-m-d");
   gap: 12px;
   font-size: 14px;
   white-space: nowrap;
-  transition: all 0.2s ease;
 }
 
 .submenu-item:hover {
   background: #1a1a1a;
   border-color: #00e0a0;
   color: #00e0a0;
-  transform: translateX(5px);
 }
 
 .submenu-item img {
   width: 24px;
   height: 24px;
-}
-
-/* PUENTE INVISIBLE - Esto es clave para mantener el menú abierto */
-.has-submenu::after {
-  content: '';
-  position: absolute;
-  top: -10px;
-  right: -20px;
-  width: 30px; /* Ancho del puente */
-  height: 90px; /* Altura para cubrir botón y submenú */
-  background: transparent;
-  z-index: calc(var(--z-submenu) - 1);
-}
-
-/* Para que el submenú no se cierre cuando el mouse está en el borde */
-.submenu::before {
-  content: '';
-  position: absolute;
-  left: -10px;
-  top: 0;
-  width: 10px;
-  height: 100%;
-  background: transparent;
 }
 </style>
 
@@ -206,7 +194,7 @@ $hasta   = date("Y-m-d");
     <span>Informe</span>
   </a>
 
-  <!-- === BOTÓN LIQUIDACIÓN CON SUBMENÚ CORREGIDO === -->
+  <!-- === BOTÓN LIQUIDACIÓN CON SUBMENÚ === -->
   <div class="rail-item has-submenu">
     <img src="https://img.icons8.com/color/48/bill.png">
     <span>Liquidación</span>
