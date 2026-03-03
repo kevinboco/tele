@@ -5,18 +5,16 @@
 $desde   = "2026-01-31"; // <-- puedes cambiarla manualmente cuando necesites
 $hasta   = date("Y-m-d"); // fecha actual automática
 $empresa = "Hospital";
-
-// NOTA: Las URLs ahora se construyen directamente en los enlaces del submenú
-// para mantener la flexibilidad de tener múltiples empresas.
 ?>
 <style>
 :root {
   --bg: #0a0a0a;
   --br: #11f1f1f;
   --btn: #111;
+  --z-hamburger: 1002;  /* El botón hamburguesa por encima de todo */
   --z-rail: 1000;
   --z-overlay: 999;
-  --z-submenu: 1001; /* Asegura que el submenú esté por encima */
+  --z-submenu: 1001;
 }
 
 /* === BOTÓN HAMBURGUESA === */
@@ -34,7 +32,7 @@ $empresa = "Hospital";
   cursor: pointer;
   border: 1px solid var(--br);
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
-  z-index: calc(var(--z-rail) + 2);
+  z-index: var(--z-hamburger); /* Ahora sí, por encima de todo */
   transition: transform 0.18s ease, background 0.25s ease;
 }
 .menu-toggle:hover { transform: translateY(-1px); }
@@ -78,7 +76,10 @@ $empresa = "Hospital";
   transition: opacity 0.2s ease;
   z-index: var(--z-overlay);
 }
-.nav-overlay.is-visible { opacity: 1; pointer-events: auto; }
+.nav-overlay.is-visible { 
+  opacity: 1; 
+  pointer-events: auto; 
+}
 
 /* === RIEL LATERAL (RESPONSIVO + SCROLL) === */
 .mini-rail {
@@ -107,11 +108,13 @@ $empresa = "Hospital";
   touch-action: pan-y;
   overscroll-behavior: contain;
 
-  transform: translateX(-90px);
+  transform: translateX(-120%); /* Cambiado de -90px a -120% para asegurar que se oculte */
   transition: transform 0.26s ease;
   z-index: var(--z-rail);
 }
-.mini-rail.is-open { transform: translateX(0); }
+.mini-rail.is-open { 
+  transform: translateX(0); 
+}
 
 /* Scrollbar para navegadores WebKit */
 .mini-rail::-webkit-scrollbar {
@@ -146,7 +149,7 @@ $empresa = "Hospital";
   color: #eaeaea;
   font-size: 12px;
   transition: transform 0.15s ease, border-color 0.2s ease;
-  flex-shrink: 0; /* que no se aplasten con el scroll */
+  flex-shrink: 0;
 }
 .rail-item img {
   width: 30px;
@@ -166,13 +169,12 @@ $empresa = "Hospital";
 
 /* === CONTENEDOR PARA EL SUBMENÚ === */
 .menu-item-with-submenu {
-  position: relative; /* El submenú se posiciona de forma absoluta dentro de este contenedor */
+  position: relative;
   width: 70px;
   height: 70px;
   flex-shrink: 0;
 }
 
-/* El botón principal "Liquidación" ahora se comporta igual que un .rail-item, pero dentro de su contenedor */
 .menu-item-with-submenu .main-button {
   width: 100%;
   height: 100%;
@@ -211,44 +213,43 @@ $empresa = "Hospital";
 .submenu {
   position: absolute;
   top: 0;
-  left: 100%; /* Se posiciona justo a la derecha del botón principal */
-  margin-left: 8px; /* Un pequeño espacio entre el botón y el submenú */
+  left: 100%;
+  margin-left: 8px;
   background: var(--bg);
   border: 1px solid var(--br);
   border-radius: 12px;
   padding: 8px;
-  display: none; /* Oculto por defecto */
+  display: none;
   flex-direction: column;
   gap: 8px;
   z-index: var(--z-submenu);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
-  min-width: 160px; /* Ancho mínimo para que se vean bien los textos */
+  min-width: 180px;
 }
 
-/* Mostrar el submenú cuando el mouse está sobre el contenedor principal */
 .menu-item-with-submenu:hover .submenu {
   display: flex;
 }
 
-/* Estilo para los items del submenú */
 .submenu-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
+  padding: 10px 12px;
   background: #0e0e0e;
   border: 1px solid #202020;
   border-radius: 8px;
   text-decoration: none;
   color: #eaeaea;
   font-size: 13px;
-  white-space: nowrap; /* Evita que el texto se rompa en varias líneas */
+  white-space: nowrap;
   transition: background 0.2s ease;
 }
 
 .submenu-item:hover {
   background: #1a1a1a;
   border-color: #2b2b2b;
+  color: #00e0a0;
 }
 
 .submenu-item img {
@@ -258,15 +259,14 @@ $empresa = "Hospital";
   filter: saturate(1.1);
 }
 
-/* Pequeño ajuste para que el hover sea más suave en los bordes */
+/* Puente invisible para hover suave */
 .menu-item-with-submenu::after {
   content: '';
   position: absolute;
   top: 0;
-  right: -10px; /* Crea un puente invisible entre el botón y el submenú */
+  right: -10px;
   width: 10px;
   height: 100%;
-  z-index: calc(var(--z-submenu) - 1);
 }
 
 @media (max-width: 480px) {
@@ -275,10 +275,19 @@ $empresa = "Hospital";
     top: 72px;
     max-height: calc(100vh - 90px);
   }
+  
+  .submenu {
+    min-width: 160px;
+  }
+  
+  .submenu-item {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
 }
 </style>
 
-<!-- === BOTÓN === -->
+<!-- === BOTÓN HAMBURGUESA === -->
 <button id="menuToggle" class="menu-toggle" aria-label="Abrir menú" aria-expanded="false">
   <span class="bars" aria-hidden="true"></span>
 </button>
@@ -286,7 +295,7 @@ $empresa = "Hospital";
 <!-- === OVERLAY === -->
 <div id="navOverlay" class="nav-overlay" hidden></div>
 
-<!-- === MENÚ === -->
+<!-- === MENÚ LATERAL === -->
 <nav id="miniRail" class="mini-rail" aria-label="Menú lateral">
 
   <a class="rail-item" href="index2.php" title="Inicio">
@@ -301,13 +310,11 @@ $empresa = "Hospital";
 
   <!-- === BOTÓN DE LIQUIDACIÓN CON SUBMENÚ === -->
   <div class="menu-item-with-submenu">
-    <!-- Botón principal (ya no es un <a> porque no lleva a un link directo) -->
     <div class="main-button" title="Liquidación">
       <img src="https://img.icons8.com/color/48/bill.png" alt="Liquidación">
       <span>Liquidación</span>
     </div>
 
-    <!-- Submenú con las dos opciones -->
     <div class="submenu">
       <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresas%5B%5D=Hospital&empresas%5B%5D=P.campa%C3%B1a-maicao" title="Liquidación Hospital Maicao">
         <img src="https://img.icons8.com/color/48/hospital.png" alt="Hospital">
@@ -325,7 +332,6 @@ $empresa = "Hospital";
     <span>Mapa</span>
   </a>
 
-  <!-- Pago -->
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresa=<?= $empresa ?>" title="Pago">
     <img src="https://img.icons8.com/color/48/paid.png" alt="Pago">
     <span>Pago</span>
@@ -337,8 +343,8 @@ $empresa = "Hospital";
   </a>
 
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/urgente.php" title="Liquidación prestamistas">
-    <img src="https://img.icons8.com/color/64/loan.png" alt="Días">
-    <span>liquidacion prestamistas</span>
+    <img src="https://img.icons8.com/color/64/loan.png" alt="Liquidación prestamistas">
+    <span>Liquidación prestamistas</span>
   </a>
   
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/ver_foto_cuenta.php" title="Cuentas guardadas">
@@ -359,70 +365,99 @@ $empresa = "Hospital";
   const rail    = document.getElementById('miniRail');
   const overlay = document.getElementById('navOverlay');
 
+  // Función para abrir el menú
   function openRail() {
     rail.classList.add('is-open');
     btn.classList.add('is-open');
     overlay.hidden = false;
-    overlay.classList.add('is-visible');
+    // Pequeño retraso para que la transición funcione
+    setTimeout(() => {
+      overlay.classList.add('is-visible');
+    }, 10);
     document.body.style.overflow = 'hidden';
   }
+  
+  // Función para cerrar el menú
   function closeRail() {
     rail.classList.remove('is-open');
     btn.classList.remove('is-open');
     overlay.classList.remove('is-visible');
     document.body.style.overflow = '';
-    setTimeout(() => overlay.hidden = true, 180);
+    // Ocultar el overlay después de la transición
+    setTimeout(() => {
+      overlay.hidden = true;
+    }, 260);
   }
 
-  btn.addEventListener('click', () =>
-    rail.classList.contains('is-open') ? closeRail() : openRail()
-  );
+  // Evento click en el botón hamburguesa
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (rail.classList.contains('is-open')) {
+      closeRail();
+    } else {
+      openRail();
+    }
+  });
+  
+  // Evento click en el overlay para cerrar
   overlay.addEventListener('click', closeRail);
+  
+  // Cerrar con tecla Escape
   window.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && rail.classList.contains('is-open')) closeRail();
+    if (e.key === 'Escape' && rail.classList.contains('is-open')) {
+      closeRail();
+    }
   });
 
-  // === EFECTO DE MAGNIFICACIÓN SOLO EN PC (no en táctil) ===
+  // === EFECTO DE MAGNIFICACIÓN ===
   const isTouch = (
     'ontouchstart' in window ||
     navigator.maxTouchPoints > 0 ||
     window.matchMedia('(pointer: coarse)').matches
   );
 
-  // Seleccionamos tanto los .rail-item como el contenedor del submenú para el efecto de magnificación
+  // Seleccionar todos los elementos que deben magnificarse
   const items = [...rail.querySelectorAll('.rail-item, .menu-item-with-submenu')];
 
   if (!isTouch) {
-    // Solo escritorio: efecto de agrandar según la posición del mouse
+    let magnifyTimer;
+    
     rail.addEventListener('mousemove', e => {
+      clearTimeout(magnifyTimer);
+      
       const max  = 140;
       const base = 70;
       const y    = e.clientY;
+      
       items.forEach(it => {
         const r = it.getBoundingClientRect();
         const d = Math.abs(y - (r.top + r.height/2));
+        
         if (d < max) {
           const scale = 1 + (1 - d/max) * 0.3;
           const s = base * scale;
           it.style.width  = s + 'px';
           it.style.height = s + 'px';
-          it.style.zIndex = 1000 - d;
+          it.style.zIndex = Math.floor(1000 - d);
+          it.style.transition = 'none';
         } else {
           it.style.width  = base + 'px';
           it.style.height = base + 'px';
           it.style.zIndex = 'auto';
+          it.style.transition = 'width 0.15s ease, height 0.15s ease';
         }
       });
     });
-    rail.addEventListener('mouseleave', () =>
+    
+    rail.addEventListener('mouseleave', () => {
       items.forEach(i => {
         i.style.width  = '70px';
         i.style.height = '70px';
         i.style.zIndex = 'auto';
-      })
-    );
+        i.style.transition = 'width 0.15s ease, height 0.15s ease';
+      });
+    });
   } else {
-    // En móviles, asegurar tamaño fijo
     items.forEach(i => {
       i.style.width  = '70px';
       i.style.height = '70px';
@@ -430,35 +465,39 @@ $empresa = "Hospital";
     });
   }
 
-  // Manejo especial para móviles: hacer que el submenú se muestre al hacer clic en el botón principal
+  // === MANEJO TÁCTIL PARA EL SUBMENÚ ===
   if (isTouch) {
     const submenuParent = document.querySelector('.menu-item-with-submenu');
-    const mainButton = submenuParent?.querySelector('.main-button');
-    
-    mainButton?.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
+    if (submenuParent) {
+      const mainButton = submenuParent.querySelector('.main-button');
+      const submenu = submenuParent.querySelector('.submenu');
       
-      // Cerrar otros submenús abiertos (si los hubiera en el futuro)
-      document.querySelectorAll('.submenu').forEach(sub => {
-        if (sub !== submenuParent.querySelector('.submenu')) {
-          sub.style.display = 'none';
+      mainButton.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // Cerrar otros submenús si los hubiera
+        document.querySelectorAll('.submenu').forEach(s => {
+          if (s !== submenu) {
+            s.style.display = 'none';
+          }
+        });
+
+        // Toggle del submenú actual
+        if (submenu.style.display === 'flex') {
+          submenu.style.display = 'none';
+        } else {
+          submenu.style.display = 'flex';
         }
       });
 
-      const submenu = submenuParent.querySelector('.submenu');
-      if (submenu) {
-        const isVisible = submenu.style.display === 'flex';
-        submenu.style.display = isVisible ? 'none' : 'flex';
-      }
-    });
-
-    // Cerrar submenú al hacer clic fuera
-    document.addEventListener('click', (e) => {
-      if (!submenuParent?.contains(e.target)) {
-        submenuParent?.querySelector('.submenu').style.display = 'none';
-      }
-    });
+      // Cerrar al hacer clic fuera
+      document.addEventListener('click', (e) => {
+        if (!submenuParent.contains(e.target)) {
+          submenu.style.display = 'none';
+        }
+      });
+    }
   }
 })();
 </script>
