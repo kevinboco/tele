@@ -1,14 +1,14 @@
 <?php
 // nav_color.php — Menú lateral con íconos a color, texto fijo y magnificación
+// === CON SUBMENÚ PARA LIQUIDACIÓN (Hospital Maicao + Puestos de Salud) ===
 
 // === Fechas dinámicas ===
-$desde   = "2026-01-31"; // <-- puedes cambiarla manualmente cuando necesites
-$hasta   = date("Y-m-d"); // fecha actual automática
-$empresa = "Hospital";
+$desde   = "2026-01-31"; // <-- SOLO MODIFICAS ESTA FECHA (la fecha de inicio de la quincena/mes)
+$hasta   = date("Y-m-d"); // fecha actual automática (NO TOCAR)
 
-// URL dinámica con las fechas
-$url_liquidacion = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=$desde&hasta=$hasta&empresa=$empresa";
-$url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago.php?desde=$desde&hasta=$hasta&empresa=$empresa";
+// URLs específicas para cada empresa (usando la misma variable $desde)
+$url_hospital = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=$desde&hasta=$hasta&empresas%5B%5D=Hospital";
+$url_puestos = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=$desde&hasta=$hasta&empresas%5B%5D=P.campa%C3%B1a-maicao";
 ?>
 <style>
 :root {
@@ -129,7 +129,7 @@ $url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/te
   background: #555;
 }
 
-/* === BOTONES === */
+/* === BOTONES PRINCIPALES === */
 .rail-item {
   position: relative;
   width: 70px;
@@ -164,12 +164,108 @@ $url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/te
 .rail-item:hover img { filter: saturate(1.6); transform: translateY(-2px); }
 .rail-item:hover span { color: #00e0a0; }
 
-@media (max-width: 480px) {
+/* === CONTENEDOR PARA EL SUBMENÚ === */
+.rail-item-container {
+  position: relative;
+  width: 70px;
+  height: 70px;
+}
+
+.rail-item-container:hover .submenu {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+/* === SUBMENÚ (HORIZONTAL A LA DERECHA) === */
+.submenu {
+  position: absolute;
+  left: 100%;
+  top: 0;
+  min-width: 200px;
+  background: var(--bg);
+  border: 1px solid var(--br);
+  border-radius: 12px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-10px);
+  transition: all 0.2s ease;
+  z-index: calc(var(--z-rail) + 1);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  backdrop-filter: blur(5px);
+  background: rgba(10, 10, 10, 0.95);
+}
+
+/* === ITEMS DEL SUBMENÚ === */
+.submenu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  text-decoration: none;
+  color: #eaeaea;
+  border-radius: 8px;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.submenu-item:hover {
+  background: #1a1a1a;
+  border-color: #2b2b2b;
+  transform: translateX(5px);
+}
+
+.submenu-item:hover span {
+  color: #00e0a0;
+}
+
+.submenu-item img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  filter: saturate(1.2);
+}
+
+.submenu-item span {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* === RESPONSIVE PARA MÓVILES === */
+@media (max-width: 768px) {
   .mini-rail {
     left: 8px;
     top: 72px;
     max-height: calc(100vh - 90px);
   }
+  
+  .submenu {
+    position: fixed;
+    left: 90px;
+    top: auto;
+    min-width: 180px;
+  }
+  
+  .submenu-item {
+    white-space: normal;
+    word-break: break-word;
+  }
+  
+  .submenu-item span {
+    font-size: 12px;
+  }
+}
+
+/* Ajuste para cuando el menú está abierto */
+.mini-rail.is-open .submenu {
+  left: calc(100% + 5px);
 }
 </style>
 
@@ -194,18 +290,35 @@ $url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/te
     <span>Informe</span>
   </a>
 
-  <!-- Enlace con fecha actual automática -->
-  <a class="rail-item" href="<?= $url_liquidacion ?>" title="Liquidación">
-    <img src="https://img.icons8.com/color/48/bill.png" alt="Liquidación">
-    <span>Liquidación</span>
-  </a>
+  <!-- BOTÓN LIQUIDACIÓN CON SUBMENÚ (HOSPITAL + PUESTOS) -->
+  <div class="rail-item-container">
+    <a class="rail-item" href="#" title="Liquidación" id="liquidacionBtn" onclick="return false;">
+      <img src="https://img.icons8.com/color/48/bill.png" alt="Liquidación">
+      <span>Liquidación</span>
+    </a>
+    
+    <!-- SUBMENÚ CON LAS DOS EMPRESAS -->
+    <div class="submenu" id="liquidacionSubmenu">
+      <a href="<?= $url_hospital ?>" class="submenu-item" title="Liquidación Hospital Maicao">
+        <img src="https://img.icons8.com/color/48/hospital.png" alt="Hospital">
+        <span>Hospital Maicao</span>
+      </a>
+      <a href="<?= $url_puestos ?>" class="submenu-item" title="Liquidación Puestos de Salud">
+        <img src="https://img.icons8.com/color/48/hospital-3.png" alt="Puestos">
+        <span>Puestos de Salud</span>
+      </a>
+    </div>
+  </div>
 
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/prueba.php?view=graph" title="Mapa préstamos">
     <img src="https://img.icons8.com/color/48/share-3.png" alt="Mapa">
     <span>Mapa</span>
   </a>
 
-  <!-- Pago -->
+  <!-- Pago (usando la URL que ya tenías) -->
+  <?php
+  $url_pago = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago.php?desde=$desde&hasta=$hasta&empresa=Hospital";
+  ?>
   <a class="rail-item" href="<?= $url_pago ?>" title="Pago">
     <img src="https://img.icons8.com/color/48/paid.png" alt="Pago">
     <span>Pago</span>
@@ -220,6 +333,7 @@ $url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/te
     <img src="https://img.icons8.com/color/64/loan.png" alt="Días">
     <span>liquidacion prestamistas</span>
   </a>
+  
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/ver_foto_cuenta.php" title="Cuentas guardadas">
     <img src="https://img.icons8.com/color/48/picture.png" alt="Foto">
     <span>Cuentas de cobro guardadas</span>
@@ -229,9 +343,6 @@ $url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/te
     <img src="https://img.icons8.com/color/48/planner.png" alt="Días">
     <span>Días</span>
   </a>
-
-  <!-- === NUEVO BOTÓN: VER CUENTAS GUARDADAS === -->
-  
 
 </nav>
 
@@ -308,6 +419,15 @@ $url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/te
       i.style.width  = '70px';
       i.style.height = '70px';
       i.style.zIndex = 'auto';
+    });
+  }
+
+  // Prevenir que el submenú se cierre al hacer hover sobre él
+  const submenu = document.getElementById('liquidacionSubmenu');
+  if (submenu) {
+    submenu.addEventListener('mouseenter', () => {
+      submenu.style.opacity = '1';
+      submenu.style.visibility = 'visible';
     });
   }
 })();
