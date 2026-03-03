@@ -16,6 +16,11 @@ $hasta = date("Y-m-d");
   border: 1px solid #11f1f1f;
   cursor: pointer;
   z-index: 1002;
+  color: white;
+  font-size: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .mini-rail {
@@ -75,10 +80,29 @@ $hasta = date("Y-m-d");
   border: 1px solid #11f1f1f;
   border-radius: 12px;
   padding: 8px;
-  min-width: 180px;
+  min-width: 200px;
+  z-index: 1001;
 }
 
+/* Mostrar submenú al hacer hover */
 .liquidacion-btn:hover .submenu {
+  display: block !important;
+}
+
+/* PUENTE INVISIBLE para poder mover el mouse al submenú */
+.liquidacion-btn::after {
+  content: '';
+  position: absolute;
+  top: -5px;
+  right: -20px;
+  width: 30px;
+  height: 80px;
+  background: transparent;
+  z-index: 1000;
+}
+
+/* El submenú también se mantiene visible si el mouse está sobre él */
+.submenu:hover {
   display: block !important;
 }
 
@@ -92,6 +116,7 @@ $hasta = date("Y-m-d");
   color: #eaeaea;
   margin-bottom: 5px;
   white-space: nowrap;
+  font-size: 13px;
 }
 
 .submenu-item:last-child {
@@ -100,6 +125,7 @@ $hasta = date("Y-m-d");
 
 .submenu-item:hover {
   background: #1a1a1a;
+  border-color: #00e0a0;
   color: #00e0a0;
 }
 
@@ -139,11 +165,13 @@ $hasta = date("Y-m-d");
     <span>Liquidación</span>
     
     <div class="submenu">
+      <!-- Hospital Maicao -->
       <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresas%5B%5D=Hospital&empresas%5B%5D=P.campa%C3%B1a-maicao">
         🏥 Hospital Maicao
       </a>
       
-      <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresas%5B%5D=Puestos%20de%20Salud">
+      <!-- Puestos de Salud (TODOS los que mencionaste) -->
+      <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresas%5B%5D=P.flor+de+la+guajira&empresas%5B%5D=p.nazareth&empresas%5B%5D=P.paraiso&empresas%5B%5D=P.puerto+estrella&empresas%5B%5D=p.siapana&empresas%5B%5D=P.villa+F%C3%A1tima">
         💊 Puestos de Salud
       </a>
     </div>
