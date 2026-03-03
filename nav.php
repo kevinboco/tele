@@ -69,7 +69,7 @@ $empresa = "Hospital";
   margin-bottom: 5px;
 }
 
-/* ===== SUBMENÚ CORREGIDO ===== */
+/* ===== SUBMENÚ ===== */
 .liquidacion-btn {
   position: relative;
 }
@@ -85,24 +85,26 @@ $empresa = "Hospital";
   border-radius: 12px;
   padding: 8px;
   min-width: 200px;
-  z-index: 9999;
+  z-index: 1001;
 }
 
-/* Mostrar submenú al hacer hover */
 .liquidacion-btn:hover .submenu {
-  display: block;
+  display: block !important;
 }
 
-/* PUENTE INVISIBLE */
 .liquidacion-btn::after {
   content: '';
   position: absolute;
-  top: -10px;
-  right: -25px;
-  width: 35px;
-  height: 90px;
+  top: -5px;
+  right: -20px;
+  width: 30px;
+  height: 80px;
   background: transparent;
-  z-index: 9998;
+  z-index: 1000;
+}
+
+.submenu:hover {
+  display: block !important;
 }
 
 .submenu-item {
@@ -188,29 +190,30 @@ $empresa = "Hospital";
     <span>Pago</span>
   </a>
 
-  <!-- EDITAR PRÉSTAMOS -->
+  <!-- EDITAR PRÉSTAMOS (NUEVO) -->
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/admin_prestamos.php?view=cards">
     <img src="https://img.icons8.com/color/48/edit-file.png">
     <span>Editar</span>
   </a>
 
-  <!-- LIQUIDACIÓN PRESTAMISTAS -->
+  <!-- LIQUIDACIÓN PRESTAMISTAS (NUEVO) -->
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/urgente.php">
     <img src="https://img.icons8.com/color/64/loan.png">
     <span>Liquidación<br>prestamistas</span>
   </a>
 
-  <!-- CUENTAS GUARDADAS -->
+  <!-- CUENTAS GUARDADAS (NUEVO) -->
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/ver_foto_cuenta.php">
     <img src="https://img.icons8.com/color/48/picture.png">
     <span>Cuentas de<br>cobro guardadas</span>
   </a>
 
-  <!-- DÍAS -->
+  <!-- DÍAS (NUEVO) -->
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/tatiana.php">
     <img src="https://img.icons8.com/color/48/planner.png">
     <span>Días</span>
   </a>
+
 </nav>
 
 <script>
@@ -227,30 +230,4 @@ overlay.onclick = function() {
   rail.classList.remove('is-open');
   overlay.classList.remove('is-visible');
 };
-
-// JavaScript de respaldo para el submenú en caso de que el hover falle
-document.querySelectorAll('.liquidacion-btn').forEach(btn => {
-  btn.addEventListener('mouseenter', function() {
-    this.querySelector('.submenu').style.display = 'block';
-  });
-  
-  btn.addEventListener('mouseleave', function() {
-    setTimeout(() => {
-      if (!this.querySelector('.submenu:hover')) {
-        this.querySelector('.submenu').style.display = 'none';
-      }
-    }, 100);
-  });
-});
-
-// Mantener submenú abierto cuando el mouse está sobre él
-document.querySelectorAll('.submenu').forEach(submenu => {
-  submenu.addEventListener('mouseenter', function() {
-    this.style.display = 'block';
-  });
-  
-  submenu.addEventListener('mouseleave', function() {
-    this.style.display = 'none';
-  });
-});
 </script>
