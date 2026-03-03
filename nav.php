@@ -1,9 +1,7 @@
 <?php
-// nav_color.php — Menú lateral con íconos a color, texto fijo, magnificación y submenú
-
-// === Fechas dinámicas ===
-$desde   = "2026-01-31"; // <-- puedes cambiarla manualmente cuando necesites
-$hasta   = date("Y-m-d"); // fecha actual automática
+// nav_color.php — Menú lateral con submenú en Liquidación (SIN magnificación)
+$desde   = "2026-01-31";
+$hasta   = date("Y-m-d");
 $empresa = "Hospital";
 ?>
 <style>
@@ -11,7 +9,7 @@ $empresa = "Hospital";
   --bg: #0a0a0a;
   --br: #11f1f1f;
   --btn: #111;
-  --z-hamburger: 1002;  /* El botón hamburguesa por encima de todo */
+  --z-hamburger: 1002;
   --z-rail: 1000;
   --z-overlay: 999;
   --z-submenu: 1001;
@@ -32,7 +30,7 @@ $empresa = "Hospital";
   cursor: pointer;
   border: 1px solid var(--br);
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
-  z-index: var(--z-hamburger); /* Ahora sí, por encima de todo */
+  z-index: var(--z-hamburger);
   transition: transform 0.18s ease, background 0.25s ease;
 }
 .menu-toggle:hover { transform: translateY(-1px); }
@@ -81,34 +79,25 @@ $empresa = "Hospital";
   pointer-events: auto; 
 }
 
-/* === RIEL LATERAL (RESPONSIVO + SCROLL) === */
+/* === RIEL LATERAL === */
 .mini-rail {
   position: fixed;
   left: 10px;
   top: 84px;
-
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 12px;
-
   padding: 10px 8px;
   background: var(--bg);
   border: 1px solid var(--br);
   border-radius: 16px;
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
-
-  /* que nunca se salga de la pantalla y tenga scroll */
   max-height: calc(100vh - 110px);
   overflow-y: auto;
   overflow-x: hidden;
-
-  /* scroll suave en iOS / móviles */
   -webkit-overflow-scrolling: touch;
-  touch-action: pan-y;
-  overscroll-behavior: contain;
-
-  transform: translateX(-120%); /* Cambiado de -90px a -120% para asegurar que se oculte */
+  transform: translateX(-120%);
   transition: transform 0.26s ease;
   z-index: var(--z-rail);
 }
@@ -116,7 +105,6 @@ $empresa = "Hospital";
   transform: translateX(0); 
 }
 
-/* Scrollbar para navegadores WebKit */
 .mini-rail::-webkit-scrollbar {
   width: 6px;
 }
@@ -128,13 +116,9 @@ $empresa = "Hospital";
   background: #333;
   border-radius: 10px;
 }
-.mini-rail::-webkit-scrollbar-thumb:hover {
-  background: #555;
-}
 
-/* === BOTONES === */
+/* === BOTONES PRINCIPALES (SIN EFECTO DE MAGNIFICACIÓN) === */
 .rail-item {
-  position: relative;
   width: 70px;
   height: 70px;
   display: flex;
@@ -144,11 +128,10 @@ $empresa = "Hospital";
   background: #0e0e0e;
   border: 1px solid #202020;
   border-radius: 12px;
-  box-shadow: inset 0 0 0 2px #0f0f0f;
   text-decoration: none;
   color: #eaeaea;
   font-size: 12px;
-  transition: transform 0.15s ease, border-color 0.2s ease;
+  transition: border-color 0.2s ease;
   flex-shrink: 0;
 }
 .rail-item img {
@@ -156,18 +139,14 @@ $empresa = "Hospital";
   height: 30px;
   margin-bottom: 5px;
   object-fit: contain;
-  transition: filter 0.15s ease, transform 0.12s ease;
-  filter: saturate(1.1);
 }
 .rail-item:hover {
   border-color: #2b2b2b;
-  box-shadow: inset 0 0 0 2px #1a1a1a;
-  transform: scale(1.07);
+  background: #1a1a1a;
 }
-.rail-item:hover img { filter: saturate(1.6); transform: translateY(-2px); }
 .rail-item:hover span { color: #00e0a0; }
 
-/* === CONTENEDOR PARA EL SUBMENÚ === */
+/* === CONTENEDOR DEL SUBMENÚ === */
 .menu-item-with-submenu {
   position: relative;
   width: 70px;
@@ -185,11 +164,9 @@ $empresa = "Hospital";
   background: #0e0e0e;
   border: 1px solid #202020;
   border-radius: 12px;
-  box-shadow: inset 0 0 0 2px #0f0f0f;
   text-decoration: none;
   color: #eaeaea;
   font-size: 12px;
-  transition: transform 0.15s ease, border-color 0.2s ease;
   cursor: pointer;
   box-sizing: border-box;
 }
@@ -198,74 +175,73 @@ $empresa = "Hospital";
   height: 30px;
   margin-bottom: 5px;
   object-fit: contain;
-  transition: filter 0.15s ease, transform 0.12s ease;
-  filter: saturate(1.1);
 }
 .menu-item-with-submenu .main-button:hover {
   border-color: #2b2b2b;
-  box-shadow: inset 0 0 0 2px #1a1a1a;
-  transform: scale(1.07);
+  background: #1a1a1a;
 }
-.menu-item-with-submenu .main-button:hover img { filter: saturate(1.6); transform: translateY(-2px); }
 .menu-item-with-submenu .main-button:hover span { color: #00e0a0; }
 
-/* === ESTILOS DEL SUBMENÚ === */
+/* === SUBMENÚ CON DISEÑO DE "BOLITAS" === */
 .submenu {
   position: absolute;
   top: 0;
   left: 100%;
-  margin-left: 8px;
-  background: var(--bg);
-  border: 1px solid var(--br);
-  border-radius: 12px;
-  padding: 8px;
+  margin-left: 15px;
   display: none;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
   z-index: var(--z-submenu);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
-  min-width: 180px;
 }
 
+/* Mostrar submenú al hacer hover */
 .menu-item-with-submenu:hover .submenu {
   display: flex;
 }
 
+/* Estilo de "bolitas" para cada opción */
 .submenu-item {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
+  justify-content: center;
+  width: 70px;
+  height: 70px;
   background: #0e0e0e;
   border: 1px solid #202020;
-  border-radius: 8px;
+  border-radius: 50%; /* Esto hace las "bolitas" circulares */
   text-decoration: none;
   color: #eaeaea;
-  font-size: 13px;
-  white-space: nowrap;
-  transition: background 0.2s ease;
-}
-
-.submenu-item:hover {
-  background: #1a1a1a;
-  border-color: #2b2b2b;
-  color: #00e0a0;
+  font-size: 11px;
+  text-align: center;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
 }
 
 .submenu-item img {
-  width: 20px;
-  height: 20px;
+  width: 30px;
+  height: 30px;
+  margin-bottom: 5px;
   object-fit: contain;
-  filter: saturate(1.1);
 }
 
-/* Puente invisible para hover suave */
+.submenu-item:hover {
+  border-color: #00e0a0;
+  transform: scale(1.1);
+  background: #1a1a1a;
+}
+
+.submenu-item:hover span {
+  color: #00e0a0;
+}
+
+/* Puente invisible para hover */
 .menu-item-with-submenu::after {
   content: '';
   position: absolute;
   top: 0;
-  right: -10px;
-  width: 10px;
+  right: -15px;
+  width: 15px;
   height: 100%;
 }
 
@@ -274,15 +250,6 @@ $empresa = "Hospital";
     left: 8px;
     top: 72px;
     max-height: calc(100vh - 90px);
-  }
-  
-  .submenu {
-    min-width: 160px;
-  }
-  
-  .submenu-item {
-    padding: 8px 10px;
-    font-size: 12px;
   }
 }
 </style>
@@ -308,7 +275,7 @@ $empresa = "Hospital";
     <span>Informe</span>
   </a>
 
-  <!-- === BOTÓN DE LIQUIDACIÓN CON SUBMENÚ === -->
+  <!-- === BOTÓN DE LIQUIDACIÓN CON SUBMENÚ DE "BOLITAS" === -->
   <div class="menu-item-with-submenu">
     <div class="main-button" title="Liquidación">
       <img src="https://img.icons8.com/color/48/bill.png" alt="Liquidación">
@@ -316,13 +283,16 @@ $empresa = "Hospital";
     </div>
 
     <div class="submenu">
-      <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresas%5B%5D=Hospital&empresas%5B%5D=P.campa%C3%B1a-maicao" title="Liquidación Hospital Maicao">
+      <!-- Primera "bolita": Hospital Maicao -->
+      <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresas%5B%5D=Hospital&empresas%5B%5D=P.campa%C3%B1a-maicao" title="Hospital Maicao">
         <img src="https://img.icons8.com/color/48/hospital.png" alt="Hospital">
-        <span>Hospital Maicao</span>
+        <span>Hospital<br>Maicao</span>
       </a>
-      <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresas%5B%5D=Puestos%20de%20Salud" title="Liquidación Puestos de Salud">
+      
+      <!-- Segunda "bolita": Puestos de Salud -->
+      <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresas%5B%5D=Puestos%20de%20Salud" title="Puestos de Salud">
         <img src="https://img.icons8.com/color/48/health-checkup.png" alt="Puestos de Salud">
-        <span>Puestos de Salud</span>
+        <span>Puestos de<br>Salud</span>
       </a>
     </div>
   </div>
@@ -344,12 +314,12 @@ $empresa = "Hospital";
 
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/urgente.php" title="Liquidación prestamistas">
     <img src="https://img.icons8.com/color/64/loan.png" alt="Liquidación prestamistas">
-    <span>Liquidación prestamistas</span>
+    <span>Liquidación<br>prestamistas</span>
   </a>
   
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/ver_foto_cuenta.php" title="Cuentas guardadas">
     <img src="https://img.icons8.com/color/48/picture.png" alt="Foto">
-    <span>Cuentas de cobro guardadas</span>
+    <span>Cuentas de<br>cobro guardadas</span>
   </a>
 
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/tatiana.php" title="Días">
@@ -365,107 +335,40 @@ $empresa = "Hospital";
   const rail    = document.getElementById('miniRail');
   const overlay = document.getElementById('navOverlay');
 
-  // Función para abrir el menú
   function openRail() {
     rail.classList.add('is-open');
     btn.classList.add('is-open');
     overlay.hidden = false;
-    // Pequeño retraso para que la transición funcione
-    setTimeout(() => {
-      overlay.classList.add('is-visible');
-    }, 10);
+    setTimeout(() => overlay.classList.add('is-visible'), 10);
     document.body.style.overflow = 'hidden';
   }
   
-  // Función para cerrar el menú
   function closeRail() {
     rail.classList.remove('is-open');
     btn.classList.remove('is-open');
     overlay.classList.remove('is-visible');
     document.body.style.overflow = '';
-    // Ocultar el overlay después de la transición
-    setTimeout(() => {
-      overlay.hidden = true;
-    }, 260);
+    setTimeout(() => overlay.hidden = true, 260);
   }
 
-  // Evento click en el botón hamburguesa
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (rail.classList.contains('is-open')) {
-      closeRail();
-    } else {
-      openRail();
-    }
+    rail.classList.contains('is-open') ? closeRail() : openRail();
   });
   
-  // Evento click en el overlay para cerrar
   overlay.addEventListener('click', closeRail);
   
-  // Cerrar con tecla Escape
   window.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && rail.classList.contains('is-open')) {
-      closeRail();
-    }
+    if (e.key === 'Escape' && rail.classList.contains('is-open')) closeRail();
   });
 
-  // === EFECTO DE MAGNIFICACIÓN ===
+  // === SOLO MANEJO TÁCTIL PARA MÓVILES ===
   const isTouch = (
     'ontouchstart' in window ||
     navigator.maxTouchPoints > 0 ||
     window.matchMedia('(pointer: coarse)').matches
   );
 
-  // Seleccionar todos los elementos que deben magnificarse
-  const items = [...rail.querySelectorAll('.rail-item, .menu-item-with-submenu')];
-
-  if (!isTouch) {
-    let magnifyTimer;
-    
-    rail.addEventListener('mousemove', e => {
-      clearTimeout(magnifyTimer);
-      
-      const max  = 140;
-      const base = 70;
-      const y    = e.clientY;
-      
-      items.forEach(it => {
-        const r = it.getBoundingClientRect();
-        const d = Math.abs(y - (r.top + r.height/2));
-        
-        if (d < max) {
-          const scale = 1 + (1 - d/max) * 0.3;
-          const s = base * scale;
-          it.style.width  = s + 'px';
-          it.style.height = s + 'px';
-          it.style.zIndex = Math.floor(1000 - d);
-          it.style.transition = 'none';
-        } else {
-          it.style.width  = base + 'px';
-          it.style.height = base + 'px';
-          it.style.zIndex = 'auto';
-          it.style.transition = 'width 0.15s ease, height 0.15s ease';
-        }
-      });
-    });
-    
-    rail.addEventListener('mouseleave', () => {
-      items.forEach(i => {
-        i.style.width  = '70px';
-        i.style.height = '70px';
-        i.style.zIndex = 'auto';
-        i.style.transition = 'width 0.15s ease, height 0.15s ease';
-      });
-    });
-  } else {
-    items.forEach(i => {
-      i.style.width  = '70px';
-      i.style.height = '70px';
-      i.style.zIndex = 'auto';
-    });
-  }
-
-  // === MANEJO TÁCTIL PARA EL SUBMENÚ ===
   if (isTouch) {
     const submenuParent = document.querySelector('.menu-item-with-submenu');
     if (submenuParent) {
@@ -476,14 +379,7 @@ $empresa = "Hospital";
         e.preventDefault();
         e.stopPropagation();
         
-        // Cerrar otros submenús si los hubiera
-        document.querySelectorAll('.submenu').forEach(s => {
-          if (s !== submenu) {
-            s.style.display = 'none';
-          }
-        });
-
-        // Toggle del submenú actual
+        // Toggle del submenú
         if (submenu.style.display === 'flex') {
           submenu.style.display = 'none';
         } else {
