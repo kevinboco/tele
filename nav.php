@@ -159,7 +159,7 @@ $hasta = date("Y-m-d");
     <span>Informe</span>
   </a>
 
-  <!-- BOTÓN LIQUIDACIÓN CON SUBMENÚ -->
+  <!-- BOTÓN LIQUIDACIÓN CON SUBMENÚ (SE MANTIENE) -->
   <div class="rail-item liquidacion-btn">
     <img src="https://img.icons8.com/color/48/bill.png">
     <span>Liquidación</span>
@@ -170,7 +170,7 @@ $hasta = date("Y-m-d");
         🏥 Hospital Maicao
       </a>
       
-      <!-- Puestos de Salud (TODOS los que mencionaste) -->
+      <!-- Puestos de Salud -->
       <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresas%5B%5D=P.flor+de+la+guajira&empresas%5B%5D=p.nazareth&empresas%5B%5D=P.paraiso&empresas%5B%5D=P.puerto+estrella&empresas%5B%5D=p.siapana&empresas%5B%5D=P.villa+F%C3%A1tima">
         💊 Puestos de Salud
       </a>
@@ -185,6 +185,27 @@ $hasta = date("Y-m-d");
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresa=Hospital">
     <img src="https://img.icons8.com/color/48/paid.png">
     <span>Pago</span>
+  </a>
+
+  <!-- ===== NUEVOS BOTONES AGREGADOS ===== -->
+  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/admin_prestamos.php?view=cards">
+    <img src="https://img.icons8.com/color/48/edit-file.png">
+    <span>Editar</span>
+  </a>
+
+  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/urgente.php">
+    <img src="https://img.icons8.com/color/64/loan.png">
+    <span>liquidacion prestamistas</span>
+  </a>
+
+  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/ver_foto_cuenta.php">
+    <img src="https://img.icons8.com/color/48/picture.png">
+    <span>Cuentas de cobro guardadas</span>
+  </a>
+
+  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/tatiana.php">
+    <img src="https://img.icons8.com/color/48/planner.png">
+    <span>Días</span>
   </a>
 </nav>
 
