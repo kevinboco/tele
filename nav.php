@@ -1,17 +1,10 @@
 <?php
-// nav_color.php
-$desde   = "2026-01-31";
-$hasta   = date("Y-m-d");
+$desde = "2026-01-31";
+$hasta = date("Y-m-d");
 ?>
-<style>
-:root {
-  --bg: #0a0a0a;
-  --br: #11f1f1f;
-  --z-rail: 1000;
-  --z-overlay: 999;
-  --z-submenu: 1001;
-}
 
+<style>
+/* SOLO LO ESENCIAL */
 .menu-toggle {
   position: fixed;
   left: 14px;
@@ -20,51 +13,9 @@ $hasta   = date("Y-m-d");
   height: 56px;
   border-radius: 50%;
   background: #111;
-  color: #fff;
-  display: grid;
-  place-items: center;
-  cursor: pointer;
   border: 1px solid #11f1f1f;
+  cursor: pointer;
   z-index: 1002;
-}
-.menu-toggle .bars {
-  position: relative;
-  width: 26px;
-  height: 2px;
-  background: #fff;
-}
-.menu-toggle .bars::before,
-.menu-toggle .bars::after {
-  content: "";
-  position: absolute;
-  width: 26px;
-  height: 2px;
-  background: #fff;
-}
-.menu-toggle .bars::before { top: -8px; }
-.menu-toggle .bars::after { top: 8px; }
-.menu-toggle.is-open .bars { background: transparent; }
-.menu-toggle.is-open .bars::before {
-  top: 0;
-  transform: rotate(45deg);
-}
-.menu-toggle.is-open .bars::after {
-  top: 0;
-  transform: rotate(-45deg);
-}
-
-.nav-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.15);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s ease;
-  z-index: var(--z-overlay);
-}
-.nav-overlay.is-visible { 
-  opacity: 1; 
-  pointer-events: auto; 
 }
 
 .mini-rail {
@@ -73,20 +24,18 @@ $hasta   = date("Y-m-d");
   top: 84px;
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 12px;
-  padding: 10px 8px;
-  background: var(--bg);
-  border: 1px solid var(--br);
+  padding: 10px;
+  background: #0a0a0a;
+  border: 1px solid #11f1f1f;
   border-radius: 16px;
-  max-height: calc(100vh - 110px);
-  overflow-y: auto;
   transform: translateX(-120%);
   transition: transform 0.26s ease;
-  z-index: var(--z-rail);
+  z-index: 1000;
 }
-.mini-rail.is-open { 
-  transform: translateX(0); 
+
+.mini-rail.is-open {
+  transform: translateX(0);
 }
 
 .rail-item {
@@ -102,9 +51,9 @@ $hasta   = date("Y-m-d");
   text-decoration: none;
   color: #eaeaea;
   font-size: 12px;
-  flex-shrink: 0;
   position: relative;
 }
+
 .rail-item img {
   width: 30px;
   height: 30px;
@@ -112,7 +61,7 @@ $hasta   = date("Y-m-d");
 }
 
 /* ===== SUBMENÚ ===== */
-.has-submenu {
+.liquidacion-btn {
   position: relative;
 }
 
@@ -122,60 +71,58 @@ $hasta   = date("Y-m-d");
   left: 100%;
   margin-left: 10px;
   display: none;
-  flex-direction: column;
-  gap: 10px;
-  z-index: var(--z-submenu);
+  background: #0a0a0a;
+  border: 1px solid #11f1f1f;
+  border-radius: 12px;
+  padding: 8px;
+  min-width: 180px;
 }
 
-.has-submenu:hover .submenu {
-  display: flex;
+.liquidacion-btn:hover .submenu {
+  display: block !important;
 }
 
 .submenu-item {
-  width: 200px;
+  display: block;
+  padding: 12px 15px;
   background: #0e0e0e;
   border: 1px solid #202020;
   border-radius: 8px;
-  padding: 12px 15px;
   text-decoration: none;
   color: #eaeaea;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 14px;
+  margin-bottom: 5px;
   white-space: nowrap;
+}
+
+.submenu-item:last-child {
+  margin-bottom: 0;
 }
 
 .submenu-item:hover {
   background: #1a1a1a;
-  border-color: #00e0a0;
   color: #00e0a0;
 }
 
-.submenu-item img {
-  width: 24px;
-  height: 24px;
+.nav-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.15);
+  display: none;
+  z-index: 999;
 }
 
-/* Puente para el hover */
-.has-submenu::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  right: -10px;
-  width: 10px;
-  height: 100%;
+.nav-overlay.is-visible {
+  display: block;
 }
 </style>
 
 <button id="menuToggle" class="menu-toggle">
-  <span class="bars"></span>
+  ☰
 </button>
 
-<div id="navOverlay" class="nav-overlay" hidden></div>
+<div id="navOverlay" class="nav-overlay"></div>
 
 <nav id="miniRail" class="mini-rail">
-
   <a class="rail-item" href="index2.php">
     <img src="https://img.icons8.com/color/48/home--v5.png">
     <span>Inicio</span>
@@ -186,20 +133,18 @@ $hasta   = date("Y-m-d");
     <span>Informe</span>
   </a>
 
-  <!-- === BOTÓN LIQUIDACIÓN CON SUBMENÚ === -->
-  <div class="rail-item has-submenu">
+  <!-- BOTÓN LIQUIDACIÓN CON SUBMENÚ -->
+  <div class="rail-item liquidacion-btn">
     <img src="https://img.icons8.com/color/48/bill.png">
     <span>Liquidación</span>
     
     <div class="submenu">
       <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresas%5B%5D=Hospital&empresas%5B%5D=P.campa%C3%B1a-maicao">
-        <img src="https://img.icons8.com/color/48/hospital.png">
-        <span>Hospital Maicao</span>
+        🏥 Hospital Maicao
       </a>
       
       <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresas%5B%5D=Puestos%20de%20Salud">
-        <img src="https://img.icons8.com/color/48/health-checkup.png">
-        <span>Puestos de Salud</span>
+        💊 Puestos de Salud
       </a>
     </div>
   </div>
@@ -213,27 +158,6 @@ $hasta   = date("Y-m-d");
     <img src="https://img.icons8.com/color/48/paid.png">
     <span>Pago</span>
   </a>
-
-  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/admin_prestamos.php?view=cards">
-    <img src="https://img.icons8.com/color/48/edit-file.png">
-    <span>Editar</span>
-  </a>
-
-  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/urgente.php">
-    <img src="https://img.icons8.com/color/64/loan.png">
-    <span>Liquidación prestamistas</span>
-  </a>
-  
-  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/ver_foto_cuenta.php">
-    <img src="https://img.icons8.com/color/48/picture.png">
-    <span>Cuentas de cobro guardadas</span>
-  </a>
-
-  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/tatiana.php">
-    <img src="https://img.icons8.com/color/48/planner.png">
-    <span>Días</span>
-  </a>
-
 </nav>
 
 <script>
@@ -241,22 +165,13 @@ const btn = document.getElementById('menuToggle');
 const rail = document.getElementById('miniRail');
 const overlay = document.getElementById('navOverlay');
 
-btn.addEventListener('click', () => {
+btn.onclick = function() {
   rail.classList.toggle('is-open');
-  btn.classList.toggle('is-open');
-  if (rail.classList.contains('is-open')) {
-    overlay.hidden = false;
-    setTimeout(() => overlay.classList.add('is-visible'), 10);
-  } else {
-    overlay.classList.remove('is-visible');
-    setTimeout(() => overlay.hidden = true, 260);
-  }
-});
+  overlay.classList.toggle('is-visible');
+};
 
-overlay.addEventListener('click', () => {
+overlay.onclick = function() {
   rail.classList.remove('is-open');
-  btn.classList.remove('is-open');
   overlay.classList.remove('is-visible');
-  setTimeout(() => overlay.hidden = true, 260);
-});
+};
 </script>
