@@ -1,14 +1,13 @@
 <?php
-// nav_color.php — Menú lateral con íconos a color, texto fijo y magnificación
+// nav_color.php — Menú lateral con íconos a color, texto fijo, magnificación y submenú
 
 // === Fechas dinámicas ===
 $desde   = "2026-01-31"; // <-- puedes cambiarla manualmente cuando necesites
 $hasta   = date("Y-m-d"); // fecha actual automática
 $empresa = "Hospital";
 
-// URL dinámica con las fechas
-$url_liquidacion = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=$desde&hasta=$hasta&empresa=$empresa";
-$url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago.php?desde=$desde&hasta=$hasta&empresa=$empresa";
+// NOTA: Las URLs ahora se construyen directamente en los enlaces del submenú
+// para mantener la flexibilidad de tener múltiples empresas.
 ?>
 <style>
 :root {
@@ -17,6 +16,7 @@ $url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/te
   --btn: #111;
   --z-rail: 1000;
   --z-overlay: 999;
+  --z-submenu: 1001; /* Asegura que el submenú esté por encima */
 }
 
 /* === BOTÓN HAMBURGUESA === */
@@ -164,6 +164,111 @@ $url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/te
 .rail-item:hover img { filter: saturate(1.6); transform: translateY(-2px); }
 .rail-item:hover span { color: #00e0a0; }
 
+/* === CONTENEDOR PARA EL SUBMENÚ === */
+.menu-item-with-submenu {
+  position: relative; /* El submenú se posiciona de forma absoluta dentro de este contenedor */
+  width: 70px;
+  height: 70px;
+  flex-shrink: 0;
+}
+
+/* El botón principal "Liquidación" ahora se comporta igual que un .rail-item, pero dentro de su contenedor */
+.menu-item-with-submenu .main-button {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #0e0e0e;
+  border: 1px solid #202020;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 2px #0f0f0f;
+  text-decoration: none;
+  color: #eaeaea;
+  font-size: 12px;
+  transition: transform 0.15s ease, border-color 0.2s ease;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.menu-item-with-submenu .main-button img {
+  width: 30px;
+  height: 30px;
+  margin-bottom: 5px;
+  object-fit: contain;
+  transition: filter 0.15s ease, transform 0.12s ease;
+  filter: saturate(1.1);
+}
+.menu-item-with-submenu .main-button:hover {
+  border-color: #2b2b2b;
+  box-shadow: inset 0 0 0 2px #1a1a1a;
+  transform: scale(1.07);
+}
+.menu-item-with-submenu .main-button:hover img { filter: saturate(1.6); transform: translateY(-2px); }
+.menu-item-with-submenu .main-button:hover span { color: #00e0a0; }
+
+/* === ESTILOS DEL SUBMENÚ === */
+.submenu {
+  position: absolute;
+  top: 0;
+  left: 100%; /* Se posiciona justo a la derecha del botón principal */
+  margin-left: 8px; /* Un pequeño espacio entre el botón y el submenú */
+  background: var(--bg);
+  border: 1px solid var(--br);
+  border-radius: 12px;
+  padding: 8px;
+  display: none; /* Oculto por defecto */
+  flex-direction: column;
+  gap: 8px;
+  z-index: var(--z-submenu);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+  min-width: 160px; /* Ancho mínimo para que se vean bien los textos */
+}
+
+/* Mostrar el submenú cuando el mouse está sobre el contenedor principal */
+.menu-item-with-submenu:hover .submenu {
+  display: flex;
+}
+
+/* Estilo para los items del submenú */
+.submenu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #0e0e0e;
+  border: 1px solid #202020;
+  border-radius: 8px;
+  text-decoration: none;
+  color: #eaeaea;
+  font-size: 13px;
+  white-space: nowrap; /* Evita que el texto se rompa en varias líneas */
+  transition: background 0.2s ease;
+}
+
+.submenu-item:hover {
+  background: #1a1a1a;
+  border-color: #2b2b2b;
+}
+
+.submenu-item img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  filter: saturate(1.1);
+}
+
+/* Pequeño ajuste para que el hover sea más suave en los bordes */
+.menu-item-with-submenu::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: -10px; /* Crea un puente invisible entre el botón y el submenú */
+  width: 10px;
+  height: 100%;
+  z-index: calc(var(--z-submenu) - 1);
+}
+
 @media (max-width: 480px) {
   .mini-rail {
     left: 8px;
@@ -194,11 +299,26 @@ $url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/te
     <span>Informe</span>
   </a>
 
-  <!-- Enlace con fecha actual automática -->
-  <a class="rail-item" href="<?= $url_liquidacion ?>" title="Liquidación">
-    <img src="https://img.icons8.com/color/48/bill.png" alt="Liquidación">
-    <span>Liquidación</span>
-  </a>
+  <!-- === BOTÓN DE LIQUIDACIÓN CON SUBMENÚ === -->
+  <div class="menu-item-with-submenu">
+    <!-- Botón principal (ya no es un <a> porque no lleva a un link directo) -->
+    <div class="main-button" title="Liquidación">
+      <img src="https://img.icons8.com/color/48/bill.png" alt="Liquidación">
+      <span>Liquidación</span>
+    </div>
+
+    <!-- Submenú con las dos opciones -->
+    <div class="submenu">
+      <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresas%5B%5D=Hospital&empresas%5B%5D=P.campa%C3%B1a-maicao" title="Liquidación Hospital Maicao">
+        <img src="https://img.icons8.com/color/48/hospital.png" alt="Hospital">
+        <span>Hospital Maicao</span>
+      </a>
+      <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresas%5B%5D=Puestos%20de%20Salud" title="Liquidación Puestos de Salud">
+        <img src="https://img.icons8.com/color/48/health-checkup.png" alt="Puestos de Salud">
+        <span>Puestos de Salud</span>
+      </a>
+    </div>
+  </div>
 
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/prueba.php?view=graph" title="Mapa préstamos">
     <img src="https://img.icons8.com/color/48/share-3.png" alt="Mapa">
@@ -206,7 +326,7 @@ $url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/te
   </a>
 
   <!-- Pago -->
-  <a class="rail-item" href="<?= $url_pago ?>" title="Pago">
+  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresa=<?= $empresa ?>" title="Pago">
     <img src="https://img.icons8.com/color/48/paid.png" alt="Pago">
     <span>Pago</span>
   </a>
@@ -220,6 +340,7 @@ $url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/te
     <img src="https://img.icons8.com/color/64/loan.png" alt="Días">
     <span>liquidacion prestamistas</span>
   </a>
+  
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/ver_foto_cuenta.php" title="Cuentas guardadas">
     <img src="https://img.icons8.com/color/48/picture.png" alt="Foto">
     <span>Cuentas de cobro guardadas</span>
@@ -229,9 +350,6 @@ $url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/te
     <img src="https://img.icons8.com/color/48/planner.png" alt="Días">
     <span>Días</span>
   </a>
-
-  <!-- === NUEVO BOTÓN: VER CUENTAS GUARDADAS === -->
-  
 
 </nav>
 
@@ -271,7 +389,8 @@ $url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/te
     window.matchMedia('(pointer: coarse)').matches
   );
 
-  const items = [...rail.querySelectorAll('.rail-item')];
+  // Seleccionamos tanto los .rail-item como el contenedor del submenú para el efecto de magnificación
+  const items = [...rail.querySelectorAll('.rail-item, .menu-item-with-submenu')];
 
   if (!isTouch) {
     // Solo escritorio: efecto de agrandar según la posición del mouse
@@ -308,6 +427,37 @@ $url_pago        = "https://asociacion.asociaciondetransportistaszonanorte.io/te
       i.style.width  = '70px';
       i.style.height = '70px';
       i.style.zIndex = 'auto';
+    });
+  }
+
+  // Manejo especial para móviles: hacer que el submenú se muestre al hacer clic en el botón principal
+  if (isTouch) {
+    const submenuParent = document.querySelector('.menu-item-with-submenu');
+    const mainButton = submenuParent?.querySelector('.main-button');
+    
+    mainButton?.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Cerrar otros submenús abiertos (si los hubiera en el futuro)
+      document.querySelectorAll('.submenu').forEach(sub => {
+        if (sub !== submenuParent.querySelector('.submenu')) {
+          sub.style.display = 'none';
+        }
+      });
+
+      const submenu = submenuParent.querySelector('.submenu');
+      if (submenu) {
+        const isVisible = submenu.style.display === 'flex';
+        submenu.style.display = isVisible ? 'none' : 'flex';
+      }
+    });
+
+    // Cerrar submenú al hacer clic fuera
+    document.addEventListener('click', (e) => {
+      if (!submenuParent?.contains(e.target)) {
+        submenuParent?.querySelector('.submenu').style.display = 'none';
+      }
     });
   }
 })();
