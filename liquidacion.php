@@ -627,9 +627,9 @@ if (!empty($empresasSeleccionadas)) {
 <title>Liquidación de Conductores - Consolidado</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
-  /* ===== ESTILOS ORIGINALES CORREGIDOS ===== */
+  /* ===== ESTILOS CORREGIDOS CON BOLAS ABAJO Y TOOLTIPS VISIBLES ===== */
   
-  /* BARRAS DE DESPLAZAMIENTO VISIBLES - CORREGIDO */
+  /* BARRAS DE DESPLAZAMIENTO VISIBLES */
   ::-webkit-scrollbar {
     height: 10px;
     width: 10px;
@@ -693,38 +693,38 @@ if (!empty($empresasSeleccionadas)) {
     50% { opacity: 0.7; }
   }
   
-  /* Bolitas flotantes */
+  /* ===== BOLITAS FLOTANTES EN LA PARTE INFERIOR ===== */
   .floating-balls-container {
     position: fixed;
-    left: 20px;
-    top: 50%;
-    transform: translateY(-50%);
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 20px; /* Ahora están en la parte inferior */
     display: flex;
-    flex-direction: column;
-    gap: 15px;
+    flex-direction: row;
+    gap: 20px;
     z-index: 9998;
   }
   
   .floating-ball {
-    width: 60px;
-    height: 60px;
+    width: 70px;
+    height: 70px;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     border: 3px solid white;
     position: relative;
     z-index: 9999;
-    overflow: hidden;
+    overflow: visible; /* Cambiado para que el tooltip sea visible */
     user-select: none;
   }
   
   .floating-ball:hover {
-    transform: scale(1.15) translateY(-2px);
-    box-shadow: 0 12px 25px rgba(0, 0, 0, 0.3);
+    transform: scale(1.15) translateY(-5px);
+    box-shadow: 0 15px 30px rgba(0, 0, 0, 0.3);
   }
   
   .floating-ball:active {
@@ -732,7 +732,7 @@ if (!empty($empresasSeleccionadas)) {
   }
   
   .ball-content {
-    font-size: 24px;
+    font-size: 28px;
     font-weight: bold;
     color: white;
     text-shadow: 0 2px 4px rgba(0,0,0,0.3);
@@ -741,23 +741,24 @@ if (!empty($empresasSeleccionadas)) {
     justify-content: center;
   }
   
+  /* ===== TOOLTIP AHORA SIEMPRE VISIBLE AL HACER HOVER ===== */
   .ball-tooltip {
     position: absolute;
-    left: 70px;
-    top: 50%;
-    transform: translateY(-50%);
-    background: white;
-    color: #1e293b;
-    padding: 6px 12px;
-    border-radius: 8px;
-    font-size: 12px;
+    bottom: 80px; /* Aparece arriba de la bola */
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1e293b;
+    color: white;
+    padding: 8px 16px;
+    border-radius: 30px;
+    font-size: 14px;
     font-weight: 600;
     white-space: nowrap;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    border: 1px solid #e2e8f0;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+    border: 1px solid #334155;
     opacity: 0;
     visibility: hidden;
-    transition: all 0.3s;
+    transition: all 0.2s ease;
     pointer-events: none;
     z-index: 10000;
   }
@@ -765,7 +766,19 @@ if (!empty($empresasSeleccionadas)) {
   .floating-ball:hover .ball-tooltip {
     opacity: 1;
     visibility: visible;
-    left: 75px;
+    bottom: 90px; /* Se desplaza un poco hacia arriba */
+  }
+  
+  /* Flecha del tooltip */
+  .ball-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 8px;
+    border-style: solid;
+    border-color: #1e293b transparent transparent transparent;
   }
   
   .ball-tarifas { background: linear-gradient(135deg, #3b82f6, #1d4ed8); }
@@ -837,7 +850,7 @@ if (!empty($empresasSeleccionadas)) {
   }
   
   #panel-clasif-rutas table {
-    min-width: 600px; /* Asegura que la tabla tenga ancho mínimo */
+    min-width: 600px;
   }
   
   .side-panel-close {
@@ -1092,21 +1105,23 @@ if (!empty($empresasSeleccionadas)) {
   
   @media (max-width: 768px) {
     .floating-balls-container {
-      bottom: 20px;
-      top: auto;
-      left: 50%;
-      transform: translateX(-50%);
-      flex-direction: row;
+      bottom: 15px;
       gap: 10px;
     }
     
     .floating-ball {
-      width: 50px;
-      height: 50px;
+      width: 55px;
+      height: 55px;
     }
     
     .ball-content {
-      font-size: 20px;
+      font-size: 22px;
+    }
+    
+    .ball-tooltip {
+      font-size: 12px;
+      padding: 6px 12px;
+      bottom: 70px;
     }
     
     .side-panel {
@@ -1118,16 +1133,12 @@ if (!empty($empresasSeleccionadas)) {
     .table-container-wrapper.with-panel {
       margin-left: 0;
     }
-    
-    .ball-tooltip {
-      display: none;
-    }
   }
 </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800">
 
-  <!-- BOLITAS FLOTANTES (sin cambios) -->
+  <!-- BOLITAS FLOTANTES EN LA PARTE INFERIOR CON TOOLTIPS VISIBLES -->
   <div class="floating-balls-container">
     <div class="floating-ball ball-tarifas" id="ball-tarifas" data-panel="tarifas">
       <div class="ball-content">🚐</div>
@@ -1524,7 +1535,7 @@ if (!empty($empresasSeleccionadas)) {
     const EMPRESAS_SELECCIONADAS = <?= json_encode($empresasSeleccionadas) ?>;
     const CLASIFICACIONES_DISPONIBLES = <?= json_encode($clasificaciones_disponibles) ?>;
     
-    // ===== SISTEMA DE BOLITAS Y PANELES (sin cambios) =====
+    // ===== SISTEMA DE BOLITAS Y PANELES =====
     let activePanel = null;
     const panels = ['tarifas', 'crear-clasif', 'clasif-rutas', 'selector-columnas'];
     
