@@ -80,6 +80,7 @@ if (isset($_GET['obtener_cuentas'])) {
     
     if ($result && $result->num_rows > 0) {
         while ($row = $result->fetch_assoc()) {
+            // 👈 CORREGIDO: Forzar pagado a entero
             $row['pagado'] = (int)$row['pagado'];
             
             $datos_json = json_decode($row['datos_json'], true);
@@ -171,6 +172,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     
     if ($result && $result->num_rows > 0) {
         $row = $result->fetch_assoc();
+        // 👈 CORREGIDO: Forzar pagado a entero
         $row['pagado'] = (int)$row['pagado'];
         
         $datos_json = json_decode($row['datos_json'], true);
@@ -515,7 +517,6 @@ $i = 0;
 
 $qPrest = "
   SELECT deudor,
-         empresa,
          SUM(
            monto + 
            monto * 
@@ -534,15 +535,14 @@ if (!empty($empresasSeleccionadasEsc)) {
     $qPrest .= " AND empresa IN ($empresasStr)";
 }
 
-$qPrest .= " GROUP BY deudor, empresa";
+$qPrest .= " GROUP BY deudor";
 
 if ($rP = $conn->query($qPrest)) {
     while($r = $rP->fetch_assoc()){
         $name = $r['deudor'];
         $key  = norm_person($name);
         $total = (int)round($r['total']);
-        $empresa = $r['empresa'];
-        $prestamosList[] = ['id'=>$i++, 'name'=>$name, 'key'=>$key, 'total'=>$total, 'empresa'=>$empresa];
+        $prestamosList[] = ['id'=>$i++, 'name'=>$name, 'key'=>$key, 'total'=>$total];
     }
 }
 
@@ -631,37 +631,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         .switch-small { width: 40px; height: 20px; }
         .switch-small .switch-slider:before { height: 14px; width: 14px; left: 3px; bottom: 3px; }
         input:checked + .switch-small .switch-slider:before { transform: translateX(20px); }
-        
-        /* Estilos para el input manual de préstamos */
-        .valor-manual-container {
-            background: linear-gradient(145deg, #fef9e7 0%, #fff3cd 100%);
-            border: 2px solid #fbbf24;
-            border-radius: 1rem;
-            padding: 1rem;
-            margin-bottom: 1rem;
-        }
-        .valor-manual-input {
-            font-size: 1.25rem;
-            font-weight: 600;
-            text-align: right;
-            border: 2px solid #f59e0b;
-            background: white;
-            transition: all 0.2s;
-        }
-        .valor-manual-input:focus {
-            border-color: #d97706;
-            box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
-            outline: none;
-        }
-        .badge-manual {
-            background: #fbbf24;
-            color: #92400e;
-            font-size: 0.7rem;
-            font-weight: 600;
-            padding: 0.25rem 0.5rem;
-            border-radius: 9999px;
-            display: inline-block;
-        }
     </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
@@ -910,7 +879,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- Modal Préstamos MODIFICADO: AHORA CON INPUT MANUAL -->
+<!-- Modal Préstamos -->
 <div id="prestModal" class="hidden fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-8 max-w-2xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
@@ -919,46 +888,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             <button id="btnCloseModal" class="p-2 rounded hover:bg-slate-100">✕</button>
         </div>
         <div class="p-4">
-            <!-- 👇 NUEVO: Input para valor manual -->
-            <div class="valor-manual-container mb-4">
-                <div class="flex items-center justify-between mb-2">
-                    <span class="font-semibold text-amber-800">💰 VALOR MANUAL</span>
-                    <span class="badge-manual">Prioridad total</span>
-                </div>
-                <div class="flex gap-2">
-                    <input id="prestValorManual" 
-                           type="text" 
-                           class="valor-manual-input w-full rounded-xl px-4 py-3 num" 
-                           placeholder="Escribe un valor manual aquí..."
-                           value="">
-                    <button id="btnClearManual" 
-                            class="px-3 py-2 bg-amber-100 text-amber-800 rounded-xl border border-amber-300 hover:bg-amber-200 text-sm font-medium">
-                        Limpiar
-                    </button>
-                </div>
-                <p class="text-xs text-amber-600 mt-2">
-                    ⚡ Si escribes un valor manual, SOLO ESE VALOR se asignará (ignora los seleccionados abajo)
-                </p>
-            </div>
-
-            <!-- Filtro de empresas -->
-            <div class="mb-3">
-                <select id="filtroEmpresaPrestamos" class="w-full rounded-xl border border-slate-300 px-3 py-2">
-                    <option value="">Todas las empresas</option>
-                    <?php
-                    $empresasUnicas = array_unique(array_column($prestamosList, 'empresa'));
-                    sort($empresasUnicas);
-                    foreach ($empresasUnicas as $emp): 
-                        if (!empty($emp)):
-                    ?>
-                        <option value="<?= htmlspecialchars($emp) ?>"><?= htmlspecialchars($emp) ?></option>
-                    <?php 
-                        endif;
-                    endforeach; 
-                    ?>
-                </select>
-            </div>
-
             <input id="prestSearch" type="text" placeholder="Buscar deudor..." class="w-full rounded-xl border border-slate-300 px-3 py-2 mb-3">
             <div id="prestList" class="max-h-96 overflow-auto border rounded-xl"></div>
         </div>
@@ -1209,30 +1138,17 @@ function asignarPrestamosAFilas() {
         let nombres = [];
         
         prestamosDeEsteConductor.forEach(prestamoGuardado => {
-            if (prestamoGuardado.esManual) {
-                // Si es manual, usar el valor guardado
-                totalMostrar += prestamoGuardado.valorManual;
-                nombres.push(`💰 Manual: $${fmt(prestamoGuardado.valorManual)}`);
-            } else {
-                // Si es de la base de datos, buscar el préstamo actual
-                const prestamoActual = PRESTAMOS_LIST.find(p => p.id === prestamoGuardado.id || p.name === prestamoGuardado.name);
-                if (prestamoActual) {
-                    totalMostrar += prestamoActual.total;
-                    nombres.push(prestamoActual.name);
-                }
+            const prestamoActual = PRESTAMOS_LIST.find(p => p.id === prestamoGuardado.id || p.name === prestamoGuardado.name);
+            if (prestamoActual) {
+                totalMostrar += prestamoGuardado.esManual ? prestamoGuardado.valorManual : prestamoActual.total;
+                nombres.push(prestamoActual.name);
             }
         });
         
         const prestSpan = tr.querySelector('.prest');
         const selLabel = tr.querySelector('.selected-deudor');
         if (prestSpan) prestSpan.textContent = fmt(totalMostrar);
-        if (selLabel) {
-            if (nombres.length <= 2) {
-                selLabel.textContent = nombres.join(', ');
-            } else {
-                selLabel.textContent = nombres.slice(0,2).join(', ') + ' +' + (nombres.length-2) + ' más';
-            }
-        }
+        if (selLabel) selLabel.textContent = nombres.length <= 2 ? nombres.join(', ') : nombres.slice(0,2).join(', ') + ' +' + (nombres.length-2) + ' más';
     });
 }
 
@@ -1590,22 +1506,17 @@ function hacerPanelArrastrable() {
     document.addEventListener('mouseup', () => isDragging = false);
 }
 
-// ===== MODAL PRÉSTAMOS MODIFICADO =====
+// ===== MODAL PRÉSTAMOS =====
 let currentRow = null, selectedIds = new Set(), filteredIdx = [];
 
-function renderPrestList(filter = '', empresaFiltro = '') {
+function renderPrestList(filter = '') {
     const list = document.getElementById('prestList');
     list.innerHTML = '';
     const nf = normalizarTexto(filter);
     filteredIdx = [];
     
     PRESTAMOS_LIST.forEach((item, idx) => {
-        // Filtrar por texto
         if (nf && !normalizarTexto(item.name).includes(nf)) return;
-        
-        // Filtrar por empresa
-        if (empresaFiltro && item.empresa !== empresaFiltro) return;
-        
         filteredIdx.push(idx);
         
         const row = document.createElement('div');
@@ -1614,7 +1525,6 @@ function renderPrestList(filter = '', empresaFiltro = '') {
             <div class="flex items-center gap-3">
                 <input type="checkbox" class="prest-checkbox rounded" data-id="${item.id}" ${selectedIds.has(item.id) ? 'checked' : ''}>
                 <span class="text-sm">${item.name}</span>
-                <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">${item.empresa || 'Sin empresa'}</span>
             </div>
             <span class="num text-sm font-semibold">${fmt(item.total)}</span>
         `;
@@ -1654,18 +1564,11 @@ function openPrestModalForRow(tr) {
         return;
     }
     
-    // Cargar préstamos guardados existentes (si no son manuales)
     (prestSel[baseName] || []).forEach(p => {
-        if (!p.esManual && p.id !== undefined) {
-            selectedIds.add(Number(p.id));
-        }
+        if (p.id !== undefined) selectedIds.add(Number(p.id));
     });
     
-    // Limpiar input manual
-    document.getElementById('prestValorManual').value = '';
-    
     document.getElementById('prestSearch').value = '';
-    document.getElementById('filtroEmpresaPrestamos').value = '';
     renderPrestList('');
     document.getElementById('prestModal').classList.remove('hidden');
 }
@@ -1694,7 +1597,7 @@ function abrirModalViajes(nombre) {
         .catch(() => document.getElementById('viajesContent').innerHTML = '<p class="text-center text-red-600">Error cargando viajes</p>');
 }
 
-// ===== FUNCIÓN: Actualizar estado de pago de una cuenta guardada =====
+// ===== FUNCIÓN CORREGIDA: Actualizar estado de pago de una cuenta guardada =====
 async function actualizarEstadoCuenta(id, nuevoEstado, switchElement) {
     try {
         const formData = new FormData();
@@ -1706,6 +1609,7 @@ async function actualizarEstadoCuenta(id, nuevoEstado, switchElement) {
         const resultado = await response.json();
         
         if (resultado.success) {
+            // Mantener el estado visual del switch (ya está cambiado por el evento change)
             const slider = switchElement.nextElementSibling;
             slider.style.backgroundColor = nuevoEstado ? '#22c55e' : '#ef4444';
             
@@ -1719,12 +1623,14 @@ async function actualizarEstadoCuenta(id, nuevoEstado, switchElement) {
                 position: 'top-end'
             });
             
+            // 👈 CORREGIDO: Recargar la lista para asegurar consistencia
             await renderCuentasBD();
             
         } else {
             throw new Error(resultado.message);
         }
     } catch (error) {
+        // Si hay error, revertir el switch al estado anterior
         switchElement.checked = !nuevoEstado;
         const slider = switchElement.nextElementSibling;
         slider.style.backgroundColor = !nuevoEstado ? '#22c55e' : '#ef4444';
@@ -1788,6 +1694,7 @@ function openSaveCuenta() {
         return;
     }
     
+    // Mostrar empresas seleccionadas
     empresasContainer.innerHTML = empresas.map(emp => 
         `<div class="py-1 px-2 bg-white rounded border border-slate-200 mb-1 text-sm">✓ ${emp}</div>`
     ).join('');
@@ -1826,6 +1733,7 @@ btnDoSaveCuenta.addEventListener('click', async () => {
     const porcentaje = parseFloat(iPorcentaje.value) || 0;
     const pagado = iPagado.checked ? 1 : 0;
     
+    // Obtener datos actuales
     const datosParaGuardar = {
         prestamos: prestSel,
         segSocial: ssMap,
@@ -1881,6 +1789,7 @@ btnDoSaveCuenta.addEventListener('click', async () => {
     }
 });
 
+// 👇 FUNCIÓN COMPLETAMENTE CORREGIDA: Renderizar cuentas en el gestor
 async function renderCuentasBD() {
     const empresa = filtroEmpresaCuentas.value;
     const estado = filtroEstadoPagado.value;
@@ -1890,6 +1799,7 @@ async function renderCuentasBD() {
         const response = await fetch(`?obtener_cuentas=1&empresa=${encodeURIComponent(empresa)}&estado=${encodeURIComponent(estado)}`);
         const cuentas = await response.json();
         
+        // Filtrar por búsqueda
         const cuentasFiltradas = cuentas.filter(c => 
             !filtro || 
             c.nombre.toLowerCase().includes(filtro) ||
@@ -1918,6 +1828,7 @@ async function renderCuentasBD() {
             const empresasStr = (cuenta.empresas || []).slice(0, 3).join(', ') + 
                 ((cuenta.empresas || []).length > 3 ? ` +${(cuenta.empresas.length - 3)} más` : '');
             
+            // 👈 CORREGIDO: Comparación explícita con == 1 para manejar strings o números
             const estaPagado = cuenta.pagado == 1;
             
             html += `
@@ -1966,6 +1877,7 @@ async function renderCuentasBD() {
         
         tbodyCuentasBD.innerHTML = html;
         
+        // Eventos de los botones
         document.querySelectorAll('.btnCargarCuenta').forEach(btn => {
             btn.addEventListener('click', () => cargarCuentaCompletaBD(btn.dataset.id));
         });
@@ -1974,27 +1886,34 @@ async function renderCuentasBD() {
             btn.addEventListener('click', () => eliminarCuentaBD(btn.dataset.id));
         });
         
+        // ===== Eventos para los switches de estado =====
         document.querySelectorAll('.switch-estado-cuenta').forEach(switchInput => {
+            // Remover eventos anteriores para evitar duplicados
             if (switchInput._handler) {
                 switchInput.removeEventListener('change', switchInput._handler);
             }
             
+            // Crear nuevo handler
             switchInput._handler = async function(e) {
-                e.stopPropagation();
+                e.stopPropagation(); // Evitar que el evento burbujee
                 
                 const id = this.dataset.id;
                 const nuevoEstado = this.checked;
                 
+                // Deshabilitar temporalmente el switch mientras se procesa
                 this.disabled = true;
                 
+                // Actualizar el color del slider inmediatamente para feedback visual
                 const slider = this.nextElementSibling;
                 slider.style.backgroundColor = nuevoEstado ? '#22c55e' : '#ef4444';
                 
                 await actualizarEstadoCuenta(id, nuevoEstado, this);
                 
+                // Rehabilitar el switch
                 this.disabled = false;
             };
             
+            // Asignar el nuevo handler
             switchInput.addEventListener('change', switchInput._handler);
         });
         
@@ -2009,6 +1928,7 @@ async function renderCuentasBD() {
     }
 }
 
+// Función modificada: Cargar cuenta completa desde BD
 async function cargarCuentaCompletaBD(id) {
     const confirmacion = await Swal.fire({
         title: '¿Cargar esta cuenta?',
@@ -2032,16 +1952,20 @@ async function cargarCuentaCompletaBD(id) {
         if (resultado.success) {
             const cuenta = resultado.cuenta;
             
+            // Actualizar los filtros del formulario
             document.getElementById('filtro_desde').value = cuenta.desde;
             document.getElementById('filtro_hasta').value = cuenta.hasta;
             
+            // Actualizar checkboxes de empresas
             const empresasGuardadas = cuenta.empresas || [];
             document.querySelectorAll('.empresa-checkbox input').forEach(cb => {
                 cb.checked = empresasGuardadas.includes(cb.value);
             });
             
+            // Guardar en localStorage los datos de la cuenta
             const datos = cuenta.datos_json || {};
             
+            // Restaurar mapas
             prestSel = datos.prestamos || {};
             ssMap = datos.segSocial || {};
             accMap = datos.cuentasBancarias || {};
@@ -2052,9 +1976,11 @@ async function cargarCuentaCompletaBD(id) {
             setLS(ACC_KEY, accMap);
             setLS(ESTADO_PAGO_KEY, estadoPagoMap);
             
+            // Limpiar filas manuales existentes
             document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => tr.remove());
             manualRows = [];
             
+            // Cargar filas manuales
             if (datos.filasManuales && datos.filasManuales.length > 0) {
                 datos.filasManuales.forEach(fila => {
                     agregarFilaManual();
@@ -2082,6 +2008,7 @@ async function cargarCuentaCompletaBD(id) {
                 localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
             }
             
+            // Aplicar a todas las filas
             document.querySelectorAll('#tbody tr').forEach(tr => {
                 const nombre = obtenerNombreConductorDeFila(tr);
                 if (nombre) {
@@ -2105,6 +2032,7 @@ async function cargarCuentaCompletaBD(id) {
             
             asignarPrestamosAFilas();
             
+            // Actualizar porcentaje de ajuste si está guardado
             if (cuenta.porcentaje_ajuste) {
                 document.getElementById('inp_porcentaje_ajuste').value = cuenta.porcentaje_ajuste;
             }
@@ -2112,6 +2040,7 @@ async function cargarCuentaCompletaBD(id) {
             recalcularTodo();
             closeGestor();
             
+            // Mostrar mensaje y luego recargar la página
             Swal.fire({
                 title: '✅ Cuenta cargada',
                 text: `"${cuenta.nombre}" cargada exitosamente. Recargando página con los nuevos filtros...`,
@@ -2131,6 +2060,7 @@ async function cargarCuentaCompletaBD(id) {
     }
 }
 
+// Eliminar cuenta
 async function eliminarCuentaBD(id) {
     const confirmacion = await Swal.fire({
         title: '¿Eliminar cuenta?',
@@ -2162,7 +2092,9 @@ async function eliminarCuentaBD(id) {
     }
 }
 
+// Gestor de cuentas
 function openGestor() {
+    // Cargar opciones de empresas para el filtro
     fetch('?obtener_cuentas=1')
         .then(r => r.json())
         .then(cuentas => {
@@ -2206,6 +2138,7 @@ btnAddDesdeFiltro.addEventListener('click', () => {
 
 // ===== INICIALIZACIÓN =====
 document.addEventListener('DOMContentLoaded', function() {
+    // Seleccionar/deseleccionar todas las empresas
     document.getElementById('btnSeleccionarTodas')?.addEventListener('click', () => {
         document.querySelectorAll('.empresa-checkbox input').forEach(cb => cb.checked = true);
     });
@@ -2214,18 +2147,23 @@ document.addEventListener('DOMContentLoaded', function() {
         document.querySelectorAll('.empresa-checkbox input').forEach(cb => cb.checked = false);
     });
     
+    // Configurar filas existentes
     document.querySelectorAll('#tbody tr').forEach(tr => {
         if (!tr.classList.contains('fila-manual')) {
             configurarEventosFila(tr);
         }
     });
     
+    // Cargar filas manuales guardadas
     manualRows.forEach(id => agregarFilaManual(id));
     
+    // Asignar préstamos guardados
     asignarPrestamosAFilas();
     
+    // Panel arrastrable
     hacerPanelArrastrable();
     
+    // Eventos de búsqueda
     buscadorConductores.addEventListener('input', filtrarConductores);
     clearBuscar.addEventListener('click', () => {
         buscadorConductores.value = '';
@@ -2233,10 +2171,13 @@ document.addEventListener('DOMContentLoaded', function() {
         buscadorConductores.focus();
     });
     
+    // Botón agregar manual
     btnAddManual.addEventListener('click', () => agregarFilaManual());
     
+    // Cerrar panel flotante
     closePanel.addEventListener('click', () => floatingPanel.classList.add('hidden'));
     
+    // Select all checkbox
     if (selectAllCheckbox) {
         selectAllCheckbox.addEventListener('change', () => {
             document.querySelectorAll('#tbody .selector-conductor').forEach(cb => {
@@ -2249,9 +2190,10 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
+    // Eventos de recálculo
     document.getElementById('inp_porcentaje_ajuste').addEventListener('input', recalcularTodo);
     
-    // Modal préstamos - Eventos actualizados
+    // Modal préstamos
     document.getElementById('btnCloseModal').addEventListener('click', closePrestModal);
     document.getElementById('btnCancel').addEventListener('click', closePrestModal);
     
@@ -2261,28 +2203,16 @@ document.addEventListener('DOMContentLoaded', function() {
         let baseName = obtenerNombreConductorDeFila(currentRow);
         if (!baseName) return;
         
-        // 👇 NUEVA LÓGICA: Verificar si hay valor manual
-        const valorManual = toInt(document.getElementById('prestValorManual').value);
+        const prestamosSeleccionados = PRESTAMOS_LIST.filter(it => selectedIds.has(it.id));
+        const prestamosAGuardar = prestamosSeleccionados.map(it => ({
+            id: it.id,
+            name: it.name,
+            totalActual: it.total,
+            esManual: false,
+            valorManual: null
+        }));
         
-        if (valorManual > 0) {
-            // Si hay valor manual, SOLO USAR ESE (ignorar seleccionados)
-            prestSel[baseName] = [{
-                esManual: true,
-                valorManual: valorManual,
-                descripcion: 'Valor manual ingresado'
-            }];
-        } else {
-            // Si no hay valor manual, usar los seleccionados
-            const prestamosSeleccionados = PRESTAMOS_LIST.filter(it => selectedIds.has(it.id));
-            prestSel[baseName] = prestamosSeleccionados.map(it => ({
-                id: it.id,
-                name: it.name,
-                totalActual: it.total,
-                esManual: false,
-                valorManual: null
-            }));
-        }
-        
+        prestSel[baseName] = prestamosAGuardar;
         setLS(PREST_SEL_KEY, prestSel);
         
         asignarPrestamosAFilas();
@@ -2291,20 +2221,10 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     document.getElementById('prestSearch').addEventListener('input', (e) => {
-        const empresaFiltro = document.getElementById('filtroEmpresaPrestamos').value;
-        renderPrestList(e.target.value, empresaFiltro);
+        renderPrestList(e.target.value);
     });
     
-    document.getElementById('filtroEmpresaPrestamos').addEventListener('change', (e) => {
-        const texto = document.getElementById('prestSearch').value;
-        renderPrestList(texto, e.target.value);
-    });
-    
-    // Botón para limpiar valor manual
-    document.getElementById('btnClearManual').addEventListener('click', () => {
-        document.getElementById('prestValorManual').value = '';
-    });
-    
+    // Modal viajes
     document.querySelectorAll('#tbody .conductor-link').forEach(btn => {
         btn.addEventListener('click', () => abrirModalViajes(btn.textContent.trim()));
     });
@@ -2313,6 +2233,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('viajesModal').classList.remove('show');
     });
     
+    // Primer cálcu
     setTimeout(recalcularTodo, 100);
 });
 </script>
