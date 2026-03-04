@@ -7,6 +7,10 @@
  *********************************************************/
 include("nav.php");
 
+// ACTIVAR MODO DEBUG (QUITAR EN PRODUCCIÓN)
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
 // ======= CONFIG =======
 define('DB_HOST', 'mysql.hostinger.com');
 define('DB_USER', 'u648222299_keboco5');
@@ -23,7 +27,10 @@ if (!is_dir(UPLOAD_DIR)) @mkdir(UPLOAD_DIR, 0775, true);
 // ===== Helpers =====
 function db(): mysqli {
   $m = @new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
-  if ($m->connect_errno) exit("Error DB: ".$m->connect_error);
+  if ($m->connect_errno) {
+    error_log("Error DB: ".$m->connect_error);
+    exit("Error de conexión a la base de datos");
+  }
   $m->set_charset('utf8mb4');
   return $m;
 }
@@ -218,164 +225,213 @@ if ($action==='bulk_mark_unpaid' && $_SERVER['REQUEST_METHOD']==='POST'){
   go(BASE_URL.'?view=cards&msg='.$msg);
 }
 
-// ===== NUEVA ACCIÓN AJAX: Vista previa de pago =====
+// ===== ACCIÓN AJAX: Vista previa de pago (CORREGIDA) =====
 if ($action === 'vista_previa' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json');
-    $ids = json_decode($_POST['ids'] ?? '[]', true);
-    $montoPago = (float)($_POST['monto_pago'] ?? 0);
-    $orden = $_POST['orden'] ?? 'antiguo';
     
-    if (empty($ids) || $montoPago <= 0) {
-        echo json_encode(['error' => 'Selecciona préstamos y un monto válido']);
-        exit;
-    }
-    
-    $conn = db();
-    $placeholders = implode(',', array_fill(0, count($ids), '?'));
-    $types = str_repeat('i', count($ids));
-    $sql = "SELECT id, deudor, prestamista, monto, fecha, 
-                   comision_origen_porcentaje, comision_gestor_porcentaje, comision_base_monto,
-                   pagado
-            FROM prestamos 
-            WHERE id IN ($placeholders) AND pagado = 0";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param($types, ...$ids);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    $prestamos = [];
-    while ($row = $result->fetch_assoc()) {
-        $calc = calcularTotalPrestamo(
-            $row['monto'], 
-            $row['fecha'], 
-            $row['comision_origen_porcentaje'],
-            $row['comision_gestor_porcentaje'] ?? 0,
-            $row['comision_base_monto']
-        );
-        $row['meses'] = $calc['meses'];
-        $row['interes_origen'] = $calc['interes_origen'];
-        $row['interes_gestor'] = $calc['interes_gestor'];
-        $row['interes_total'] = $calc['interes_total'];
-        $row['total'] = $calc['total'];
-        $row['tasa_origen'] = $calc['tasa_origen'];
-        $row['tasa_gestor'] = $calc['tasa_gestor'];
-        $prestamos[] = $row;
-    }
-    $stmt->close();
-    
-    // Ordenar según criterio
-    if ($orden === 'antiguo') {
-        usort($prestamos, function($a, $b) { return strtotime($a['fecha']) - strtotime($b['fecha']); });
-    } elseif ($orden === 'reciente') {
-        usort($prestamos, function($a, $b) { return strtotime($b['fecha']) - strtotime($a['fecha']); });
-    } elseif ($orden === 'mayor_interes') {
-        usort($prestamos, function($a, $b) { return $b['interes_total'] - $a['interes_total']; });
-    }
-    
-    // Procesar pago
-    $restante = $montoPago;
-    $resultado = [];
-    $prestamosAReestructurar = [];
-    
-    foreach ($prestamos as $p) {
-        if ($restante <= 0) {
-            $resultado[] = [
-                'id' => $p['id'],
-                'deudor' => $p['deudor'],
-                'monto_original' => $p['monto'],
-                'total_original' => $p['total'],
-                'accion' => 'no_tocado',
-                'mensaje' => 'No alcanzó para este préstamo'
-            ];
-            continue;
+    // Capturar cualquier error de PHP
+    try {
+        // Obtener y decodificar IDs
+        $idsRaw = $_POST['ids'] ?? '[]';
+        $ids = json_decode($idsRaw, true);
+        
+        // Si falla el json_decode, intentar con explode
+        if (!is_array($ids)) {
+            $ids = explode(',', str_replace(['[', ']', '"'], '', $idsRaw));
         }
         
-        if ($restante >= $p['total']) {
-            // Pagar completo
-            $resultado[] = [
-                'id' => $p['id'],
-                'deudor' => $p['deudor'],
-                'monto_original' => $p['monto'],
-                'interes_pagado' => $p['interes_total'],
-                'abono_capital' => $p['monto'],
-                'total_pagado' => $p['total'],
-                'accion' => 'pagado_completo',
-                'mensaje' => 'Préstamo pagado completamente'
-            ];
-            $restante -= $p['total'];
-        } else {
-            // Pago parcial - reestructurar
-            if ($restante >= $p['interes_total']) {
-                $interesPagado = $p['interes_total'];
-                $abonoCapital = $restante - $interesPagado;
-                $nuevoCapital = $p['monto'] - $abonoCapital;
-                
-                $resultado[] = [
-                    'id' => $p['id'],
-                    'deudor' => $p['deudor'],
-                    'monto_original' => $p['monto'],
-                    'interes_pagado' => $interesPagado,
-                    'abono_capital' => $abonoCapital,
-                    'nuevo_capital' => $nuevoCapital,
-                    'accion' => 'reestructurar',
-                    'tasa_origen' => $p['tasa_origen'],
-                    'tasa_gestor' => $p['tasa_gestor'],
-                    'prestamista' => $p['prestamista'],
-                    'mensaje' => "Se pagan intereses ($" . money($interesPagado) . ") y se abonan $" . money($abonoCapital) . " a capital"
-                ];
-                $prestamosAReestructurar[] = [
-                    'original_id' => $p['id'],
-                    'nuevo_capital' => $nuevoCapital,
-                    'deudor' => $p['deudor'],
-                    'prestamista' => $p['prestamista'],
-                    'tasa_origen' => $p['tasa_origen'],
-                    'tasa_gestor' => $p['tasa_gestor']
-                ];
-            } else {
-                $resultado[] = [
-                    'id' => $p['id'],
-                    'deudor' => $p['deudor'],
-                    'monto_original' => $p['monto'],
-                    'interes_pagado' => $restante,
-                    'abono_capital' => 0,
-                    'accion' => 'pago_parcial_intereses',
-                    'mensaje' => "Pago parcial de intereses: $" . money($restante)
-                ];
-            }
-            $restante = 0;
-            break;
+        $montoPago = (float)($_POST['monto_pago'] ?? 0);
+        $orden = $_POST['orden'] ?? 'antiguo';
+        
+        // Validaciones básicas
+        if (empty($ids) || $montoPago <= 0) {
+            echo json_encode(['error' => 'Selecciona préstamos y un monto válido']);
+            exit;
         }
-    }
-    
-    $conn->close();
-    
-    echo json_encode([
-        'success' => true,
-        'monto_pago' => $montoPago,
-        'restante' => $restante,
-        'resultado' => $resultado,
-        'prestamos_reestructurar' => $prestamosAReestructurar,
-        'total_procesado' => $montoPago - $restante
-    ]);
-    exit;
-}
-
-// ===== NUEVA ACCIÓN AJAX: Confirmar pago =====
-if ($action === 'confirmar_pago' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    header('Content-Type: application/json');
-    $data = json_decode(file_get_contents('php://input'), true);
-    $resultado = $data['resultado'] ?? [];
-    $reestructurar = $data['reestructurar'] ?? [];
-    
-    if (empty($resultado)) {
-        echo json_encode(['error' => 'No hay datos para procesar']);
+        
+        // Limpiar IDs (asegurar que son números)
+        $ids = array_filter(array_map('intval', $ids), function($id) {
+            return $id > 0;
+        });
+        
+        if (empty($ids)) {
+            echo json_encode(['error' => 'IDs de préstamos inválidos']);
+            exit;
+        }
+        
+        $conn = db();
+        
+        // Construir consulta con placeholders
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $types = str_repeat('i', count($ids));
+        
+        $sql = "SELECT id, deudor, prestamista, monto, fecha, 
+                       comision_origen_porcentaje, comision_gestor_porcentaje, comision_base_monto,
+                       pagado
+                FROM prestamos 
+                WHERE id IN ($placeholders) AND pagado = 0";
+        
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            echo json_encode(['error' => 'Error en la consulta: ' . $conn->error]);
+            exit;
+        }
+        
+        $stmt->bind_param($types, ...$ids);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        
+        $prestamos = [];
+        while ($row = $result->fetch_assoc()) {
+            $calc = calcularTotalPrestamo(
+                $row['monto'], 
+                $row['fecha'], 
+                $row['comision_origen_porcentaje'],
+                $row['comision_gestor_porcentaje'] ?? 0,
+                $row['comision_base_monto']
+            );
+            $row['meses'] = $calc['meses'];
+            $row['interes_origen'] = $calc['interes_origen'];
+            $row['interes_gestor'] = $calc['interes_gestor'];
+            $row['interes_total'] = $calc['interes_total'];
+            $row['total'] = $calc['total'];
+            $row['tasa_origen'] = $calc['tasa_origen'];
+            $row['tasa_gestor'] = $calc['tasa_gestor'];
+            $prestamos[] = $row;
+        }
+        $stmt->close();
+        
+        if (empty($prestamos)) {
+            echo json_encode(['error' => 'No se encontraron préstamos activos con los IDs seleccionados']);
+            exit;
+        }
+        
+        // Ordenar según criterio
+        if ($orden === 'antiguo') {
+            usort($prestamos, function($a, $b) { return strtotime($a['fecha']) - strtotime($b['fecha']); });
+        } elseif ($orden === 'reciente') {
+            usort($prestamos, function($a, $b) { return strtotime($b['fecha']) - strtotime($a['fecha']); });
+        } elseif ($orden === 'mayor_interes') {
+            usort($prestamos, function($a, $b) { return $b['interes_total'] - $a['interes_total']; });
+        }
+        
+        // Procesar pago
+        $restante = $montoPago;
+        $resultado = [];
+        $prestamosAReestructurar = [];
+        
+        foreach ($prestamos as $p) {
+            if ($restante <= 0) {
+                $resultado[] = [
+                    'id' => $p['id'],
+                    'deudor' => $p['deudor'],
+                    'monto_original' => $p['monto'],
+                    'total_original' => $p['total'],
+                    'accion' => 'no_tocado',
+                    'mensaje' => 'No alcanzó para este préstamo'
+                ];
+                continue;
+            }
+            
+            if ($restante >= $p['total']) {
+                // Pagar completo
+                $resultado[] = [
+                    'id' => $p['id'],
+                    'deudor' => $p['deudor'],
+                    'monto_original' => $p['monto'],
+                    'interes_pagado' => $p['interes_total'],
+                    'abono_capital' => $p['monto'],
+                    'total_pagado' => $p['total'],
+                    'accion' => 'pagado_completo',
+                    'mensaje' => 'Préstamo pagado completamente'
+                ];
+                $restante -= $p['total'];
+            } else {
+                // Pago parcial - reestructurar
+                if ($restante >= $p['interes_total']) {
+                    $interesPagado = $p['interes_total'];
+                    $abonoCapital = $restante - $interesPagado;
+                    $nuevoCapital = $p['monto'] - $abonoCapital;
+                    
+                    $resultado[] = [
+                        'id' => $p['id'],
+                        'deudor' => $p['deudor'],
+                        'monto_original' => $p['monto'],
+                        'interes_pagado' => $interesPagado,
+                        'abono_capital' => $abonoCapital,
+                        'nuevo_capital' => $nuevoCapital,
+                        'accion' => 'reestructurar',
+                        'tasa_origen' => $p['tasa_origen'],
+                        'tasa_gestor' => $p['tasa_gestor'],
+                        'prestamista' => $p['prestamista'],
+                        'mensaje' => "Se pagan intereses ($" . number_format($interesPagado, 0, ',', '.') . ") y se abonan $" . number_format($abonoCapital, 0, ',', '.') . " a capital"
+                    ];
+                    $prestamosAReestructurar[] = [
+                        'original_id' => $p['id'],
+                        'nuevo_capital' => $nuevoCapital,
+                        'deudor' => $p['deudor'],
+                        'prestamista' => $p['prestamista'],
+                        'tasa_origen' => $p['tasa_origen'],
+                        'tasa_gestor' => $p['tasa_gestor']
+                    ];
+                } else {
+                    $resultado[] = [
+                        'id' => $p['id'],
+                        'deudor' => $p['deudor'],
+                        'monto_original' => $p['monto'],
+                        'interes_pagado' => $restante,
+                        'abono_capital' => 0,
+                        'accion' => 'pago_parcial_intereses',
+                        'mensaje' => "Pago parcial de intereses: $" . number_format($restante, 0, ',', '.')
+                    ];
+                }
+                $restante = 0;
+                break;
+            }
+        }
+        
+        $conn->close();
+        
+        echo json_encode([
+            'success' => true,
+            'monto_pago' => $montoPago,
+            'restante' => $restante,
+            'resultado' => $resultado,
+            'prestamos_reestructurar' => $prestamosAReestructurar,
+            'total_procesado' => $montoPago - $restante
+        ]);
+        exit;
+        
+    } catch (Exception $e) {
+        echo json_encode(['error' => 'Error interno: ' . $e->getMessage()]);
         exit;
     }
-    
-    $conn = db();
-    $conn->begin_transaction();
+}
+
+// ===== ACCIÓN AJAX: Confirmar pago =====
+if ($action === 'confirmar_pago' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json');
     
     try {
+        $input = file_get_contents('php://input');
+        $data = json_decode($input, true);
+        
+        if (!$data) {
+            echo json_encode(['error' => 'Datos inválidos']);
+            exit;
+        }
+        
+        $resultado = $data['resultado'] ?? [];
+        $reestructurar = $data['reestructurar'] ?? [];
+        
+        if (empty($resultado)) {
+            echo json_encode(['error' => 'No hay datos para procesar']);
+            exit;
+        }
+        
+        $conn = db();
+        $conn->begin_transaction();
+        
         // Marcar como pagados los préstamos completos
         foreach ($resultado as $item) {
             if ($item['accion'] === 'pagado_completo') {
@@ -421,14 +477,16 @@ if ($action === 'confirmar_pago' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         $conn->commit();
+        $conn->close();
+        
         echo json_encode(['success' => true, 'message' => 'Pago procesado correctamente']);
+        exit;
+        
     } catch (Exception $e) {
-        $conn->rollback();
+        if (isset($conn)) $conn->rollback();
         echo json_encode(['error' => 'Error al procesar el pago: ' . $e->getMessage()]);
+        exit;
     }
-    
-    $conn->close();
-    exit;
 }
 
 /* ===== CRUD ===== */
@@ -1379,12 +1437,18 @@ function vistaPreviaPago() {
     document.getElementById('previewContent').innerHTML = '<p>Cargando vista previa...</p>';
     document.getElementById('modalPreview').style.display = 'block';
     
+    // CORRECCIÓN: Enviar IDs como JSON string
     fetch('?action=vista_previa', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'ids=' + JSON.stringify(ids) + '&monto_pago=' + monto + '&orden=' + orden
+        body: 'ids=' + encodeURIComponent(JSON.stringify(ids)) + '&monto_pago=' + monto + '&orden=' + orden
     })
-    .then(response => response.json())
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Error en la respuesta del servidor');
+        }
+        return response.json();
+    })
     .then(data => {
         if (data.error) {
             document.getElementById('previewContent').innerHTML = '<p class="error">' + data.error + '</p>';
@@ -1444,7 +1508,8 @@ function vistaPreviaPago() {
         document.getElementById('previewContent').innerHTML = html;
     })
     .catch(error => {
-        document.getElementById('previewContent').innerHTML = '<p class="error">Error: ' + error + '</p>';
+        console.error('Error:', error);
+        document.getElementById('previewContent').innerHTML = '<p class="error">Error al conectar con el servidor: ' + error.message + '</p>';
     });
 }
 
