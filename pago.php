@@ -80,7 +80,6 @@ if (isset($_GET['obtener_cuentas'])) {
     
     if ($result && $result->num_rows > 0) {
         while ($row = $result->fetch_assoc()) {
-            // 👈 CORREGIDO: Forzar pagado a entero
             $row['pagado'] = (int)$row['pagado'];
             
             $datos_json = json_decode($row['datos_json'], true);
@@ -172,7 +171,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     
     if ($result && $result->num_rows > 0) {
         $row = $result->fetch_assoc();
-        // 👈 CORREGIDO: Forzar pagado a entero
         $row['pagado'] = (int)$row['pagado'];
         
         $datos_json = json_decode($row['datos_json'], true);
@@ -517,6 +515,7 @@ $i = 0;
 
 $qPrest = "
   SELECT deudor,
+         empresa,
          SUM(
            monto + 
            monto * 
@@ -535,14 +534,15 @@ if (!empty($empresasSeleccionadasEsc)) {
     $qPrest .= " AND empresa IN ($empresasStr)";
 }
 
-$qPrest .= " GROUP BY deudor";
+$qPrest .= " GROUP BY deudor, empresa";
 
 if ($rP = $conn->query($qPrest)) {
     while($r = $rP->fetch_assoc()){
         $name = $r['deudor'];
         $key  = norm_person($name);
         $total = (int)round($r['total']);
-        $prestamosList[] = ['id'=>$i++, 'name'=>$name, 'key'=>$key, 'total'=>$total];
+        $empresa = $r['empresa'];
+        $prestamosList[] = ['id'=>$i++, 'name'=>$name, 'key'=>$key, 'total'=>$total, 'empresa'=>$empresa];
     }
 }
 
@@ -879,7 +879,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- Modal Préstamos -->
+<!-- Modal Préstamos - CON INPUT PEQUEÑO AL LADO DE CANCELAR -->
 <div id="prestModal" class="hidden fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-8 max-w-2xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
@@ -888,14 +888,43 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             <button id="btnCloseModal" class="p-2 rounded hover:bg-slate-100">✕</button>
         </div>
         <div class="p-4">
+            <!-- Filtro de empresas -->
+            <div class="mb-3">
+                <select id="filtroEmpresaPrestamos" class="w-full rounded-xl border border-slate-300 px-3 py-2">
+                    <option value="">Todas las empresas</option>
+                    <?php
+                    $empresasUnicas = array_unique(array_column($prestamosList, 'empresa'));
+                    sort($empresasUnicas);
+                    foreach ($empresasUnicas as $emp): 
+                        if (!empty($emp)):
+                    ?>
+                        <option value="<?= htmlspecialchars($emp) ?>"><?= htmlspecialchars($emp) ?></option>
+                    <?php 
+                        endif;
+                    endforeach; 
+                    ?>
+                </select>
+            </div>
+
             <input id="prestSearch" type="text" placeholder="Buscar deudor..." class="w-full rounded-xl border border-slate-300 px-3 py-2 mb-3">
             <div id="prestList" class="max-h-96 overflow-auto border rounded-xl"></div>
         </div>
+        
+        <!-- 👇 PARTE INFERIOR: Input pequeño al lado de Cancelar -->
         <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-between">
-            <div>
-                Seleccionados: <span id="selCount" class="font-semibold">0</span><br>
-                Total: <span id="selTotal" class="num font-semibold">0</span>
+            <div class="flex items-center gap-3">
+                <!-- INPUT MANUAL PEQUEÑO -->
+                <input id="prestValorManual" 
+                       type="text" 
+                       class="w-36 rounded-lg border border-amber-300 px-3 py-2 text-right num text-sm" 
+                       placeholder="Valor manual...">
+                
+                <div>
+                    Seleccionados: <span id="selCount" class="font-semibold">0</span><br>
+                    Total: <span id="selTotal" class="num font-semibold">0</span>
+                </div>
             </div>
+            
             <div class="flex gap-2">
                 <button id="btnCancel" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
                 <button id="btnAssign" class="rounded-lg border border-blue-600 px-4 py-2 bg-blue-600 text-white hover:bg-blue-700">Asignar</button>
@@ -1138,17 +1167,28 @@ function asignarPrestamosAFilas() {
         let nombres = [];
         
         prestamosDeEsteConductor.forEach(prestamoGuardado => {
-            const prestamoActual = PRESTAMOS_LIST.find(p => p.id === prestamoGuardado.id || p.name === prestamoGuardado.name);
-            if (prestamoActual) {
-                totalMostrar += prestamoGuardado.esManual ? prestamoGuardado.valorManual : prestamoActual.total;
-                nombres.push(prestamoActual.name);
+            if (prestamoGuardado.esManual) {
+                totalMostrar += prestamoGuardado.valorManual;
+                nombres.push(`💰 Manual: $${fmt(prestamoGuardado.valorManual)}`);
+            } else {
+                const prestamoActual = PRESTAMOS_LIST.find(p => p.id === prestamoGuardado.id || p.name === prestamoGuardado.name);
+                if (prestamoActual) {
+                    totalMostrar += prestamoActual.total;
+                    nombres.push(prestamoActual.name);
+                }
             }
         });
         
         const prestSpan = tr.querySelector('.prest');
         const selLabel = tr.querySelector('.selected-deudor');
         if (prestSpan) prestSpan.textContent = fmt(totalMostrar);
-        if (selLabel) selLabel.textContent = nombres.length <= 2 ? nombres.join(', ') : nombres.slice(0,2).join(', ') + ' +' + (nombres.length-2) + ' más';
+        if (selLabel) {
+            if (nombres.length <= 2) {
+                selLabel.textContent = nombres.join(', ');
+            } else {
+                selLabel.textContent = nombres.slice(0,2).join(', ') + ' +' + (nombres.length-2) + ' más';
+            }
+        }
     });
 }
 
@@ -1509,7 +1549,7 @@ function hacerPanelArrastrable() {
 // ===== MODAL PRÉSTAMOS =====
 let currentRow = null, selectedIds = new Set(), filteredIdx = [];
 
-function renderPrestList(filter = '') {
+function renderPrestList(filter = '', empresaFiltro = '') {
     const list = document.getElementById('prestList');
     list.innerHTML = '';
     const nf = normalizarTexto(filter);
@@ -1517,6 +1557,8 @@ function renderPrestList(filter = '') {
     
     PRESTAMOS_LIST.forEach((item, idx) => {
         if (nf && !normalizarTexto(item.name).includes(nf)) return;
+        if (empresaFiltro && item.empresa !== empresaFiltro) return;
+        
         filteredIdx.push(idx);
         
         const row = document.createElement('div');
@@ -1525,6 +1567,7 @@ function renderPrestList(filter = '') {
             <div class="flex items-center gap-3">
                 <input type="checkbox" class="prest-checkbox rounded" data-id="${item.id}" ${selectedIds.has(item.id) ? 'checked' : ''}>
                 <span class="text-sm">${item.name}</span>
+                <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">${item.empresa || 'Sin empresa'}</span>
             </div>
             <span class="num text-sm font-semibold">${fmt(item.total)}</span>
         `;
@@ -1565,10 +1608,14 @@ function openPrestModalForRow(tr) {
     }
     
     (prestSel[baseName] || []).forEach(p => {
-        if (p.id !== undefined) selectedIds.add(Number(p.id));
+        if (!p.esManual && p.id !== undefined) {
+            selectedIds.add(Number(p.id));
+        }
     });
     
+    document.getElementById('prestValorManual').value = '';
     document.getElementById('prestSearch').value = '';
+    document.getElementById('filtroEmpresaPrestamos').value = '';
     renderPrestList('');
     document.getElementById('prestModal').classList.remove('hidden');
 }
@@ -1597,7 +1644,7 @@ function abrirModalViajes(nombre) {
         .catch(() => document.getElementById('viajesContent').innerHTML = '<p class="text-center text-red-600">Error cargando viajes</p>');
 }
 
-// ===== FUNCIÓN CORREGIDA: Actualizar estado de pago de una cuenta guardada =====
+// ===== FUNCIÓN: Actualizar estado de pago de una cuenta guardada =====
 async function actualizarEstadoCuenta(id, nuevoEstado, switchElement) {
     try {
         const formData = new FormData();
@@ -1609,7 +1656,6 @@ async function actualizarEstadoCuenta(id, nuevoEstado, switchElement) {
         const resultado = await response.json();
         
         if (resultado.success) {
-            // Mantener el estado visual del switch (ya está cambiado por el evento change)
             const slider = switchElement.nextElementSibling;
             slider.style.backgroundColor = nuevoEstado ? '#22c55e' : '#ef4444';
             
@@ -1623,14 +1669,12 @@ async function actualizarEstadoCuenta(id, nuevoEstado, switchElement) {
                 position: 'top-end'
             });
             
-            // 👈 CORREGIDO: Recargar la lista para asegurar consistencia
             await renderCuentasBD();
             
         } else {
             throw new Error(resultado.message);
         }
     } catch (error) {
-        // Si hay error, revertir el switch al estado anterior
         switchElement.checked = !nuevoEstado;
         const slider = switchElement.nextElementSibling;
         slider.style.backgroundColor = !nuevoEstado ? '#22c55e' : '#ef4444';
@@ -1663,7 +1707,6 @@ const tbodyCuentasBD = document.getElementById('tbodyCuentasBD');
 const contadorCuentas = document.getElementById('contador-cuentas');
 const totalCuentasInfo = document.getElementById('totalCuentasInfo');
 
-// Elementos del modal guardar
 const iNombre = document.getElementById('cuenta_nombre');
 const iRango = document.getElementById('cuenta_rango');
 const iFacturado = document.getElementById('cuenta_facturado');
@@ -1672,7 +1715,6 @@ const iPagado = document.getElementById('cuenta_pagado');
 const pagadoLabel = document.getElementById('pagadoLabel');
 const empresasContainer = document.getElementById('cuenta_empresas_container');
 
-// Actualizar label del switch
 iPagado?.addEventListener('change', () => {
     if (pagadoLabel) {
         pagadoLabel.textContent = iPagado.checked ? 'PAGADO' : 'NO PAGADO';
@@ -1694,7 +1736,6 @@ function openSaveCuenta() {
         return;
     }
     
-    // Mostrar empresas seleccionadas
     empresasContainer.innerHTML = empresas.map(emp => 
         `<div class="py-1 px-2 bg-white rounded border border-slate-200 mb-1 text-sm">✓ ${emp}</div>`
     ).join('');
@@ -1733,7 +1774,6 @@ btnDoSaveCuenta.addEventListener('click', async () => {
     const porcentaje = parseFloat(iPorcentaje.value) || 0;
     const pagado = iPagado.checked ? 1 : 0;
     
-    // Obtener datos actuales
     const datosParaGuardar = {
         prestamos: prestSel,
         segSocial: ssMap,
@@ -1789,7 +1829,6 @@ btnDoSaveCuenta.addEventListener('click', async () => {
     }
 });
 
-// 👇 FUNCIÓN COMPLETAMENTE CORREGIDA: Renderizar cuentas en el gestor
 async function renderCuentasBD() {
     const empresa = filtroEmpresaCuentas.value;
     const estado = filtroEstadoPagado.value;
@@ -1799,7 +1838,6 @@ async function renderCuentasBD() {
         const response = await fetch(`?obtener_cuentas=1&empresa=${encodeURIComponent(empresa)}&estado=${encodeURIComponent(estado)}`);
         const cuentas = await response.json();
         
-        // Filtrar por búsqueda
         const cuentasFiltradas = cuentas.filter(c => 
             !filtro || 
             c.nombre.toLowerCase().includes(filtro) ||
@@ -1828,7 +1866,6 @@ async function renderCuentasBD() {
             const empresasStr = (cuenta.empresas || []).slice(0, 3).join(', ') + 
                 ((cuenta.empresas || []).length > 3 ? ` +${(cuenta.empresas.length - 3)} más` : '');
             
-            // 👈 CORREGIDO: Comparación explícita con == 1 para manejar strings o números
             const estaPagado = cuenta.pagado == 1;
             
             html += `
@@ -1877,7 +1914,6 @@ async function renderCuentasBD() {
         
         tbodyCuentasBD.innerHTML = html;
         
-        // Eventos de los botones
         document.querySelectorAll('.btnCargarCuenta').forEach(btn => {
             btn.addEventListener('click', () => cargarCuentaCompletaBD(btn.dataset.id));
         });
@@ -1886,34 +1922,27 @@ async function renderCuentasBD() {
             btn.addEventListener('click', () => eliminarCuentaBD(btn.dataset.id));
         });
         
-        // ===== Eventos para los switches de estado =====
         document.querySelectorAll('.switch-estado-cuenta').forEach(switchInput => {
-            // Remover eventos anteriores para evitar duplicados
             if (switchInput._handler) {
                 switchInput.removeEventListener('change', switchInput._handler);
             }
             
-            // Crear nuevo handler
             switchInput._handler = async function(e) {
-                e.stopPropagation(); // Evitar que el evento burbujee
+                e.stopPropagation();
                 
                 const id = this.dataset.id;
                 const nuevoEstado = this.checked;
                 
-                // Deshabilitar temporalmente el switch mientras se procesa
                 this.disabled = true;
                 
-                // Actualizar el color del slider inmediatamente para feedback visual
                 const slider = this.nextElementSibling;
                 slider.style.backgroundColor = nuevoEstado ? '#22c55e' : '#ef4444';
                 
                 await actualizarEstadoCuenta(id, nuevoEstado, this);
                 
-                // Rehabilitar el switch
                 this.disabled = false;
             };
             
-            // Asignar el nuevo handler
             switchInput.addEventListener('change', switchInput._handler);
         });
         
@@ -1928,7 +1957,6 @@ async function renderCuentasBD() {
     }
 }
 
-// Función modificada: Cargar cuenta completa desde BD
 async function cargarCuentaCompletaBD(id) {
     const confirmacion = await Swal.fire({
         title: '¿Cargar esta cuenta?',
@@ -1952,20 +1980,16 @@ async function cargarCuentaCompletaBD(id) {
         if (resultado.success) {
             const cuenta = resultado.cuenta;
             
-            // Actualizar los filtros del formulario
             document.getElementById('filtro_desde').value = cuenta.desde;
             document.getElementById('filtro_hasta').value = cuenta.hasta;
             
-            // Actualizar checkboxes de empresas
             const empresasGuardadas = cuenta.empresas || [];
             document.querySelectorAll('.empresa-checkbox input').forEach(cb => {
                 cb.checked = empresasGuardadas.includes(cb.value);
             });
             
-            // Guardar en localStorage los datos de la cuenta
             const datos = cuenta.datos_json || {};
             
-            // Restaurar mapas
             prestSel = datos.prestamos || {};
             ssMap = datos.segSocial || {};
             accMap = datos.cuentasBancarias || {};
@@ -1976,11 +2000,9 @@ async function cargarCuentaCompletaBD(id) {
             setLS(ACC_KEY, accMap);
             setLS(ESTADO_PAGO_KEY, estadoPagoMap);
             
-            // Limpiar filas manuales existentes
             document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => tr.remove());
             manualRows = [];
             
-            // Cargar filas manuales
             if (datos.filasManuales && datos.filasManuales.length > 0) {
                 datos.filasManuales.forEach(fila => {
                     agregarFilaManual();
@@ -2008,7 +2030,6 @@ async function cargarCuentaCompletaBD(id) {
                 localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
             }
             
-            // Aplicar a todas las filas
             document.querySelectorAll('#tbody tr').forEach(tr => {
                 const nombre = obtenerNombreConductorDeFila(tr);
                 if (nombre) {
@@ -2032,7 +2053,6 @@ async function cargarCuentaCompletaBD(id) {
             
             asignarPrestamosAFilas();
             
-            // Actualizar porcentaje de ajuste si está guardado
             if (cuenta.porcentaje_ajuste) {
                 document.getElementById('inp_porcentaje_ajuste').value = cuenta.porcentaje_ajuste;
             }
@@ -2040,7 +2060,6 @@ async function cargarCuentaCompletaBD(id) {
             recalcularTodo();
             closeGestor();
             
-            // Mostrar mensaje y luego recargar la página
             Swal.fire({
                 title: '✅ Cuenta cargada',
                 text: `"${cuenta.nombre}" cargada exitosamente. Recargando página con los nuevos filtros...`,
@@ -2060,7 +2079,6 @@ async function cargarCuentaCompletaBD(id) {
     }
 }
 
-// Eliminar cuenta
 async function eliminarCuentaBD(id) {
     const confirmacion = await Swal.fire({
         title: '¿Eliminar cuenta?',
@@ -2092,9 +2110,7 @@ async function eliminarCuentaBD(id) {
     }
 }
 
-// Gestor de cuentas
 function openGestor() {
-    // Cargar opciones de empresas para el filtro
     fetch('?obtener_cuentas=1')
         .then(r => r.json())
         .then(cuentas => {
@@ -2138,7 +2154,6 @@ btnAddDesdeFiltro.addEventListener('click', () => {
 
 // ===== INICIALIZACIÓN =====
 document.addEventListener('DOMContentLoaded', function() {
-    // Seleccionar/deseleccionar todas las empresas
     document.getElementById('btnSeleccionarTodas')?.addEventListener('click', () => {
         document.querySelectorAll('.empresa-checkbox input').forEach(cb => cb.checked = true);
     });
@@ -2147,23 +2162,18 @@ document.addEventListener('DOMContentLoaded', function() {
         document.querySelectorAll('.empresa-checkbox input').forEach(cb => cb.checked = false);
     });
     
-    // Configurar filas existentes
     document.querySelectorAll('#tbody tr').forEach(tr => {
         if (!tr.classList.contains('fila-manual')) {
             configurarEventosFila(tr);
         }
     });
     
-    // Cargar filas manuales guardadas
     manualRows.forEach(id => agregarFilaManual(id));
     
-    // Asignar préstamos guardados
     asignarPrestamosAFilas();
     
-    // Panel arrastrable
     hacerPanelArrastrable();
     
-    // Eventos de búsqueda
     buscadorConductores.addEventListener('input', filtrarConductores);
     clearBuscar.addEventListener('click', () => {
         buscadorConductores.value = '';
@@ -2171,13 +2181,10 @@ document.addEventListener('DOMContentLoaded', function() {
         buscadorConductores.focus();
     });
     
-    // Botón agregar manual
     btnAddManual.addEventListener('click', () => agregarFilaManual());
     
-    // Cerrar panel flotante
     closePanel.addEventListener('click', () => floatingPanel.classList.add('hidden'));
     
-    // Select all checkbox
     if (selectAllCheckbox) {
         selectAllCheckbox.addEventListener('change', () => {
             document.querySelectorAll('#tbody .selector-conductor').forEach(cb => {
@@ -2190,10 +2197,9 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // Eventos de recálculo
     document.getElementById('inp_porcentaje_ajuste').addEventListener('input', recalcularTodo);
     
-    // Modal préstamos
+    // Modal préstamos - Eventos
     document.getElementById('btnCloseModal').addEventListener('click', closePrestModal);
     document.getElementById('btnCancel').addEventListener('click', closePrestModal);
     
@@ -2203,16 +2209,25 @@ document.addEventListener('DOMContentLoaded', function() {
         let baseName = obtenerNombreConductorDeFila(currentRow);
         if (!baseName) return;
         
-        const prestamosSeleccionados = PRESTAMOS_LIST.filter(it => selectedIds.has(it.id));
-        const prestamosAGuardar = prestamosSeleccionados.map(it => ({
-            id: it.id,
-            name: it.name,
-            totalActual: it.total,
-            esManual: false,
-            valorManual: null
-        }));
+        const valorManual = toInt(document.getElementById('prestValorManual').value);
         
-        prestSel[baseName] = prestamosAGuardar;
+        if (valorManual > 0) {
+            prestSel[baseName] = [{
+                esManual: true,
+                valorManual: valorManual,
+                descripcion: 'Valor manual ingresado'
+            }];
+        } else {
+            const prestamosSeleccionados = PRESTAMOS_LIST.filter(it => selectedIds.has(it.id));
+            prestSel[baseName] = prestamosSeleccionados.map(it => ({
+                id: it.id,
+                name: it.name,
+                totalActual: it.total,
+                esManual: false,
+                valorManual: null
+            }));
+        }
+        
         setLS(PREST_SEL_KEY, prestSel);
         
         asignarPrestamosAFilas();
@@ -2221,10 +2236,15 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     document.getElementById('prestSearch').addEventListener('input', (e) => {
-        renderPrestList(e.target.value);
+        const empresaFiltro = document.getElementById('filtroEmpresaPrestamos').value;
+        renderPrestList(e.target.value, empresaFiltro);
     });
     
-    // Modal viajes
+    document.getElementById('filtroEmpresaPrestamos').addEventListener('change', (e) => {
+        const texto = document.getElementById('prestSearch').value;
+        renderPrestList(texto, e.target.value);
+    });
+    
     document.querySelectorAll('#tbody .conductor-link').forEach(btn => {
         btn.addEventListener('click', () => abrirModalViajes(btn.textContent.trim()));
     });
@@ -2233,7 +2253,6 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('viajesModal').classList.remove('show');
     });
     
-    // Primer cálcu
     setTimeout(recalcularTodo, 100);
 });
 </script>
