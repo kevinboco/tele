@@ -3,7 +3,7 @@
  * admin_prestamos.php — CRUD + Tarjetas
  * - Filtro dinámico: deudores según empresa seleccionada
  * - Dropdowns con búsqueda (Select2)
- * - PAGO INTELIGENTE: Vista previa + reestructuración
+ * - MODAL SIN AJAX: Vista previa con JavaScript puro
  *********************************************************/
 include("nav.php");
 
@@ -34,7 +34,7 @@ function go($url){
 function mbnorm($s){ return mb_strtolower(trim((string)$s),'UTF-8'); }
 function mbtitle($s){ return mb_convert_case((string)$s, MB_CASE_TITLE, 'UTF-8'); }
 
-// ===== Funciones para pago inteligente =====
+// ===== Funciones para cálculos =====
 function getTasaInteres($fecha) {
     return strtotime($fecha) >= strtotime('2025-10-29') ? 13 : 10;
 }
@@ -83,263 +83,6 @@ function save_image($file): ?string {
     $name = time().'_'.bin2hex(random_bytes(4)).'.'.$ext;
     if (!move_uploaded_file($file['tmp_name'], UPLOAD_DIR.$name)) return null;
     return $name;
-}
-
-// ===== ACCIÓN AJAX: Vista previa de pago (CORREGIDA) =====
-if ($action === 'vista_previa' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    header('Content-Type: application/json');
-    ob_clean();
-    
-    try {
-        // Obtener datos
-        $input = file_get_contents('php://input');
-        $data = json_decode($input, true);
-        
-        if ($data) {
-            $ids = $data['ids'] ?? [];
-            $montoPago = (float)($data['monto_pago'] ?? 0);
-            $orden = $data['orden'] ?? 'antiguo';
-        } else {
-            $idsRaw = $_POST['ids'] ?? '[]';
-            $ids = json_decode($idsRaw, true);
-            $montoPago = (float)($_POST['monto_pago'] ?? 0);
-            $orden = $_POST['orden'] ?? 'antiguo';
-        }
-        
-        if (!is_array($ids)) {
-            $ids = explode(',', str_replace(['[', ']', '"'], '', $idsRaw));
-        }
-        
-        // Validar
-        if (empty($ids) || $montoPago <= 0) {
-            throw new Exception('Selecciona préstamos y un monto válido');
-        }
-        
-        $ids = array_filter(array_map('intval', $ids), fn($id) => $id > 0);
-        if (empty($ids)) {
-            throw new Exception('IDs inválidos');
-        }
-        
-        $conn = db();
-        $placeholders = implode(',', array_fill(0, count($ids), '?'));
-        $types = str_repeat('i', count($ids));
-        
-        $sql = "SELECT id, deudor, prestamista, monto, fecha, 
-                       comision_origen_porcentaje, comision_gestor_porcentaje, comision_base_monto,
-                       pagado
-                FROM prestamos 
-                WHERE id IN ($placeholders) AND pagado = 0";
-        
-        $stmt = $conn->prepare($sql);
-        if (!$stmt) {
-            throw new Exception('Error en la consulta');
-        }
-        
-        $stmt->bind_param($types, ...$ids);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        
-        $prestamos = [];
-        while ($row = $result->fetch_assoc()) {
-            $calc = calcularTotalPrestamo(
-                $row['monto'], 
-                $row['fecha'], 
-                $row['comision_origen_porcentaje'],
-                $row['comision_gestor_porcentaje'] ?? 0,
-                $row['comision_base_monto']
-            );
-            $row['meses'] = $calc['meses'];
-            $row['interes_origen'] = $calc['interes_origen'];
-            $row['interes_gestor'] = $calc['interes_gestor'];
-            $row['interes_total'] = $calc['interes_total'];
-            $row['total'] = $calc['total'];
-            $row['tasa_origen'] = $calc['tasa_origen'];
-            $row['tasa_gestor'] = $calc['tasa_gestor'];
-            $prestamos[] = $row;
-        }
-        $stmt->close();
-        
-        if (empty($prestamos)) {
-            throw new Exception('No se encontraron préstamos activos');
-        }
-        
-        // Ordenar
-        if ($orden === 'antiguo') {
-            usort($prestamos, fn($a, $b) => strtotime($a['fecha']) - strtotime($b['fecha']));
-        } elseif ($orden === 'reciente') {
-            usort($prestamos, fn($a, $b) => strtotime($b['fecha']) - strtotime($a['fecha']));
-        } elseif ($orden === 'mayor_interes') {
-            usort($prestamos, fn($a, $b) => $b['interes_total'] - $a['interes_total']);
-        }
-        
-        // Procesar pago
-        $restante = $montoPago;
-        $resultado = [];
-        $reestructurar = [];
-        
-        foreach ($prestamos as $p) {
-            if ($restante <= 0) {
-                $resultado[] = [
-                    'id' => $p['id'],
-                    'deudor' => $p['deudor'],
-                    'monto_original' => $p['monto'],
-                    'accion' => 'no_tocado',
-                    'mensaje' => 'No alcanzó para este préstamo'
-                ];
-                continue;
-            }
-            
-            if ($restante >= $p['total']) {
-                $resultado[] = [
-                    'id' => $p['id'],
-                    'deudor' => $p['deudor'],
-                    'monto_original' => $p['monto'],
-                    'interes_pagado' => $p['interes_total'],
-                    'abono_capital' => $p['monto'],
-                    'total_pagado' => $p['total'],
-                    'accion' => 'pagado_completo',
-                    'mensaje' => 'Préstamo pagado completamente'
-                ];
-                $restante -= $p['total'];
-            } else {
-                if ($restante >= $p['interes_total']) {
-                    $interesPagado = $p['interes_total'];
-                    $abonoCapital = $restante - $interesPagado;
-                    $nuevoCapital = $p['monto'] - $abonoCapital;
-                    
-                    $resultado[] = [
-                        'id' => $p['id'],
-                        'deudor' => $p['deudor'],
-                        'monto_original' => $p['monto'],
-                        'interes_pagado' => $interesPagado,
-                        'abono_capital' => $abonoCapital,
-                        'nuevo_capital' => $nuevoCapital,
-                        'accion' => 'reestructurar',
-                        'tasa_origen' => $p['tasa_origen'],
-                        'tasa_gestor' => $p['tasa_gestor'],
-                        'prestamista' => $p['prestamista'],
-                        'mensaje' => "Se pagan intereses ($" . number_format($interesPagado) . ") y se abonan $" . number_format($abonoCapital) . " a capital"
-                    ];
-                    $reestructurar[] = [
-                        'original_id' => $p['id'],
-                        'nuevo_capital' => $nuevoCapital,
-                        'deudor' => $p['deudor'],
-                        'prestamista' => $p['prestamista'],
-                        'tasa_origen' => $p['tasa_origen'],
-                        'tasa_gestor' => $p['tasa_gestor']
-                    ];
-                } else {
-                    $resultado[] = [
-                        'id' => $p['id'],
-                        'deudor' => $p['deudor'],
-                        'monto_original' => $p['monto'],
-                        'interes_pagado' => $restante,
-                        'abono_capital' => 0,
-                        'accion' => 'pago_parcial_intereses',
-                        'mensaje' => "Pago parcial de intereses: $" . number_format($restante)
-                    ];
-                }
-                $restante = 0;
-                break;
-            }
-        }
-        
-        $conn->close();
-        
-        echo json_encode([
-            'success' => true,
-            'monto_pago' => $montoPago,
-            'restante' => $restante,
-            'resultado' => $resultado,
-            'prestamos_reestructurar' => $reestructurar,
-            'total_procesado' => $montoPago - $restante
-        ]);
-        exit;
-        
-    } catch (Exception $e) {
-        echo json_encode(['error' => $e->getMessage()]);
-        exit;
-    }
-}
-
-// ===== ACCIÓN AJAX: Confirmar pago =====
-if ($action === 'confirmar_pago' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    header('Content-Type: application/json');
-    ob_clean();
-    
-    try {
-        $input = file_get_contents('php://input');
-        $data = json_decode($input, true);
-        
-        if (!$data) {
-            throw new Exception('Datos inválidos');
-        }
-        
-        $resultado = $data['resultado'] ?? [];
-        $reestructurar = $data['reestructurar'] ?? [];
-        
-        if (empty($resultado)) {
-            throw new Exception('No hay datos para procesar');
-        }
-        
-        $conn = db();
-        $conn->begin_transaction();
-        
-        // Marcar pagados
-        foreach ($resultado as $item) {
-            if ($item['accion'] === 'pagado_completo') {
-                $stmt = $conn->prepare("UPDATE prestamos SET pagado = 1, pagado_at = NOW() WHERE id = ?");
-                $stmt->bind_param("i", $item['id']);
-                $stmt->execute();
-                $stmt->close();
-            }
-        }
-        
-        // Procesar reestructuraciones
-        foreach ($reestructurar as $r) {
-            // Marcar original
-            $stmt = $conn->prepare("UPDATE prestamos SET pagado = 1, pagado_at = NOW(), nota = CONCAT('Reestructurado - Nuevo préstamo #', ?) WHERE id = ?");
-            $nuevoId = 0;
-            $stmt->bind_param("ii", $nuevoId, $r['original_id']);
-            $stmt->execute();
-            $stmt->close();
-            
-            // Crear nuevo
-            $stmt = $conn->prepare("INSERT INTO prestamos 
-                (deudor, prestamista, monto, fecha, created_at, empresa, 
-                 comision_origen_porcentaje, comision_gestor_porcentaje, nota, prestamo_origen_id) 
-                VALUES (?, ?, ?, CURDATE(), NOW(), '', ?, ?, CONCAT('Reestructuración del préstamo #', ?), ?)");
-            $stmt->bind_param("ssddii", 
-                $r['deudor'], 
-                $r['prestamista'], 
-                $r['nuevo_capital'], 
-                $r['tasa_origen'], 
-                $r['tasa_gestor'], 
-                $r['original_id'],
-                $r['original_id']
-            );
-            $stmt->execute();
-            $nuevoId = $stmt->insert_id;
-            $stmt->close();
-            
-            // Actualizar nota
-            $stmt = $conn->prepare("UPDATE prestamos SET nota = CONCAT('Reestructurado - Nuevo préstamo #', ?) WHERE id = ?");
-            $stmt->bind_param("ii", $nuevoId, $r['original_id']);
-            $stmt->execute();
-            $stmt->close();
-        }
-        
-        $conn->commit();
-        $conn->close();
-        
-        echo json_encode(['success' => true, 'message' => 'Pago procesado correctamente']);
-        exit;
-        
-    } catch (Exception $e) {
-        if (isset($conn)) $conn->rollback();
-        echo json_encode(['error' => $e->getMessage()]);
-        exit;
-    }
 }
 
 /* ===== Acciones masivas ===== */
@@ -535,12 +278,7 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
         .modal-content { background: #fff; margin: 30px auto; padding: 20px; border-radius: 16px; max-width: 800px; max-height: 80vh; overflow-y: auto; }
         .close { float: right; font-size: 28px; cursor: pointer; }
         .preview-item { background: #f8fafc; border-left: 4px solid var(--primary); padding: 12px; margin-bottom: 12px; border-radius: 8px; }
-        .preview-item.pagado { border-left-color: #10b981; background: #f0fdf4; }
-        .preview-item.reestructurar { border-left-color: #f59e0b; background: #fffbeb; }
-        .badge-pill { display: inline-block; padding: 4px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
-        .badge-pill.success { background: #10b981; color: white; }
-        .badge-pill.warning { background: #f59e0b; color: white; }
-        .badge-pill.info { background: #6c757d; color: white; }
+        .preview-total { background: #e8f7ee; padding: 12px; border-radius: 8px; margin-bottom: 16px; }
     </style>
 </head>
 <body>
@@ -564,15 +302,15 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
     </div>
 <?php endif; ?>
 
-<!-- MODAL -->
+<!-- MODAL DE VISTA PREVIA - SIN AJAX -->
 <div id="modalPreview" class="modal">
     <div class="modal-content">
-        <span class="close" onclick="document.getElementById('modalPreview').style.display='none'">&times;</span>
+        <span class="close" onclick="cerrarModal()">&times;</span>
         <h2>📋 Vista Previa del Pago</h2>
         <div id="previewContent"></div>
         <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
-            <button class="btn gray" onclick="document.getElementById('modalPreview').style.display='none'">Cancelar</button>
-            <button class="btn" id="btnConfirmarPago">✅ Confirmar Pago</button>
+            <button class="btn gray" onclick="cerrarModal()">Cancelar</button>
+            <button class="btn" id="btnCerrarModal" onclick="cerrarModal()">Aceptar</button>
         </div>
     </div>
 </div>
@@ -720,13 +458,6 @@ else:
         <div class="title">💰 Pago Inteligente</div>
         <div class="row">
             <div class="field"><label>Monto a pagar</label><input type="number" id="montoPago" placeholder="Ej: 4000000"></div>
-            <div class="field"><label>Orden</label>
-                <select id="ordenPago">
-                    <option value="antiguo">Más antiguos</option>
-                    <option value="reciente">Más recientes</option>
-                    <option value="mayor_interes">Mayor interés</option>
-                </select>
-            </div>
             <button class="btn" onclick="vistaPreviaPago()">🔍 Vista Previa</button>
         </div>
         <div class="subtitle"><span id="selectedCount">0</span> préstamos seleccionados</div>
@@ -760,7 +491,7 @@ else:
                     $esPagado = (bool)($r['pagado'] ?? false);
                     $cardClass = $esComision ? 'card-comision' : ($esPagado ? 'card-pagado' : '');
                 ?>
-                    <div class="card <?= $cardClass ?>">
+                    <div class="card <?= $cardClass ?>" data-id="<?= $r['id'] ?>" data-monto="<?= $r['monto'] ?>" data-interes="<?= $calc['interes_total'] ?>" data-total="<?= $calc['total'] ?>" data-fecha="<?= $r['fecha'] ?>">
                         <div class="cardSel">
                             <?php if (!$esPagado): ?>
                                 <input class="chkRow" type="checkbox" name="ids[]" value="<?= $r['id'] ?>" onchange="actualizarContador()">
@@ -818,18 +549,21 @@ else:
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <script>
-let ultimaVistaPrevia = null;
-
+// Inicializar Select2
 $(document).ready(function() {
     $('.select2-filter').select2({ width: '100%' });
 });
 
-// Contador selección
+// ===== FUNCIONES BÁSICAS =====
+
+// Actualizar contador de seleccionados
 function actualizarContador() {
-    document.getElementById('selectedCount').textContent = document.querySelectorAll('.chkRow:checked').length;
+    const count = document.querySelectorAll('.chkRow:checked').length;
+    document.getElementById('selectedCount').textContent = count;
+    document.getElementById('selCount').textContent = count + ' seleccionadas';
 }
 
-// Bulk panel
+// Seleccionar todo
 const chkAll = document.getElementById('chkAll');
 if(chkAll) {
     chkAll.addEventListener('change', function() {
@@ -838,8 +572,7 @@ if(chkAll) {
     });
 }
 
-document.querySelectorAll('.chkRow').forEach(c => c.addEventListener('change', actualizarContador));
-
+// Bulk panel
 document.getElementById('btnToggleBulk')?.addEventListener('click', function() {
     if(document.querySelectorAll('.chkRow:checked').length === 0) {
         alert('Selecciona al menos una tarjeta');
@@ -850,104 +583,6 @@ document.getElementById('btnToggleBulk')?.addEventListener('click', function() {
 
 document.getElementById('btnCloseBulk')?.addEventListener('click', function() {
     document.getElementById('bulkPanel').style.display = 'none';
-});
-
-// Vista previa - VERSIÓN SIMPLIFICADA
-function vistaPreviaPago() {
-    const checks = document.querySelectorAll('.chkRow:checked');
-    const ids = Array.from(checks).map(c => c.value);
-    const monto = document.getElementById('montoPago').value;
-    const orden = document.getElementById('ordenPago').value;
-    
-    if(ids.length === 0) { alert('Selecciona préstamos'); return; }
-    if(!monto || monto <= 0) { alert('Monto inválido'); return; }
-    
-    document.getElementById('previewContent').innerHTML = '<p>Cargando...</p>';
-    document.getElementById('modalPreview').style.display = 'block';
-    
-    // Enviar como JSON
-    fetch('?action=vista_previa', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: ids, monto_pago: monto, orden: orden })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if(data.error) {
-            document.getElementById('previewContent').innerHTML = '<p class="error">' + data.error + '</p>';
-            return;
-        }
-        
-        ultimaVistaPrevia = data;
-        
-        let html = `<div style="background:#e8f7ee; padding:12px; border-radius:8px; margin-bottom:16px;">
-            <strong>💰 Monto:</strong> $${new Intl.NumberFormat('es-CO').format(data.monto_pago)}<br>
-            <strong>💵 Procesado:</strong> $${new Intl.NumberFormat('es-CO').format(data.total_procesado)}<br>
-            <strong>🔄 Restante:</strong> $${new Intl.NumberFormat('es-CO').format(data.restante)}
-        </div>`;
-        
-        data.resultado.forEach(item => {
-            let clase = 'preview-item';
-            let badge = '';
-            
-            if(item.accion === 'pagado_completo') {
-                clase += ' pagado';
-                badge = '<span class="badge-pill success">✅ PAGADO</span>';
-            } else if(item.accion === 'reestructurar') {
-                clase += ' reestructurar';
-                badge = '<span class="badge-pill warning">🔄 REESTRUCTURAR</span>';
-            } else {
-                badge = '<span class="badge-pill info">⏳ NO TOCADO</span>';
-            }
-            
-            html += `<div class="${clase}">`;
-            html += `<div style="display:flex; justify-content:space-between"><strong>#${item.id} - ${item.deudor}</strong> ${badge}</div>`;
-            
-            if(item.accion === 'pagado_completo') {
-                html += `<div>Capital: $${new Intl.NumberFormat('es-CO').format(item.monto_original)}</div>`;
-                html += `<div>Interés: $${new Intl.NumberFormat('es-CO').format(item.interes_pagado)}</div>`;
-                html += `<div>Total: $${new Intl.NumberFormat('es-CO').format(item.total_pagado)}</div>`;
-            } else if(item.accion === 'reestructurar') {
-                html += `<div>Capital original: $${new Intl.NumberFormat('es-CO').format(item.monto_original)}</div>`;
-                html += `<div>Interés pagado: $${new Intl.NumberFormat('es-CO').format(item.interes_pagado)}</div>`;
-                html += `<div>Abono capital: $${new Intl.NumberFormat('es-CO').format(item.abono_capital)}</div>`;
-                html += `<div style="background:#f59e0b20; padding:8px; border-radius:6px; margin-top:8px;">`;
-                html += `<strong>🆕 NUEVO PRÉSTAMO:</strong> $${new Intl.NumberFormat('es-CO').format(item.nuevo_capital)} (hoy)`;
-                html += `</div>`;
-            } else {
-                html += `<div>No se modificó</div>`;
-            }
-            
-            html += `<div class="subtitle">${item.mensaje}</div>`;
-            html += `</div>`;
-        });
-        
-        document.getElementById('previewContent').innerHTML = html;
-    })
-    .catch(error => {
-        document.getElementById('previewContent').innerHTML = '<p class="error">Error: ' + error.message + '</p>';
-    });
-}
-
-// Confirmar pago
-document.getElementById('btnConfirmarPago')?.addEventListener('click', function() {
-    if(!ultimaVistaPrevia) { alert('No hay vista previa'); return; }
-    if(!confirm('¿Confirmar el pago?')) return;
-    
-    fetch('?action=confirmar_pago', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            resultado: ultimaVistaPrevia.resultado,
-            reestructurar: ultimaVistaPrevia.prestamos_reestructurar
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if(data.error) alert('Error: ' + data.error);
-        else { alert('✅ Pago procesado'); location.reload(); }
-    })
-    .catch(error => alert('Error: ' + error));
 });
 
 // Eliminar
@@ -961,9 +596,124 @@ function eliminar(id) {
     }
 }
 
+// Cerrar modal
+function cerrarModal() {
+    document.getElementById('modalPreview').style.display = 'none';
+}
+
+// ===== VISTA PREVIA - SIN AJAX =====
+function vistaPreviaPago() {
+    const checks = document.querySelectorAll('.chkRow:checked');
+    const montoPago = parseFloat(document.getElementById('montoPago').value) || 0;
+    
+    if (checks.length === 0) {
+        alert('Selecciona al menos un préstamo');
+        return;
+    }
+    if (montoPago <= 0) {
+        alert('Ingresa un monto válido');
+        return;
+    }
+    
+    // Obtener datos de las tarjetas seleccionadas
+    let prestamos = [];
+    let totalCapital = 0;
+    let totalInteres = 0;
+    let totalGeneral = 0;
+    
+    checks.forEach(check => {
+        const card = check.closest('.card');
+        const id = check.value;
+        const deudor = card.querySelector('.title').textContent.trim();
+        
+        // Extraer valores del DOM
+        const items = card.querySelectorAll('.pairs .item .v');
+        const monto = parseFloat(items[0]?.textContent.replace(/[^0-9]/g, '')) || 0;
+        const interes = parseFloat(items[2]?.textContent.replace(/[^0-9]/g, '')) || 0;
+        const total = parseFloat(items[3]?.textContent.replace(/[^0-9]/g, '')) || 0;
+        const fecha = card.querySelector('.chip').textContent.trim();
+        
+        prestamos.push({
+            id: id,
+            deudor: deudor,
+            monto: monto,
+            interes: interes,
+            total: total,
+            fecha: fecha
+        });
+        
+        totalCapital += monto;
+        totalInteres += interes;
+        totalGeneral += total;
+    });
+    
+    // Calcular restante
+    let restante = montoPago;
+    let totalProcesado = 0;
+    
+    // Generar HTML del modal
+    let html = `
+        <div class="preview-total">
+            <strong>💰 Monto a pagar:</strong> $${new Intl.NumberFormat('es-CO').format(montoPago)}<br>
+            <strong>💵 Total capital:</strong> $${new Intl.NumberFormat('es-CO').format(totalCapital)}<br>
+            <strong>💵 Total interés:</strong> $${new Intl.NumberFormat('es-CO').format(totalInteres)}<br>
+            <strong>📊 Total general:</strong> $${new Intl.NumberFormat('es-CO').format(totalGeneral)}
+        </div>
+    `;
+    
+    // Simular aplicación del pago
+    prestamos.forEach(p => {
+        if (restante <= 0) {
+            html += `<div class="preview-item">
+                <strong>#${p.id} - ${p.deudor}</strong><br>
+                ⏳ No alcanzó para este préstamo
+            </div>`;
+        } else if (restante >= p.total) {
+            html += `<div class="preview-item" style="border-left-color: #10b981;">
+                <strong>#${p.id} - ${p.deudor}</strong> <span style="background:#10b981; color:white; padding:2px 8px; border-radius:999px; font-size:11px;">✅ PAGADO COMPLETO</span><br>
+                <div>💰 Capital: $${new Intl.NumberFormat('es-CO').format(p.monto)}</div>
+                <div>💵 Interés: $${new Intl.NumberFormat('es-CO').format(p.interes)}</div>
+                <div>✅ Total: $${new Intl.NumberFormat('es-CO').format(p.total)}</div>
+            </div>`;
+            restante -= p.total;
+            totalProcesado += p.total;
+        } else {
+            // Pago parcial
+            if (restante >= p.interes) {
+                const abonoCapital = restante - p.interes;
+                const nuevoCapital = p.monto - abonoCapital;
+                html += `<div class="preview-item" style="border-left-color: #f59e0b;">
+                    <strong>#${p.id} - ${p.deudor}</strong> <span style="background:#f59e0b; color:white; padding:2px 8px; border-radius:999px; font-size:11px;">🔄 REESTRUCTURAR</span><br>
+                    <div>💰 Capital original: $${new Intl.NumberFormat('es-CO').format(p.monto)}</div>
+                    <div>💵 Interés pagado: $${new Intl.NumberFormat('es-CO').format(p.interes)}</div>
+                    <div>📉 Abono a capital: $${new Intl.NumberFormat('es-CO').format(abonoCapital)}</div>
+                    <div style="background:#f59e0b20; padding:8px; border-radius:6px; margin-top:8px;">
+                        <strong>🆕 NUEVO PRÉSTAMO:</strong> $${new Intl.NumberFormat('es-CO').format(nuevoCapital)} (hoy)
+                    </div>
+                </div>`;
+            } else {
+                html += `<div class="preview-item">
+                    <strong>#${p.id} - ${p.deudor}</strong><br>
+                    ⚠️ Pago parcial de intereses: $${new Intl.NumberFormat('es-CO').format(restante)}
+                </div>`;
+            }
+            totalProcesado += restante;
+            restante = 0;
+        }
+    });
+    
+    html += `<div class="preview-total" style="margin-top:16px;">
+        <strong>💵 Total procesado:</strong> $${new Intl.NumberFormat('es-CO').format(totalProcesado)}<br>
+        <strong>🔄 Restante:</strong> $${new Intl.NumberFormat('es-CO').format(restante)}
+    </div>`;
+    
+    document.getElementById('previewContent').innerHTML = html;
+    document.getElementById('modalPreview').style.display = 'block';
+}
+
 // Cerrar modal con ESC
-document.addEventListener('keydown', e => {
-    if(e.key === 'Escape') document.getElementById('modalPreview').style.display = 'none';
+document.addEventListener('keydown', function(e) {
+    if(e.key === 'Escape') cerrarModal();
 });
 </script>
 
