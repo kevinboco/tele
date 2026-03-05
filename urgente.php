@@ -2369,7 +2369,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
     </script>
 </body>
 </html>
-
 <?php
 $conn->close();
 ?>
