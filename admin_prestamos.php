@@ -1,9 +1,8 @@
 <?php
 /*********************************************************
- * admin_prestamos.php — CRUD + Tarjetas + Panel Vista Previa
+ * admin_prestamos.php — CRUD + Tarjetas
  * - Filtro dinámico: deudores según empresa seleccionada
  * - Dropdowns con búsqueda (Select2)
- * - Panel de vista previa de abono en cascada (sin modal)
  *********************************************************/
 include("nav.php");
 
@@ -63,230 +62,6 @@ function save_image($file): ?string {
   $name = time().'_'.bin2hex(random_bytes(4)).'.'.$ext;
   if (!move_uploaded_file($file['tmp_name'], UPLOAD_DIR.$name)) return null;
   return $name;
-}
-
-/* ===== Acción: Vista Previa de Abono (AJAX) ===== */
-if ($action==='vista_previa_abono' && $_SERVER['REQUEST_METHOD']==='POST'){
-    header('Content-Type: application/json');
-    
-    $ids = $_POST['ids'] ?? [];
-    $monto_abono = (float)($_POST['monto_abono'] ?? 0);
-    
-    if (!is_array($ids)) $ids = [];
-    $ids = array_values(array_unique(array_map(fn($v)=> (int)$v, $ids)));
-    
-    if (!$ids || $monto_abono <= 0) {
-        echo json_encode(['error' => 'Selecciona préstamos y un monto válido']);
-        exit;
-    }
-    
-    $conn = db();
-    $placeholders = implode(',', array_fill(0, count($ids), '?'));
-    $types = str_repeat('i', count($ids));
-    
-    // Obtener los préstamos seleccionados en orden (ID ascendente para consistencia)
-    $sql = "SELECT id, deudor, monto, fecha, pagado, prestamista,
-                   CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS meses,
-                   
-                   /* Interés del prestamista */
-                   (monto * 
-                    CASE 
-                      WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
-                      ELSE COALESCE(comision_origen_porcentaje, 10)
-                    END / 100 *
-                    CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes_prestamista,
-                   
-                   /* Comisión del gestor */
-                   (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100 *
-                    CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS comision_gestor,
-                   
-                   /* Interés total */
-                   ((monto * 
-                     CASE 
-                       WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
-                       ELSE COALESCE(comision_origen_porcentaje, 10)
-                     END / 100) + 
-                    (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
-                    CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS interes_total,
-                   
-                   /* Total a pagar */
-                   (monto + 
-                    (((monto * 
-                      CASE 
-                        WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
-                        ELSE COALESCE(comision_origen_porcentaje, 10)
-                      END / 100) + 
-                     (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
-                      CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
-                   
-            FROM prestamos
-            WHERE id IN ($placeholders) AND pagado = 0
-            ORDER BY id ASC";
-    
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param($types, ...$ids);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    $prestamos = [];
-    $total_capital = 0;
-    $total_intereses = 0;
-    $total_general = 0;
-    
-    while ($row = $result->fetch_assoc()) {
-        $prestamo = [
-            'id' => $row['id'],
-            'deudor' => $row['deudor'],
-            'prestamista' => $row['prestamista'],
-            'monto' => (float)$row['monto'],
-            'interes' => (float)$row['interes_total'],
-            'total' => (float)$row['total'],
-            'meses' => (int)$row['meses'],
-            'pagado' => (bool)$row['pagado']
-        ];
-        $prestamos[] = $prestamo;
-        $total_capital += $prestamo['monto'];
-        $total_intereses += $prestamo['interes'];
-        $total_general += $prestamo['total'];
-    }
-    
-    $stmt->close();
-    $conn->close();
-    
-    // Aplicar lógica de cascada
-    $abono_restante = $monto_abono;
-    $resultado = [
-        'prestamos' => [],
-        'resumen' => [
-            'total_capital' => $total_capital,
-            'total_intereses' => $total_intereses,
-            'total_general' => $total_general,
-            'monto_abono' => $monto_abono,
-            'abono_utilizado' => 0,
-            'sobrante' => 0
-        ]
-    ];
-    
-    $abono_utilizado_total = 0;
-    
-    foreach ($prestamos as $p) {
-        $estado = [
-            'id' => $p['id'],
-            'deudor' => $p['deudor'],
-            'prestamista' => $p['prestamista'],
-            'monto' => $p['monto'],
-            'interes' => $p['interes'],
-            'total' => $p['total'],
-            'abono_aplicado' => 0,
-            'abono_capital' => 0,
-            'abono_interes' => 0,
-            'estado' => 'pendiente'
-        ];
-        
-        if ($abono_restante <= 0) {
-            $estado['estado'] = 'sin_abono';
-        } elseif ($abono_restante >= $p['total']) {
-            // Se paga completamente
-            $estado['abono_aplicado'] = $p['total'];
-            $estado['abono_capital'] = $p['monto'];
-            $estado['abono_interes'] = $p['interes'];
-            $estado['estado'] = 'pagado_completo';
-            $abono_restante -= $p['total'];
-            $abono_utilizado_total += $p['total'];
-        } else {
-            // Abono parcial - primero intereses, luego capital
-            if ($abono_restante <= $p['interes']) {
-                // Solo alcanza para parte de los intereses
-                $estado['abono_interes'] = $abono_restante;
-                $estado['abono_capital'] = 0;
-                $estado['abono_aplicado'] = $abono_restante;
-                $estado['estado'] = 'parcial_interes';
-            } else {
-                // Paga todos los intereses y parte del capital
-                $estado['abono_interes'] = $p['interes'];
-                $estado['abono_capital'] = $abono_restante - $p['interes'];
-                $estado['abono_aplicado'] = $abono_restante;
-                $estado['estado'] = 'parcial_capital';
-            }
-            $abono_utilizado_total += $abono_restante;
-            $abono_restante = 0;
-        }
-        
-        $resultado['prestamos'][] = $estado;
-    }
-    
-    $resultado['resumen']['abono_utilizado'] = $abono_utilizado_total;
-    $resultado['resumen']['sobrante'] = $abono_restante;
-    
-    echo json_encode($resultado);
-    exit;
-}
-
-/* ===== Acción: Aplicar Abono en Cascada ===== */
-if ($action==='aplicar_abono' && $_SERVER['REQUEST_METHOD']==='POST'){
-    $ids = $_POST['ids'] ?? [];
-    $monto_abono = (float)($_POST['monto_abono'] ?? 0);
-    $aplicar = $_POST['aplicar'] ?? 'no';
-    
-    if (!is_array($ids)) $ids = [];
-    $ids = array_values(array_unique(array_map(fn($v)=> (int)$v, $ids)));
-    
-    if (!$ids || $monto_abono <= 0 || $aplicar !== 'si') {
-        go(BASE_URL.'?view=cards&msg=abono_cancelado');
-    }
-    
-    $conn = db();
-    $placeholders = implode(',', array_fill(0, count($ids), '?'));
-    $types = str_repeat('i', count($ids));
-    
-    // Obtener los préstamos en orden
-    $sql = "SELECT id, monto, fecha,
-                   CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS meses,
-                   (monto * 
-                    CASE 
-                      WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
-                      ELSE COALESCE(comision_origen_porcentaje, 10)
-                    END / 100 *
-                    CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes_prestamista,
-                   (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100 *
-                    CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS comision_gestor
-            FROM prestamos 
-            WHERE id IN ($placeholders) AND pagado = 0
-            ORDER BY id ASC";
-    
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param($types, ...$ids);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    
-    $abono_restante = $monto_abono;
-    $exitos = [];
-    
-    while ($row = $result->fetch_assoc()) {
-        if ($abono_restante <= 0) break;
-        
-        $interes_total = $row['interes_prestamista'] + $row['comision_gestor'];
-        $total_prestamo = $row['monto'] + $interes_total;
-        
-        if ($abono_restante >= $total_prestamo) {
-            // Pagar completo
-            $stmt2 = $conn->prepare("UPDATE prestamos SET pagado = 1, pagado_at = NOW() WHERE id = ?");
-            $stmt2->bind_param("i", $row['id']);
-            $stmt2->execute();
-            $stmt2->close();
-            $exitos[] = $row['id'];
-            $abono_restante -= $total_prestamo;
-        } else {
-            // No alcanza para pagar completo, salimos del ciclo
-            break;
-        }
-    }
-    
-    $stmt->close();
-    $conn->close();
-    
-    $msg = count($exitos) > 0 ? 'abono_exitoso' : 'abono_sin_cambios';
-    go(BASE_URL.'?view=cards&msg='.$msg);
 }
 
 /* ===== Acción: Edición en Lote desde TARJETAS ===== */
@@ -553,99 +328,6 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  .select2-selection { border: 1px solid #e5e7eb !important; border-radius: 12px !important; padding: 8px !important; height: 45px !important; }
  .select2-selection__arrow { height: 43px !important; }
  .select2-search__field { border-radius: 8px !important; padding: 6px !important; }
- 
- /* ===== ESTILOS DEL PANEL DE VISTA PREVIA ===== */
- .panel-vista-previa {
-   display: none;
-   margin-top: 20px;
-   border: 2px solid #10b981;
-   border-radius: 16px;
-   padding: 20px;
-   background: #f0fdf4;
- }
- .panel-header {
-   display: flex;
-   justify-content: space-between;
-   align-items: center;
-   margin-bottom: 15px;
- }
- .panel-header h3 {
-   margin: 0;
-   color: #065f46;
-   font-size: 20px;
- }
- .resumen-panel {
-   display: grid;
-   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-   gap: 15px;
-   margin-bottom: 20px;
-   background: white;
-   padding: 15px;
-   border-radius: 12px;
- }
- .resumen-item-panel {
-   text-align: center;
- }
- .resumen-label-panel {
-   font-size: 12px;
-   color: #6b7280;
-   margin-bottom: 5px;
- }
- .resumen-valor-panel {
-   font-size: 20px;
-   font-weight: 700;
-   color: #0b5ed7;
- }
- .monto-panel-input {
-   font-size: 18px;
-   padding: 12px;
-   border: 2px solid #10b981;
-   border-radius: 12px;
-   width: 100%;
-   margin-bottom: 15px;
- }
- .tabla-panel {
-   width: 100%;
-   border-collapse: collapse;
-   background: white;
-   border-radius: 12px;
-   overflow: hidden;
- }
- .tabla-panel th {
-   background: #d1fae5;
-   padding: 12px;
-   text-align: left;
-   color: #065f46;
- }
- .tabla-panel td {
-   padding: 12px;
-   border-bottom: 1px solid #e5e7eb;
- }
- .pagado-completo { background: #f0fdf4; }
- .parcial { background: #fffbeb; }
- .sin-abono { background: #fef2f2; }
- .badge-estado {
-   display: inline-block;
-   padding: 4px 8px;
-   border-radius: 999px;
-   font-size: 12px;
-   font-weight: 600;
- }
- .badge-exito { background: #10b981; color: white; }
- .badge-warning { background: #f59e0b; color: white; }
- .badge-error { background: #ef4444; color: white; }
- .badge-info { background: #6b7280; color: white; }
- .acciones-panel {
-   display: flex;
-   gap: 10px;
-   justify-content: flex-end;
-   margin-top: 15px;
- }
- .loading-panel {
-   text-align: center;
-   padding: 20px;
-   color: #6b7280;
- }
 </style>
 </head><body>
 
@@ -671,10 +353,6 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
         'bulkpaidoops'=>'Hubo un error al marcar como pagados.',
         'bulkunpaid'=>'Préstamos seleccionados marcados como NO pagados.',
         'bulkunpaidoops'=>'Hubo un error al marcar como NO pagados.',
-        'abono_exitoso'=>'Abono aplicado correctamente a los préstamos.',
-        'abono_cancelado'=>'Operación cancelada.',
-        'abono_invalido'=>'Monto inválido o sin préstamos seleccionados.',
-        'abono_sin_cambios'=>'No se aplicaron cambios (los préstamos ya estaban pagados o el monto era insuficiente).',
         default=>'Operación realizada.'
       };
     ?>
@@ -1051,10 +729,6 @@ else:
               <input id="chkAll" type="checkbox"> Seleccionar todo (página)
             </label>
             <button type="button" class="btn gray small" id="btnToggleBulk">✏️ Editar selección</button>
-            <!-- Botón: Vista Previa de Abono (NUEVO) -->
-            <button type="button" class="btn small" id="btnVistaPrevia" style="background:#10b981">
-              👁️ Vista Previa Abono
-            </button>
             <!-- Botón: marcar como pagados los seleccionados -->
             <button 
               type="submit" 
@@ -1234,82 +908,6 @@ else:
             <button class="btn gray" type="button" id="btnCloseBulk">Cerrar</button>
           </div>
         </div>
-
-        <!-- ===== PANEL DE VISTA PREVIA (debajo de las tarjetas) ===== -->
-        <div class="panel-vista-previa" id="panelVistaPrevia">
-          <div class="panel-header">
-            <h3>👁️ Vista Previa de Abono</h3>
-            <button type="button" class="btn gray small" id="btnCerrarPanel">✕ Cerrar</button>
-          </div>
-          
-          <div class="resumen-panel" id="resumenPanel">
-            <div class="resumen-item-panel">
-              <div class="resumen-label-panel">Préstamos seleccionados</div>
-              <div class="resumen-valor-panel" id="panel-cantidad">0</div>
-            </div>
-            <div class="resumen-item-panel">
-              <div class="resumen-label-panel">Capital total</div>
-              <div class="resumen-valor-panel" id="panel-capital">$ 0</div>
-            </div>
-            <div class="resumen-item-panel">
-              <div class="resumen-label-panel">Interés total</div>
-              <div class="resumen-valor-panel" id="panel-interes">$ 0</div>
-            </div>
-            <div class="resumen-item-panel">
-              <div class="resumen-label-panel">Total a pagar</div>
-              <div class="resumen-valor-panel" id="panel-total">$ 0</div>
-            </div>
-          </div>
-
-          <div>
-            <label>💰 Monto del abono:</label>
-            <input type="number" id="panelMonto" class="monto-panel-input" placeholder="Ingresa el monto a abonar" min="1" step="1000" value="0">
-          </div>
-
-          <div id="panelLoading" class="loading-panel" style="display:none;">
-            <div class="chip">Calculando...</div>
-          </div>
-
-          <div id="panelResultado" style="display:none;">
-            <div class="resumen-panel" style="background:#e6f7ff;">
-              <div class="resumen-item-panel">
-                <div class="resumen-label-panel">Abono utilizado</div>
-                <div class="resumen-valor-panel" id="panel-abono-usado">$ 0</div>
-              </div>
-              <div class="resumen-item-panel">
-                <div class="resumen-label-panel">Sobrante</div>
-                <div class="resumen-valor-panel" id="panel-sobrante">$ 0</div>
-              </div>
-            </div>
-
-            <table class="tabla-panel">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Deudor</th>
-                  <th>Capital</th>
-                  <th>Interés</th>
-                  <th>Total</th>
-                  <th>Abono</th>
-                  <th>Estado</th>
-                </tr>
-              </thead>
-              <tbody id="panelTablaBody">
-                <!-- Se llena con JavaScript -->
-              </tbody>
-            </table>
-
-            <div class="acciones-panel">
-              <form method="post" action="?action=aplicar_abono" id="formConfirmarPanel" style="display:inline">
-                <input type="hidden" name="ids" id="confirmIdsPanel">
-                <input type="hidden" name="monto_abono" id="confirmMontoPanel">
-                <input type="hidden" name="aplicar" value="si">
-                <button type="submit" class="btn" id="btnConfirmarPanel" style="background:#10b981" disabled>✅ Confirmar Abono</button>
-              </form>
-              <button type="button" class="btn gray" id="btnCancelarPanel">Cancelar</button>
-            </div>
-          </div>
-        </div>
       </form>
     <?php endif; ?>
 <?php
@@ -1325,246 +923,134 @@ endif; // forms / list
 <script>
 // Inicializar Select2 en los dropdowns de filtro
 $(document).ready(function() {
+  // Aplicar Select2 a los filtros
   $('.select2-filter').select2({
     width: '100%',
     placeholder: 'Seleccionar...',
     allowClear: true,
-    language: { noResults: function() { return "No se encontraron resultados"; } }
+    language: {
+      noResults: function() {
+        return "No se encontraron resultados";
+      }
+    }
   });
   
   // Guardar referencia a los selects
   const empresaSelect = $('#empresaSelect');
   const deudorSelect = $('#deudorSelect');
   const estadoPagoRadios = document.querySelectorAll('input[name="estado_pago"]');
+  
+  // Variable para guardar el deudor seleccionado antes de cambiar
   let deudorSeleccionado = deudorSelect.val();
   
+  // Función para cargar deudores según empresa
   function cargarDeudoresPorEmpresa(empresaNormalizada, estadoPago) {
-    if (!empresaNormalizada) { cargarTodosDeudores(estadoPago); return; }
+    if (!empresaNormalizada) {
+      // Si no hay empresa, cargar todos los deudores
+      cargarTodosDeudores(estadoPago);
+      return;
+    }
+    
+    // Mostrar loading
     deudorSelect.html('<option value="">Cargando deudores...</option>');
+    
+    // Hacer petición AJAX
     fetch(`ajax_cargar_deudores.php?empresa=${encodeURIComponent(empresaNormalizada)}&estado=${estadoPago}`)
-      .then(response => response.json())
+      .then(response => {
+        if (!response.ok) throw new Error('Error en la respuesta');
+        return response.json();
+      })
       .then(data => {
+        // Reconstruir el dropdown
         let options = '<option value="">Todos los deudores</option>';
+        
         data.forEach(deudor => {
           const selected = (deudor.norm === deudorSeleccionado) ? 'selected' : '';
           options += `<option value="${deudor.norm}" ${selected}>${deudor.nombre}</option>`;
         });
+        
         deudorSelect.html(options);
-        deudorSelect.select2({ width: '100%', placeholder: 'Seleccionar deudor...', allowClear: true });
-        if (deudorSeleccionado) deudorSelect.val(deudorSeleccionado).trigger('change');
+        
+        // Re-aplicar Select2
+        deudorSelect.select2({
+          width: '100%',
+          placeholder: 'Seleccionar deudor...',
+          allowClear: true
+        });
+        
+        // Restaurar selección si existe
+        if (deudorSeleccionado) {
+          deudorSelect.val(deudorSeleccionado).trigger('change');
+        }
       })
-      .catch(() => deudorSelect.html('<option value="">Error cargando deudores</option>'));
+      .catch(error => {
+        console.error('Error cargando deudores:', error);
+        deudorSelect.html('<option value="">Error cargando deudores</option>');
+      });
   }
   
+  // Función para cargar todos los deudores
   function cargarTodosDeudores(estadoPago) {
+    // Mostrar loading
     deudorSelect.html('<option value="">Cargando todos los deudores...</option>');
+    
     fetch(`ajax_cargar_deudores.php?empresa=&estado=${estadoPago}`)
       .then(response => response.json())
       .then(data => {
         let options = '<option value="">Todos los deudores</option>';
+        
         data.forEach(deudor => {
           const selected = (deudor.norm === deudorSeleccionado) ? 'selected' : '';
           options += `<option value="${deudor.norm}" ${selected}>${deudor.nombre}</option>`;
         });
+        
         deudorSelect.html(options);
-        deudorSelect.select2({ width: '100%', placeholder: 'Seleccionar deudor...', allowClear: true });
-        if (deudorSeleccionado) deudorSelect.val(deudorSeleccionado).trigger('change');
+        deudorSelect.select2({
+          width: '100%',
+          placeholder: 'Seleccionar deudor...',
+          allowClear: true
+        });
+        
+        if (deudorSeleccionado) {
+          deudorSelect.val(deudorSeleccionado).trigger('change');
+        }
+      })
+      .catch(error => {
+        console.error('Error:', error);
+        deudorSelect.html('<option value="">Error cargando deudores</option>');
       });
   }
   
+  // Evento cuando cambia la empresa
   empresaSelect.on('change', function() {
     const empresaNormalizada = $(this).val();
     const estadoPago = document.querySelector('input[name="estado_pago"]:checked')?.value || 'no_pagados';
+    
+    // Guardar el deudor seleccionado antes de cambiar
     deudorSeleccionado = deudorSelect.val();
+    
+    // Cargar deudores según la empresa seleccionada
     cargarDeudoresPorEmpresa(empresaNormalizada, estadoPago);
   });
   
+  // Evento cuando cambia el estado de pago
   estadoPagoRadios.forEach(radio => {
     radio.addEventListener('change', function() {
       const empresaNormalizada = empresaSelect.val();
       const estadoPago = this.value;
+      
+      // Guardar el deudor seleccionado
       deudorSeleccionado = deudorSelect.val();
-      if (empresaNormalizada) cargarDeudoresPorEmpresa(empresaNormalizada, estadoPago);
-      else cargarTodosDeudores(estadoPago);
+      
+      // Recargar deudores con el nuevo estado
+      if (empresaNormalizada) {
+        cargarDeudoresPorEmpresa(empresaNormalizada, estadoPago);
+      } else {
+        cargarTodosDeudores(estadoPago);
+      }
     });
   });
 });
-
-// ===== LÓGICA DEL PANEL DE VISTA PREVIA =====
-(function() {
-  const panel = document.getElementById('panelVistaPrevia');
-  const btnVistaPrevia = document.getElementById('btnVistaPrevia');
-  const btnCerrarPanel = document.getElementById('btnCerrarPanel');
-  const btnCancelarPanel = document.getElementById('btnCancelarPanel');
-  const montoInput = document.getElementById('panelMonto');
-  const loadingIndicator = document.getElementById('panelLoading');
-  const resultadoDiv = document.getElementById('panelResultado');
-  const tablaBody = document.getElementById('panelTablaBody');
-  const panelCantidad = document.getElementById('panel-cantidad');
-  const panelCapital = document.getElementById('panel-capital');
-  const panelInteres = document.getElementById('panel-interes');
-  const panelTotal = document.getElementById('panel-total');
-  const panelAbonoUsado = document.getElementById('panel-abono-usado');
-  const panelSobrante = document.getElementById('panel-sobrante');
-  const btnConfirmar = document.getElementById('btnConfirmarPanel');
-  const formConfirmar = document.getElementById('formConfirmarPanel');
-  const confirmIds = document.getElementById('confirmIdsPanel');
-  const confirmMonto = document.getElementById('confirmMontoPanel');
-  
-  let timeoutId = null;
-  let ultimosIds = [];
-  
-  // Abrir panel
-  if (btnVistaPrevia) {
-    btnVistaPrevia.addEventListener('click', function() {
-      const checkboxes = document.querySelectorAll('.chkRow:checked');
-      if (checkboxes.length === 0) {
-        alert('Selecciona al menos una tarjeta para ver la vista previa.');
-        return;
-      }
-      
-      ultimosIds = Array.from(checkboxes).map(cb => cb.value);
-      panel.style.display = 'block';
-      montoInput.value = '';
-      resultadoDiv.style.display = 'none';
-      btnConfirmar.disabled = true;
-      
-      // Scroll suave hacia el panel
-      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      
-      // Cargar resumen inicial
-      cargarVistaPrevia(ultimosIds, 0);
-    });
-  }
-  
-  // Cerrar panel
-  function cerrarPanel() {
-    panel.style.display = 'none';
-  }
-  
-  if (btnCerrarPanel) btnCerrarPanel.addEventListener('click', cerrarPanel);
-  if (btnCancelarPanel) btnCancelarPanel.addEventListener('click', cerrarPanel);
-  
-  // Input de monto con debounce
-  montoInput.addEventListener('input', function() {
-    clearTimeout(timeoutId);
-    const monto = parseFloat(this.value) || 0;
-    
-    if (monto <= 0) {
-      resultadoDiv.style.display = 'none';
-      btnConfirmar.disabled = true;
-      return;
-    }
-    
-    loadingIndicator.style.display = 'block';
-    resultadoDiv.style.display = 'none';
-    
-    timeoutId = setTimeout(() => {
-      cargarVistaPrevia(ultimosIds, monto);
-    }, 500);
-  });
-  
-  // Función para cargar vista previa vía AJAX
-  function cargarVistaPrevia(ids, monto) {
-    if (!ids.length) {
-      loadingIndicator.style.display = 'none';
-      return;
-    }
-    
-    const formData = new FormData();
-    ids.forEach(id => formData.append('ids[]', id));
-    formData.append('monto_abono', monto);
-    
-    fetch('?action=vista_previa_abono', {
-      method: 'POST',
-      body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-      loadingIndicator.style.display = 'none';
-      
-      if (data.error) {
-        alert(data.error);
-        resultadoDiv.style.display = 'none';
-        btnConfirmar.disabled = true;
-        return;
-      }
-      
-      // Actualizar resumen
-      panelCantidad.textContent = data.prestamos.length;
-      panelCapital.textContent = '$ ' + formatearNumero(data.resumen.total_capital);
-      panelInteres.textContent = '$ ' + formatearNumero(data.resumen.total_intereses);
-      panelTotal.textContent = '$ ' + formatearNumero(data.resumen.total_general);
-      panelAbonoUsado.textContent = '$ ' + formatearNumero(data.resumen.abono_utilizado);
-      panelSobrante.textContent = '$ ' + formatearNumero(data.resumen.sobrante);
-      
-      // Llenar tabla
-      let html = '';
-      data.prestamos.forEach(p => {
-        let claseFila = '';
-        let badgeClass = 'badge-info';
-        let badgeText = 'Pendiente';
-        
-        if (p.estado === 'pagado_completo') {
-          claseFila = 'pagado-completo';
-          badgeClass = 'badge-exito';
-          badgeText = '✅ Pagado';
-        } else if (p.estado === 'parcial_capital' || p.estado === 'parcial_interes') {
-          claseFila = 'parcial';
-          badgeClass = 'badge-warning';
-          badgeText = '⚠️ Parcial';
-        } else if (p.estado === 'sin_abono') {
-          claseFila = 'sin-abono';
-          badgeClass = 'badge-error';
-          badgeText = '❌ Sin abono';
-        }
-        
-        html += `<tr class="${claseFila}">
-          <td>#${p.id}</td>
-          <td>${p.deudor}</td>
-          <td>$ ${formatearNumero(p.monto)}</td>
-          <td>$ ${formatearNumero(p.interes)}</td>
-          <td>$ ${formatearNumero(p.total)}</td>
-          <td>$ ${formatearNumero(p.abono_aplicado)}</td>
-          <td><span class="badge-estado ${badgeClass}">${badgeText}</span></td>
-        </tr>`;
-      });
-      
-      tablaBody.innerHTML = html;
-      resultadoDiv.style.display = 'block';
-      
-      // Habilitar botón de confirmar si se usó algo del abono
-      btnConfirmar.disabled = (data.resumen.abono_utilizado === 0);
-      
-      // Preparar form de confirmación
-      confirmIds.value = JSON.stringify(ids);
-      confirmMonto.value = monto;
-    })
-    .catch(error => {
-      console.error('Error:', error);
-      loadingIndicator.style.display = 'none';
-      alert('Error al calcular vista previa');
-    });
-  }
-  
-  // Formatear número
-  function formatearNumero(num) {
-    return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-  }
-  
-  // Validar form antes de enviar
-  if (formConfirmar) {
-    formConfirmar.addEventListener('submit', function(e) {
-      const ids = confirmIds.value;
-      const monto = confirmMonto.value;
-      
-      if (!ids || !monto || parseFloat(monto) <= 0) {
-        e.preventDefault();
-        alert('Datos de confirmación inválidos');
-      }
-    });
-  }
-})();
 
 // JS: selección múltiple + eliminar sin anidar formularios
 (function(){
