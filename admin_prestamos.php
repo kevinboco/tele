@@ -3,7 +3,7 @@
  * admin_prestamos.php — CRUD + Tarjetas
  * - Filtro dinámico: deudores según empresa seleccionada
  * - Dropdowns con búsqueda (Select2)
- * - SISTEMA DE ABONOS CON VISTA PREVIA AGREGADO
+ * - SISTEMA DE ABONOS CON VISTA PREVIA CORREGIDO
  *********************************************************/
 include("nav.php");
 
@@ -45,7 +45,7 @@ function mbnorm($s){ return mb_strtolower(trim((string)$s),'UTF-8'); }
 function mbtitle($s){ return function_exists('mb_convert_case') ? mb_convert_case((string)$s, MB_CASE_TITLE, 'UTF-8') : ucwords(strtolower((string)$s)); }
 
 $action = $_GET['action'] ?? 'list';
-$view   = 'cards'; // Solo tarjetas
+$view   = 'cards';
 $id = (int)($_GET['id'] ?? 0);
 
 // ===== Upload helper =====
@@ -65,7 +65,7 @@ function save_image($file): ?string {
   return $name;
 }
 
-/* ===== ACCIÓN: PROCESAR ABONO (NUEVO) ===== */
+/* ===== ACCIÓN: PROCESAR ABONO ===== */
 if ($action==='procesar_abono' && $_SERVER['REQUEST_METHOD']==='POST'){
     $prestamo_id = (int)($_POST['prestamo_id'] ?? 0);
     $monto_abono = (float)($_POST['monto_abono'] ?? 0);
@@ -106,34 +106,25 @@ if ($action==='procesar_abono' && $_SERVER['REQUEST_METHOD']==='POST'){
     $nuevo_prestamo_id = null;
     
     if ($monto_abono >= $interes_generado) {
-        // Paga TODO el interés
         $interes_pagado = $interes_generado;
         $restante = $monto_abono - $interes_generado;
         
         if ($restante >= $capital_actual) {
-            // Paga TODO el capital
             $capital_pagado = $capital_actual;
-            
-            // Marcar préstamo como pagado
             $upd = $conn->prepare("UPDATE prestamos SET pagado = 1, pagado_at = NOW() WHERE id = ?");
             $upd->bind_param("i", $prestamo_id);
             $upd->execute();
             $upd->close();
-            
             $mensaje = "✅ Préstamo #{$prestamo_id} PAGADO COMPLETAMENTE";
-            
         } else {
-            // Paga parte del capital - CREAR NUEVO PRÉSTAMO
             $capital_pagado = $restante;
             $nuevo_capital = $capital_actual - $capital_pagado;
             
-            // Marcar original como pagado
             $upd = $conn->prepare("UPDATE prestamos SET pagado = 1, pagado_at = NOW() WHERE id = ?");
             $upd->bind_param("i", $prestamo_id);
             $upd->execute();
             $upd->close();
             
-            // Crear NUEVO préstamo con el capital restante
             $sql_new = "INSERT INTO prestamos 
                         (deudor, prestamista, monto, fecha, imagen, created_at, 
                          empresa, comision_gestor_nombre, comision_gestor_porcentaje,
@@ -167,20 +158,14 @@ if ($action==='procesar_abono' && $_SERVER['REQUEST_METHOD']==='POST'){
                        ". Se creó NUEVO PRÉSTAMO #{$nuevo_prestamo_id} por $" . money($nuevo_capital);
         }
     } else {
-        // No alcanza para pagar todo el interés
         $interes_pagado = $monto_abono;
         $capital_pagado = 0;
-        
-        // Aquí podrías guardar el abono parcial si tuvieras campo para ello
-        // Por ahora solo mostramos mensaje
-        
         $pendiente = $interes_generado - $monto_abono;
         $mensaje = "⚠️ Abono no cubre intereses. Interés pendiente: $" . money($pendiente);
     }
     
     $conn->close();
     
-    // Redirigir con mensaje
     $msg = urlencode($mensaje);
     $url = BASE_URL . "?view=cards&msg_abono={$msg}&highlight={$prestamo_id}";
     if ($nuevo_prestamo_id) {
@@ -1335,18 +1320,24 @@ $(document).ready(function() {
   
   let datosVistaPrevia = null;
   
-  // Llenar select de deudores para abonos con los mismos datos
+  // CORRECCIÓN: Llenar select de deudores para abonos con los datos de $deudMap
   function llenarDeudoresAbono() {
-    const options = '<option value="">Seleccionar deudor...</option>' + 
-                    Array.from(document.querySelectorAll('#deudorSelect option')).map(opt => {
-                      if (opt.value) {
-                        return `<option value="${opt.value}">${opt.text}</option>`;
-                      }
-                      return '';
-                    }).join('');
+    let options = '<option value="">Seleccionar deudor...</option>';
+    
+    // Obtener opciones del select de filtro de deudores
+    $('#deudorSelect option').each(function() {
+      const val = $(this).val();
+      const text = $(this).text();
+      if (val) {
+        options += `<option value="${val}">${text}</option>`;
+      }
+    });
+    
     deudorAbono.html(options);
   }
-  llenarDeudoresAbono();
+  
+  // Llamar a la función después de un pequeño retraso para asegurar que el DOM esté listo
+  setTimeout(llenarDeudoresAbono, 500);
   
   // Cargar préstamos cuando cambia deudor
   deudorAbono.on('change', function() {
@@ -1359,8 +1350,14 @@ $(document).ready(function() {
     
     prestamoAbono.prop('disabled', true).html('<option value="">Cargando préstamos...</option>');
     
+    // CORRECCIÓN: Usar la URL correcta para la petición AJAX
     fetch(`?action=get_prestamos_deudor&deudor=${encodeURIComponent(deudor)}`)
-      .then(response => response.json())
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('Error en la respuesta del servidor');
+        }
+        return response.json();
+      })
       .then(data => {
         if (data.length === 0) {
           prestamoAbono.html('<option value="">No hay préstamos activos</option>').prop('disabled', true);
@@ -1370,6 +1367,13 @@ $(document).ready(function() {
             options += `<option value="${p.id}" data-monto="${p.monto}" data-interes="${p.interes}">${p.texto}</option>`;
           });
           prestamoAbono.html(options).prop('disabled', false);
+          
+          // Re-inicializar Select2 para el select de préstamos
+          prestamoAbono.select2({
+            width: '100%',
+            placeholder: 'Seleccionar préstamo...',
+            allowClear: true
+          });
         }
       })
       .catch(error => {
