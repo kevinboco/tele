@@ -509,7 +509,7 @@ if ($resV) {
     }
 }
 
-/* ================= Préstamos ================= */
+/* ================= PRÉSTAMOS - AHORA CON TODAS LAS EMPRESAS ================= */
 $prestamosList = [];
 $i = 0;
 
@@ -529,10 +529,11 @@ $qPrest = "
   WHERE (pagado IS NULL OR pagado = 0)
 ";
 
-if (!empty($empresasSeleccionadasEsc)) {
-    $empresasStr = "'" . implode("','", $empresasSeleccionadasEsc) . "'";
-    $qPrest .= " AND empresa IN ($empresasStr)";
-}
+// QUITAMOS EL FILTRO DE EMPRESAS - AHORA TRAEMOS TODOS LOS PRÉSTAMOS
+// if (!empty($empresasSeleccionadasEsc)) {
+//     $empresasStr = "'" . implode("','", $empresasSeleccionadasEsc) . "'";
+//     $qPrest .= " AND empresa IN ($empresasStr)";
+// }
 
 $qPrest .= " GROUP BY deudor, empresa";
 
@@ -631,6 +632,76 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         .switch-small { width: 40px; height: 20px; }
         .switch-small .switch-slider:before { height: 14px; width: 14px; left: 3px; bottom: 3px; }
         input:checked + .switch-small .switch-slider:before { transform: translateX(20px); }
+        
+        /* Estilos nuevos para el modal de préstamos multiempresa */
+        .empresas-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 0.5rem;
+            max-height: 200px;
+            overflow-y: auto;
+            padding: 0.5rem;
+            background: #f8fafc;
+            border-radius: 0.75rem;
+            border: 1px solid #e2e8f0;
+        }
+        .empresa-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            background: white;
+            border-radius: 0.5rem;
+            border: 1px solid #e2e8f0;
+            transition: all 0.2s;
+        }
+        .empresa-item:hover {
+            background: #eff6ff;
+            border-color: #3b82f6;
+        }
+        .empresa-item input[type="checkbox"] {
+            width: 1rem;
+            height: 1rem;
+            border-radius: 0.25rem;
+            border: 1px solid #cbd5e1;
+        }
+        .empresa-item input[type="checkbox"]:checked {
+            background-color: #3b82f6;
+            border-color: #3b82f6;
+        }
+        .badge-empresa {
+            background: #e2e8f0;
+            color: #475569;
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 9999px;
+            margin-left: auto;
+        }
+        .separador-empresa {
+            background: linear-gradient(to right, #f1f5f9, transparent);
+            padding: 0.5rem 1rem;
+            font-weight: 600;
+            color: #334155;
+            border-bottom: 1px solid #e2e8f0;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .prest-item {
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+        .prest-item:hover {
+            background-color: #f0f9ff;
+            border-left-color: #3b82f6;
+        }
+        .resumen-seleccion {
+            background: #f0fdf4;
+            border: 1px solid #86efac;
+            border-radius: 0.75rem;
+            padding: 0.75rem;
+            margin-top: 0.5rem;
+        }
     </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
@@ -879,55 +950,90 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- Modal Préstamos - CON INPUT PEQUEÑO AL LADO DE CANCELAR -->
+<!-- ===== MODAL PRÉSTAMOS MULTIEMPRESA ===== -->
 <div id="prestModal" class="hidden fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
-    <div class="relative mx-auto my-8 max-w-2xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
-        <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-            <h3 class="text-lg font-semibold">Seleccionar deudores</h3>
-            <button id="btnCloseModal" class="p-2 rounded hover:bg-slate-100">✕</button>
-        </div>
-        <div class="p-4">
-            <!-- Filtro de empresas -->
-            <div class="mb-3">
-                <select id="filtroEmpresaPrestamos" class="w-full rounded-xl border border-slate-300 px-3 py-2">
-                    <option value="">Todas las empresas</option>
-                    <?php
-                    $empresasUnicas = array_unique(array_column($prestamosList, 'empresa'));
-                    sort($empresasUnicas);
-                    foreach ($empresasUnicas as $emp): 
-                        if (!empty($emp)):
-                    ?>
-                        <option value="<?= htmlspecialchars($emp) ?>"><?= htmlspecialchars($emp) ?></option>
-                    <?php 
-                        endif;
-                    endforeach; 
-                    ?>
-                </select>
+    <div class="relative mx-auto my-8 max-w-4xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+        <!-- Header -->
+        <div class="px-5 py-4 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+            <div class="flex items-center justify-between">
+                <h3 class="text-lg font-semibold flex items-center gap-2">
+                    <span class="text-2xl">💰</span>
+                    Seleccionar Préstamos - Multiempresa
+                </h3>
+                <button id="btnCloseModal" class="p-2 rounded hover:bg-white/50">✕</button>
             </div>
-
-            <input id="prestSearch" type="text" placeholder="Buscar deudor..." class="w-full rounded-xl border border-slate-300 px-3 py-2 mb-3">
-            <div id="prestList" class="max-h-96 overflow-auto border rounded-xl"></div>
+            <p class="text-xs text-slate-600 mt-1">Puedes seleccionar préstamos de varias empresas diferentes</p>
         </div>
         
-        <!-- 👇 PARTE INFERIOR: Input pequeño al lado de Cancelar -->
-        <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-between">
-            <div class="flex items-center gap-3">
-                <!-- INPUT MANUAL PEQUEÑO -->
-                <input id="prestValorManual" 
-                       type="text" 
-                       class="w-36 rounded-lg border border-amber-300 px-3 py-2 text-right num text-sm" 
-                       placeholder="Valor manual...">
-                
-                <div>
-                    Seleccionados: <span id="selCount" class="font-semibold">0</span><br>
-                    Total: <span id="selTotal" class="num font-semibold">0</span>
+        <div class="p-4">
+            <!-- Filtro por empresas con checkboxes -->
+            <div class="mb-4">
+                <label class="block text-xs font-medium text-slate-700 mb-2">
+                    🏢 Filtrar por empresas (selecciona múltiples):
+                </label>
+                <div class="empresas-grid" id="empresasMultiSelect">
+                    <!-- Se llena con JavaScript -->
                 </div>
             </div>
             
-            <div class="flex gap-2">
-                <button id="btnCancel" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
-                <button id="btnAssign" class="rounded-lg border border-blue-600 px-4 py-2 bg-blue-600 text-white hover:bg-blue-700">Asignar</button>
+            <!-- Barra de búsqueda -->
+            <div class="flex gap-2 mb-4">
+                <div class="flex-1">
+                    <input id="prestSearch" 
+                           type="text" 
+                           placeholder="🔍 Buscar deudor..." 
+                           class="w-full rounded-xl border border-slate-300 px-4 py-2.5">
+                </div>
+                <button id="btnLimpiarFiltros" 
+                        class="px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-sm">
+                    Limpiar filtros
+                </button>
+            </div>
+            
+            <!-- Lista de préstamos -->
+            <div id="prestList" class="max-h-96 overflow-auto border rounded-xl bg-white divide-y">
+                <!-- Se llena con JavaScript -->
+            </div>
+            
+            <!-- Resumen de selección -->
+            <div class="resumen-seleccion mt-4">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <span class="text-sm font-medium">Seleccionados:</span>
+                        <span id="selCount" class="ml-1 font-bold text-blue-600">0</span>
+                        <span class="text-xs text-slate-500 ml-2">préstamos</span>
+                    </div>
+                    <div>
+                        <span class="text-sm font-medium">Total:</span>
+                        <span id="selTotal" class="ml-1 font-bold text-emerald-600 num">0</span>
+                    </div>
+                </div>
+                <div id="detalleEmpresas" class="text-xs text-slate-500 mt-1 truncate">
+                    Ninguna selección
+                </div>
+            </div>
+            
+            <!-- Input manual y acciones -->
+            <div class="mt-4 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <span class="text-sm text-slate-600">💰 Valor manual:</span>
+                    <input id="prestValorManual" 
+                           type="text" 
+                           class="w-40 rounded-lg border border-amber-300 px-3 py-2 text-right num" 
+                           placeholder="0">
+                </div>
+                
+                <div class="flex gap-2">
+                    <button id="btnCancel" 
+                            class="rounded-lg border border-slate-300 px-5 py-2.5 bg-white hover:bg-slate-50 font-medium">
+                        Cancelar
+                    </button>
+                    <button id="btnAssign" 
+                            class="rounded-lg border border-blue-600 px-5 py-2.5 bg-blue-600 text-white hover:bg-blue-700 font-medium">
+                        Asignar selección
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -1088,6 +1194,8 @@ const SELECTED_CONDUCTORS_KEY = 'conductores_seleccionados_temp:'+COMPANY_SCOPE;
 const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 const CONDUCTORES_LIST = <?= json_encode(array_map(fn($f)=>$f['nombre'],$filas), JSON_UNESCAPED_UNICODE); ?>;
 
+console.log('✅ Préstamos cargados (TODAS las empresas):', PRESTAMOS_LIST.length);
+
 // ===== FUNCIONES UTILITARIAS =====
 function toInt(s) {
     if (typeof s === 'number') return Math.round(s);
@@ -1165,16 +1273,19 @@ function asignarPrestamosAFilas() {
         
         let totalMostrar = 0;
         let nombres = [];
+        let empresas = [];
         
         prestamosDeEsteConductor.forEach(prestamoGuardado => {
             if (prestamoGuardado.esManual) {
                 totalMostrar += prestamoGuardado.valorManual;
                 nombres.push(`💰 Manual: $${fmt(prestamoGuardado.valorManual)}`);
+                empresas.push('Manual');
             } else {
-                const prestamoActual = PRESTAMOS_LIST.find(p => p.id === prestamoGuardado.id || p.name === prestamoGuardado.name);
+                const prestamoActual = PRESTAMOS_LIST.find(p => p.id === prestamoGuardado.id);
                 if (prestamoActual) {
                     totalMostrar += prestamoActual.total;
                     nombres.push(prestamoActual.name);
+                    empresas.push(prestamoActual.empresa);
                 }
             }
         });
@@ -1183,10 +1294,14 @@ function asignarPrestamosAFilas() {
         const selLabel = tr.querySelector('.selected-deudor');
         if (prestSpan) prestSpan.textContent = fmt(totalMostrar);
         if (selLabel) {
-            if (nombres.length <= 2) {
-                selLabel.textContent = nombres.join(', ');
+            // Mostrar resumen de empresas
+            const empresasUnicas = [...new Set(empresas)].filter(e => e !== 'Manual');
+            if (empresasUnicas.length > 0) {
+                selLabel.textContent = `${empresasUnicas.length} empresa(s): $${fmt(totalMostrar)}`;
+            } else if (prestamosDeEsteConductor.some(p => p.esManual)) {
+                selLabel.textContent = `Manual: $${fmt(totalMostrar)}`;
             } else {
-                selLabel.textContent = nombres.slice(0,2).join(', ') + ' +' + (nombres.length-2) + ' más';
+                selLabel.textContent = '';
             }
         }
     });
@@ -1546,50 +1661,165 @@ function hacerPanelArrastrable() {
     document.addEventListener('mouseup', () => isDragging = false);
 }
 
-// ===== MODAL PRÉSTAMOS =====
-let currentRow = null, selectedIds = new Set(), filteredIdx = [];
+// ===== MODAL PRÉSTAMOS MULTIEMPRESA =====
+let currentRow = null;
+let selectedIds = new Set();
 
-function renderPrestList(filter = '', empresaFiltro = '') {
-    const list = document.getElementById('prestList');
-    list.innerHTML = '';
-    const nf = normalizarTexto(filter);
-    filteredIdx = [];
+function cargarEmpresasMultiSelect() {
+    const container = document.getElementById('empresasMultiSelect');
+    if (!container) return;
     
-    PRESTAMOS_LIST.forEach((item, idx) => {
-        if (nf && !normalizarTexto(item.name).includes(nf)) return;
-        if (empresaFiltro && item.empresa !== empresaFiltro) return;
-        
-        filteredIdx.push(idx);
-        
-        const row = document.createElement('div');
-        row.className = 'flex justify-between items-center p-3 border-b hover:bg-slate-50';
-        row.innerHTML = `
-            <div class="flex items-center gap-3">
-                <input type="checkbox" class="prest-checkbox rounded" data-id="${item.id}" ${selectedIds.has(item.id) ? 'checked' : ''}>
-                <span class="text-sm">${item.name}</span>
-                <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">${item.empresa || 'Sin empresa'}</span>
-            </div>
-            <span class="num text-sm font-semibold">${fmt(item.total)}</span>
+    // Obtener TODAS las empresas únicas de PRESTAMOS_LIST
+    const todasLasEmpresas = [...new Set(PRESTAMOS_LIST
+        .map(p => p.empresa)
+        .filter(emp => emp && emp.trim() !== '')
+    )].sort();
+    
+    if (todasLasEmpresas.length === 0) {
+        container.innerHTML = '<div class="text-sm text-slate-500 p-4">No hay empresas con préstamos</div>';
+        return;
+    }
+    
+    // Construir grid de checkboxes
+    container.innerHTML = todasLasEmpresas.map(empresa => {
+        const count = PRESTAMOS_LIST.filter(p => p.empresa === empresa).length;
+        return `
+            <label class="empresa-item">
+                <input type="checkbox" 
+                       class="empresa-checkbox-prestamo w-4 h-4" 
+                       value="${empresa}">
+                <span class="text-sm font-medium truncate">${empresa}</span>
+                <span class="badge-empresa">${count}</span>
+            </label>
         `;
-        
-        const cb = row.querySelector('input');
-        cb.addEventListener('change', () => {
-            if (cb.checked) selectedIds.add(item.id);
-            else selectedIds.delete(item.id);
-            updateSelSummary();
-        });
-        
-        list.appendChild(row);
-    });
+    }).join('');
     
-    updateSelSummary();
+    // Event listeners para los checkboxes de empresas
+    document.querySelectorAll('.empresa-checkbox-prestamo').forEach(cb => {
+        cb.addEventListener('change', () => filtrarPrestamosMultiempresa());
+    });
 }
 
-function updateSelSummary() {
-    const arr = PRESTAMOS_LIST.filter(it => selectedIds.has(it.id));
-    const total = arr.reduce((a, b) => a + (b.total || 0), 0);
-    document.getElementById('selCount').textContent = arr.length;
+function filtrarPrestamosMultiempresa() {
+    const textoBusqueda = normalizarTexto(document.getElementById('prestSearch').value || '');
+    
+    // Obtener empresas seleccionadas
+    const empresasSeleccionadas = [];
+    document.querySelectorAll('.empresa-checkbox-prestamo:checked').forEach(cb => {
+        empresasSeleccionadas.push(cb.value);
+    });
+    
+    // Filtrar préstamos
+    let prestamosFiltrados = PRESTAMOS_LIST;
+    
+    // Filtro por empresas (si hay alguna seleccionada)
+    if (empresasSeleccionadas.length > 0) {
+        prestamosFiltrados = prestamosFiltrados.filter(p => 
+            empresasSeleccionadas.includes(p.empresa)
+        );
+    }
+    
+    // Filtro por texto
+    if (textoBusqueda) {
+        prestamosFiltrados = prestamosFiltrados.filter(p => 
+            normalizarTexto(p.name).includes(textoBusqueda)
+        );
+    }
+    
+    renderizarListaPrestamos(prestamosFiltrados);
+}
+
+function renderizarListaPrestamos(prestamos) {
+    const list = document.getElementById('prestList');
+    if (!list) return;
+    
+    if (prestamos.length === 0) {
+        list.innerHTML = `
+            <div class="p-8 text-center text-slate-500">
+                <div class="text-5xl mb-3">📭</div>
+                <div class="text-lg font-medium">No hay préstamos</div>
+                <div class="text-sm">Selecciona otras empresas o cambia la búsqueda</div>
+            </div>
+        `;
+        return;
+    }
+    
+    // Ordenar por empresa y nombre
+    prestamos.sort((a, b) => {
+        if (a.empresa !== b.empresa) return a.empresa.localeCompare(b.empresa);
+        return a.name.localeCompare(b.name);
+    });
+    
+    let html = '';
+    let currentEmpresa = '';
+    
+    prestamos.forEach(item => {
+        // Separador por empresa
+        if (currentEmpresa !== item.empresa) {
+            currentEmpresa = item.empresa;
+            html += `
+                <div class="separador-empresa bg-slate-100 px-4 py-2 font-semibold text-sm text-slate-700">
+                    🏢 ${item.empresa}
+                </div>
+            `;
+        }
+        
+        const checked = selectedIds.has(item.id) ? 'checked' : '';
+        html += `
+            <div class="prest-item flex justify-between items-center p-3 hover:bg-blue-50 transition group">
+                <div class="flex items-center gap-3 flex-1">
+                    <input type="checkbox" 
+                           class="prest-checkbox w-4 h-4 rounded border-slate-300 text-blue-600" 
+                           data-id="${item.id}" 
+                           ${checked}>
+                    <div class="flex flex-col">
+                        <span class="text-sm font-medium">${item.name}</span>
+                        <span class="text-xs text-slate-400">ID: ${item.id}</span>
+                    </div>
+                </div>
+                <span class="num text-sm font-bold text-emerald-600">
+                    $${fmt(item.total)}
+                </span>
+            </div>
+        `;
+    });
+    
+    list.innerHTML = html;
+    
+    // Event listeners para los checkboxes de préstamos
+    document.querySelectorAll('.prest-checkbox').forEach(cb => {
+        cb.addEventListener('change', function() {
+            const id = parseInt(this.dataset.id);
+            if (this.checked) {
+                selectedIds.add(id);
+            } else {
+                selectedIds.delete(id);
+            }
+            actualizarResumenSeleccion();
+        });
+    });
+    
+    actualizarResumenSeleccion();
+}
+
+function actualizarResumenSeleccion() {
+    const seleccionados = PRESTAMOS_LIST.filter(p => selectedIds.has(p.id));
+    const total = seleccionados.reduce((sum, p) => sum + (p.total || 0), 0);
+    
+    // Agrupar por empresa para mostrar detalle
+    const porEmpresa = {};
+    seleccionados.forEach(p => {
+        if (!porEmpresa[p.empresa]) porEmpresa[p.empresa] = 0;
+        porEmpresa[p.empresa] += p.total;
+    });
+    
+    const detalleEmpresas = Object.entries(porEmpresa)
+        .map(([emp, monto]) => `${emp}: $${fmt(monto)}`)
+        .join(' • ');
+    
+    document.getElementById('selCount').textContent = seleccionados.length;
     document.getElementById('selTotal').textContent = fmt(total);
+    document.getElementById('detalleEmpresas').textContent = detalleEmpresas || 'Ninguna selección';
 }
 
 function openPrestModalForRow(tr) {
@@ -1600,23 +1830,31 @@ function openPrestModalForRow(tr) {
     if (!baseName) {
         Swal.fire({
             title: '⚠️ Selecciona un conductor',
-            text: 'Primero debes seleccionar o ingresar el nombre del conductor',
+            text: 'Primero debes seleccionar el conductor',
             icon: 'warning',
             timer: 2000
         });
         return;
     }
     
+    // Cargar selecciones previas del conductor
     (prestSel[baseName] || []).forEach(p => {
         if (!p.esManual && p.id !== undefined) {
             selectedIds.add(Number(p.id));
         }
     });
     
-    document.getElementById('prestValorManual').value = '';
+    // Limpiar campos
     document.getElementById('prestSearch').value = '';
-    document.getElementById('filtroEmpresaPrestamos').value = '';
-    renderPrestList('');
+    document.getElementById('prestValorManual').value = '';
+    
+    // Cargar TODAS las empresas
+    cargarEmpresasMultiSelect();
+    
+    // Mostrar todos los préstamos inicialmente
+    renderizarListaPrestamos(PRESTAMOS_LIST);
+    actualizarResumenSeleccion();
+    
     document.getElementById('prestModal').classList.remove('hidden');
 }
 
@@ -1624,68 +1862,6 @@ function closePrestModal() {
     document.getElementById('prestModal').classList.add('hidden');
     currentRow = null;
     selectedIds.clear();
-}
-
-// ===== MODAL VIAJES =====
-function abrirModalViajes(nombre) {
-    document.getElementById('viajesTitle').textContent = nombre;
-    document.getElementById('viajesModal').classList.add('show');
-    
-    const qs = new URLSearchParams({
-        viajes_conductor: nombre,
-        desde: '<?= $desde ?>',
-        hasta: '<?= $hasta ?>',
-        empresas: JSON.stringify(EMPRESAS_SELECCIONADAS)
-    });
-    
-    fetch('<?= basename(__FILE__) ?>?' + qs.toString())
-        .then(r => r.text())
-        .then(html => document.getElementById('viajesContent').innerHTML = html)
-        .catch(() => document.getElementById('viajesContent').innerHTML = '<p class="text-center text-red-600">Error cargando viajes</p>');
-}
-
-// ===== FUNCIÓN: Actualizar estado de pago de una cuenta guardada =====
-async function actualizarEstadoCuenta(id, nuevoEstado, switchElement) {
-    try {
-        const formData = new FormData();
-        formData.append('accion', 'actualizar_pagado_cuenta');
-        formData.append('id', id);
-        formData.append('pagado', nuevoEstado ? 1 : 0);
-        
-        const response = await fetch('', { method: 'POST', body: formData });
-        const resultado = await response.json();
-        
-        if (resultado.success) {
-            const slider = switchElement.nextElementSibling;
-            slider.style.backgroundColor = nuevoEstado ? '#22c55e' : '#ef4444';
-            
-            Swal.fire({
-                title: nuevoEstado ? '🟢 Pagado' : '🔴 No pagado',
-                text: 'Estado actualizado correctamente',
-                icon: 'success',
-                timer: 1500,
-                showConfirmButton: false,
-                toast: true,
-                position: 'top-end'
-            });
-            
-            await renderCuentasBD();
-            
-        } else {
-            throw new Error(resultado.message);
-        }
-    } catch (error) {
-        switchElement.checked = !nuevoEstado;
-        const slider = switchElement.nextElementSibling;
-        slider.style.backgroundColor = !nuevoEstado ? '#22c55e' : '#ef4444';
-        
-        Swal.fire({
-            title: '❌ Error',
-            text: error.message,
-            icon: 'error',
-            timer: 2000
-        });
-    }
 }
 
 // ===== GESTIÓN DE CUENTAS GUARDADAS EN BD =====
@@ -1957,6 +2133,41 @@ async function renderCuentasBD() {
     }
 }
 
+async function actualizarEstadoCuenta(id, nuevoEstado, switchElement) {
+    try {
+        const formData = new FormData();
+        formData.append('accion', 'actualizar_pagado_cuenta');
+        formData.append('id', id);
+        formData.append('pagado', nuevoEstado ? 1 : 0);
+        
+        const response = await fetch('', { method: 'POST', body: formData });
+        const resultado = await response.json();
+        
+        if (resultado.success) {
+            Swal.fire({
+                title: nuevoEstado ? '🟢 Pagado' : '🔴 No pagado',
+                text: 'Estado actualizado correctamente',
+                icon: 'success',
+                timer: 1500,
+                showConfirmButton: false,
+                toast: true,
+                position: 'top-end'
+            });
+            await renderCuentasBD();
+        } else {
+            throw new Error(resultado.message);
+        }
+    } catch (error) {
+        switchElement.checked = !nuevoEstado;
+        Swal.fire({
+            title: '❌ Error',
+            text: error.message,
+            icon: 'error',
+            timer: 2000
+        });
+    }
+}
+
 async function cargarCuentaCompletaBD(id) {
     const confirmacion = await Swal.fire({
         title: '¿Cargar esta cuenta?',
@@ -2203,6 +2414,16 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('btnCloseModal').addEventListener('click', closePrestModal);
     document.getElementById('btnCancel').addEventListener('click', closePrestModal);
     
+    document.getElementById('btnLimpiarFiltros').addEventListener('click', () => {
+        document.querySelectorAll('.empresa-checkbox-prestamo').forEach(cb => cb.checked = false);
+        document.getElementById('prestSearch').value = '';
+        renderizarListaPrestamos(PRESTAMOS_LIST);
+    });
+    
+    document.getElementById('prestSearch').addEventListener('input', () => {
+        filtrarPrestamosMultiempresa();
+    });
+    
     document.getElementById('btnAssign').addEventListener('click', () => {
         if (!currentRow) return;
         
@@ -2223,6 +2444,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 id: it.id,
                 name: it.name,
                 totalActual: it.total,
+                empresa: it.empresa,
                 esManual: false,
                 valorManual: null
             }));
@@ -2235,16 +2457,6 @@ document.addEventListener('DOMContentLoaded', function() {
         closePrestModal();
     });
     
-    document.getElementById('prestSearch').addEventListener('input', (e) => {
-        const empresaFiltro = document.getElementById('filtroEmpresaPrestamos').value;
-        renderPrestList(e.target.value, empresaFiltro);
-    });
-    
-    document.getElementById('filtroEmpresaPrestamos').addEventListener('change', (e) => {
-        const texto = document.getElementById('prestSearch').value;
-        renderPrestList(texto, e.target.value);
-    });
-    
     document.querySelectorAll('#tbody .conductor-link').forEach(btn => {
         btn.addEventListener('click', () => abrirModalViajes(btn.textContent.trim()));
     });
@@ -2254,6 +2466,24 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     setTimeout(recalcularTodo, 100);
+    
+    // Función para modal de viajes
+    window.abrirModalViajes = function(nombre) {
+        document.getElementById('viajesTitle').textContent = nombre;
+        document.getElementById('viajesModal').classList.add('show');
+        
+        const qs = new URLSearchParams({
+            viajes_conductor: nombre,
+            desde: '<?= $desde ?>',
+            hasta: '<?= $hasta ?>',
+            empresas: JSON.stringify(EMPRESAS_SELECCIONADAS)
+        });
+        
+        fetch('<?= basename(__FILE__) ?>?' + qs.toString())
+            .then(r => r.text())
+            .then(html => document.getElementById('viajesContent').innerHTML = html)
+            .catch(() => document.getElementById('viajesContent').innerHTML = '<p class="text-center text-red-600">Error cargando viajes</p>');
+    };
 });
 </script>
 </body>
