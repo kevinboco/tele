@@ -1121,13 +1121,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             color:#9ca3af;
         }
 
-        .interes-input,.meses-input,.comision-input{
-            width:72px;
+        .abono-input, .interes-input,.meses-input,.comision-input{
+            width:80px;
             padding:4px;
             font-size:0.78rem;
             text-align:center;
             border-radius:8px;
             background:#020617;
+            margin-right:5px;
+        }
+
+        .capital-pendiente {
+            font-size:0.7rem;
+            color: #f59e0b;
+            margin-left: 5px;
+            font-weight: normal;
         }
 
         .checkbox-excluir{
@@ -1855,7 +1863,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                             <?php endif; ?>
                         </td>
                         <td><?php echo $datos['cantidad_prestamos']; ?></td>
-                        <td class="moneda capital-deudor">$ <?php echo number_format($datos['total_capital'], 0, ',', '.'); ?></td>
+                        <td class="moneda capital-deudor">
+                            $ <?php echo number_format($datos['total_capital'], 0, ',', '.'); ?>
+                        </td>
                         <td class="moneda interes-prestamista-deudor">$ <?php echo number_format($datos['total_interes_prestamista'], 0, ',', '.'); ?></td>
                         <td class="moneda comision-deudor">$ <?php echo number_format($datos['total_comision_personal'], 0, ',', '.'); ?></td>
                         <td class="moneda total-deudor">$ <?php echo number_format($datos['total_general'], 0, ',', '.'); ?></td>
@@ -1868,9 +1878,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                 <thead>
                                     <tr>
                                         <th>Incluir</th>
+                                        <th>Abono</th>
                                         <th>Fecha</th>
                                         <th>Tipo</th>
-                                        <th>Monto</th>
+                                        <th>Monto (Capital)</th>
                                         <?php if (!$modo_pagados): ?>
                                         <th>Meses</th>
                                         <?php endif; ?>
@@ -1887,10 +1898,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                         $es_excluido = $detalle['excluido'] ?? false;
                                     ?>
                                     <tr class="fila-prestamo <?php echo $detalle['tipo'] == 'viejo' ? 'prestamo-viejo' : 'prestamo-nuevo'; ?> <?php echo $es_excluido ? 'excluido' : ''; ?>" 
-                                        data-deudor="<?php echo md5($deudor); ?>" data-id="<?php echo $detalle['id']; ?>">
+                                        data-deudor="<?php echo md5($deudor); ?>" data-id="<?php echo $detalle['id']; ?>"
+                                        data-monto="<?php echo $detalle['monto']; ?>"
+                                        data-interes="<?php echo $detalle['interes_prestamista']; ?>"
+                                        data-comision="<?php echo $detalle['comision_personal']; ?>">
                                         <td class="acciones">
                                             <input type="checkbox" class="checkbox-excluir" <?php echo !$es_excluido ? 'checked' : ''; ?> 
                                                    onchange="togglePrestamo(this, <?php echo $detalle['id']; ?>)">
+                                        </td>
+                                        <td>
+                                            <input type="number" class="abono-input" placeholder="Abono" value="0"
+                                                   onchange="calcularAbono(this)" min="0">
                                         </td>
                                         <td><?php echo $detalle['fecha']; ?></td>
                                         <td>
@@ -1898,7 +1916,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                                 <?php echo $detalle['tipo'] == 'viejo' ? 'Viejo' : 'Nuevo'; ?>
                                             </span>
                                         </td>
-                                        <td class="moneda monto-prestamo">$ <?php echo number_format($detalle['monto'], 0, ',', '.'); ?></td>
+                                        <td class="moneda monto-prestamo">
+                                            $ <?php echo number_format($detalle['monto'], 0, ',', '.'); ?>
+                                            <span class="capital-pendiente" id="pendiente-<?php echo $detalle['id']; ?>"></span>
+                                        </td>
                                         <?php if (!$modo_pagados): ?>
                                         <td class="acciones">
                                             <input type="number" class="meses-input" value="<?php echo $detalle['meses']; ?>" 
@@ -1927,8 +1948,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                             <strong>TOTAL GENERAL CUADRO 1</strong>
                             <br>
                             <small>
-                                <span class="badge-tipo badge-viejo"><?php echo $total_viejos_general; ?> viejos</span> | 
-                                <span class="badge-tipo badge-nuevo"><?php echo $total_nuevos_general; ?> nuevos</span>
+                                <span class="badge-tipo badge-viejo" id="total-viejos"><?php echo $total_viejos_general; ?> viejos</span> | 
+                                <span class="badge-tipo badge-nuevo" id="total-nuevos"><?php echo $total_nuevos_general; ?> nuevos</span>
                             </small>
                         </td>
                         <td class="moneda" id="total-capital-general">$ <?php echo number_format($total_capital_general, 0, ',', '.'); ?></td>
@@ -2053,11 +2074,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         let prestamosExcluidos = <?php echo json_encode($prestamos_excluidos); ?>;
         // MODO ACTUAL
         let modoPagados = <?php echo $modo_pagados ? 'true' : 'false'; ?>;
+        // OBJETO PARA ALMACENAR ABONOS POR PRÉSTAMO
+        let abonos = {};
 
         document.addEventListener('DOMContentLoaded', function() {
             actualizarListaDeudores();
             actualizarContador();
             actualizarCampoExcluidos();
+            inicializarAbonos();
             
             // Validar que se haya seleccionado empresa
             const empresaSelect = document.getElementById('empresa');
@@ -2234,6 +2258,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             
             const deudorId = fila.dataset.deudor;
             actualizarTotalesDeudor(deudorId);
+            actualizarTotalGeneralAbonos();
         }
         
         function recalcularPrestamo(input) {
@@ -2262,6 +2287,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 celdaInteresPrestamista.textContent = '$ ' + formatNumber(interesPrestamistaMonto);
                 celdaComision.textContent = '$ ' + formatNumber(comisionPersonalMonto);
                 celdaTotal.textContent = '$ ' + formatNumber(total);
+                
+                // Actualizar atributos data
+                fila.setAttribute('data-interes', interesPrestamistaMonto);
+                fila.setAttribute('data-comision', comisionPersonalMonto);
             } else {
                 // PRÉSTAMOS NUEVOS: Usar configuración del prestamista
                 const prestamistaSelect = document.getElementById('prestamista');
@@ -2280,12 +2309,121 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 celdaInteresPrestamista.textContent = '$ ' + formatNumber(interesPrestamistaMonto);
                 celdaComision.textContent = '$ ' + formatNumber(comisionPersonalMonto);
                 celdaTotal.textContent = '$ ' + formatNumber(total);
+                
+                // Actualizar atributos data
+                fila.setAttribute('data-interes', interesPrestamistaMonto);
+                fila.setAttribute('data-comision', comisionPersonalMonto);
             }
             
             const checkbox = fila.querySelector('.checkbox-excluir');
             if (checkbox && checkbox.checked) {
                 const deudorId = fila.dataset.deudor;
                 actualizarTotalesDeudor(deudorId);
+            }
+            
+            // Recalcular abono si hay uno ingresado
+            const abonoInput = fila.querySelector('.abono-input');
+            if (abonoInput && abonoInput.value && parseFloat(abonoInput.value) > 0) {
+                calcularAbono(abonoInput);
+            }
+        }
+        
+        // NUEVA FUNCIÓN: Calcular abono
+        function calcularAbono(input) {
+            const fila = input.closest('.fila-prestamo');
+            const prestamoId = fila.getAttribute('data-id');
+            const monto = parseFloat(fila.getAttribute('data-monto'));
+            const interes = parseFloat(fila.getAttribute('data-interes'));
+            const comision = parseFloat(fila.getAttribute('data-comision'));
+            const abono = parseFloat(input.value) || 0;
+            
+            // Guardar abono en el objeto
+            abonos[prestamoId] = abono;
+            
+            // Calcular intereses totales
+            const totalIntereses = interes + comision;
+            
+            // Si el abono es mayor o igual a los intereses
+            if (abono >= totalIntereses) {
+                const sobrante = abono - totalIntereses;
+                const nuevoCapital = monto - sobrante;
+                
+                // Mostrar capital pendiente
+                const spanPendiente = document.getElementById('pendiente-' + prestamoId);
+                if (spanPendiente) {
+                    if (nuevoCapital > 0) {
+                        spanPendiente.textContent = 'Faltan: $' + formatNumber(nuevoCapital);
+                    } else {
+                        spanPendiente.textContent = 'Cancelado';
+                    }
+                }
+            } else {
+                // Si el abono es menor que los intereses, no se puede aplicar a capital
+                const spanPendiente = document.getElementById('pendiente-' + prestamoId);
+                if (spanPendiente) {
+                    spanPendiente.textContent = '⚠ Abono insuficiente para cubrir intereses';
+                }
+            }
+            
+            // Actualizar total general de abonos
+            actualizarTotalGeneralAbonos();
+        }
+        
+        // NUEVA FUNCIÓN: Inicializar spans de capital pendiente
+        function inicializarAbonos() {
+            document.querySelectorAll('.fila-prestamo').forEach(fila => {
+                const prestamoId = fila.getAttribute('data-id');
+                const monto = parseFloat(fila.getAttribute('data-monto'));
+                const spanPendiente = document.getElementById('pendiente-' + prestamoId);
+                
+                if (spanPendiente) {
+                    spanPendiente.textContent = 'Faltan: $' + formatNumber(monto);
+                }
+                
+                // Inicializar abono en 0 si no existe
+                if (!abonos[prestamoId]) {
+                    abonos[prestamoId] = 0;
+                }
+            });
+        }
+        
+        // NUEVA FUNCIÓN: Calcular total general de abonos (sobrantes)
+        function actualizarTotalGeneralAbonos() {
+            let totalSobrantes = 0;
+            
+            document.querySelectorAll('.fila-prestamo').forEach(fila => {
+                const checkbox = fila.querySelector('.checkbox-excluir');
+                // Solo considerar préstamos incluidos (no excluidos)
+                if (checkbox && checkbox.checked && !fila.classList.contains('excluido')) {
+                    const prestamoId = fila.getAttribute('data-id');
+                    const monto = parseFloat(fila.getAttribute('data-monto'));
+                    const interes = parseFloat(fila.getAttribute('data-interes'));
+                    const comision = parseFloat(fila.getAttribute('data-comision'));
+                    const abono = abonos[prestamoId] || 0;
+                    
+                    if (abono > 0) {
+                        // Con abono: sumar sobrante
+                        const totalIntereses = interes + comision;
+                        if (abono >= totalIntereses) {
+                            totalSobrantes += (abono - totalIntereses);
+                        }
+                    } else {
+                        // Sin abono: sumar capital completo
+                        totalSobrantes += monto;
+                    }
+                }
+            });
+            
+            // Actualizar el total general en la interfaz
+            const totalGeneralCell = document.getElementById('total-capital-general');
+            if (totalGeneralCell) {
+                totalGeneralCell.innerHTML = '$ ' + formatNumber(totalSobrantes);
+            }
+            
+            // También actualizar el total de la fila de totales si existe
+            const totalRow = document.querySelector('.totales .moneda:first-child');
+            if (totalRow) {
+                totalRow.innerHTML = '$ ' + formatNumber(totalSobrantes);
             }
         }
         
