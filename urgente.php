@@ -1029,6 +1029,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             color: #f59e0b;
             font-size: 0.85rem;
         }
+
+        .total-general-devuelve {
+            font-weight: 800;
+            color: #f59e0b;
+            background: rgba(245, 158, 11, 0.1);
+            padding: 2px 8px;
+            border-radius: 12px;
+        }
     </style>
 </head>
 <body>
@@ -1397,25 +1405,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     <tr>
                         <th>Deudor</th>
                         <th>Préstamos</th>
-                        <th>Capital</th>
+                        <th>Capital (Visual)</th>
                         <th>Interés Prestamista</th>
                         <th>Tu Comisión</th>
-                        <th>Total a Pagar</th>
+                        <th>TOTAL GENERAL <span class="total-general-devuelve">(Devuelve HOY + Capital sin abono)</span></th>
                     </tr>
                 </thead>
                 <tbody id="cuerpoReporte">
                     <?php 
-                    $total_capital_general = 0;
-                    $total_general = 0;
+                    $total_capital_visual = 0;
+                    $total_general_correcto = 0;
                     $total_interes_prestamista_general = 0;
                     $total_comision_personal_general = 0;
                     ?>
                     <?php foreach ($prestamos_por_deudor as $deudor => $datos): ?>
                     <?php 
-                        $total_capital_general += $datos['total_capital'];
-                        $total_general += $datos['total_general'];
+                        $total_capital_visual += $datos['total_capital'];
                         $total_interes_prestamista_general += $datos['total_interes_prestamista'];
                         $total_comision_personal_general += $datos['total_comision_personal'];
+                        // El total_general se recalculará en JS
                     ?>
                     <tr class="header-deudor" id="fila-<?php echo md5($deudor); ?>">
                         <td>
@@ -1446,7 +1454,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                         <?php endif; ?>
                                         <th>Int. Prestamista</th>
                                         <th>Tu Comisión</th>
-                                        <th>Devuelve HOY</th>
+                                        <th>Devuelve HOY <span style="color:#f59e0b;">(para TOTAL GENERAL)</span></th>
                                         <th>Total a Pagar HOY</th>
                                     </tr>
                                 </thead>
@@ -1501,11 +1509,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     
                     <!-- Totales generales CUADRO 1 -->
                     <tr class="totales">
-                        <td colspan="2"><strong>TOTAL GENERAL (Devuelve HOY + Capital sin abono)</strong></td>
-                        <td class="moneda" id="total-capital-general">$ <?php echo number_format($total_capital_general, 0, ',', '.'); ?></td>
+                        <td colspan="2"><strong>TOTAL GENERAL</strong></td>
+                        <td class="moneda" id="total-capital-general">$ <?php echo number_format($total_capital_visual, 0, ',', '.'); ?></td>
                         <td class="moneda" id="total-interes-prestamista-general">$ <?php echo number_format($total_interes_prestamista_general, 0, ',', '.'); ?></td>
                         <td class="moneda" id="total-comision-general">$ <?php echo number_format($total_comision_personal_general, 0, ',', '.'); ?></td>
-                        <td class="moneda" id="total-general">$ <?php echo number_format($total_general, 0, ',', '.'); ?></td>
+                        <td class="moneda" id="total-general">$ <?php echo number_format($total_general_correcto, 0, ',', '.'); ?></td>
                     </tr>
                 </tbody>
             </table>
@@ -1840,7 +1848,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     const abono = abonos[prestamoId] || 0;
                     
                     // Obtener valores
-                    const monto = parseFloat(fila.getAttribute('data-monto'));
                     const interes = parseFloat(fila.getAttribute('data-interes'));
                     const comision = parseFloat(fila.getAttribute('data-comision'));
                     
@@ -1856,14 +1863,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     }
                     
                     // Si hay abono, usar devuelveHoy para TOTAL GENERAL
-                    // Si no hay abono, usar el monto completo para TOTAL GENERAL
+                    // Si no hay abono, usar el monto (que está en el atributo data-monto)
                     if (abono > 0) {
                         totalDevuelveHoy += devuelveHoy;
                     } else {
+                        const monto = parseFloat(fila.getAttribute('data-monto'));
                         totalDevuelveHoy += monto;
                     }
                     
-                    // Para visualización del capital (faltante)
+                    // Para visualización del capital (faltante) - SOLO VISUAL
                     const spanPendiente = document.getElementById('pendiente-' + prestamoId);
                     if (spanPendiente) {
                         const pendienteText = spanPendiente.textContent;
@@ -1888,7 +1896,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             filaDeudor.querySelector('.comision-deudor').textContent = '$ ' + formatNumber(totalComisionPersonal);
             filaDeudor.querySelector('td:nth-child(2)').textContent = prestamosIncluidos;
             
-            // Actualizar TOTAL GENERAL (con devuelveHoy)
+            // Actualizar TOTAL GENERAL (con devuelveHoy + capital sin abono)
             filaDeudor.querySelector('.total-deudor').textContent = '$ ' + formatNumber(totalDevuelveHoy);
             
             actualizarTotalesGenerales();
