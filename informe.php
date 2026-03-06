@@ -46,6 +46,12 @@ function obtenerAreaCobertura($tipo) {
     return 'Maicao - Nazareth - Maicao';
 }
 
+// Función para formatear valores monetarios
+function formatearMoneda($valor) {
+    if ($valor === null || $valor === '') return 'N/A';
+    return '$ ' . number_format(floatval($valor), 0, ',', '.');
+}
+
 // Si no se han enviado fechas, mostramos formulario sencillo
 if (empty($_POST['desde']) || empty($_POST['hasta'])) {
     $empresas = [];
@@ -195,16 +201,13 @@ if (!empty($empresasSeleccionadas)) {
         return "'" . $conn->real_escape_string($emp) . "'";
     }, $empresasSeleccionadas);
     
-    $condicionEmpresa = " AND empresa IN (" . implode(",", $empresasEscapadas) . ")";
+    $condicionEmpresa = " AND v.empresa IN (" . implode(",", $empresasEscapadas) . ")";
 }
 
 // ========== CONSULTA CORREGIDA PARA LISTA DE CONDUCTORES ==========
-// Obtenemos los conductores que tienen viajes en el período,
-// pero buscamos su cédula en TODA la base de datos (sin límite de fecha)
 $sqlConductores = "
     SELECT 
         v_periodo.nombre,
-        -- Buscamos la cédula más reciente (no nula) de este conductor en TODA la tabla
         (
             SELECT v2.cedula 
             FROM viajes v2 
@@ -214,7 +217,6 @@ $sqlConductores = "
             ORDER BY v2.fecha DESC 
             LIMIT 1
         ) as cedula,
-        -- Para el tipo de vehículo, tomamos el más común en el período
         (
             SELECT v3.tipo_vehiculo 
             FROM viajes v3 
@@ -224,26 +226,54 @@ $sqlConductores = "
             LIMIT 1
         ) as tipo_vehiculo
     FROM (
-        -- Primero obtenemos los nombres ÚNICOS que viajaron en el período
         SELECT DISTINCT nombre 
         FROM viajes 
         WHERE fecha >= '$desdeIni' 
           AND fecha <= '$hastaFin'
           AND nombre IS NOT NULL 
           AND nombre <> ''
-          $condicionEmpresa
     ) v_periodo
     ORDER BY v_periodo.nombre ASC
 ";
 $resConductores = $conn->query($sqlConductores);
 
-// CONSULTA PRINCIPAL - Todos los viajes (RESPETANDO FILTROS)
-$sql = "SELECT fecha, nombre, ruta, empresa 
-        FROM viajes 
-        WHERE fecha >= '$desdeIni' AND fecha <= '$hastaFin'";
-$sql .= $condicionEmpresa;
-$sql .= " ORDER BY fecha ASC, id ASC";
-$res = $conn->query($sql);
+// ========== CONSULTA PRINCIPAL - Todos los viajes con VALOR ==========
+$sqlViajes = "
+    SELECT 
+        v.fecha,
+        v.nombre,
+        v.ruta,
+        v.tipo_vehiculo,
+        v.empresa,
+        -- Obtener la clasificación para esta ruta y tipo de vehículo
+        rc.clasificacion,
+        -- Obtener el valor según la clasificación
+        CASE 
+            WHEN rc.clasificacion = 'completo' THEN t.completo
+            WHEN rc.clasificacion = 'medio' THEN t.medio
+            WHEN rc.clasificacion = 'extra' THEN t.extra
+            WHEN rc.clasificacion = 'carrotanque' THEN t.carrotanque
+            WHEN rc.clasificacion = 'siapana' THEN t.siapana
+            WHEN rc.clasificacion = 'prueba' THEN t.prueba
+            WHEN rc.clasificacion = 'riohacha_completo' THEN t.riohacha_completo
+            WHEN rc.clasificacion = 'riohacha_medio' THEN t.riohacha_medio
+            WHEN rc.clasificacion = 'nazareth_siapana_maicao' THEN t.nazareth_siapana_maicao
+            WHEN rc.clasificacion = 'nazareth_siapana_flor_de_la_guajira' THEN t.nazareth_siapana_flor_de_la_guajira
+            ELSE NULL
+        END as valor_viaje
+    FROM viajes v
+    LEFT JOIN ruta_clasificacion rc 
+        ON LOWER(TRIM(v.ruta)) = LOWER(TRIM(rc.ruta)) 
+        AND LOWER(TRIM(v.tipo_vehiculo)) = LOWER(TRIM(rc.tipo_vehiculo))
+    LEFT JOIN tarifas t 
+        ON LOWER(TRIM(v.empresa)) = LOWER(TRIM(t.empresa)) 
+        AND LOWER(TRIM(v.tipo_vehiculo)) = LOWER(TRIM(t.tipo_vehiculo))
+    WHERE v.fecha >= '$desdeIni' 
+      AND v.fecha <= '$hastaFin'
+      $condicionEmpresa
+    ORDER BY v.fecha ASC, v.id ASC
+";
+$resViajes = $conn->query($sqlViajes);
 
 // Documento
 $phpWord = new PhpWord();
@@ -263,7 +293,7 @@ if (!empty($empresasSeleccionadas)) {
 }
 $section->addTextBreak(2);
 
-// ========== TABLA 1: LISTA DE CONDUCTORES CON CÉDULA, TIPO DE VEHÍCULO Y ÁREA DE COBERTURA ==========
+// ========== TABLA 1: LISTA DE CONDUCTORES ==========
 $section->addText("LISTA DE CONDUCTORES", ['bold' => true, 'size' => 12]);
 $section->addTextBreak(1);
 
@@ -285,7 +315,6 @@ if ($resConductores && $resConductores->num_rows > 0) {
     while ($row = $resConductores->fetch_assoc()) {
         $tableConductores->addRow();
         $tableConductores->addCell(3000)->addText($row['nombre'] ?: '-');
-        // AHORA SÍ DEBERÍA MOSTRAR LA CÉDULA CORRECTAMENTE, BUSCÁNDOLA EN TODA LA BD
         $tableConductores->addCell(2500)->addText($row['cedula'] ?: 'N/A');
         
         // Tipo de vehículo formateado
@@ -304,7 +333,7 @@ if ($resConductores && $resConductores->num_rows > 0) {
 
 $section->addTextBreak(3);
 
-// ========== TABLA 2: DETALLE DE VIAJES ==========
+// ========== TABLA 2: DETALLE DE VIAJES CON VEHÍCULO Y VALOR ==========
 $section->addText("DETALLE DE VIAJES POR FECHA", ['bold' => true, 'size' => 12]);
 $section->addTextBreak(1);
 
@@ -315,22 +344,55 @@ $tableViajes = $section->addTable([
     'alignment' => \PhpOffice\PhpWord\SimpleType\JcTable::CENTER
 ]);
 
-// Encabezado tabla viaj
+// Encabezado tabla viajes (AHORA CON 5 COLUMNAS)
 $tableViajes->addRow();
-$tableViajes->addCell(2000)->addText("FECHA", ['bold' => true]);
-$tableViajes->addCell(4000)->addText("CONDUCTOR", ['bold' => true]);
-$tableViajes->addCell(4000)->addText("RUTA", ['bold' => true]);
+$tableViajes->addCell(1500)->addText("FECHA", ['bold' => true]);
+$tableViajes->addCell(3000)->addText("CONDUCTOR", ['bold' => true]);
+$tableViajes->addCell(2500)->addText("VEHÍCULO", ['bold' => true]); // NUEVA COLUMNA
+$tableViajes->addCell(3000)->addText("RUTA", ['bold' => true]);
+$tableViajes->addCell(2000)->addText("VALOR", ['bold' => true]); // NUEVA COLUMNA
 
-if ($res && $res->num_rows > 0) {
-    while ($row = $res->fetch_assoc()) {
+$totalValores = 0;
+
+if ($resViajes && $resViajes->num_rows > 0) {
+    while ($row = $resViajes->fetch_assoc()) {
         $tableViajes->addRow();
-        $tableViajes->addCell(2000)->addText(substr($row['fecha'], 0, 10));
-        $tableViajes->addCell(4000)->addText($row['nombre'] ?: '-');
-        $tableViajes->addCell(4000)->addText($row['ruta'] ?: '-');
+        $tableViajes->addCell(1500)->addText(substr($row['fecha'], 0, 10));
+        $tableViajes->addCell(3000)->addText($row['nombre'] ?: '-');
+        
+        // COLUMNA VEHÍCULO: tipo de vehículo formateado
+        $tipoVehiculo = obtenerTipoVehiculo($row['tipo_vehiculo']);
+        $tableViajes->addCell(2500)->addText($tipoVehiculo);
+        
+        // COLUMNA RUTA
+        $tableViajes->addCell(3000)->addText($row['ruta'] ?: '-');
+        
+        // COLUMNA VALOR: calcular y mostrar
+        $valor = $row['valor_viaje'];
+        if ($valor !== null && $valor > 0) {
+            $totalValores += floatval($valor);
+            $tableViajes->addCell(2000)->addText(formatearMoneda($valor));
+        } else {
+            // Si no hay valor, mostrar mensaje con la clasificación si existe
+            $textoValor = "N/A";
+            if (!empty($row['clasificacion'])) {
+                $textoValor = "Sin tarifa (" . $row['clasificacion'] . ")";
+            } else {
+                $textoValor = "Sin clasificación";
+            }
+            $tableViajes->addCell(2000)->addText($textoValor);
+        }
     }
+    
+    // Agregar fila de TOTAL
+    $tableViajes->addRow();
+    $cellTotal = $tableViajes->addCell(10000, ['gridSpan' => 4]);
+    $cellTotal->addText("TOTAL", ['bold' => true]);
+    $tableViajes->addCell(2000)->addText(formatearMoneda($totalValores), ['bold' => true]);
+    
 } else {
     $tableViajes->addRow();
-    $cell = $tableViajes->addCell(10000, ['gridSpan' => 3]);
+    $cell = $tableViajes->addCell(12000, ['gridSpan' => 5]);
     $cell->addText("📭 No hay viajes en este rango de fechas.");
 }
 
