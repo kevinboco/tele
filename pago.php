@@ -509,7 +509,7 @@ if ($resV) {
     }
 }
 
-/* ================= PRÉSTAMOS - AHORA CON TODAS LAS EMPRESAS ================= */
+/* ================= PRÉSTAMOS - TODAS LAS EMPRESAS ================= */
 $prestamosList = [];
 $i = 0;
 
@@ -527,15 +527,7 @@ $qPrest = "
          ) AS total
   FROM prestamos
   WHERE (pagado IS NULL OR pagado = 0)
-";
-
-// QUITAMOS EL FILTRO DE EMPRESAS - AHORA TRAEMOS TODOS LOS PRÉSTAMOS
-// if (!empty($empresasSeleccionadasEsc)) {
-//     $empresasStr = "'" . implode("','", $empresasSeleccionadasEsc) . "'";
-//     $qPrest .= " AND empresa IN ($empresasStr)";
-// }
-
-$qPrest .= " GROUP BY deudor, empresa";
+  GROUP BY deudor, empresa";
 
 if ($rP = $conn->query($qPrest)) {
     while($r = $rP->fetch_assoc()){
@@ -633,7 +625,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         .switch-small .switch-slider:before { height: 14px; width: 14px; left: 3px; bottom: 3px; }
         input:checked + .switch-small .switch-slider:before { transform: translateX(20px); }
         
-        /* Estilos nuevos para el modal de préstamos multiempresa */
         .empresas-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -701,6 +692,16 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             border-radius: 0.75rem;
             padding: 0.75rem;
             margin-top: 0.5rem;
+        }
+        .badge-historico {
+            background: #fef3c7;
+            color: #92400e;
+            font-size: 0.65rem;
+            padding: 0.15rem 0.4rem;
+            border-radius: 9999px;
+            margin-left: 0.25rem;
+            display: inline-block;
+            border: 1px solid #fbbf24;
         }
     </style>
 </head>
@@ -954,7 +955,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 <div id="prestModal" class="hidden fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-8 max-w-4xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
-        <!-- Header -->
         <div class="px-5 py-4 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-indigo-50">
             <div class="flex items-center justify-between">
                 <h3 class="text-lg font-semibold flex items-center gap-2">
@@ -967,17 +967,13 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         </div>
         
         <div class="p-4">
-            <!-- Filtro por empresas con checkboxes -->
             <div class="mb-4">
                 <label class="block text-xs font-medium text-slate-700 mb-2">
                     🏢 Filtrar por empresas (selecciona múltiples):
                 </label>
-                <div class="empresas-grid" id="empresasMultiSelect">
-                    <!-- Se llena con JavaScript -->
-                </div>
+                <div class="empresas-grid" id="empresasMultiSelect"></div>
             </div>
             
-            <!-- Barra de búsqueda -->
             <div class="flex gap-2 mb-4">
                 <div class="flex-1">
                     <input id="prestSearch" 
@@ -991,12 +987,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 </button>
             </div>
             
-            <!-- Lista de préstamos -->
-            <div id="prestList" class="max-h-96 overflow-auto border rounded-xl bg-white divide-y">
-                <!-- Se llena con JavaScript -->
-            </div>
+            <div id="prestList" class="max-h-96 overflow-auto border rounded-xl bg-white divide-y"></div>
             
-            <!-- Resumen de selección -->
             <div class="resumen-seleccion mt-4">
                 <div class="flex justify-between items-center">
                     <div>
@@ -1014,7 +1006,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 </div>
             </div>
             
-            <!-- Input manual y acciones -->
             <div class="mt-4 flex items-center justify-between">
                 <div class="flex items-center gap-3">
                     <span class="text-sm text-slate-600">💰 Valor manual:</span>
@@ -1100,7 +1091,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             </div>
             
             <div class="text-xs text-slate-500 mt-2 p-3 bg-blue-50 rounded-xl">
-                <strong>📌 Nota:</strong> Se guardarán todos los datos: conductores, préstamos asignados, seguridad social, cuentas bancarias, estados de pago y filas manuales.
+                <strong>📌 Nota:</strong> Se guardarán todos los datos: conductores, préstamos asignados (con los valores actuales), seguridad social, cuentas bancarias, estados de pago y filas manuales.
             </div>
         </div>
         <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
@@ -1196,6 +1187,9 @@ const CONDUCTORES_LIST = <?= json_encode(array_map(fn($f)=>$f['nombre'],$filas),
 
 console.log('✅ Préstamos cargados (TODAS las empresas):', PRESTAMOS_LIST.length);
 
+// ===== VARIABLE PARA CONTROLAR MODO HISTÓRICO =====
+let modoHistoricoActivo = false;
+
 // ===== FUNCIONES UTILITARIAS =====
 function toInt(s) {
     if (typeof s === 'number') return Math.round(s);
@@ -1255,8 +1249,10 @@ function aplicarEstadoFila(tr, estado) {
     if (estado) tr.classList.add(`estado-${estado}`);
 }
 
-// ===== FUNCIÓN PARA ASIGNAR PRÉSTAMOS A FILAS =====
-function asignarPrestamosAFilas() {
+// ===== FUNCIÓN PRINCIPAL PARA ASIGNAR PRÉSTAMOS A FILAS (MODIFICADA) =====
+function asignarPrestamosAFilas(usarValoresHistoricos = false) {
+    modoHistoricoActivo = usarValoresHistoricos;
+    
     document.querySelectorAll('#tbody tr').forEach(tr => {
         let nombreConductor = obtenerNombreConductorDeFila(tr);
         if (!nombreConductor) return;
@@ -1272,20 +1268,34 @@ function asignarPrestamosAFilas() {
         }
         
         let totalMostrar = 0;
-        let nombres = [];
+        let detalles = [];
         let empresas = [];
         
         prestamosDeEsteConductor.forEach(prestamoGuardado => {
             if (prestamoGuardado.esManual) {
                 totalMostrar += prestamoGuardado.valorManual;
-                nombres.push(`💰 Manual: $${fmt(prestamoGuardado.valorManual)}`);
+                detalles.push(`💰 Manual: $${fmt(prestamoGuardado.valorManual)}`);
                 empresas.push('Manual');
             } else {
-                const prestamoActual = PRESTAMOS_LIST.find(p => p.id === prestamoGuardado.id);
-                if (prestamoActual) {
-                    totalMostrar += prestamoActual.total;
-                    nombres.push(prestamoActual.name);
-                    empresas.push(prestamoActual.empresa);
+                // MODO HISTÓRICO: Usar SIEMPRE el valor guardado
+                if (usarValoresHistoricos) {
+                    totalMostrar += prestamoGuardado.totalActual || 0;
+                    detalles.push(prestamoGuardado.name || 'Desconocido');
+                    empresas.push(prestamoGuardado.empresa || 'N/A');
+                } 
+                // MODO NORMAL: Usar valores actuales de la base de datos
+                else {
+                    const prestamoActual = PRESTAMOS_LIST.find(p => p.id === prestamoGuardado.id);
+                    if (prestamoActual) {
+                        totalMostrar += prestamoActual.total;
+                        detalles.push(prestamoActual.name);
+                        empresas.push(prestamoActual.empresa);
+                    } else {
+                        // Si ya no existe en la BD, usar el valor guardado como fallback
+                        totalMostrar += prestamoGuardado.totalActual || 0;
+                        detalles.push(prestamoGuardado.name || 'Eliminado (usando histórico)');
+                        empresas.push(prestamoGuardado.empresa || 'N/A');
+                    }
                 }
             }
         });
@@ -1294,15 +1304,21 @@ function asignarPrestamosAFilas() {
         const selLabel = tr.querySelector('.selected-deudor');
         if (prestSpan) prestSpan.textContent = fmt(totalMostrar);
         if (selLabel) {
-            // Mostrar resumen de empresas
             const empresasUnicas = [...new Set(empresas)].filter(e => e !== 'Manual');
+            let textoLabel = '';
+            
             if (empresasUnicas.length > 0) {
-                selLabel.textContent = `${empresasUnicas.length} empresa(s): $${fmt(totalMostrar)}`;
+                textoLabel = `${empresasUnicas.length} empresa(s): $${fmt(totalMostrar)}`;
             } else if (prestamosDeEsteConductor.some(p => p.esManual)) {
-                selLabel.textContent = `Manual: $${fmt(totalMostrar)}`;
-            } else {
-                selLabel.textContent = '';
+                textoLabel = `Manual: $${fmt(totalMostrar)}`;
             }
+            
+            // Añadir indicador visual si estamos en modo histórico
+            if (usarValoresHistoricos && prestamosDeEsteConductor.length > 0) {
+                textoLabel += ' <span class="badge-historico" title="Valor histórico (fecha de guardado)">📅 histórico</span>';
+            }
+            
+            selLabel.innerHTML = textoLabel;
         }
     });
 }
@@ -1369,7 +1385,7 @@ function agregarFilaManual(manualIdFromLS = null) {
     }
 
     configurarEventosFila(nuevaFila);
-    asignarPrestamosAFilas();
+    asignarPrestamosAFilas(modoHistoricoActivo);
     recalcularTodo();
     filtrarConductores();
 }
@@ -1477,7 +1493,7 @@ function configurarEventosFila(tr) {
                 aplicarEstadoFila(tr, estadoPagoMap[newBaseName]);
             }
             
-            asignarPrestamosAFilas();
+            asignarPrestamosAFilas(modoHistoricoActivo);
             recalcularTodo();
             filtrarConductores();
         });
@@ -1669,7 +1685,6 @@ function cargarEmpresasMultiSelect() {
     const container = document.getElementById('empresasMultiSelect');
     if (!container) return;
     
-    // Obtener TODAS las empresas únicas de PRESTAMOS_LIST
     const todasLasEmpresas = [...new Set(PRESTAMOS_LIST
         .map(p => p.empresa)
         .filter(emp => emp && emp.trim() !== '')
@@ -1680,7 +1695,6 @@ function cargarEmpresasMultiSelect() {
         return;
     }
     
-    // Construir grid de checkboxes
     container.innerHTML = todasLasEmpresas.map(empresa => {
         const count = PRESTAMOS_LIST.filter(p => p.empresa === empresa).length;
         return `
@@ -1694,7 +1708,6 @@ function cargarEmpresasMultiSelect() {
         `;
     }).join('');
     
-    // Event listeners para los checkboxes de empresas
     document.querySelectorAll('.empresa-checkbox-prestamo').forEach(cb => {
         cb.addEventListener('change', () => filtrarPrestamosMultiempresa());
     });
@@ -1703,23 +1716,19 @@ function cargarEmpresasMultiSelect() {
 function filtrarPrestamosMultiempresa() {
     const textoBusqueda = normalizarTexto(document.getElementById('prestSearch').value || '');
     
-    // Obtener empresas seleccionadas
     const empresasSeleccionadas = [];
     document.querySelectorAll('.empresa-checkbox-prestamo:checked').forEach(cb => {
         empresasSeleccionadas.push(cb.value);
     });
     
-    // Filtrar préstamos
     let prestamosFiltrados = PRESTAMOS_LIST;
     
-    // Filtro por empresas (si hay alguna seleccionada)
     if (empresasSeleccionadas.length > 0) {
         prestamosFiltrados = prestamosFiltrados.filter(p => 
             empresasSeleccionadas.includes(p.empresa)
         );
     }
     
-    // Filtro por texto
     if (textoBusqueda) {
         prestamosFiltrados = prestamosFiltrados.filter(p => 
             normalizarTexto(p.name).includes(textoBusqueda)
@@ -1744,7 +1753,6 @@ function renderizarListaPrestamos(prestamos) {
         return;
     }
     
-    // Ordenar por empresa y nombre
     prestamos.sort((a, b) => {
         if (a.empresa !== b.empresa) return a.empresa.localeCompare(b.empresa);
         return a.name.localeCompare(b.name);
@@ -1754,7 +1762,6 @@ function renderizarListaPrestamos(prestamos) {
     let currentEmpresa = '';
     
     prestamos.forEach(item => {
-        // Separador por empresa
         if (currentEmpresa !== item.empresa) {
             currentEmpresa = item.empresa;
             html += `
@@ -1786,7 +1793,6 @@ function renderizarListaPrestamos(prestamos) {
     
     list.innerHTML = html;
     
-    // Event listeners para los checkboxes de préstamos
     document.querySelectorAll('.prest-checkbox').forEach(cb => {
         cb.addEventListener('change', function() {
             const id = parseInt(this.dataset.id);
@@ -1806,7 +1812,6 @@ function actualizarResumenSeleccion() {
     const seleccionados = PRESTAMOS_LIST.filter(p => selectedIds.has(p.id));
     const total = seleccionados.reduce((sum, p) => sum + (p.total || 0), 0);
     
-    // Agrupar por empresa para mostrar detalle
     const porEmpresa = {};
     seleccionados.forEach(p => {
         if (!porEmpresa[p.empresa]) porEmpresa[p.empresa] = 0;
@@ -1837,21 +1842,16 @@ function openPrestModalForRow(tr) {
         return;
     }
     
-    // Cargar selecciones previas del conductor
     (prestSel[baseName] || []).forEach(p => {
         if (!p.esManual && p.id !== undefined) {
             selectedIds.add(Number(p.id));
         }
     });
     
-    // Limpiar campos
     document.getElementById('prestSearch').value = '';
     document.getElementById('prestValorManual').value = '';
     
-    // Cargar TODAS las empresas
     cargarEmpresasMultiSelect();
-    
-    // Mostrar todos los préstamos inicialmente
     renderizarListaPrestamos(PRESTAMOS_LIST);
     actualizarResumenSeleccion();
     
@@ -1950,8 +1950,32 @@ btnDoSaveCuenta.addEventListener('click', async () => {
     const porcentaje = parseFloat(iPorcentaje.value) || 0;
     const pagado = iPagado.checked ? 1 : 0;
     
+    // MODIFICACIÓN: Asegurar que los préstamos guarden el valor ACTUAL en el momento del guardado
+    const prestamosParaGuardar = {};
+    Object.keys(prestSel).forEach(conductor => {
+        prestamosParaGuardar[conductor] = (prestSel[conductor] || []).map(p => {
+            if (p.esManual) {
+                return {
+                    ...p,
+                    valorManual: p.valorManual
+                };
+            } else {
+                // Buscar el valor actual del préstamo en PRESTAMOS_LIST
+                const prestamoActual = PRESTAMOS_LIST.find(pl => pl.id === p.id);
+                return {
+                    id: p.id,
+                    name: p.name || (prestamoActual ? prestamoActual.name : 'Desconocido'),
+                    empresa: p.empresa || (prestamoActual ? prestamoActual.empresa : 'N/A'),
+                    totalActual: prestamoActual ? prestamoActual.total : (p.totalActual || 0),
+                    esManual: false,
+                    valorManual: null
+                };
+            }
+        });
+    });
+    
     const datosParaGuardar = {
-        prestamos: prestSel,
+        prestamos: prestamosParaGuardar,
         segSocial: ssMap,
         cuentasBancarias: accMap,
         estadosPago: estadoPagoMap,
@@ -2168,10 +2192,11 @@ async function actualizarEstadoCuenta(id, nuevoEstado, switchElement) {
     }
 }
 
+// ===== FUNCIÓN MODIFICADA PARA CARGAR CUENTA CON VALORES HISTÓRICOS =====
 async function cargarCuentaCompletaBD(id) {
     const confirmacion = await Swal.fire({
         title: '¿Cargar esta cuenta?',
-        text: 'Se restaurarán todos los datos guardados y se actualizarán los filtros',
+        text: 'Se restaurarán los valores de préstamos tal como estaban en el momento del guardado (valores históricos)',
         icon: 'question',
         showCancelButton: true,
         confirmButtonText: 'Sí, cargar',
@@ -2201,6 +2226,7 @@ async function cargarCuentaCompletaBD(id) {
             
             const datos = cuenta.datos_json || {};
             
+            // MODIFICACIÓN: Cargar los préstamos tal como estaban guardados (valores históricos)
             prestSel = datos.prestamos || {};
             ssMap = datos.segSocial || {};
             accMap = datos.cuentasBancarias || {};
@@ -2262,7 +2288,8 @@ async function cargarCuentaCompletaBD(id) {
                 }
             });
             
-            asignarPrestamosAFilas();
+            // MODIFICACIÓN: Asignar préstamos con flag TRUE para usar valores históricos
+            asignarPrestamosAFilas(true);
             
             if (cuenta.porcentaje_ajuste) {
                 document.getElementById('inp_porcentaje_ajuste').value = cuenta.porcentaje_ajuste;
@@ -2273,10 +2300,11 @@ async function cargarCuentaCompletaBD(id) {
             
             Swal.fire({
                 title: '✅ Cuenta cargada',
-                text: `"${cuenta.nombre}" cargada exitosamente. Recargando página con los nuevos filtros...`,
+                text: `"${cuenta.nombre}" cargada exitosamente. Se han restaurado los valores históricos de préstamos.`,
                 icon: 'success',
-                timer: 2000,
-                showConfirmButton: false,
+                timer: 3000,
+                showConfirmButton: true,
+                confirmButtonText: 'Continuar',
                 willClose: () => {
                     document.querySelector('form').submit();
                 }
@@ -2381,7 +2409,8 @@ document.addEventListener('DOMContentLoaded', function() {
     
     manualRows.forEach(id => agregarFilaManual(id));
     
-    asignarPrestamosAFilas();
+    // INICIO MODO NORMAL: false
+    asignarPrestamosAFilas(false);
     
     hacerPanelArrastrable();
     
@@ -2410,7 +2439,6 @@ document.addEventListener('DOMContentLoaded', function() {
     
     document.getElementById('inp_porcentaje_ajuste').addEventListener('input', recalcularTodo);
     
-    // Modal préstamos - Eventos
     document.getElementById('btnCloseModal').addEventListener('click', closePrestModal);
     document.getElementById('btnCancel').addEventListener('click', closePrestModal);
     
@@ -2452,7 +2480,8 @@ document.addEventListener('DOMContentLoaded', function() {
         
         setLS(PREST_SEL_KEY, prestSel);
         
-        asignarPrestamosAFilas();
+        // Al asignar nuevos préstamos, mantener el modo actual (histórico o normal)
+        asignarPrestamosAFilas(modoHistoricoActivo);
         recalcularTodo();
         closePrestModal();
     });
@@ -2467,7 +2496,6 @@ document.addEventListener('DOMContentLoaded', function() {
     
     setTimeout(recalcularTodo, 100);
     
-    // Función para modal de viaje
     window.abrirModalViajes = function(nombre) {
         document.getElementById('viajesTitle').textContent = nombre;
         document.getElementById('viajesModal').classList.add('show');
