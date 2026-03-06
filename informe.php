@@ -1,4 +1,7 @@
 <?php
+// ACTIVAR MODO DEPURACIÓN - Esto mostrará los errores
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 
 require 'vendor/autoload.php';
 
@@ -12,8 +15,7 @@ header_remove(); // limpia headers previos por si acaso
 // Conexión BD
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
 if ($conn->connect_error) {
-    http_response_code(500);
-    die("Error conexión BD");
+    die("Error conexión BD: " . $conn->connect_error);
 }
 $conn->set_charset('utf8mb4');
 
@@ -147,7 +149,6 @@ if (empty($_POST['desde']) || empty($_POST['hasta'])) {
             const seleccionarTodos = document.getElementById('seleccionarTodos');
             const checkboxesEmpresa = document.querySelectorAll('.empresa-item');
             
-            // Función para actualizar el estado del checkbox "Seleccionar todos"
             function actualizarSeleccionarTodos() {
                 const totalCheckboxes = checkboxesEmpresa.length;
                 const checkboxesSeleccionados = document.querySelectorAll('.empresa-item:checked').length;
@@ -163,19 +164,16 @@ if (empty($_POST['desde']) || empty($_POST['hasta'])) {
                 }
             }
             
-            // Evento para "Seleccionar todos"
             seleccionarTodos.addEventListener('change', function() {
                 checkboxesEmpresa.forEach(checkbox => {
                     checkbox.checked = seleccionarTodos.checked;
                 });
             });
             
-            // Evento para cada checkbox individual
             checkboxesEmpresa.forEach(checkbox => {
                 checkbox.addEventListener('change', actualizarSeleccionarTodos);
             });
             
-            // Inicializar estado
             actualizarSeleccionarTodos();
         });
     </script>
@@ -189,22 +187,25 @@ $desde = $_POST['desde'];
 $hasta = $_POST['hasta'];
 $empresasSeleccionadas = $_POST['empresas'] ?? [];
 
-// Normaliza a todo el día por si `fecha` es DATETIME
+// Validar que las fechas no estén vacías
+if (empty($desde) || empty($hasta)) {
+    die("Error: Fechas no válidas");
+}
+
+// Normaliza a todo el día
 $desdeIni = $conn->real_escape_string($desde . " 00:00:00");
 $hastaFin = $conn->real_escape_string($hasta . " 23:59:59");
 
 // Construir condición para múltiples empresas
 $condicionEmpresa = "";
 if (!empty($empresasSeleccionadas)) {
-    // Escapar cada valor para evitar inyección SQL
     $empresasEscapadas = array_map(function($emp) use ($conn) {
         return "'" . $conn->real_escape_string($emp) . "'";
     }, $empresasSeleccionadas);
-    
     $condicionEmpresa = " AND v.empresa IN (" . implode(",", $empresasEscapadas) . ")";
 }
 
-// ========== CONSULTA CORREGIDA PARA LISTA DE CONDUCTORES ==========
+// ========== CONSULTA PARA LISTA DE CONDUCTORES ==========
 $sqlConductores = "
     SELECT 
         v_periodo.nombre,
@@ -235,7 +236,11 @@ $sqlConductores = "
     ) v_periodo
     ORDER BY v_periodo.nombre ASC
 ";
+
 $resConductores = $conn->query($sqlConductores);
+if (!$resConductores) {
+    die("Error en consulta conductores: " . $conn->error);
+}
 
 // ========== CONSULTA PRINCIPAL - Todos los viajes con VALOR ==========
 $sqlViajes = "
@@ -245,9 +250,7 @@ $sqlViajes = "
         v.ruta,
         v.tipo_vehiculo,
         v.empresa,
-        -- Obtener la clasificación para esta ruta y tipo de vehículo
         rc.clasificacion,
-        -- Obtener el valor según la clasificación
         CASE 
             WHEN rc.clasificacion = 'completo' THEN t.completo
             WHEN rc.clasificacion = 'medio' THEN t.medio
@@ -273,7 +276,11 @@ $sqlViajes = "
       $condicionEmpresa
     ORDER BY v.fecha ASC, v.id ASC
 ";
+
 $resViajes = $conn->query($sqlViajes);
+if (!$resViajes) {
+    die("Error en consulta viajes: " . $conn->error . "<br>SQL: " . $sqlViajes);
+}
 
 // Documento
 $phpWord = new PhpWord();
@@ -317,11 +324,9 @@ if ($resConductores && $resConductores->num_rows > 0) {
         $tableConductores->addCell(3000)->addText($row['nombre'] ?: '-');
         $tableConductores->addCell(2500)->addText($row['cedula'] ?: 'N/A');
         
-        // Tipo de vehículo formateado
         $tipoVehiculo = obtenerTipoVehiculo($row['tipo_vehiculo']);
         $tableConductores->addCell(2500)->addText($tipoVehiculo);
         
-        // Área de cobertura según tipo de vehículo
         $areaCobertura = obtenerAreaCobertura($row['tipo_vehiculo']);
         $tableConductores->addCell(2000)->addText($areaCobertura);
     }
@@ -348,9 +353,9 @@ $tableViajes = $section->addTable([
 $tableViajes->addRow();
 $tableViajes->addCell(1500)->addText("FECHA", ['bold' => true]);
 $tableViajes->addCell(3000)->addText("CONDUCTOR", ['bold' => true]);
-$tableViajes->addCell(2500)->addText("VEHÍCULO", ['bold' => true]); // NUEVA COLUMNA
+$tableViajes->addCell(2500)->addText("VEHÍCULO", ['bold' => true]);
 $tableViajes->addCell(3000)->addText("RUTA", ['bold' => true]);
-$tableViajes->addCell(2000)->addText("VALOR", ['bold' => true]); // NUEVA COLUMNA
+$tableViajes->addCell(2000)->addText("VALOR", ['bold' => true]);
 
 $totalValores = 0;
 
@@ -360,25 +365,21 @@ if ($resViajes && $resViajes->num_rows > 0) {
         $tableViajes->addCell(1500)->addText(substr($row['fecha'], 0, 10));
         $tableViajes->addCell(3000)->addText($row['nombre'] ?: '-');
         
-        // COLUMNA VEHÍCULO: tipo de vehículo formateado
         $tipoVehiculo = obtenerTipoVehiculo($row['tipo_vehiculo']);
         $tableViajes->addCell(2500)->addText($tipoVehiculo);
         
-        // COLUMNA RUTA
         $tableViajes->addCell(3000)->addText($row['ruta'] ?: '-');
         
-        // COLUMNA VALOR: calcular y mostrar
         $valor = $row['valor_viaje'];
         if ($valor !== null && $valor > 0) {
             $totalValores += floatval($valor);
             $tableViajes->addCell(2000)->addText(formatearMoneda($valor));
         } else {
-            // Si no hay valor, mostrar mensaje con la clasificación si existe
             $textoValor = "N/A";
             if (!empty($row['clasificacion'])) {
-                $textoValor = "Sin tarifa (" . $row['clasificacion'] . ")";
+                $textoValor = "Sin tarifa";
             } else {
-                $textoValor = "Sin clasificación";
+                $textoValor = "Sin clasificar";
             }
             $tableViajes->addCell(2000)->addText($textoValor);
         }
