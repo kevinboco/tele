@@ -315,7 +315,7 @@ $tableViajes = $section->addTable([
     'alignment' => \PhpOffice\PhpWord\SimpleType\JcTable::CENTER
 ]);
 
-// Encabezado tabla viajes
+// Encabezado tabla viaj
 $tableViajes->addRow();
 $tableViajes->addCell(2000)->addText("FECHA", ['bold' => true]);
 $tableViajes->addCell(4000)->addText("CONDUCTOR", ['bold' => true]);
