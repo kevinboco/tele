@@ -291,7 +291,7 @@ if (isset($_GET['viajes_conductor'])) {
     $res = $conn->query($sql);
 
     if ($res && $res->num_rows > 0) {
-        // Contadores dinámi
+        // Contadores dinámicos
         $counts = array_fill_keys(array_keys($legend), 0);
         
         // NUEVO: Contador de rutas sin clasificar para este conductor
@@ -579,8 +579,8 @@ $vehiculos = [];
 $rutasUnicas = [];
 $pagosConductor = [];
 
-// NUEVO: Contador global de rutas sin clasificar por conductor
-$rutas_sin_clasificar_por_conductor = [];
+// NUEVO: Array para almacenar el desglose por clasificación y vehículo
+$resumenPorClasificacion = [];
 
 if ($res) {
     while ($row = $res->fetch_assoc()) {
@@ -609,18 +609,8 @@ if ($res) {
             $vehiculos[] = $vehiculo;
         }
 
-        // NUEVO: Verificar si la ruta tiene clasificación
-        $clasificacion_ruta = $clasif_rutas[$keyRuta] ?? '';
-        if ($clasificacion_ruta === '' || $clasificacion_ruta === 'otro') {
-            if (!isset($rutas_sin_clasificar_por_conductor[$nombre])) {
-                $rutas_sin_clasificar_por_conductor[$nombre] = [];
-            }
-            // Evitar duplicados
-            $ruta_key = $ruta . '|' . $vehiculo;
-            if (!in_array($ruta_key, $rutas_sin_clasificar_por_conductor[$nombre])) {
-                $rutas_sin_clasificar_por_conductor[$nombre][] = $ruta_key;
-            }
-        }
+        // Clasificación MANUAL de la ruta
+        $clasifRuta = $clasif_rutas[$keyRuta] ?? '';
 
         // Inicializar datos del conductor (dinámicamente)
         if (!isset($datos[$nombre])) {
@@ -634,15 +624,21 @@ if ($res) {
             }
         }
 
-        // Clasificación MANUAL de la ruta
-        $clasifRuta = $clasif_rutas[$keyRuta] ?? '';
-
-        // Si tiene clasificación, sumar al contador (crear campo si no existe)
+        // Si tiene clasificación, sumar al contador
         if ($clasifRuta !== '') {
             if (!isset($datos[$nombre][$clasifRuta])) {
                 $datos[$nombre][$clasifRuta] = 0;
             }
             $datos[$nombre][$clasifRuta]++;
+            
+            // ===== NUEVO: Acumular para el resumen por clasificación y vehículo =====
+            if (!isset($resumenPorClasificacion[$clasifRuta])) {
+                $resumenPorClasificacion[$clasifRuta] = [];
+            }
+            if (!isset($resumenPorClasificacion[$clasifRuta][$vehiculo])) {
+                $resumenPorClasificacion[$clasifRuta][$vehiculo] = 0;
+            }
+            $resumenPorClasificacion[$clasifRuta][$vehiculo]++;
         }
     }
 }
@@ -650,8 +646,6 @@ if ($res) {
 // Inyectar pago acumulado
 foreach ($datos as $conductor => $info) {
     $datos[$conductor]["pagado"] = (int)($pagosConductor[$conductor] ?? 0);
-    // NUEVO: Inyectar contador de rutas sin clasificar
-    $datos[$conductor]["rutas_sin_clasificar"] = count($rutas_sin_clasificar_por_conductor[$conductor] ?? []);
 }
 
 // Empresas y tarifas
@@ -1090,6 +1084,43 @@ if ($empresaFiltro !== "") {
     display: table-cell !important;
   }
   
+  /* ===== NUEVO: ESTILOS PARA EL PANEL DE RESUMEN ===== */
+  .resumen-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1rem;
+  }
+  
+  .resumen-card {
+    transition: all 0.3s ease;
+  }
+  
+  .resumen-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+  }
+  
+  .resumen-header {
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+  }
+  
+  .resumen-header:hover {
+    filter: brightness(0.98);
+  }
+  
+  .resumen-contenido {
+    transition: all 0.3s ease;
+  }
+  
+  .vehiculo-item {
+    transition: all 0.2s ease;
+  }
+  
+  .vehiculo-item:hover {
+    background-color: #f8fafc;
+  }
+  
   /* Responsive */
   @media (max-width: 768px) {
     .floating-balls-container {
@@ -1122,6 +1153,10 @@ if ($empresaFiltro !== "") {
     
     .ball-tooltip {
       display: none;
+    }
+    
+    .resumen-grid {
+      grid-template-columns: 1fr;
     }
   }
 </style>
@@ -1196,6 +1231,105 @@ if ($empresaFiltro !== "") {
       </div>
     </div>
   </header>
+
+  <!-- ===== NUEVO: PANEL DE RESUMEN POR CLASIFICACIÓN Y VEHÍCULO ===== -->
+  <div class="max-w-[1800px] mx-auto px-3 md:px-4 mt-6">
+    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+      <div class="bg-gradient-to-r from-blue-50 to-indigo-50 px-5 py-3 border-b border-slate-200">
+        <div class="flex items-center justify-between">
+          <h3 class="text-lg font-semibold flex items-center gap-2">
+            <span>📊 Resumen por Clasificación y Tipo de Vehículo</span>
+            <span class="text-xs bg-blue-600 text-white px-2 py-1 rounded-full">
+              <?= array_sum(array_map('count', $resumenPorClasificacion)) ?> viajes clasificados
+            </span>
+          </h3>
+          <button onclick="toggleResumen()" class="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1" id="btnToggleResumen">
+            <span>Ocultar</span>
+            <span class="text-lg">▼</span>
+          </button>
+        </div>
+      </div>
+      
+      <div id="resumenContent" class="p-5 transition-all duration-300">
+        <?php if (empty($resumenPorClasificacion)): ?>
+          <div class="text-center py-8 text-slate-500">
+            <span class="text-4xl block mb-3">📭</span>
+            <p class="text-lg">No hay viajes clasificados en este período</p>
+            <p class="text-sm mt-2">Clasifica algunas rutas usando el panel lateral (🧭)</p>
+          </div>
+        <?php else: ?>
+          <div class="resumen-grid">
+            <?php foreach ($resumenPorClasificacion as $clasif => $vehiculosData): 
+              $estilo = obtenerEstiloClasificacion($clasif);
+              $totalClasif = array_sum($vehiculosData);
+              
+              // Obtener tarifas para calcular subtotales
+              $tarifasClasif = [];
+              foreach ($vehiculos as $veh) {
+                $tarifasClasif[$veh] = isset($tarifas_guardadas[$veh][$clasif]) ? (float)$tarifas_guardadas[$veh][$clasif] : 0;
+              }
+            ?>
+              <div class="resumen-card rounded-xl border <?= $estilo['border'] ?> overflow-hidden shadow-sm">
+                <!-- Cabecera de la clasificación -->
+                <div class="resumen-header <?= $estilo['bg'] ?> px-4 py-3 flex items-center justify-between" onclick="toggleClasifResumen('<?= $clasif ?>')">
+                  <div class="flex items-center gap-2">
+                    <span class="font-bold <?= $estilo['text'] ?> text-lg"><?= $estilo['label'] ?></span>
+                    <span class="text-xs bg-white px-2 py-1 rounded-full shadow-sm">Total: <?= $totalClasif ?> viajes</span>
+                  </div>
+                  <div class="flex items-center gap-3">
+                    <span class="text-sm font-semibold <?= $estilo['text'] ?>">
+                      $<?= number_format(array_sum(array_map(function($veh, $cant) use ($tarifasClasif, $clasif) {
+                        return $cant * ($tarifasClasif[$veh] ?? 0);
+                      }, array_keys($vehiculosData), $vehiculosData)), 0, ',', '.') ?>
+                    </span>
+                    <span class="resumen-icon-<?= $clasif ?> transform transition-transform duration-300 text-lg">▼</span>
+                  </div>
+                </div>
+                
+                <!-- Contenido desplegable (visible por defecto) -->
+                <div id="resumen-<?= $clasif ?>" class="resumen-contenido">
+                  <div class="p-3 space-y-2 bg-white">
+                    <?php 
+                    // Ordenar vehículos por cantidad (mayor a menor)
+                    arsort($vehiculosData);
+                    $subtotalClasif = 0;
+                    foreach ($vehiculosData as $veh => $cantidad): 
+                      $tarifa = $tarifasClasif[$veh] ?? 0;
+                      $subtotal = $cantidad * $tarifa;
+                      $subtotalClasif += $subtotal;
+                      $color_vehiculo = obtenerColorVehiculo($veh);
+                    ?>
+                      <div class="vehiculo-item flex items-center justify-between p-2 rounded-lg border border-slate-100 hover:border-slate-200">
+                        <div class="flex items-center gap-2">
+                          <span class="inline-block w-2 h-2 rounded-full <?= $color_vehiculo['bg'] ?>"></span>
+                          <span class="font-medium text-sm"><?= htmlspecialchars($veh) ?></span>
+                        </div>
+                        <div class="flex items-center gap-4">
+                          <span class="text-sm font-semibold"><?= $cantidad ?> viajes</span>
+                          <span class="text-xs text-slate-500">x $<?= number_format($tarifa, 0, ',', '.') ?></span>
+                          <span class="text-sm font-bold <?= $estilo['text'] ?> w-24 text-right">
+                            $<?= number_format($subtotal, 0, ',', '.') ?>
+                          </span>
+                        </div>
+                      </div>
+                    <?php endforeach; ?>
+                    
+                    <!-- Total de la clasificación -->
+                    <div class="flex items-center justify-between pt-3 mt-2 border-t border-dashed <?= $estilo['border'] ?>">
+                      <span class="font-semibold <?= $estilo['text'] ?>">Total <?= $estilo['label'] ?></span>
+                      <span class="font-bold text-lg <?= $estilo['text'] ?>">
+                        $<?= number_format($subtotalClasif, 0, ',', '.') ?>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            <?php endforeach; ?>
+          </div>
+        <?php endif; ?>
+      </div>
+    </div>
+  </div>
 
   <!-- ===== BOLITAS FLOTANTES ORIGINALES (AHORA 4 BOLITAS) ===== -->
   <div class="floating-balls-container">
@@ -2222,6 +2356,36 @@ if ($empresaFiltro !== "") {
       togglePanel('clasif-rutas');
       
       document.getElementById('resumenRutasSinClasificar').classList.add('hidden');
+    }
+    
+    // ===== NUEVA FUNCIÓN: Ocultar/Mostrar panel de resumen =====
+    function toggleResumen() {
+      const resumenContent = document.getElementById('resumenContent');
+      const btnToggle = document.getElementById('btnToggleResumen');
+      
+      if (resumenContent.style.display === 'none') {
+        resumenContent.style.display = 'block';
+        btnToggle.innerHTML = '<span>Ocultar</span> <span class="text-lg">▼</span>';
+      } else {
+        resumenContent.style.display = 'none';
+        btnToggle.innerHTML = '<span>Mostrar</span> <span class="text-lg">►</span>';
+      }
+    }
+    
+    // ===== NUEVA FUNCIÓN: Colapsar/Expandir cada clasificación en el resumen =====
+    function toggleClasifResumen(clasif) {
+      const contenido = document.getElementById('resumen-' + clasif);
+      const icono = document.querySelector('.resumen-icon-' + clasif);
+      
+      if (contenido.style.display === 'none') {
+        contenido.style.display = 'block';
+        icono.innerHTML = '▼';
+        icono.style.transform = 'rotate(0deg)';
+      } else {
+        contenido.style.display = 'none';
+        icono.innerHTML = '►';
+        icono.style.transform = 'rotate(0deg)';
+      }
     }
     
     // ===== BUSCADOR DE CONDUCTORES ORIGINAL =====
