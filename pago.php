@@ -2467,7 +2467,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     setTimeout(recalcularTodo, 100);
     
-    // Función para modal de viajes
+    // Función para modal de viaje
     window.abrirModalViajes = function(nombre) {
         document.getElementById('viajesTitle').textContent = nombre;
         document.getElementById('viajesModal').classList.add('show');
