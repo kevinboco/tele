@@ -105,7 +105,7 @@ $deudores_seleccionados = [];
 $prestamista_seleccionado = '';
 $fecha_desde = '';
 $fecha_hasta = '';
-$empresa_seleccionada = '';
+$empresas_seleccionadas_array = [];
 
 // Arreglos para los reportes
 $prestamos_por_deudor = [];
@@ -147,7 +147,7 @@ $sql_prestamistas_lista = "SELECT DISTINCT prestamista FROM prestamos WHERE pres
 $result_prestamistas_lista = $conn->query($sql_prestamistas_lista);
 
 // FUNCIÓN PARA CALCULAR GANANCIA DE UN PRESTAMISTA
-function calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestamistas, $prestamos_excluidos = [], $empresa_filtrada = '', $modo_pagados = false, $fecha_pago = '') {
+function calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestamistas, $prestamos_excluidos = [], $empresas_filtradas = '', $modo_pagados = false, $fecha_pago = '') {
     $FECHA_CORTE = '2025-10-29';
     
     // Preparar condición para excluidos
@@ -157,10 +157,12 @@ function calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestam
         $condicion_excluidos = "AND id NOT IN (" . implode(',', $ids_excluidos) . ")";
     }
     
-    // Preparar condición para empresa
+    // Preparar condición para empresas (múltiples)
     $condicion_empresa = '';
-    if (!empty($empresa_filtrada)) {
-        $condicion_empresa = "AND empresa = ?";
+    $empresas_array = !empty($empresas_filtradas) ? explode(',', $empresas_filtradas) : [];
+    if (!empty($empresas_array)) {
+        $placeholders = str_repeat('?,', count($empresas_array) - 1) . '?';
+        $condicion_empresa = "AND empresa IN ($placeholders)";
     }
     
     // CONDICIÓN PARA MODO PAGADO/PENDIENTE
@@ -204,9 +206,11 @@ function calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestam
         $types .= "s";
     }
     
-    if (!empty($empresa_filtrada)) {
-        $params[] = $empresa_filtrada;
-        $types .= "s";
+    if (!empty($empresas_array)) {
+        foreach ($empresas_array as $emp) {
+            $params[] = trim($emp);
+            $types .= "s";
+        }
     }
     
     $stmt->bind_param($types, ...$params);
@@ -250,7 +254,7 @@ if ($result_prestamistas_lista && $result_prestamistas_lista->num_rows > 0) {
     while ($prest = $result_prestamistas_lista->fetch_assoc()) {
         $prestamista_nombre = $prest['prestamista'];
         
-        $datos_ganancia = calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestamistas, $prestamos_excluidos, '', $modo_pagados, $fecha_pago_seleccionada);
+        $datos_ganancia = calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestamistas, $prestamos_excluidos, $empresa_seleccionada ?? '', $modo_pagados, $fecha_pago_seleccionada);
         
         $ganancias_por_prestamista[$prestamista_nombre] = $datos_ganancia;
         $total_todas_tus_comisiones += $datos_ganancia['tu_ganancia'];
@@ -266,7 +270,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
     $prestamista_seleccionado = $_POST['prestamista'] ?? '';
     $fecha_desde = $_POST['fecha_desde'] ?? '';
     $fecha_hasta = $_POST['fecha_hasta'] ?? '';
-    $empresa_seleccionada = $_POST['empresa'] ?? '';
+    $empresa_seleccionada = $_POST['empresa'] ?? ''; // Ahora viene como string con comas
+    $empresas_seleccionadas_array = !empty($empresa_seleccionada) ? explode(',', $empresa_seleccionada) : [];
     $prestamos_excluidos = isset($_POST['prestamos_excluidos']) ? explode(',', $_POST['prestamos_excluidos']) : [];
     $modo_pagados = isset($_POST['modo_pagados']) && $_POST['modo_pagados'] == '1';
     $fecha_pago_seleccionada = $_POST['fecha_pago'] ?? '';
@@ -294,20 +299,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         $result_prestamistas = $conn->query($sql_prestamistas);
     }
 
-    // CONDUCTORES DESDE VIAJES
+    // CONDUCTORES DESDE VIAJES (MÚLTIPLES EMPRESAS)
     $conductores_filtrados = [];
     if (!$modo_pagados && !empty($fecha_desde) && !empty($fecha_hasta)) {
-        if (!empty($empresa_seleccionada)) {
+        if (!empty($empresas_seleccionadas_array)) {
+            $placeholders_empresas = str_repeat('?,', count($empresas_seleccionadas_array) - 1) . '?';
+            
             $sql_conductores = "SELECT DISTINCT nombre 
                                 FROM viajes 
                                 WHERE fecha BETWEEN ? AND ? 
-                                  AND empresa = ? 
+                                  AND empresa IN ($placeholders_empresas)
                                   AND nombre IS NOT NULL 
                                   AND nombre != '' 
                                 ORDER BY nombre";
+            
             $stmt = $conn->prepare($sql_conductores);
-            $stmt->bind_param("sss", $fecha_desde, $fecha_hasta, $empresa_seleccionada);
+            
+            $params = [$fecha_desde, $fecha_hasta];
+            $types = "ss";
+            
+            foreach ($empresas_seleccionadas_array as $emp) {
+                $params[] = trim($emp);
+                $types .= "s";
+            }
+            
+            $stmt->bind_param($types, ...$params);
         } else {
+            // Si no hay empresas seleccionadas, traer todos los conductores de todas las empresas
             $sql_conductores = "SELECT DISTINCT nombre 
                                 FROM viajes 
                                 WHERE fecha BETWEEN ? AND ? 
@@ -337,7 +355,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         fecha
                     FROM prestamos 
                     WHERE prestamista = ?
-                      AND empresa = ?";
+                      AND empresa IN (" . str_repeat('?,', count($empresas_seleccionadas_array) - 1) . "?)";
         
         if ($modo_pagados) {
             if (!empty($fecha_pago_seleccionada)) {
@@ -358,8 +376,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         
         $stmt = $conn->prepare($sql_base);
         
-        $params = [$prestamista_seleccionado, $empresa_seleccionada];
-        $types = "ss";
+        $params = [$prestamista_seleccionado];
+        $types = "s";
+        
+        foreach ($empresas_seleccionadas_array as $emp) {
+            $params[] = trim($emp);
+            $types .= "s";
+        }
         
         if ($modo_pagados && !empty($fecha_pago_seleccionada)) {
             $params[] = $fecha_pago_seleccionada;
@@ -373,82 +396,80 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             }
         }
         
-        if (count($params) > 2 || ($modo_pagados && !empty($fecha_pago_seleccionada))) {
-            $stmt->bind_param($types, ...$params);
-            $stmt->execute();
-            $result_detalle = $stmt->get_result();
+        $stmt->bind_param($types, ...$params);
+        $stmt->execute();
+        $result_detalle = $stmt->get_result();
 
-            $config_actual = isset($config_prestamistas[$prestamista_seleccionado]) 
-                ? $config_prestamistas[$prestamista_seleccionado] 
-                : ['interes' => 10.00, 'comision' => 0.00];
+        $config_actual = isset($config_prestamistas[$prestamista_seleccionado]) 
+            ? $config_prestamistas[$prestamista_seleccionado] 
+            : ['interes' => 10.00, 'comision' => 0.00];
 
-            while ($fila = $result_detalle->fetch_assoc()) {
-                $deudor = $fila['deudor'];
-                
-                if ($modo_pagados && !in_array($deudor, $deudores_seleccionados)) {
-                    $deudores_seleccionados[] = $deudor;
-                }
-                
-                $meses = $modo_pagados ? 1 : calcularMesesAutomaticos($fila['fecha']);
-                $fecha_prestamo_dt = new DateTime($fila['fecha']);
-                $es_excluido = in_array($fila['id'], $prestamos_excluidos);
-                
-                $es_prestamo_viejo = ($fecha_prestamo_dt < $FECHA_CORTE);
-                
-                if ($es_prestamo_viejo) {
-                    $interes_prestamista_monto = $fila['monto'] * (10 / 100) * $meses;
-                    $comision_personal_monto = 0;
-                    $tasa_interes = 10;
-                    $total_prestamo = $fila['monto'] + $interes_prestamista_monto;
-                } else {
-                    $interes_prestamista_monto = $fila['monto'] * ($config_actual['interes'] / 100) * $meses;
-                    $comision_personal_monto = $fila['monto'] * ($config_actual['comision'] / 100) * $meses;
-                    $tasa_interes = $config_actual['interes'];
-                    $total_prestamo = $fila['monto'] + $interes_prestamista_monto;
-                }
+        while ($fila = $result_detalle->fetch_assoc()) {
+            $deudor = $fila['deudor'];
+            
+            if ($modo_pagados && !in_array($deudor, $deudores_seleccionados)) {
+                $deudores_seleccionados[] = $deudor;
+            }
+            
+            $meses = $modo_pagados ? 1 : calcularMesesAutomaticos($fila['fecha']);
+            $fecha_prestamo_dt = new DateTime($fila['fecha']);
+            $es_excluido = in_array($fila['id'], $prestamos_excluidos);
+            
+            $es_prestamo_viejo = ($fecha_prestamo_dt < $FECHA_CORTE);
+            
+            if ($es_prestamo_viejo) {
+                $interes_prestamista_monto = $fila['monto'] * (10 / 100) * $meses;
+                $comision_personal_monto = 0;
+                $tasa_interes = 10;
+                $total_prestamo = $fila['monto'] + $interes_prestamista_monto;
+            } else {
+                $interes_prestamista_monto = $fila['monto'] * ($config_actual['interes'] / 100) * $meses;
+                $comision_personal_monto = $fila['monto'] * ($config_actual['comision'] / 100) * $meses;
+                $tasa_interes = $config_actual['interes'];
+                $total_prestamo = $fila['monto'] + $interes_prestamista_monto;
+            }
 
-                if (!isset($prestamos_por_deudor[$deudor])) {
-                    $prestamos_por_deudor[$deudor] = [
-                        'total_capital' => 0,
-                        'total_general' => 0,
-                        'total_interes_prestamista' => 0,
-                        'total_comision_personal' => 0,
-                        'cantidad_prestamos' => 0,
-                        'cantidad_viejos' => 0,
-                        'cantidad_nuevos' => 0,
-                        'prestamos_detalle' => []
-                    ];
-                }
-
-                if (!$es_excluido) {
-                    $prestamos_por_deudor[$deudor]['total_capital'] += $fila['monto'];
-                    $prestamos_por_deudor[$deudor]['total_general'] += $total_prestamo;
-                    $prestamos_por_deudor[$deudor]['total_interes_prestamista'] += $interes_prestamista_monto;
-                    $prestamos_por_deudor[$deudor]['total_comision_personal'] += $comision_personal_monto;
-                    $prestamos_por_deudor[$deudor]['cantidad_prestamos']++;
-                }
-                
-                if ($es_prestamo_viejo) {
-                    $prestamos_por_deudor[$deudor]['cantidad_viejos']++;
-                } else {
-                    $prestamos_por_deudor[$deudor]['cantidad_nuevos']++;
-                }
-
-                $prestamos_por_deudor[$deudor]['prestamos_detalle'][] = [
-                    'id' => $fila['id'],
-                    'monto' => $fila['monto'],
-                    'fecha' => $fila['fecha'],
-                    'meses' => $meses,
-                    'tipo' => $es_prestamo_viejo ? 'viejo' : 'nuevo',
-                    'tasa_interes' => $tasa_interes,
-                    'interes_prestamista' => $interes_prestamista_monto,
-                    'comision_personal' => $comision_personal_monto,
-                    'total' => $total_prestamo,
-                    'incluido' => !$es_excluido,
-                    'excluido' => $es_excluido,
-                    'pagado_at' => $modo_pagados ? $fecha_pago_seleccionada : NULL
+            if (!isset($prestamos_por_deudor[$deudor])) {
+                $prestamos_por_deudor[$deudor] = [
+                    'total_capital' => 0,
+                    'total_general' => 0,
+                    'total_interes_prestamista' => 0,
+                    'total_comision_personal' => 0,
+                    'cantidad_prestamos' => 0,
+                    'cantidad_viejos' => 0,
+                    'cantidad_nuevos' => 0,
+                    'prestamos_detalle' => []
                 ];
             }
+
+            if (!$es_excluido) {
+                $prestamos_por_deudor[$deudor]['total_capital'] += $fila['monto'];
+                $prestamos_por_deudor[$deudor]['total_general'] += $total_prestamo;
+                $prestamos_por_deudor[$deudor]['total_interes_prestamista'] += $interes_prestamista_monto;
+                $prestamos_por_deudor[$deudor]['total_comision_personal'] += $comision_personal_monto;
+                $prestamos_por_deudor[$deudor]['cantidad_prestamos']++;
+            }
+            
+            if ($es_prestamo_viejo) {
+                $prestamos_por_deudor[$deudor]['cantidad_viejos']++;
+            } else {
+                $prestamos_por_deudor[$deudor]['cantidad_nuevos']++;
+            }
+
+            $prestamos_por_deudor[$deudor]['prestamos_detalle'][] = [
+                'id' => $fila['id'],
+                'monto' => $fila['monto'],
+                'fecha' => $fila['fecha'],
+                'meses' => $meses,
+                'tipo' => $es_prestamo_viejo ? 'viejo' : 'nuevo',
+                'tasa_interes' => $tasa_interes,
+                'interes_prestamista' => $interes_prestamista_monto,
+                'comision_personal' => $comision_personal_monto,
+                'total' => $total_prestamo,
+                'incluido' => !$es_excluido,
+                'excluido' => $es_excluido,
+                'pagado_at' => $modo_pagados ? $fecha_pago_seleccionada : NULL
+            ];
         }
     }
 
@@ -468,14 +489,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         fecha
                       FROM prestamos
                       WHERE prestamista = ?
-                        AND empresa = ?
+                        AND empresa IN (" . str_repeat('?,', count($empresas_seleccionadas_array) - 1) . "?)
                         AND (pagado_at IS NULL)
                         AND deudor IS NOT NULL
                         AND deudor != ''
                         $condicion_excluidos
                       ORDER BY deudor, fecha";
+        
         $stmt_otros = $conn->prepare($sql_otros);
-        $stmt_otros->bind_param("ss", $prestamista_seleccionado, $empresa_seleccionada);
+        
+        $params_otros = [$prestamista_seleccionado];
+        $types_otros = "s";
+        
+        foreach ($empresas_seleccionadas_array as $emp) {
+            $params_otros[] = trim($emp);
+            $types_otros .= "s";
+        }
+        
+        $stmt_otros->bind_param($types_otros, ...$params_otros);
         $stmt_otros->execute();
         $result_otros = $stmt_otros->get_result();
 
@@ -534,6 +565,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
     $sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' AND (pagado_at IS NULL) ORDER BY prestamista";
     $result_prestamistas = $conn->query($sql_prestamistas);
     $conductores_filtrados = [];
+    $empresas_seleccionadas_array = [];
 }
 ?>
 
@@ -974,6 +1006,96 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             color:white;
         }
 
+        /* Estilos para selección múltiple de empresas */
+        .empresa-multiple-container {
+            background: #020617;
+            border-radius: 12px;
+            border: 1px solid rgba(148,163,184,0.35);
+            padding: 10px;
+        }
+
+        .buscador-empresa-container {
+            position: relative;
+            margin-bottom: 10px;
+        }
+
+        .buscador-empresa-container .buscador-input {
+            width: 100%;
+            padding: 8px 12px 8px 35px;
+            border-radius: 8px;
+            border: 1px solid rgba(148,163,184,0.3);
+            background: #0b1220;
+            color: var(--text-main);
+            font-size: 0.85rem;
+        }
+
+        .buscador-empresa-container .buscador-icon {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-soft);
+            font-size: 1rem;
+        }
+
+        .empresas-container {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid rgba(148,163,184,0.2);
+            border-radius: 8px;
+            background: #0b1220;
+            margin-bottom: 10px;
+        }
+
+        .empresa-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid rgba(148,163,184,0.1);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.2s;
+        }
+
+        .empresa-item:hover {
+            background: rgba(56,189,248,0.1);
+        }
+
+        .empresa-item.selected {
+            background: linear-gradient(90deg, rgba(29,78,216,0.3), rgba(34,197,94,0.3));
+            border-left: 3px solid #22c55e;
+        }
+
+        .empresa-checkbox input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            accent-color: #22c55e;
+        }
+
+        .empresa-nombre {
+            flex: 1;
+            font-size: 0.9rem;
+        }
+
+        .empresa-pill {
+            background: rgba(56,189,248,0.15);
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            color: var(--accent);
+            border: 1px solid rgba(56,189,248,0.3);
+        }
+
+        .contador-empresas {
+            font-size: 0.8rem;
+            color: var(--accent);
+            text-align: right;
+            padding: 5px 0;
+            border-top: 1px solid rgba(148,163,184,0.2);
+            margin-top: 5px;
+        }
+
         .fecha-row{
             display:flex;
             flex-wrap:wrap;
@@ -1033,6 +1155,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         .total-hoy {
             font-weight: 700;
             color: #22c55e;
+        }
+
+        .botones-seleccion {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .botones-seleccion button {
+            flex: 1;
+            padding: 8px;
+            font-size: 0.8rem;
+            background: #1f2937;
+            color: var(--text-main);
+            border: 1px solid rgba(148,163,184,0.3);
+        }
+
+        .botones-seleccion button:hover {
+            background: #2d3748;
+        }
+
+        .contador-deudores {
+            font-size: 0.8rem;
+            color: var(--accent);
+            text-align: right;
+            margin-top: 5px;
         }
     </style>
 </head>
@@ -1246,31 +1394,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     <?php endif; ?>
                     
                     <div class="fecha-col">
-                        <label for="empresa">Empresa:</label>
-                        <select name="empresa" id="empresa" required>
-                            <option value="">-- Seleccionar Empresa --</option>
-                            <?php 
-                            if ($result_empresas && $result_empresas->num_rows > 0) {
-                                $result_empresas->data_seek(0);
-                                while ($empresa = $result_empresas->fetch_assoc()): 
-                                    if (!empty($empresa['empresa'])):
-                            ?>
-                                    <option value="<?php echo htmlspecialchars($empresa['empresa']); ?>" 
-                                        <?php echo $empresa_seleccionada == $empresa['empresa'] ? 'selected' : ''; ?>>
-                                        <?php echo htmlspecialchars($empresa['empresa']); ?>
-                                    </option>
-                            <?php 
-                                    endif;
-                                endwhile; 
-                            }
-                            ?>
-                        </select>
+                        <label for="empresa">Empresa(s):</label>
+                        <div class="empresa-multiple-container">
+                            <div class="buscador-empresa-container">
+                                <input type="text" id="buscadorEmpresas" class="buscador-input" 
+                                       placeholder="Buscar empresa...">
+                                <span class="buscador-icon">🏢</span>
+                            </div>
+                            <div class="empresas-container" id="listaEmpresas">
+                                <?php 
+                                if ($result_empresas && $result_empresas->num_rows > 0) {
+                                    $result_empresas->data_seek(0);
+                                    $empresas_seleccionadas_array = !empty($empresa_seleccionada) ? explode(',', $empresa_seleccionada) : [];
+                                    while ($empresa = $result_empresas->fetch_assoc()): 
+                                        if (!empty($empresa['empresa'])):
+                                            $es_seleccionada = in_array($empresa['empresa'], $empresas_seleccionadas_array);
+                                ?>
+                                    <div class="empresa-item <?php echo $es_seleccionada ? 'selected' : ''; ?>" 
+                                         data-value="<?php echo htmlspecialchars($empresa['empresa']); ?>">
+                                        <span class="empresa-checkbox">
+                                            <input type="checkbox" 
+                                                   value="<?php echo htmlspecialchars($empresa['empresa']); ?>" 
+                                                   <?php echo $es_seleccionada ? 'checked' : ''; ?>
+                                                   onchange="toggleEmpresa(this)">
+                                        </span>
+                                        <span class="empresa-nombre"><?php echo htmlspecialchars($empresa['empresa']); ?></span>
+                                        <span class="empresa-pill">Empresa</span>
+                                    </div>
+                                <?php 
+                                        endif;
+                                    endwhile; 
+                                }
+                                ?>
+                            </div>
+                            <input type="hidden" name="empresa" id="empresaSeleccionada" 
+                                   value="<?php echo htmlspecialchars($empresa_seleccionada); ?>">
+                            <div class="contador-empresas" id="contadorEmpresas">
+                                <?php 
+                                if (!empty($empresa_seleccionada)) {
+                                    $empresas_array = explode(',', $empresa_seleccionada);
+                                    echo "Seleccionadas: " . count($empresas_array) . " empresas";
+                                } else {
+                                    echo "Ninguna empresa seleccionada";
+                                }
+                                ?>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 
                 <?php if (!empty($empresa_seleccionada)): ?>
                 <div class="alerta-empresa">
-                    <strong>⚠ FILTRO DE EMPRESA ACTIVO:</strong> Solo se mostrarán préstamos <?php echo $modo_pagados ? 'pagados' : 'pendientes'; ?> de la empresa <strong>"<?php echo htmlspecialchars($empresa_seleccionada); ?>"</strong>.
+                    <strong>⚠ FILTRO DE EMPRESAS ACTIVO:</strong> Mostrando préstamos <?php echo $modo_pagados ? 'pagados' : 'pendientes'; ?> de: 
+                    <strong><?php echo htmlspecialchars(str_replace(',', ', ', $empresa_seleccionada)); ?></strong>
                 </div>
                 <?php endif; ?>
             </div>
@@ -1296,6 +1472,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                             <div class="deudores-container" id="listaDeudores">
                                 <?php 
                                 if (!empty($conductores_filtrados)) {
+                                    $conductores_filtrados = array_unique($conductores_filtrados);
+                                    sort($conductores_filtrados);
                                     foreach ($conductores_filtrados as $conductor): 
                                         $es_seleccionado = in_array($conductor, $deudores_seleccionados);
                                 ?>
@@ -1563,12 +1741,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         let prestamosExcluidos = <?php echo json_encode($prestamos_excluidos); ?>;
         let modoPagados = <?php echo $modo_pagados ? 'true' : 'false'; ?>;
         let abonos = {};
+        let empresasSeleccionadas = <?php echo json_encode($empresas_seleccionadas_array); ?>;
 
         document.addEventListener('DOMContentLoaded', function() {
             actualizarListaDeudores();
             actualizarContador();
             actualizarCampoExcluidos();
             inicializarAbonos();
+            actualizarListaEmpresas();
             
             const empresaSelect = document.getElementById('empresa');
             if (empresaSelect) {
@@ -1647,6 +1827,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         document.getElementById('buscadorDeudores')?.addEventListener('input', function(e) {
             const filtro = e.target.value.toLowerCase();
             document.querySelectorAll('.deudor-item').forEach(item => {
+                const texto = item.textContent.toLowerCase();
+                item.style.display = texto.includes(filtro) ? '' : 'none';
+            });
+        });
+
+        // Funciones para empresas
+        function toggleEmpresa(checkbox) {
+            const valor = checkbox.value;
+            const index = empresasSeleccionadas.indexOf(valor);
+            
+            if (checkbox.checked) {
+                if (index === -1) {
+                    empresasSeleccionadas.push(valor);
+                }
+            } else {
+                if (index !== -1) {
+                    empresasSeleccionadas.splice(index, 1);
+                }
+            }
+            
+            // Actualizar visual
+            document.querySelectorAll('.empresa-item').forEach(item => {
+                const itemValor = item.getAttribute('data-value');
+                if (empresasSeleccionadas.includes(itemValor)) {
+                    item.classList.add('selected');
+                    item.querySelector('input[type="checkbox"]').checked = true;
+                } else {
+                    item.classList.remove('selected');
+                    item.querySelector('input[type="checkbox"]').checked = false;
+                }
+            });
+            
+            // Actualizar campo oculto
+            document.getElementById('empresaSeleccionada').value = empresasSeleccionadas.join(',');
+            
+            // Actualizar contador
+            document.getElementById('contadorEmpresas').textContent = 
+                `Seleccionadas: ${empresasSeleccionadas.length} empresas`;
+        }
+
+        function actualizarListaEmpresas() {
+            document.querySelectorAll('.empresa-item').forEach(item => {
+                item.addEventListener('click', function(e) {
+                    // Evitar doble trigger si se hizo clic directamente en el checkbox
+                    if (e.target.type !== 'checkbox') {
+                        const checkbox = this.querySelector('input[type="checkbox"]');
+                        checkbox.checked = !checkbox.checked;
+                        toggleEmpresa(checkbox);
+                    }
+                });
+            });
+        }
+
+        document.getElementById('buscadorEmpresas')?.addEventListener('input', function(e) {
+            const filtro = e.target.value.toLowerCase();
+            document.querySelectorAll('.empresa-item').forEach(item => {
                 const texto = item.textContent.toLowerCase();
                 item.style.display = texto.includes(filtro) ? '' : 'none';
             });
