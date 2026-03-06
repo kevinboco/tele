@@ -291,7 +291,7 @@ if (isset($_GET['viajes_conductor'])) {
     $res = $conn->query($sql);
 
     if ($res && $res->num_rows > 0) {
-        // Contadores dinámicos
+        // Contadores dinámi
         $counts = array_fill_keys(array_keys($legend), 0);
         
         // NUEVO: Contador de rutas sin clasificar para este conductor
