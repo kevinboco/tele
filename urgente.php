@@ -1028,7 +1028,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             font-weight: 700;
             color: #f59e0b;
             font-size: 0.85rem;
-            margin-left: 5px;
         }
     </style>
 </head>
@@ -1502,7 +1501,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     
                     <!-- Totales generales CUADRO 1 -->
                     <tr class="totales">
-                        <td colspan="2"><strong>TOTAL GENERAL</strong></td>
+                        <td colspan="2"><strong>TOTAL GENERAL (Devuelve HOY + Capital sin abono)</strong></td>
                         <td class="moneda" id="total-capital-general">$ <?php echo number_format($total_capital_general, 0, ',', '.'); ?></td>
                         <td class="moneda" id="total-interes-prestamista-general">$ <?php echo number_format($total_interes_prestamista_general, 0, ',', '.'); ?></td>
                         <td class="moneda" id="total-comision-general">$ <?php echo number_format($total_comision_personal_general, 0, ',', '.'); ?></td>
@@ -1750,25 +1749,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     // 1. Lo que se devuelve HOY al prestamista = abono - intereses
                     const devuelveHoy = abono - totalIntereses;
                     
-                    // 2. Lo que FALTA de capital = monto - devuelveHoy
+                    // 2. Lo que FALTA de capital = monto - devuelveHoy (solo visual)
                     const faltaCapital = monto - devuelveHoy;
                     
-                    // 3. TOTAL A PAGAR HOY = devuelveHoy + interes
+                    // 3. TOTAL A PAGAR HOY = devuelveHoy + interes (solo visual)
                     const totalHoy = devuelveHoy + interes;
                     
-                    // Actualizar FALTANTE (amarillo)
+                    // Actualizar FALTANTE (amarillo) - SOLO VISUAL
                     const spanPendiente = document.getElementById('pendiente-' + prestamoId);
                     if (spanPendiente) {
                         spanPendiente.textContent = 'Faltan: $' + formatNumber(faltaCapital);
                     }
                     
-                    // Actualizar DEVUELVE HOY (nueva columna)
+                    // Actualizar DEVUELVE HOY - ESTO es lo que se usa para TOTAL GENERAL
                     const devuelveCell = document.getElementById('devuelve-' + prestamoId);
                     if (devuelveCell) {
                         devuelveCell.textContent = '$ ' + formatNumber(devuelveHoy);
                     }
                     
-                    // Actualizar TOTAL A PAGAR HOY (última columna)
+                    // Actualizar TOTAL A PAGAR HOY (solo visual)
                     const totalCell = fila.querySelector('.total-prestamo');
                     if (totalCell) {
                         totalCell.textContent = '$ ' + formatNumber(totalHoy);
@@ -1825,43 +1824,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             });
         }
         
-        // FUNCIÓN actualizarTotalesDeudor MODIFICADA para usar DEVUELVE HOY en TOTAL GENERAL
+        // FUNCIÓN actualizarTotalesDeudor MODIFICADA - Usa DEVUELVE HOY para TOTAL GENERAL
         function actualizarTotalesDeudor(deudorId) {
             const filasPrestamos = document.querySelectorAll('.fila-prestamo[data-deudor="' + deudorId + '"]');
-            let totalCapital = 0;
-            let totalGeneral = 0;
+            let totalDevuelveHoy = 0; // Esto es lo que va a TOTAL GENERAL
+            let totalCapitalVisual = 0; // Esto es solo para mostrar (faltante)
             let totalInteresPrestamista = 0;
             let totalComisionPersonal = 0;
-            let totalDevuelveHoy = 0;
             let prestamosIncluidos = 0;
             
             filasPrestamos.forEach(fila => {
                 const checkbox = fila.querySelector('.checkbox-excluir');
                 if (checkbox && checkbox.checked && !fila.classList.contains('excluido')) {
                     const prestamoId = fila.getAttribute('data-id');
+                    const abono = abonos[prestamoId] || 0;
                     
-                    // Obtener valores actualizados
-                    const spanPendiente = fila.querySelector('.capital-pendiente');
-                    const interesCell = fila.querySelector('.interes-prestamista-prestamo');
-                    const comisionCell = fila.querySelector('.comision-prestamo');
-                    const totalCell = fila.querySelector('.total-prestamo');
+                    // Obtener valores
+                    const monto = parseFloat(fila.getAttribute('data-monto'));
+                    const interes = parseFloat(fila.getAttribute('data-interes'));
+                    const comision = parseFloat(fila.getAttribute('data-comision'));
+                    
+                    // Obtener DEVUELVE HOY (de la celda)
                     const devuelveCell = document.getElementById('devuelve-' + prestamoId);
-                    
-                    // Extraer capital pendiente del span
-                    let capitalActual = 0;
-                    if (spanPendiente) {
-                        const pendienteText = spanPendiente.textContent;
-                        const match = pendienteText.match(/\d+/g);
-                        if (match) {
-                            capitalActual = parseInt(match.join(''));
-                        }
-                    }
-                    
-                    const interes = parseFloat(interesCell.textContent.replace(/[^\d]/g, ''));
-                    const comision = parseFloat(comisionCell.textContent.replace(/[^\d]/g, ''));
-                    const total = parseFloat(totalCell.textContent.replace(/[^\d]/g, ''));
-                    
-                    // Obtener devuelveHoy
                     let devuelveHoy = 0;
                     if (devuelveCell) {
                         const devuelveText = devuelveCell.textContent;
@@ -1871,11 +1855,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         }
                     }
                     
-                    totalCapital += capitalActual;
-                    totalGeneral += total;
+                    // Si hay abono, usar devuelveHoy para TOTAL GENERAL
+                    // Si no hay abono, usar el monto completo para TOTAL GENERAL
+                    if (abono > 0) {
+                        totalDevuelveHoy += devuelveHoy;
+                    } else {
+                        totalDevuelveHoy += monto;
+                    }
+                    
+                    // Para visualización del capital (faltante)
+                    const spanPendiente = document.getElementById('pendiente-' + prestamoId);
+                    if (spanPendiente) {
+                        const pendienteText = spanPendiente.textContent;
+                        const match = pendienteText.match(/\d+/g);
+                        if (match) {
+                            totalCapitalVisual += parseInt(match.join(''));
+                        }
+                    }
+                    
                     totalInteresPrestamista += interes;
                     totalComisionPersonal += comision;
-                    totalDevuelveHoy += devuelveHoy;
                     prestamosIncluidos++;
                 }
             });
@@ -1884,31 +1883,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             if (!filaDeudor) return;
 
             // Actualizar fila del deudor
-            filaDeudor.querySelector('.capital-deudor').textContent = '$ ' + formatNumber(totalCapital);
-            filaDeudor.querySelector('.total-deudor').textContent = '$ ' + formatNumber(totalGeneral);
+            filaDeudor.querySelector('.capital-deudor').textContent = '$ ' + formatNumber(totalCapitalVisual);
             filaDeudor.querySelector('.interes-prestamista-deudor').textContent = '$ ' + formatNumber(totalInteresPrestamista);
             filaDeudor.querySelector('.comision-deudor').textContent = '$ ' + formatNumber(totalComisionPersonal);
             filaDeudor.querySelector('td:nth-child(2)').textContent = prestamosIncluidos;
+            
+            // Actualizar TOTAL GENERAL (con devuelveHoy)
+            filaDeudor.querySelector('.total-deudor').textContent = '$ ' + formatNumber(totalDevuelveHoy);
             
             actualizarTotalesGenerales();
         }
         
         // FUNCIÓN actualizarTotalesGenerales MODIFICADA
         function actualizarTotalesGenerales() {
-            let totalCapital = 0;
-            let totalGeneral = 0;
+            let totalDevuelveHoy = 0;
             let totalInteresPrestamista = 0;
             let totalComisionPersonal = 0;
             
             document.querySelectorAll('.header-deudor').forEach(fila => {
-                totalCapital += parseFloat(fila.querySelector('.capital-deudor').textContent.replace(/[^\d]/g, ''));
-                totalGeneral += parseFloat(fila.querySelector('.total-deudor').textContent.replace(/[^\d]/g, ''));
+                totalDevuelveHoy += parseFloat(fila.querySelector('.total-deudor').textContent.replace(/[^\d]/g, ''));
                 totalInteresPrestamista += parseFloat(fila.querySelector('.interes-prestamista-deudor').textContent.replace(/[^\d]/g, ''));
                 totalComisionPersonal += parseFloat(fila.querySelector('.comision-deudor').textContent.replace(/[^\d]/g, ''));
             });
             
-            document.getElementById('total-capital-general').textContent = '$ ' + formatNumber(totalCapital);
-            document.getElementById('total-general').textContent = '$ ' + formatNumber(totalGeneral);
+            document.getElementById('total-general').textContent = '$ ' + formatNumber(totalDevuelveHoy);
             document.getElementById('total-interes-prestamista-general').textContent = '$ ' + formatNumber(totalInteresPrestamista);
             document.getElementById('total-comision-general').textContent = '$ ' + formatNumber(totalComisionPersonal);
         }
