@@ -923,6 +923,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             border: 1px solid rgba(245, 158, 11, 0.4);
         }
 
+        .sobrante-info {
+            font-size:0.7rem;
+            color: #22c55e;
+            margin-left: 8px;
+            font-weight: bold;
+            background: rgba(34, 197, 94, 0.15);
+            padding: 2px 6px;
+            border-radius: 12px;
+            border: 1px solid rgba(34, 197, 94, 0.4);
+        }
+
         .meses-input{
             width:60px;
             padding:4px;
@@ -1733,7 +1744,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             }
         }
         
-        // FUNCIÓN DE ABONO (CORREGIDA)
+        // FUNCIÓN DE ABONO CORREGIDA - AHORA USA SOLO EL SOBRANTE PARA TOTAL GENERAL
         function calcularAbono(input) {
             const fila = input.closest('.fila-prestamo');
             const prestamoId = fila.getAttribute('data-id');
@@ -1745,18 +1756,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             abonos[prestamoId] = abono;
             
             const totalIntereses = interes + comision;
+            const sobrante = abono - totalIntereses; // ESTE ES EL VALOR CLAVE
             
             if (abono > 0) {
-                if (abono >= totalIntereses) {
-                    // Cálculo correcto:
-                    // 1. Lo que se devuelve HOY al prestamista = abono - intereses
-                    const devuelveHoy = abono - totalIntereses;
-                    
-                    // 2. Lo que FALTA de capital = monto - devuelveHoy
-                    const faltaCapital = monto - devuelveHoy;
-                    
-                    // 3. TOTAL A PAGAR HOY = devuelveHoy + interes
-                    const totalHoy = devuelveHoy + interes;
+                if (sobrante >= 0) {
+                    // ✅ LÓGICA CORRECTA: El sobrante es lo que va al TOTAL GENERAL
+                    const faltaCapital = monto - sobrante;
                     
                     // Actualizar FALTANTE (amarillo)
                     const spanPendiente = document.getElementById('pendiente-' + prestamoId);
@@ -1764,16 +1769,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         spanPendiente.textContent = 'Faltan: $' + formatNumber(faltaCapital);
                     }
                     
-                    // Actualizar TOTAL A PAGAR HOY (última columna)
+                    // ✅ TOTAL GENERAL = SOLO EL SOBRANTE
                     const totalCell = fila.querySelector('.total-prestamo');
                     if (totalCell) {
-                        totalCell.textContent = '$ ' + formatNumber(totalHoy);
+                        totalCell.textContent = '$ ' + formatNumber(sobrante);
                         totalCell.classList.add('total-hoy');
+                        
+                        // Añadir indicador visual de que es el sobrante
+                        if (!fila.querySelector('.sobrante-info')) {
+                            const infoSpan = document.createElement('span');
+                            infoSpan.className = 'sobrante-info';
+                            infoSpan.textContent = 'Sobrante: $' + formatNumber(sobrante);
+                            totalCell.parentNode.appendChild(infoSpan);
+                        }
                     }
                 } else {
                     const spanPendiente = document.getElementById('pendiente-' + prestamoId);
                     if (spanPendiente) {
-                        spanPendiente.textContent = '⚠ Abono insuficiente';
+                        spanPendiente.textContent = '⚠ Abono insuficiente (faltan $' + formatNumber(Math.abs(sobrante)) + ' para intereses)';
                     }
                 }
             } else {
@@ -1787,6 +1800,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 if (totalCell) {
                     const totalOriginal = monto + interes;
                     totalCell.textContent = '$ ' + formatNumber(totalOriginal);
+                }
+                
+                // Remover indicador de sobrante si existe
+                const infoSpan = fila.querySelector('.sobrante-info');
+                if (infoSpan) {
+                    infoSpan.remove();
                 }
             }
             
@@ -1811,7 +1830,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             });
         }
         
-        // FUNCIÓN RESTAURADA: actualizarTotalesDeudor
+        // FUNCIÓN ACTUALIZADA: ahora usa el sobrante para totales
         function actualizarTotalesDeudor(deudorId) {
             const filasPrestamos = document.querySelectorAll('.fila-prestamo[data-deudor="' + deudorId + '"]');
             let totalCapital = 0;
@@ -1823,7 +1842,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             filasPrestamos.forEach(fila => {
                 const checkbox = fila.querySelector('.checkbox-excluir');
                 if (checkbox && checkbox.checked && !fila.classList.contains('excluido')) {
-                    // Obtener valores actualizados (considerando abonos)
+                    // Obtener valores actualizados
                     const totalCell = fila.querySelector('.total-prestamo');
                     const interesCell = fila.querySelector('.interes-prestamista-prestamo');
                     const comisionCell = fila.querySelector('.comision-prestamo');
@@ -1833,8 +1852,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     const interes = parseFloat(interesCell.textContent.replace(/[^\d]/g, ''));
                     const comision = parseFloat(comisionCell.textContent.replace(/[^\d]/g, ''));
                     
-                    // El capital actual es el monto original menos lo que se ha devuelto
-                    // Pero para simplificar, usamos el valor del span de pendiente
+                    // Capital actual = monto original - lo que se ha devuelto (sobrante)
                     const spanPendiente = fila.querySelector('.capital-pendiente');
                     let capitalActual = 0;
                     if (spanPendiente) {
@@ -1846,7 +1864,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     }
                     
                     totalCapital += capitalActual;
-                    totalGeneral += total;
+                    totalGeneral += total; // ESTO AHORA ES EL SOBRANTE
                     totalInteresPrestamista += interes;
                     totalComisionPersonal += comision;
                     prestamosIncluidos++;
@@ -1865,7 +1883,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             actualizarTotalesGenerales();
         }
         
-        // FUNCIÓN RESTAURADA: actualizarTotalesGenerales
+        // FUNCIÓN ACTUALIZADA: ahora suma los sobrantes
         function actualizarTotalesGenerales() {
             let totalCapital = 0;
             let totalGeneral = 0;
