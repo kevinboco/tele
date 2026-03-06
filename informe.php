@@ -1,5 +1,5 @@
 <?php
-// ACTIVAR MODO DEPURACIÓN - Esto mostrará los errores
+// ACTIVAR MODO DEPURACIÓN
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
@@ -10,7 +10,7 @@ use PhpOffice\PhpWord\IOFactory;
 
 // EVITAR cualquier salida previa
 if (ob_get_level()) { ob_end_clean(); }
-header_remove(); // limpia headers previos por si acaso
+header_remove();
 
 // Conexión BD
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
@@ -24,7 +24,6 @@ function obtenerTipoVehiculo($tipo) {
     if (stripos($tipo, 'burbuja') !== false) {
         return 'Camioneta Burbuja 4x4 Doble Cabina';
     }
-    // Para otros tipos, mantener el nombre original
     return $tipo ?: '-';
 }
 
@@ -44,7 +43,6 @@ function obtenerAreaCobertura($tipo) {
         return 'Maicao - Nazareth - Maicao';
     }
     
-    // Para tipos desconocidos, poner un valor por defecto
     return 'Maicao - Nazareth - Maicao';
 }
 
@@ -54,7 +52,7 @@ function formatearMoneda($valor) {
     return '$ ' . number_format(floatval($valor), 0, ',', '.');
 }
 
-// Si no se han enviado fechas, mostramos formulario sencillo
+// Si no se han enviado fechas, mostramos formulario
 if (empty($_POST['desde']) || empty($_POST['hasta'])) {
     $empresas = [];
     $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
@@ -242,7 +240,7 @@ if (!$resConductores) {
     die("Error en consulta conductores: " . $conn->error);
 }
 
-// ========== CONSULTA PRINCIPAL - Todos los viajes con VALOR ==========
+// ========== CONSULTA PRINCIPAL - CORREGIDA CON COLLATION ==========
 $sqlViajes = "
     SELECT 
         v.fecha,
@@ -266,11 +264,11 @@ $sqlViajes = "
         END as valor_viaje
     FROM viajes v
     LEFT JOIN ruta_clasificacion rc 
-        ON LOWER(TRIM(v.ruta)) = LOWER(TRIM(rc.ruta)) 
-        AND LOWER(TRIM(v.tipo_vehiculo)) = LOWER(TRIM(rc.tipo_vehiculo))
+        ON v.ruta COLLATE utf8mb4_general_ci = rc.ruta COLLATE utf8mb4_general_ci
+        AND v.tipo_vehiculo COLLATE utf8mb4_general_ci = rc.tipo_vehiculo COLLATE utf8mb4_general_ci
     LEFT JOIN tarifas t 
-        ON LOWER(TRIM(v.empresa)) = LOWER(TRIM(t.empresa)) 
-        AND LOWER(TRIM(v.tipo_vehiculo)) = LOWER(TRIM(t.tipo_vehiculo))
+        ON v.empresa COLLATE utf8mb4_general_ci = t.empresa COLLATE utf8mb4_general_ci
+        AND v.tipo_vehiculo COLLATE utf8mb4_general_ci = t.tipo_vehiculo COLLATE utf8mb4_general_ci
     WHERE v.fecha >= '$desdeIni' 
       AND v.fecha <= '$hastaFin'
       $condicionEmpresa
@@ -377,7 +375,7 @@ if ($resViajes && $resViajes->num_rows > 0) {
         } else {
             $textoValor = "N/A";
             if (!empty($row['clasificacion'])) {
-                $textoValor = "Sin tarifa";
+                $textoValor = "Sin tarifa (" . $row['clasificacion'] . ")";
             } else {
                 $textoValor = "Sin clasificar";
             }
