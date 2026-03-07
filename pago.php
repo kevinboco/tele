@@ -1667,7 +1667,7 @@ function hacerPanelArrastrable() {
         if (isDragging) {
             e.preventDefault();
             currentX = e.clientX - initialX;
-            currentY = e.clientY - initialY;
+            currentY = e.clientY - yOffset;
             xOffset = currentX;
             yOffset = currentY;
             floatingPanel.style.transform = `translate3d(${currentX}px, ${currentY}px, 0)`;
@@ -1950,32 +1950,9 @@ btnDoSaveCuenta.addEventListener('click', async () => {
     const porcentaje = parseFloat(iPorcentaje.value) || 0;
     const pagado = iPagado.checked ? 1 : 0;
     
-    // MODIFICACIÓN: Asegurar que los préstamos guarden el valor ACTUAL en el momento del guardado
-    const prestamosParaGuardar = {};
-    Object.keys(prestSel).forEach(conductor => {
-        prestamosParaGuardar[conductor] = (prestSel[conductor] || []).map(p => {
-            if (p.esManual) {
-                return {
-                    ...p,
-                    valorManual: p.valorManual
-                };
-            } else {
-                // Buscar el valor actual del préstamo en PRESTAMOS_LIST
-                const prestamoActual = PRESTAMOS_LIST.find(pl => pl.id === p.id);
-                return {
-                    id: p.id,
-                    name: p.name || (prestamoActual ? prestamoActual.name : 'Desconocido'),
-                    empresa: p.empresa || (prestamoActual ? prestamoActual.empresa : 'N/A'),
-                    totalActual: prestamoActual ? prestamoActual.total : (p.totalActual || 0),
-                    esManual: false,
-                    valorManual: null
-                };
-            }
-        });
-    });
-    
+    // ===== CORRECCIÓN: Guardar prestSel directamente, sin modificaciones =====
     const datosParaGuardar = {
-        prestamos: prestamosParaGuardar,
+        prestamos: prestSel,  // Guardar EXACTAMENTE lo que está en memoria
         segSocial: ssMap,
         cuentasBancarias: accMap,
         estadosPago: estadoPagoMap,
@@ -2226,7 +2203,7 @@ async function cargarCuentaCompletaBD(id) {
             
             const datos = cuenta.datos_json || {};
             
-            // MODIFICACIÓN: Cargar los préstamos tal como estaban guardados (valores históricos)
+            // ===== CORRECCIÓN: Cargar prestSel directamente =====
             prestSel = datos.prestamos || {};
             ssMap = datos.segSocial || {};
             accMap = datos.cuentasBancarias || {};
@@ -2288,7 +2265,7 @@ async function cargarCuentaCompletaBD(id) {
                 }
             });
             
-            // MODIFICACIÓN: Asignar préstamos con flag TRUE para usar valores históricos
+            // Asignar préstamos con flag TRUE para usar valores históricos
             asignarPrestamosAFilas(true);
             
             if (cuenta.porcentaje_ajuste) {
