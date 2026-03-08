@@ -951,11 +951,14 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- ===== MODAL PRÉSTAMOS MULTIEMPRESA ===== -->
+<!-- ===== MODAL PRÉSTAMOS MULTIEMPRESA (MODIFICADO) ===== -->
 <div id="prestModal" class="hidden fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
-    <div class="relative mx-auto my-8 max-w-4xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
-        <div class="px-5 py-4 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+    <!-- MODIFICADO: Estructura flex column con altura máxima controlada -->
+    <div class="relative mx-auto my-8 w-full max-w-4xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden flex flex-col" style="max-height: 90vh;">
+        
+        <!-- HEADER - Siempre visible -->
+        <div class="px-5 py-4 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-indigo-50 flex-none">
             <div class="flex items-center justify-between">
                 <h3 class="text-lg font-semibold flex items-center gap-2">
                     <span class="text-2xl">💰</span>
@@ -966,7 +969,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             <p class="text-xs text-slate-600 mt-1">Puedes seleccionar préstamos de varias empresas diferentes</p>
         </div>
         
-        <div class="p-4">
+        <!-- FILTROS - Siempre visible -->
+        <div class="p-4 border-b border-slate-200 flex-none">
             <div class="mb-4">
                 <label class="block text-xs font-medium text-slate-700 mb-2">
                     🏢 Filtrar por empresas (selecciona múltiples):
@@ -974,6 +978,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 <div class="empresas-grid" id="empresasMultiSelect"></div>
             </div>
             
+            <!-- NUEVO: Botón "Deseleccionar todos" al lado de "Limpiar filtros" -->
             <div class="flex gap-2 mb-4">
                 <div class="flex-1">
                     <input id="prestSearch" 
@@ -981,15 +986,32 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                            placeholder="🔍 Buscar deudor..." 
                            class="w-full rounded-xl border border-slate-300 px-4 py-2.5">
                 </div>
-                <button id="btnLimpiarFiltros" 
-                        class="px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-sm">
-                    Limpiar filtros
-                </button>
+                <div class="flex gap-2 flex-none">
+                    <button id="btnDeseleccionarTodos" 
+                            class="px-4 py-2.5 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-sm font-medium text-amber-700">
+                        ✕ Deseleccionar todos
+                    </button>
+                    <button id="btnLimpiarFiltros" 
+                            class="px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-sm">
+                        Limpiar filtros
+                    </button>
+                </div>
             </div>
-            
-            <div id="prestList" class="max-h-96 overflow-auto border rounded-xl bg-white divide-y"></div>
-            
-            <div class="resumen-seleccion mt-4">
+        </div>
+        
+        <!-- NUEVO: LISTA CON SCROLL INTERNO -->
+        <div id="prestList" class="flex-1 overflow-y-auto min-h-0 p-4 bg-slate-50" style="max-height: 40vh;">
+            <!-- Los préstamos se cargarán aquí dinámicamente -->
+            <div class="p-8 text-center text-slate-500">
+                <div class="text-5xl mb-3">📭</div>
+                <div class="text-lg font-medium">Cargando préstamos...</div>
+            </div>
+        </div>
+        
+        <!-- FOOTER con resumen y botón ASIGNAR - SIEMPRE VISIBLE -->
+        <div class="flex-none border-t border-slate-200 bg-white p-4">
+            <!-- Resumen de selección -->
+            <div class="resumen-seleccion mb-4">
                 <div class="flex justify-between items-center">
                     <div>
                         <span class="text-sm font-medium">Seleccionados:</span>
@@ -1006,7 +1028,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 </div>
             </div>
             
-            <div class="mt-4 flex items-center justify-between">
+            <!-- Valor manual y botones -->
+            <div class="flex items-center justify-between">
                 <div class="flex items-center gap-3">
                     <span class="text-sm text-slate-600">💰 Valor manual:</span>
                     <input id="prestValorManual" 
@@ -1021,8 +1044,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                         Cancelar
                     </button>
                     <button id="btnAssign" 
-                            class="rounded-lg border border-blue-600 px-5 py-2.5 bg-blue-600 text-white hover:bg-blue-700 font-medium">
-                        Asignar selección
+                            class="rounded-lg border border-blue-600 px-6 py-2.5 bg-blue-600 text-white hover:bg-blue-700 font-medium shadow-lg">
+                        ✅ Asignar selección
                     </button>
                 </div>
             </div>
@@ -1738,6 +1761,7 @@ function filtrarPrestamosMultiempresa() {
     renderizarListaPrestamos(prestamosFiltrados);
 }
 
+// MODIFICADO: Renderizado optimizado para scroll interno
 function renderizarListaPrestamos(prestamos) {
     const list = document.getElementById('prestList');
     if (!list) return;
@@ -1765,7 +1789,7 @@ function renderizarListaPrestamos(prestamos) {
         if (currentEmpresa !== item.empresa) {
             currentEmpresa = item.empresa;
             html += `
-                <div class="separador-empresa bg-slate-100 px-4 py-2 font-semibold text-sm text-slate-700">
+                <div class="separador-empresa bg-slate-100 px-4 py-2 font-semibold text-sm text-slate-700 sticky top-0 z-10">
                     🏢 ${item.empresa}
                 </div>
             `;
@@ -1773,7 +1797,7 @@ function renderizarListaPrestamos(prestamos) {
         
         const checked = selectedIds.has(item.id) ? 'checked' : '';
         html += `
-            <div class="prest-item flex justify-between items-center p-3 hover:bg-blue-50 transition group">
+            <div class="prest-item flex justify-between items-center p-3 hover:bg-blue-50 transition group bg-white border-b border-slate-100">
                 <div class="flex items-center gap-3 flex-1">
                     <input type="checkbox" 
                            class="prest-checkbox w-4 h-4 rounded border-slate-300 text-blue-600" 
@@ -2368,6 +2392,31 @@ btnAddDesdeFiltro.addEventListener('click', () => {
     setTimeout(() => openSaveCuenta(), 300);
 });
 
+// ===== NUEVO: Botón para deseleccionar todos los préstamos =====
+document.getElementById('btnDeseleccionarTodos').addEventListener('click', () => {
+    // Limpiar el Set de seleccionados
+    selectedIds.clear();
+    
+    // Desmarcar todos los checkboxes visualmente
+    document.querySelectorAll('.prest-checkbox').forEach(cb => {
+        cb.checked = false;
+    });
+    
+    // Actualizar el resumen
+    actualizarResumenSeleccion();
+    
+    // Feedback visual opcional
+    Swal.fire({
+        title: '✓ Deseleccionados',
+        text: 'Todos los préstamos han sido deseleccionados',
+        icon: 'success',
+        timer: 1000,
+        showConfirmButton: false,
+        toast: true,
+        position: 'top-end'
+    });
+});
+
 // ===== INICIALIZACIÓN =====
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('btnSeleccionarTodas')?.addEventListener('click', () => {
@@ -2457,7 +2506,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         setLS(PREST_SEL_KEY, prestSel);
         
-        // Al asignar nuevos préstamos, mantener eldo actual (histórico o normal)
+        // Al asignar nuevos préstamos, mantener el modo actual (histórico o normal)
         asignarPrestamosAFilas(modoHistoricoActivo);
         recalcularTodo();
         closePrestModal();
