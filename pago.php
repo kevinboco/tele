@@ -703,6 +703,10 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             display: inline-block;
             border: 1px solid #fbbf24;
         }
+        /* NUEVO: Estilos para el indicador de disponible */
+        .disponible-positivo { color: #059669; font-weight: 600; }
+        .disponible-negativo { color: #dc2626; font-weight: 600; }
+        .comparativo-seleccion { font-size: 0.9rem; padding: 0.5rem; border-radius: 0.5rem; }
     </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
@@ -951,22 +955,34 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- ===== MODAL PRÉSTAMOS MULTIEMPRESA (MODIFICADO) ===== -->
+<!-- ===== MODAL PRÉSTAMOS MULTIEMPRESA (MODIFICADO CON NOMBRE Y TOTAL DISPONIBLE) ===== -->
 <div id="prestModal" class="hidden fixed inset-0 z-50">
     <div class="absolute inset-0 bg-black/30"></div>
-    <!-- MODIFICADO: Estructura flex column con altura máxima controlada -->
     <div class="relative mx-auto my-8 w-full max-w-4xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden flex flex-col" style="max-height: 90vh;">
         
-        <!-- HEADER - Siempre visible -->
+        <!-- HEADER - NUEVO: Muestra nombre del conductor y disponible -->
         <div class="px-5 py-4 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-indigo-50 flex-none">
             <div class="flex items-center justify-between">
                 <h3 class="text-lg font-semibold flex items-center gap-2">
                     <span class="text-2xl">💰</span>
-                    Seleccionar Préstamos - Multiempresa
+                    <span id="prestModalTitle">Préstamos de: <span id="conductorNombre" class="text-blue-700"></span></span>
                 </h3>
                 <button id="btnCloseModal" class="p-2 rounded hover:bg-white/50">✕</button>
             </div>
-            <p class="text-xs text-slate-600 mt-1">Puedes seleccionar préstamos de varias empresas diferentes</p>
+            
+            <!-- NUEVO: Barra de información con disponible vs seleccionado -->
+            <div id="infoDisponibleContainer" class="mt-3 grid grid-cols-2 gap-3 text-sm">
+                <div class="bg-white p-3 rounded-lg border border-blue-200">
+                    <div class="text-xs text-slate-500 mb-1">💵 Disponible para préstamos</div>
+                    <div id="disponibleConductor" class="text-xl font-bold text-blue-600 num">$0</div>
+                    <div class="text-xs text-slate-400 mt-1">Valor a pagar sin préstamos</div>
+                </div>
+                <div class="bg-white p-3 rounded-lg border border-amber-200">
+                    <div class="text-xs text-slate-500 mb-1">📋 Préstamos seleccionados</div>
+                    <div id="totalSeleccionado" class="text-xl font-bold text-amber-600 num">$0</div>
+                    <div id="diferenciaDisponible" class="text-xs mt-1 font-medium"></div>
+                </div>
+            </div>
         </div>
         
         <!-- FILTROS - Siempre visible -->
@@ -978,7 +994,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 <div class="empresas-grid" id="empresasMultiSelect"></div>
             </div>
             
-            <!-- NUEVO: Botón "Deseleccionar todos" al lado de "Limpiar filtros" -->
             <div class="flex gap-2 mb-4">
                 <div class="flex-1">
                     <input id="prestSearch" 
@@ -999,28 +1014,23 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             </div>
         </div>
         
-        <!-- NUEVO: LISTA CON SCROLL INTERNO -->
+        <!-- LISTA CON SCROLL INTERNO -->
         <div id="prestList" class="flex-1 overflow-y-auto min-h-0 p-4 bg-slate-50" style="max-height: 40vh;">
-            <!-- Los préstamos se cargarán aquí dinámicamente -->
-            <div class="p-8 text-center text-slate-500">
-                <div class="text-5xl mb-3">📭</div>
-                <div class="text-lg font-medium">Cargando préstamos...</div>
-            </div>
+            <!-- Los préstamos se cargarán aquí -->
         </div>
         
         <!-- FOOTER con resumen y botón ASIGNAR - SIEMPRE VISIBLE -->
         <div class="flex-none border-t border-slate-200 bg-white p-4">
-            <!-- Resumen de selección -->
-            <div class="resumen-seleccion mb-4">
+            <!-- Resumen de selección (simplificado) -->
+            <div class="mb-4 text-sm">
                 <div class="flex justify-between items-center">
                     <div>
-                        <span class="text-sm font-medium">Seleccionados:</span>
+                        <span class="font-medium">Préstamos seleccionados:</span>
                         <span id="selCount" class="ml-1 font-bold text-blue-600">0</span>
-                        <span class="text-xs text-slate-500 ml-2">préstamos</span>
                     </div>
                     <div>
-                        <span class="text-sm font-medium">Total:</span>
-                        <span id="selTotal" class="ml-1 font-bold text-emerald-600 num">0</span>
+                        <span class="font-medium">Total:</span>
+                        <span id="selTotal" class="ml-1 font-bold text-emerald-600 num">$0</span>
                     </div>
                 </div>
                 <div id="detalleEmpresas" class="text-xs text-slate-500 mt-1 truncate">
@@ -1221,7 +1231,7 @@ function toInt(s) {
 }
 
 function fmt(n) {
-    return (n || 0).toLocaleString('es-CO');
+    return '$' + (n || 0).toLocaleString('es-CO');
 }
 
 function getLS(k) {
@@ -1266,13 +1276,19 @@ function obtenerNombreConductorDeFila(tr) {
     }
 }
 
+// ===== FUNCIÓN PARA OBTENER VALOR A PAGAR DE UNA FILA =====
+function obtenerValorAPagarFila(tr) {
+    const pagarCell = tr.querySelector('.pagar');
+    return pagarCell ? toInt(pagarCell.textContent) : 0;
+}
+
 // ===== FUNCIÓN PARA APLICAR ESTADO DE PAGO =====
 function aplicarEstadoFila(tr, estado) {
     tr.classList.remove('estado-pagado', 'estado-pendiente', 'estado-procesando', 'estado-parcial');
     if (estado) tr.classList.add(`estado-${estado}`);
 }
 
-// ===== FUNCIÓN PRINCIPAL PARA ASIGNAR PRÉSTAMOS A FILAS (MODIFICADA) =====
+// ===== FUNCIÓN PRINCIPAL PARA ASIGNAR PRÉSTAMOS A FILAS =====
 function asignarPrestamosAFilas(usarValoresHistoricos = false) {
     modoHistoricoActivo = usarValoresHistoricos;
     
@@ -1300,21 +1316,17 @@ function asignarPrestamosAFilas(usarValoresHistoricos = false) {
                 detalles.push(`💰 Manual: $${fmt(prestamoGuardado.valorManual)}`);
                 empresas.push('Manual');
             } else {
-                // MODO HISTÓRICO: Usar SIEMPRE el valor guardado
                 if (usarValoresHistoricos) {
                     totalMostrar += prestamoGuardado.totalActual || 0;
                     detalles.push(prestamoGuardado.name || 'Desconocido');
                     empresas.push(prestamoGuardado.empresa || 'N/A');
-                } 
-                // MODO NORMAL: Usar valores actuales de la base de datos
-                else {
+                } else {
                     const prestamoActual = PRESTAMOS_LIST.find(p => p.id === prestamoGuardado.id);
                     if (prestamoActual) {
                         totalMostrar += prestamoActual.total;
                         detalles.push(prestamoActual.name);
                         empresas.push(prestamoActual.empresa);
                     } else {
-                        // Si ya no existe en la BD, usar el valor guardado como fallback
                         totalMostrar += prestamoGuardado.totalActual || 0;
                         detalles.push(prestamoGuardado.name || 'Eliminado (usando histórico)');
                         empresas.push(prestamoGuardado.empresa || 'N/A');
@@ -1325,18 +1337,17 @@ function asignarPrestamosAFilas(usarValoresHistoricos = false) {
         
         const prestSpan = tr.querySelector('.prest');
         const selLabel = tr.querySelector('.selected-deudor');
-        if (prestSpan) prestSpan.textContent = fmt(totalMostrar);
+        if (prestSpan) prestSpan.textContent = fmt(totalMostrar).replace('$', '');
         if (selLabel) {
             const empresasUnicas = [...new Set(empresas)].filter(e => e !== 'Manual');
             let textoLabel = '';
             
             if (empresasUnicas.length > 0) {
-                textoLabel = `${empresasUnicas.length} empresa(s): $${fmt(totalMostrar)}`;
+                textoLabel = `${empresasUnicas.length} empresa(s): $${fmt(totalMostrar).replace('$', '')}`;
             } else if (prestamosDeEsteConductor.some(p => p.esManual)) {
-                textoLabel = `Manual: $${fmt(totalMostrar)}`;
+                textoLabel = `Manual: $${fmt(totalMostrar).replace('$', '')}`;
             }
             
-            // Añadir indicador visual si estamos en modo histórico
             if (usarValoresHistoricos && prestamosDeEsteConductor.length > 0) {
                 textoLabel += ' <span class="badge-historico" title="Valor histórico (fecha de guardado)">📅 histórico</span>';
             }
@@ -1435,7 +1446,7 @@ function configurarEventosFila(tr) {
 
     if (baseInput) {
         baseInput.addEventListener('input', () => {
-            baseInput.value = fmt(toInt(baseInput.value));
+            baseInput.value = fmt(toInt(baseInput.value)).replace('$', '');
             recalcularTodo();
         });
     }
@@ -1458,7 +1469,7 @@ function configurarEventosFila(tr) {
     if (ss) {
         const nombreConductor = conductorSelect ? conductorSelect.value : tr.querySelector('.conductor-link')?.textContent.trim();
         if (nombreConductor && ssMap[nombreConductor]) {
-            ss.value = fmt(ssMap[nombreConductor]);
+            ss.value = fmt(ssMap[nombreConductor]).replace('$', '');
         }
         
         ss.addEventListener('input', () => {
@@ -1510,7 +1521,7 @@ function configurarEventosFila(tr) {
             tr.dataset.conductor = normalizarTexto(newBaseName);
             
             if (cta && accMap[newBaseName]) cta.value = accMap[newBaseName];
-            if (ss && ssMap[newBaseName]) ss.value = fmt(ssMap[newBaseName]);
+            if (ss && ssMap[newBaseName]) ss.value = fmt(ssMap[newBaseName]).replace('$', '');
             if (estadoPago && estadoPagoMap[newBaseName]) {
                 estadoPago.value = estadoPagoMap[newBaseName];
                 aplicarEstadoFila(tr, estadoPagoMap[newBaseName]);
@@ -1526,7 +1537,7 @@ function configurarEventosFila(tr) {
         const nombreConductor = tr.querySelector('.conductor-link')?.textContent.trim();
         if (nombreConductor) {
             if (cta && accMap[nombreConductor]) cta.value = accMap[nombreConductor];
-            if (ss && ssMap[nombreConductor]) ss.value = fmt(ssMap[nombreConductor]);
+            if (ss && ssMap[nombreConductor]) ss.value = fmt(ssMap[nombreConductor]).replace('$', '');
         }
     }
 
@@ -1645,12 +1656,12 @@ function recalcularTodo() {
         const ss = toInt(tr.querySelector('.ss')?.value || '0');
         const pagar = llego - ret - mil4 - apor - ss - prest;
         
-        if (tr.querySelector('.ajuste')) tr.querySelector('.ajuste').textContent = fmt(ajuste);
-        if (tr.querySelector('.llego')) tr.querySelector('.llego').textContent = fmt(llego);
-        if (tr.querySelector('.ret')) tr.querySelector('.ret').textContent = fmt(ret);
-        if (tr.querySelector('.mil4')) tr.querySelector('.mil4').textContent = fmt(mil4);
-        if (tr.querySelector('.apor')) tr.querySelector('.apor').textContent = fmt(apor);
-        if (tr.querySelector('.pagar')) tr.querySelector('.pagar').textContent = fmt(pagar);
+        if (tr.querySelector('.ajuste')) tr.querySelector('.ajuste').textContent = fmt(ajuste).replace('$', '');
+        if (tr.querySelector('.llego')) tr.querySelector('.llego').textContent = fmt(llego).replace('$', '');
+        if (tr.querySelector('.ret')) tr.querySelector('.ret').textContent = fmt(ret).replace('$', '');
+        if (tr.querySelector('.mil4')) tr.querySelector('.mil4').textContent = fmt(mil4).replace('$', '');
+        if (tr.querySelector('.apor')) tr.querySelector('.apor').textContent = fmt(apor).replace('$', '');
+        if (tr.querySelector('.pagar')) tr.querySelector('.pagar').textContent = fmt(pagar).replace('$', '');
         
         sumLlego += llego;
         sumRet += ret;
@@ -1662,8 +1673,8 @@ function recalcularTodo() {
     });
     
     const totalFacturado = totalAutomaticos + totalManuales;
-    document.getElementById('inp_facturado').value = fmt(totalFacturado);
-    document.getElementById('inp_viajes_manuales').value = fmt(totalManuales);
+    document.getElementById('inp_facturado').value = fmt(totalFacturado).replace('$', '');
+    document.getElementById('inp_viajes_manuales').value = fmt(totalManuales).replace('$', '');
     document.getElementById('lbl_total_ajuste').textContent = fmt(Math.round(totalFacturado * (porcentaje / 100)));
     document.getElementById('tot_llego').textContent = fmt(sumLlego);
     document.getElementById('tot_ret').textContent = fmt(sumRet);
@@ -1703,6 +1714,7 @@ function hacerPanelArrastrable() {
 // ===== MODAL PRÉSTAMOS MULTIEMPRESA =====
 let currentRow = null;
 let selectedIds = new Set();
+let conductorActual = '';
 
 function cargarEmpresasMultiSelect() {
     const container = document.getElementById('empresasMultiSelect');
@@ -1761,7 +1773,6 @@ function filtrarPrestamosMultiempresa() {
     renderizarListaPrestamos(prestamosFiltrados);
 }
 
-// MODIFICADO: Renderizado optimizado para scroll interno
 function renderizarListaPrestamos(prestamos) {
     const list = document.getElementById('prestList');
     if (!list) return;
@@ -1809,7 +1820,7 @@ function renderizarListaPrestamos(prestamos) {
                     </div>
                 </div>
                 <span class="num text-sm font-bold text-emerald-600">
-                    $${fmt(item.total)}
+                    $${fmt(item.total).replace('$', '')}
                 </span>
             </div>
         `;
@@ -1832,23 +1843,48 @@ function renderizarListaPrestamos(prestamos) {
     actualizarResumenSeleccion();
 }
 
+// NUEVO: Función para actualizar el disponible y selección en el modal
 function actualizarResumenSeleccion() {
     const seleccionados = PRESTAMOS_LIST.filter(p => selectedIds.has(p.id));
-    const total = seleccionados.reduce((sum, p) => sum + (p.total || 0), 0);
+    const totalSeleccionado = seleccionados.reduce((sum, p) => sum + (p.total || 0), 0);
     
+    const valorManual = toInt(document.getElementById('prestValorManual').value);
+    const totalConManual = totalSeleccionado + valorManual;
+    
+    // Actualizar total seleccionado
+    document.getElementById('selCount').textContent = seleccionados.length;
+    document.getElementById('selTotal').textContent = fmt(totalConManual);
+    document.getElementById('totalSeleccionado').textContent = fmt(totalConManual);
+    
+    // Actualizar detalle de empresas
     const porEmpresa = {};
     seleccionados.forEach(p => {
         if (!porEmpresa[p.empresa]) porEmpresa[p.empresa] = 0;
         porEmpresa[p.empresa] += p.total;
     });
     
+    if (valorManual > 0) {
+        porEmpresa['Manual'] = valorManual;
+    }
+    
     const detalleEmpresas = Object.entries(porEmpresa)
-        .map(([emp, monto]) => `${emp}: $${fmt(monto)}`)
+        .map(([emp, monto]) => `${emp}: $${fmt(monto).replace('$', '')}`)
         .join(' • ');
     
-    document.getElementById('selCount').textContent = seleccionados.length;
-    document.getElementById('selTotal').textContent = fmt(total);
     document.getElementById('detalleEmpresas').textContent = detalleEmpresas || 'Ninguna selección';
+    
+    // Calcular y mostrar diferencia con disponible
+    if (currentRow) {
+        const disponible = obtenerValorAPagarFila(currentRow);
+        const diferencia = disponible - totalConManual;
+        const diffElement = document.getElementById('diferenciaDisponible');
+        
+        if (diferencia >= 0) {
+            diffElement.innerHTML = `✅ Queda disponible: <span class="disponible-positivo">$${fmt(diferencia).replace('$', '')}</span>`;
+        } else {
+            diffElement.innerHTML = `❌ Excede por: <span class="disponible-negativo">$${fmt(Math.abs(diferencia)).replace('$', '')}</span>`;
+        }
+    }
 }
 
 function openPrestModalForRow(tr) {
@@ -1865,6 +1901,13 @@ function openPrestModalForRow(tr) {
         });
         return;
     }
+    
+    conductorActual = baseName;
+    document.getElementById('conductorNombre').textContent = baseName;
+    
+    // Mostrar disponible del conductor
+    const disponible = obtenerValorAPagarFila(tr);
+    document.getElementById('disponibleConductor').textContent = fmt(disponible);
     
     (prestSel[baseName] || []).forEach(p => {
         if (!p.esManual && p.id !== undefined) {
@@ -1886,6 +1929,7 @@ function closePrestModal() {
     document.getElementById('prestModal').classList.add('hidden');
     currentRow = null;
     selectedIds.clear();
+    conductorActual = '';
 }
 
 // ===== GESTIÓN DE CUENTAS GUARDADAS EN BD =====
@@ -1974,9 +2018,8 @@ btnDoSaveCuenta.addEventListener('click', async () => {
     const porcentaje = parseFloat(iPorcentaje.value) || 0;
     const pagado = iPagado.checked ? 1 : 0;
     
-    // ===== CORRECCIÓN: Guardar prestSel directamente, sin modificaciones =====
     const datosParaGuardar = {
-        prestamos: prestSel,  // Guardar EXACTAMENTE lo que está en memoria
+        prestamos: prestSel,
         segSocial: ssMap,
         cuentasBancarias: accMap,
         estadosPago: estadoPagoMap,
@@ -2193,7 +2236,6 @@ async function actualizarEstadoCuenta(id, nuevoEstado, switchElement) {
     }
 }
 
-// ===== FUNCIÓN MODIFICADA PARA CARGAR CUENTA CON VALORES HISTÓRICOS =====
 async function cargarCuentaCompletaBD(id) {
     const confirmacion = await Swal.fire({
         title: '¿Cargar esta cuenta?',
@@ -2227,7 +2269,6 @@ async function cargarCuentaCompletaBD(id) {
             
             const datos = cuenta.datos_json || {};
             
-            // ===== CORRECCIÓN: Cargar prestSel directamente =====
             prestSel = datos.prestamos || {};
             ssMap = datos.segSocial || {};
             accMap = datos.cuentasBancarias || {};
@@ -2253,9 +2294,9 @@ async function cargarCuentaCompletaBD(id) {
                         const estadoSelect = ultimaFila.querySelector('.estado-pago');
                         
                         if (select) select.value = fila.conductor;
-                        if (baseInput) baseInput.value = fmt(fila.base);
+                        if (baseInput) baseInput.value = fmt(fila.base).replace('$', '');
                         if (ctaInput) ctaInput.value = fila.cuenta;
-                        if (ssInput) ssInput.value = fmt(fila.segSocial);
+                        if (ssInput) ssInput.value = fmt(fila.segSocial).replace('$', '');
                         if (estadoSelect) estadoSelect.value = fila.estado;
                         
                         if (fila.conductor) {
@@ -2277,7 +2318,7 @@ async function cargarCuentaCompletaBD(id) {
                     }
                     if (ssMap[nombre]) {
                         const ss = tr.querySelector('.ss');
-                        if (ss) ss.value = fmt(ssMap[nombre]);
+                        if (ss) ss.value = fmt(ssMap[nombre]).replace('$', '');
                     }
                     if (estadoPagoMap[nombre]) {
                         const estado = tr.querySelector('.estado-pago');
@@ -2289,7 +2330,6 @@ async function cargarCuentaCompletaBD(id) {
                 }
             });
             
-            // Asignar préstamos con flag TRUE para usar valores históricos
             asignarPrestamosAFilas(true);
             
             if (cuenta.porcentaje_ajuste) {
@@ -2392,20 +2432,16 @@ btnAddDesdeFiltro.addEventListener('click', () => {
     setTimeout(() => openSaveCuenta(), 300);
 });
 
-// ===== NUEVO: Botón para deseleccionar todos los préstamos =====
+// NUEVO: Botón para deseleccionar todos los préstamos
 document.getElementById('btnDeseleccionarTodos').addEventListener('click', () => {
-    // Limpiar el Set de seleccionados
     selectedIds.clear();
     
-    // Desmarcar todos los checkboxes visualmente
     document.querySelectorAll('.prest-checkbox').forEach(cb => {
         cb.checked = false;
     });
     
-    // Actualizar el resumen
     actualizarResumenSeleccion();
     
-    // Feedback visual opcional
     Swal.fire({
         title: '✓ Deseleccionados',
         text: 'Todos los préstamos han sido deseleccionados',
@@ -2415,6 +2451,11 @@ document.getElementById('btnDeseleccionarTodos').addEventListener('click', () =>
         toast: true,
         position: 'top-end'
     });
+});
+
+// NUEVO: Actualizar resumen cuando cambia el valor manual
+document.getElementById('prestValorManual').addEventListener('input', () => {
+    actualizarResumenSeleccion();
 });
 
 // ===== INICIALIZACIÓN =====
@@ -2435,7 +2476,6 @@ document.addEventListener('DOMContentLoaded', function() {
     
     manualRows.forEach(id => agregarFilaManual(id));
     
-    // INICIO MODO NORMAL: false
     asignarPrestamosAFilas(false);
     
     hacerPanelArrastrable();
@@ -2506,7 +2546,6 @@ document.addEventListener('DOMContentLoaded', function() {
         
         setLS(PREST_SEL_KEY, prestSel);
         
-        // Al asignar nuevos préstamos, mantener el modo actual (histórico o normal)
         asignarPrestamosAFilas(modoHistoricoActivo);
         recalcularTodo();
         closePrestModal();
