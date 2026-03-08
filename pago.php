@@ -691,7 +691,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             border: 1px solid #86efac;
             border-radius: 0.75rem;
             padding: 0.75rem;
-            margin-top: 0.5rem;
         }
         .badge-historico {
             background: #fef3c7;
@@ -703,10 +702,38 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             display: inline-block;
             border: 1px solid #fbbf24;
         }
-        /* NUEVO: Estilos para el indicador de disponible */
         .disponible-positivo { color: #059669; font-weight: 600; }
         .disponible-negativo { color: #dc2626; font-weight: 600; }
-        .comparativo-seleccion { font-size: 0.9rem; padding: 0.5rem; border-radius: 0.5rem; }
+        
+        /* NUEVO: Estilos responsivos mejorados */
+        @media (max-width: 640px) {
+            .prest-modal-content {
+                width: 95% !important;
+                margin: 0.5rem auto !important;
+                max-height: 98vh !important;
+            }
+            .prest-list-container {
+                max-height: 50vh !important;
+            }
+            .empresas-grid {
+                grid-template-columns: 1fr !important;
+            }
+        }
+        
+        @media (min-width: 641px) and (max-width: 1024px) {
+            .prest-modal-content {
+                width: 90% !important;
+            }
+            .prest-list-container {
+                max-height: 55vh !important;
+            }
+        }
+        
+        @media (min-width: 1025px) {
+            .prest-list-container {
+                max-height: 65vh !important; /* MUCHO MÁS ESPACIO VERTICAL */
+            }
+        }
     </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
@@ -955,75 +982,79 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- ===== MODAL PRÉSTAMOS MULTIEMPRESA (MODIFICADO CON NOMBRE Y TOTAL DISPONIBLE) ===== -->
-<div id="prestModal" class="hidden fixed inset-0 z-50">
+<!-- ===== MODAL PRÉSTAMOS - VERSIÓN MEJORADA CON MÁS ESPACIO VERTICAL ===== -->
+<div id="prestModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
     <div class="absolute inset-0 bg-black/30"></div>
-    <div class="relative mx-auto my-8 w-full max-w-4xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden flex flex-col" style="max-height: 90vh;">
+    <div class="relative mx-auto my-4 md:my-8 prest-modal-content bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden flex flex-col" style="width: 95%; max-width: 1200px; max-height: 98vh;">
         
-        <!-- HEADER - NUEVO: Muestra nombre del conductor y disponible -->
-        <div class="px-5 py-4 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-indigo-50 flex-none">
+        <!-- HEADER - Siempre visible -->
+        <div class="px-4 md:px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-indigo-50 flex-none">
             <div class="flex items-center justify-between">
-                <h3 class="text-lg font-semibold flex items-center gap-2">
-                    <span class="text-2xl">💰</span>
-                    <span id="prestModalTitle">Préstamos de: <span id="conductorNombre" class="text-blue-700"></span></span>
+                <h3 class="text-base md:text-lg font-semibold flex items-center gap-2">
+                    <span class="text-xl">💰</span>
+                    <span>Préstamos de: <span id="conductorNombre" class="text-blue-700 font-bold"></span></span>
                 </h3>
-                <button id="btnCloseModal" class="p-2 rounded hover:bg-white/50">✕</button>
+                <button id="btnCloseModal" class="p-2 rounded hover:bg-white/50 text-xl">✕</button>
             </div>
             
-            <!-- NUEVO: Barra de información con disponible vs seleccionado -->
-            <div id="infoDisponibleContainer" class="mt-3 grid grid-cols-2 gap-3 text-sm">
+            <!-- Info disponible vs seleccionado -->
+            <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                 <div class="bg-white p-3 rounded-lg border border-blue-200">
                     <div class="text-xs text-slate-500 mb-1">💵 Disponible para préstamos</div>
-                    <div id="disponibleConductor" class="text-xl font-bold text-blue-600 num">$0</div>
+                    <div id="disponibleConductor" class="text-lg md:text-xl font-bold text-blue-600 num">$0</div>
                     <div class="text-xs text-slate-400 mt-1">Valor a pagar sin préstamos</div>
                 </div>
                 <div class="bg-white p-3 rounded-lg border border-amber-200">
                     <div class="text-xs text-slate-500 mb-1">📋 Préstamos seleccionados</div>
-                    <div id="totalSeleccionado" class="text-xl font-bold text-amber-600 num">$0</div>
+                    <div id="totalSeleccionado" class="text-lg md:text-xl font-bold text-amber-600 num">$0</div>
                     <div id="diferenciaDisponible" class="text-xs mt-1 font-medium"></div>
                 </div>
             </div>
         </div>
         
         <!-- FILTROS - Siempre visible -->
-        <div class="p-4 border-b border-slate-200 flex-none">
-            <div class="mb-4">
+        <div class="px-4 md:px-6 py-3 border-b border-slate-200 bg-slate-50 flex-none">
+            <div class="mb-3">
                 <label class="block text-xs font-medium text-slate-700 mb-2">
-                    🏢 Filtrar por empresas (selecciona múltiples):
+                    🏢 Filtrar por empresas:
                 </label>
                 <div class="empresas-grid" id="empresasMultiSelect"></div>
             </div>
             
-            <div class="flex gap-2 mb-4">
+            <div class="flex flex-col sm:flex-row gap-2">
                 <div class="flex-1">
                     <input id="prestSearch" 
                            type="text" 
                            placeholder="🔍 Buscar deudor..." 
-                           class="w-full rounded-xl border border-slate-300 px-4 py-2.5">
+                           class="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm">
                 </div>
                 <div class="flex gap-2 flex-none">
                     <button id="btnDeseleccionarTodos" 
-                            class="px-4 py-2.5 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-sm font-medium text-amber-700">
+                            class="px-4 py-2.5 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-sm font-medium text-amber-700 whitespace-nowrap">
                         ✕ Deseleccionar todos
                     </button>
                     <button id="btnLimpiarFiltros" 
-                            class="px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-sm">
+                            class="px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-sm whitespace-nowrap">
                         Limpiar filtros
                     </button>
                 </div>
             </div>
         </div>
         
-        <!-- LISTA CON SCROLL INTERNO -->
-        <div id="prestList" class="flex-1 overflow-y-auto min-h-0 p-4 bg-slate-50" style="max-height: 40vh;">
+        <!-- LISTA DE PRÉSTAMOS - MUCHO ESPACIO VERTICAL -->
+        <div id="prestList" class="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-50 prest-list-container" style="min-height: 300px;">
             <!-- Los préstamos se cargarán aquí -->
+            <div class="p-8 text-center text-slate-500">
+                <div class="text-5xl mb-3">📭</div>
+                <div class="text-lg font-medium">Cargando préstamos...</div>
+            </div>
         </div>
         
-        <!-- FOOTER con resumen y botón ASIGNAR - SIEMPRE VISIBLE -->
-        <div class="flex-none border-t border-slate-200 bg-white p-4">
-            <!-- Resumen de selección (simplificado) -->
+        <!-- FOOTER - Siempre visible -->
+        <div class="flex-none border-t border-slate-200 bg-white p-4 md:p-6">
+            <!-- Resumen de selección -->
             <div class="mb-4 text-sm">
-                <div class="flex justify-between items-center">
+                <div class="flex flex-wrap justify-between items-center gap-2">
                     <div>
                         <span class="font-medium">Préstamos seleccionados:</span>
                         <span id="selCount" class="ml-1 font-bold text-blue-600">0</span>
@@ -1039,22 +1070,22 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             </div>
             
             <!-- Valor manual y botones -->
-            <div class="flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                    <span class="text-sm text-slate-600">💰 Valor manual:</span>
+            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div class="flex items-center gap-3 w-full sm:w-auto">
+                    <span class="text-sm text-slate-600 whitespace-nowrap">💰 Valor manual:</span>
                     <input id="prestValorManual" 
                            type="text" 
-                           class="w-40 rounded-lg border border-amber-300 px-3 py-2 text-right num" 
+                           class="flex-1 sm:w-40 rounded-lg border border-amber-300 px-3 py-2.5 text-right num" 
                            placeholder="0">
                 </div>
                 
-                <div class="flex gap-2">
+                <div class="flex gap-2 w-full sm:w-auto">
                     <button id="btnCancel" 
-                            class="rounded-lg border border-slate-300 px-5 py-2.5 bg-white hover:bg-slate-50 font-medium">
+                            class="flex-1 sm:flex-none rounded-lg border border-slate-300 px-5 py-2.5 bg-white hover:bg-slate-50 font-medium">
                         Cancelar
                     </button>
                     <button id="btnAssign" 
-                            class="rounded-lg border border-blue-600 px-6 py-2.5 bg-blue-600 text-white hover:bg-blue-700 font-medium shadow-lg">
+                            class="flex-1 sm:flex-none rounded-lg border border-blue-600 px-6 py-2.5 bg-blue-600 text-white hover:bg-blue-700 font-medium shadow-lg">
                         ✅ Asignar selección
                     </button>
                 </div>
@@ -1075,9 +1106,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 </div>
 
 <!-- Modal Guardar Cuenta -->
-<div id="saveCuentaModal" class="hidden fixed inset-0 z-50">
+<div id="saveCuentaModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
     <div class="absolute inset-0 bg-black/30"></div>
-    <div class="relative mx-auto my-10 w-full max-w-lg bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+    <div class="relative mx-auto my-8 w-full max-w-lg bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
         <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
             <h3 class="text-lg font-semibold">⭐ Guardar cuenta de cobro</h3>
             <button id="btnCloseSaveCuenta" class="p-2 rounded hover:bg-slate-100">✕</button>
@@ -1135,9 +1166,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 </div>
 
 <!-- Modal Gestor de Cuentas -->
-<div id="gestorCuentasModal" class="hidden fixed inset-0 z-50">
+<div id="gestorCuentasModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
     <div class="absolute inset-0 bg-black/30"></div>
-    <div class="relative mx-auto my-10 w-full max-w-5xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+    <div class="relative mx-auto my-8 w-full max-w-5xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
         <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
             <h3 class="text-lg font-semibold">📚 Cuentas guardadas <span class="bd-badge text-xs px-2 py-1 rounded-full ml-2">Base de Datos</span></h3>
             <button id="btnCloseGestor" class="p-2 rounded hover:bg-slate-100">✕</button>
@@ -1843,7 +1874,6 @@ function renderizarListaPrestamos(prestamos) {
     actualizarResumenSeleccion();
 }
 
-// NUEVO: Función para actualizar el disponible y selección en el modal
 function actualizarResumenSeleccion() {
     const seleccionados = PRESTAMOS_LIST.filter(p => selectedIds.has(p.id));
     const totalSeleccionado = seleccionados.reduce((sum, p) => sum + (p.total || 0), 0);
@@ -1851,12 +1881,10 @@ function actualizarResumenSeleccion() {
     const valorManual = toInt(document.getElementById('prestValorManual').value);
     const totalConManual = totalSeleccionado + valorManual;
     
-    // Actualizar total seleccionado
     document.getElementById('selCount').textContent = seleccionados.length;
     document.getElementById('selTotal').textContent = fmt(totalConManual);
     document.getElementById('totalSeleccionado').textContent = fmt(totalConManual);
     
-    // Actualizar detalle de empresas
     const porEmpresa = {};
     seleccionados.forEach(p => {
         if (!porEmpresa[p.empresa]) porEmpresa[p.empresa] = 0;
@@ -1873,7 +1901,6 @@ function actualizarResumenSeleccion() {
     
     document.getElementById('detalleEmpresas').textContent = detalleEmpresas || 'Ninguna selección';
     
-    // Calcular y mostrar diferencia con disponible
     if (currentRow) {
         const disponible = obtenerValorAPagarFila(currentRow);
         const diferencia = disponible - totalConManual;
@@ -1905,7 +1932,6 @@ function openPrestModalForRow(tr) {
     conductorActual = baseName;
     document.getElementById('conductorNombre').textContent = baseName;
     
-    // Mostrar disponible del conductor
     const disponible = obtenerValorAPagarFila(tr);
     document.getElementById('disponibleConductor').textContent = fmt(disponible);
     
@@ -2432,7 +2458,6 @@ btnAddDesdeFiltro.addEventListener('click', () => {
     setTimeout(() => openSaveCuenta(), 300);
 });
 
-// NUEVO: Botón para deseleccionar todos los préstamos
 document.getElementById('btnDeseleccionarTodos').addEventListener('click', () => {
     selectedIds.clear();
     
@@ -2453,7 +2478,6 @@ document.getElementById('btnDeseleccionarTodos').addEventListener('click', () =>
     });
 });
 
-// NUEVO: Actualizar resumen cuando cambia el valor manual
 document.getElementById('prestValorManual').addEventListener('input', () => {
     actualizarResumenSeleccion();
 });
