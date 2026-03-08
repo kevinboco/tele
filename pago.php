@@ -2457,7 +2457,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         setLS(PREST_SEL_KEY, prestSel);
         
-        // Al asignar nuevos préstamos, mantener el modo actual (histórico o normal)
+        // Al asignar nuevos préstamos, mantener eldo actual (histórico o normal)
         asignarPrestamosAFilas(modoHistoricoActivo);
         recalcularTodo();
         closePrestModal();
