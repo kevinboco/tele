@@ -188,6 +188,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     exit;
 }
 
+/* ================= FUNCIÓN DE FUSIÓN CORREGIDA ================= */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'fusionar_cuentas') {
     header('Content-Type: application/json');
     $ids = isset($_POST['ids']) ? json_decode($_POST['ids'], true) : [];
@@ -219,25 +220,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
         }
     }
     
-    // Fusionar los datos
+    // ===== DATOS BÁSICOS DE LA FUSIÓN =====
     $fusionado = [
         'nombre' => 'Fusión: ' . implode(' + ', array_slice(array_column($cuentas, 'nombre'), 0, 2)) . (count($cuentas) > 2 ? ' +' . (count($cuentas)-2) . ' más' : ''),
         'desde' => min(array_column($cuentas, 'desde')),
         'hasta' => max(array_column($cuentas, 'hasta')),
         'facturado' => array_sum(array_column($cuentas, 'facturado')),
-        'porcentaje_ajuste' => round(array_sum(array_column($cuentas, 'porcentaje_ajuste')) / count($cuentas), 2), // Promedio
+        'porcentaje_ajuste' => round(array_sum(array_column($cuentas, 'porcentaje_ajuste')) / count($cuentas), 2),
         'pagado' => 0,
         'empresas' => array_values(array_unique(array_merge(...array_column($cuentas, 'empresas')))),
-        'datos_json' => []
+        'datos_json' => [
+            'prestamos' => new stdClass(),        // OBJETO vacío - el usuario los asignará manualmente
+            'segSocial' => new stdClass(),        // OBJETO vacío - el usuario los asignará manualmente
+            'cuentasBancarias' => new stdClass(), // OBJETO vacío - el usuario los asignará manualmente
+            'estadosPago' => new stdClass(),      // OBJETO vacío - el usuario los asignará manualmente
+            'filasManuales' => []                  // Array vacío - se llenará con conductores fusionados
+        ]
     ];
     
-    // Fusionar los datos_json (SUMAR valores base de conductores repetidos)
+    // ===== SUMAR VALORES BASE DE CONDUCTORES (esto está bien) =====
     $conductores_fusionados = [];
     
     foreach ($cuentas as $cuenta) {
         $datos = $cuenta['datos_json'];
         
-        // Procesar filas manuales (aquí están los valores base)
+        // Procesar filas manuales (valores base)
         if (isset($datos['filasManuales']) && is_array($datos['filasManuales'])) {
             foreach ($datos['filasManuales'] as $fila) {
                 $conductor = $fila['conductor'];
@@ -246,12 +253,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
                 if (!isset($conductores_fusionados[$conductor])) {
                     $conductores_fusionados[$conductor] = 0;
                 }
-                // SUMAR el valor base si el conductor se repite
                 $conductores_fusionados[$conductor] += $base;
             }
         }
         
-        // También considerar los conductores de la tabla principal (no manuales)
+        // También considerar conductores de tabla principal
         if (isset($datos['conductoresBase']) && is_array($datos['conductoresBase'])) {
             foreach ($datos['conductoresBase'] as $conductor => $base) {
                 if (!isset($conductores_fusionados[$conductor])) {
@@ -262,25 +268,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
         }
     }
     
-    // Crear las nuevas filas manuales con los valores base SUMADOS
-    $nuevas_filas_manuales = [];
+    // ===== CREAR FILAS MANUALES CON VALORES BASE SUMADOS =====
+    // PERO DEJAR VACÍOS: cuenta, segSocial, estado (el usuario los llenará)
     foreach ($conductores_fusionados as $conductor => $base_total) {
         if ($base_total > 0) {
-            $nuevas_filas_manuales[] = [
+            $fusionado['datos_json']['filasManuales'][] = [
                 'conductor' => $conductor,
                 'base' => $base_total,
-                'cuenta' => '',
-                'segSocial' => 0,
-                'estado' => ''
+                'cuenta' => '',    // Vacío - usuario lo llena
+                'segSocial' => 0,   // Vacío - usuario lo llena
+                'estado' => ''      // Vacío - usuario lo selecciona
             ];
         }
     }
-    
-    $fusionado['datos_json']['filasManuales'] = $nuevas_filas_manuales;
-    $fusionado['datos_json']['prestamos'] = []; // Vacío para que el usuario seleccione nuevos préstamos
-    $fusionado['datos_json']['segSocial'] = [];
-    $fusionado['datos_json']['cuentasBancarias'] = [];
-    $fusionado['datos_json']['estadosPago'] = [];
     
     echo json_encode(['success' => true, 'cuenta_fusionada' => $fusionado]);
     exit;
@@ -2087,7 +2087,7 @@ function closePrestModal() {
     conductorActual = '';
 }
 
-// ===== GESTIÓN DE CUENTAS GUARDADAS EN BD CON FUSIÓN CORREGIDA =====
+// ===== GESTIÓN DE CUENTAS GUARDADAS EN BD =====
 const saveCuentaModal = document.getElementById('saveCuentaModal');
 const btnShowSaveCuenta = document.getElementById('btnShowSaveCuenta');
 const btnCloseSaveCuenta = document.getElementById('btnCloseSaveCuenta');
@@ -2624,8 +2624,8 @@ async function fusionarCuentasSeleccionadas() {
         html: `
             <p>Vas a fusionar <strong>${ids.length} cuentas</strong>.</p>
             <p class="text-sm text-slate-600 mt-2">Los conductores que se repitan tendrán sus valores base <strong>SUMADOS</strong>.</p>
-            <p class="text-xs text-blue-600 mt-3">✅ Los cálculos (ajuste, retención, 4x1000, aporte) se aplicarán automáticamente sobre los nuevos totales.</p>
-            <p class="text-xs text-amber-600 mt-1">Los préstamos y seguridad social se reiniciarán para que los selecciones nuevamente.</p>
+            <p class="text-xs text-blue-600 mt-3">✅ Los préstamos, seguridad social y cuentas bancarias se dejarán <strong>VACÍOS</strong> para que los asignes manualmente.</p>
+            <p class="text-xs text-amber-600 mt-1">Después de asignarlos, al guardar la cuenta fusionada, TODO se guardará correctamente.</p>
         `,
         icon: 'question',
         showCancelButton: true,
@@ -2669,7 +2669,7 @@ async function fusionarCuentasSeleccionadas() {
                 cb.checked = cuentaFusionada.empresas.includes(cb.value);
             });
             
-            // Limpiar datos actuales (préstamos, seguridad social, etc.)
+            // Limpiar datos actuales (préstamos, seguridad social, etc.) - TODOS VACÍOS
             prestSel = {};
             ssMap = {};
             accMap = {};
@@ -2696,10 +2696,7 @@ async function fusionarCuentasSeleccionadas() {
                         if (select) select.value = fila.conductor;
                         if (baseInput) baseInput.value = fmt(fila.base).replace('$', '');
                         
-                        if (fila.conductor) {
-                            // No restauramos préstamos ni seguridad social
-                            // El usuario los seleccionará nuevamente
-                        }
+                        // NO asignamos cuenta, segSocial ni estado - quedan vacíos
                     }
                 });
                 localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
@@ -2717,8 +2714,9 @@ async function fusionarCuentasSeleccionadas() {
                 html: `
                     <p>Se han fusionado <strong>${ids.length} cuentas</strong> exitosamente.</p>
                     <p class="text-sm mt-2">Los valores base de conductores repetidos se han <strong>SUMADO</strong>.</p>
-                    <p class="text-sm text-emerald-600">✓ Todos los cálculos (ajuste, retención, 4x1000, aporte) se han aplicado automáticamente.</p>
-                    <p class="text-xs text-blue-600 mt-3">Ahora puedes seleccionar los préstamos nuevamente.</p>
+                    <p class="text-sm text-emerald-600">✓ Los cálculos (ajuste, retención, 4x1000, aporte) se han aplicado automáticamente.</p>
+                    <p class="text-xs text-blue-600 mt-3">⚠️ <strong>IMPORTANTE:</strong> Los préstamos, seguridad social y cuentas bancarias están VACÍOS.</p>
+                    <p class="text-xs text-blue-600">Ahora puedes asignarlos manualmente. Cuando guardes esta cuenta fusionada, TODO se guardará correctamente.</p>
                 `,
                 icon: 'success',
                 confirmButtonText: 'Continuar'
