@@ -188,6 +188,104 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'fusionar_cuentas') {
+    header('Content-Type: application/json');
+    $ids = isset($_POST['ids']) ? json_decode($_POST['ids'], true) : [];
+    
+    if (empty($ids) || count($ids) < 2) {
+        echo json_encode(['success' => false, 'message' => 'Se necesitan al menos 2 cuentas para fusionar']);
+        exit;
+    }
+    
+    $ids_esc = array_map('intval', $ids);
+    $ids_str = implode(',', $ids_esc);
+    
+    $sql = "SELECT c.*, 
+                   GROUP_CONCAT(e.empresa_nombre ORDER BY e.empresa_nombre SEPARATOR '||') as empresas_list
+            FROM cuentas_guardadas c
+            LEFT JOIN cuentas_guardadas_empresas e ON c.id = e.cuenta_id
+            WHERE c.id IN ($ids_str)
+            GROUP BY c.id";
+            
+    $result = $conn->query($sql);
+    $cuentas = [];
+    
+    if ($result && $result->num_rows > 0) {
+        while ($row = $result->fetch_assoc()) {
+            $datos_json = json_decode($row['datos_json'], true);
+            $row['datos_json'] = ($datos_json === null) ? [] : $datos_json;
+            $row['empresas'] = !empty($row['empresas_list']) ? explode('||', $row['empresas_list']) : [];
+            $cuentas[] = $row;
+        }
+    }
+    
+    // Fusionar los datos
+    $fusionado = [
+        'nombre' => 'Fusión: ' . implode(' + ', array_slice(array_column($cuentas, 'nombre'), 0, 2)) . (count($cuentas) > 2 ? ' +' . (count($cuentas)-2) . ' más' : ''),
+        'desde' => min(array_column($cuentas, 'desde')),
+        'hasta' => max(array_column($cuentas, 'hasta')),
+        'facturado' => array_sum(array_column($cuentas, 'facturado')),
+        'porcentaje_ajuste' => round(array_sum(array_column($cuentas, 'porcentaje_ajuste')) / count($cuentas), 2), // Promedio
+        'pagado' => 0,
+        'empresas' => array_values(array_unique(array_merge(...array_column($cuentas, 'empresas')))),
+        'datos_json' => []
+    ];
+    
+    // Fusionar los datos_json (solo los valores base de los conductores)
+    $conductores_fusionados = [];
+    
+    foreach ($cuentas as $cuenta) {
+        $datos = $cuenta['datos_json'];
+        
+        // Procesar préstamos (para obtener los conductores con sus bases)
+        if (isset($datos['prestamos']) && is_array($datos['prestamos'])) {
+            foreach ($datos['prestamos'] as $conductor => $prestamos) {
+                if (!isset($conductores_fusionados[$conductor])) {
+                    $conductores_fusionados[$conductor] = 0;
+                }
+                // No sumamos préstamos, solo necesitamos identificar conductores
+                // Los valores base vendrán de las filas manuales
+            }
+        }
+        
+        // Procesar filas manuales (aquí están los valores base)
+        if (isset($datos['filasManuales']) && is_array($datos['filasManuales'])) {
+            foreach ($datos['filasManuales'] as $fila) {
+                $conductor = $fila['conductor'];
+                $base = floatval($fila['base'] ?? 0);
+                
+                if (!isset($conductores_fusionados[$conductor])) {
+                    $conductores_fusionados[$conductor] = 0;
+                }
+                $conductores_fusionados[$conductor] += $base;
+            }
+        }
+    }
+    
+    // Crear las nuevas filas manuales con los valores base sumados
+    $nuevas_filas_manuales = [];
+    foreach ($conductores_fusionados as $conductor => $base_total) {
+        if ($base_total > 0) {
+            $nuevas_filas_manuales[] = [
+                'conductor' => $conductor,
+                'base' => $base_total,
+                'cuenta' => '',
+                'segSocial' => 0,
+                'estado' => ''
+            ];
+        }
+    }
+    
+    $fusionado['datos_json']['filasManuales'] = $nuevas_filas_manuales;
+    $fusionado['datos_json']['prestamos'] = []; // Vacío para que el usuario seleccione nuevos préstamos
+    $fusionado['datos_json']['segSocial'] = [];
+    $fusionado['datos_json']['cuentasBancarias'] = [];
+    $fusionado['datos_json']['estadosPago'] = [];
+    
+    echo json_encode(['success' => true, 'cuenta_fusionada' => $fusionado]);
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'actualizar_pagado_cuenta') {
     header('Content-Type: application/json');
     $id = intval($_POST['id']);
@@ -705,7 +803,18 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         .disponible-positivo { color: #059669; font-weight: 600; }
         .disponible-negativo { color: #dc2626; font-weight: 600; }
         
-        /* NUEVO: Estilos responsivos mejorados */
+        /* Estilos para checkboxes de selección múltiple en cuentas */
+        .cuenta-checkbox {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: #3b82f6;
+        }
+        .fila-cuenta-seleccionada {
+            background-color: #eff6ff !important;
+            border-left: 4px solid #3b82f6;
+        }
+        
         @media (max-width: 640px) {
             .prest-modal-content {
                 width: 95% !important;
@@ -731,7 +840,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         
         @media (min-width: 1025px) {
             .prest-list-container {
-                max-height: 65vh !important; /* MUCHO MÁS ESPACIO VERTICAL */
+                max-height: 65vh !important;
             }
         }
     </style>
@@ -982,12 +1091,12 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- ===== MODAL PRÉSTAMOS - VERSIÓN MEJORADA CON MÁS ESPACIO VERTICAL ===== -->
+<!-- ===== MODAL PRÉSTAMOS ===== -->
 <div id="prestModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-4 md:my-8 prest-modal-content bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden flex flex-col" style="width: 95%; max-width: 1200px; max-height: 98vh;">
         
-        <!-- HEADER - Siempre visible -->
+        <!-- HEADER -->
         <div class="px-4 md:px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-indigo-50 flex-none">
             <div class="flex items-center justify-between">
                 <h3 class="text-base md:text-lg font-semibold flex items-center gap-2">
@@ -997,7 +1106,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 <button id="btnCloseModal" class="p-2 rounded hover:bg-white/50 text-xl">✕</button>
             </div>
             
-            <!-- Info disponible vs seleccionado -->
             <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                 <div class="bg-white p-3 rounded-lg border border-blue-200">
                     <div class="text-xs text-slate-500 mb-1">💵 Disponible para préstamos</div>
@@ -1012,7 +1120,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             </div>
         </div>
         
-        <!-- FILTROS - Siempre visible -->
+        <!-- FILTROS -->
         <div class="px-4 md:px-6 py-3 border-b border-slate-200 bg-slate-50 flex-none">
             <div class="mb-3">
                 <label class="block text-xs font-medium text-slate-700 mb-2">
@@ -1041,18 +1149,16 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             </div>
         </div>
         
-        <!-- LISTA DE PRÉSTAMOS - MUCHO ESPACIO VERTICAL -->
+        <!-- LISTA DE PRÉSTAMOS -->
         <div id="prestList" class="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-50 prest-list-container" style="min-height: 300px;">
-            <!-- Los préstamos se cargarán aquí -->
             <div class="p-8 text-center text-slate-500">
                 <div class="text-5xl mb-3">📭</div>
                 <div class="text-lg font-medium">Cargando préstamos...</div>
             </div>
         </div>
         
-        <!-- FOOTER - Siempre visible -->
+        <!-- FOOTER -->
         <div class="flex-none border-t border-slate-200 bg-white p-4 md:p-6">
-            <!-- Resumen de selección -->
             <div class="mb-4 text-sm">
                 <div class="flex flex-wrap justify-between items-center gap-2">
                     <div>
@@ -1069,7 +1175,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 </div>
             </div>
             
-            <!-- Valor manual y botones -->
             <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div class="flex items-center gap-3 w-full sm:w-auto">
                     <span class="text-sm text-slate-600 whitespace-nowrap">💰 Valor manual:</span>
@@ -1165,16 +1270,19 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- Modal Gestor de Cuentas -->
+<!-- Modal Gestor de Cuentas CON FUNCIÓN DE FUSIÓN -->
 <div id="gestorCuentasModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
     <div class="absolute inset-0 bg-black/30"></div>
-    <div class="relative mx-auto my-8 w-full max-w-5xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+    <div class="relative mx-auto my-8 w-full max-w-6xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
         <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-            <h3 class="text-lg font-semibold">📚 Cuentas guardadas <span class="bd-badge text-xs px-2 py-1 rounded-full ml-2">Base de Datos</span></h3>
+            <h3 class="text-lg font-semibold">📚 Cuentas guardadas 
+                <span class="bd-badge text-xs px-2 py-1 rounded-full ml-2">Base de Datos</span>
+            </h3>
             <button id="btnCloseGestor" class="p-2 rounded hover:bg-slate-100">✕</button>
         </div>
         
         <div class="p-4 space-y-3">
+            <!-- Filtros y controles -->
             <div class="flex flex-col md:flex-row gap-3">
                 <select id="filtroEmpresaCuentas" class="rounded-xl border border-slate-300 px-3 py-2 min-w-[200px]">
                     <option value="">Todas las empresas</option>
@@ -1197,14 +1305,33 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 </button>
             </div>
             
+            <!-- Barra de acciones para fusión -->
+            <div class="flex items-center justify-between bg-amber-50 p-3 rounded-xl border border-amber-200">
+                <div class="flex items-center gap-3">
+                    <span class="text-sm font-medium text-amber-800">🔀 Acciones con seleccionadas:</span>
+                    <button id="btnFusionarSeleccionadas" 
+                            class="px-4 py-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled>
+                        🔗 Fusionar seleccionadas
+                    </button>
+                </div>
+                <div class="text-xs text-amber-700">
+                    <span id="cuentasSeleccionadasCount">0</span> cuentas seleccionadas
+                </div>
+            </div>
+            
             <div class="text-xs text-slate-500" id="contador-cuentas">
                 Cargando cuentas desde Base de Datos...
             </div>
             
-            <div class="overflow-auto max-h-[60vh] rounded-xl border border-slate-200">
+            <!-- Tabla de cuentas con checkboxes -->
+            <div class="overflow-auto max-h-[50vh] rounded-xl border border-slate-200">
                 <table class="min-w-full text-sm">
                     <thead class="bg-blue-600 text-white">
                     <tr>
+                        <th class="px-3 py-2 text-center w-10">
+                            <input type="checkbox" id="selectAllCuentas" class="cuenta-checkbox" title="Seleccionar todas">
+                        </th>
                         <th class="px-3 py-2 text-left">Nombre / Usuario</th>
                         <th class="px-3 py-2 text-left">Empresas</th>
                         <th class="px-3 py-2 text-left">Rango</th>
@@ -1216,7 +1343,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                     </thead>
                     <tbody id="tbodyCuentasBD" class="divide-y divide-slate-100 bg-white">
                         <tr>
-                            <td colspan="7" class="px-3 py-8 text-center text-slate-500">
+                            <td colspan="8" class="px-3 py-8 text-center text-slate-500">
                                 <div class="animate-pulse">Cargando cuentas...</div>
                             </td>
                         </tr>
@@ -1249,7 +1376,7 @@ const SELECTED_CONDUCTORS_KEY = 'conductores_seleccionados_temp:'+COMPANY_SCOPE;
 const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 const CONDUCTORES_LIST = <?= json_encode(array_map(fn($f)=>$f['nombre'],$filas), JSON_UNESCAPED_UNICODE); ?>;
 
-console.log('✅ Préstamos cargados (TODAS las empresas):', PRESTAMOS_LIST.length);
+console.log('✅ Préstamos cargados:', PRESTAMOS_LIST.length);
 
 // ===== VARIABLE PARA CONTROLAR MODO HISTÓRICO =====
 let modoHistoricoActivo = false;
@@ -1319,7 +1446,7 @@ function aplicarEstadoFila(tr, estado) {
     if (estado) tr.classList.add(`estado-${estado}`);
 }
 
-// ===== FUNCIÓN PRINCIPAL PARA ASIGNAR PRÉSTAMOS A FILAS (MODIFICADA) =====
+// ===== FUNCIÓN PRINCIPAL PARA ASIGNAR PRÉSTAMOS A FILAS =====
 function asignarPrestamosAFilas(usarValoresHistoricos = false) {
     modoHistoricoActivo = usarValoresHistoricos;
     
@@ -1338,7 +1465,7 @@ function asignarPrestamosAFilas(usarValoresHistoricos = false) {
         }
         
         let totalMostrar = 0;
-        let primerosNombres = []; // Aquí guardamos solo los primeros nombres
+        let primerosNombres = [];
         
         prestamosDeEsteConductor.forEach(prestamoGuardado => {
             if (prestamoGuardado.esManual) {
@@ -1347,7 +1474,6 @@ function asignarPrestamosAFilas(usarValoresHistoricos = false) {
             } else {
                 if (usarValoresHistoricos) {
                     totalMostrar += prestamoGuardado.totalActual || 0;
-                    // Extraer solo el primer nombre
                     const nombreCompleto = prestamoGuardado.name || 'Desconocido';
                     const primerNombre = nombreCompleto.split(' ')[0];
                     primerosNombres.push(primerNombre);
@@ -1368,7 +1494,6 @@ function asignarPrestamosAFilas(usarValoresHistoricos = false) {
             }
         });
         
-        // Construir texto con primeros nombres (máximo 3 para no saturar)
         let textoNombres = '';
         if (primerosNombres.length > 3) {
             textoNombres = primerosNombres.slice(0, 3).join(', ') + ` +${primerosNombres.length - 3} más`;
@@ -1376,7 +1501,6 @@ function asignarPrestamosAFilas(usarValoresHistoricos = false) {
             textoNombres = primerosNombres.join(', ');
         }
         
-        // Agregar indicador histórico si aplica
         if (usarValoresHistoricos && prestamosDeEsteConductor.length > 0) {
             textoNombres += ' <span class="badge-historico" title="Valor histórico (fecha de guardado)">📅 histórico</span>';
         }
@@ -1745,7 +1869,7 @@ function hacerPanelArrastrable() {
     document.addEventListener('mouseup', () => isDragging = false);
 }
 
-// ===== MODAL PRÉSTAMOS MULTIEMPRESA =====
+// ===== MODAL PRÉSTAMOS =====
 let currentRow = null;
 let selectedIds = new Set();
 let conductorActual = '';
@@ -1961,7 +2085,7 @@ function closePrestModal() {
     conductorActual = '';
 }
 
-// ===== GESTIÓN DE CUENTAS GUARDADAS EN BD =====
+// ===== GESTIÓN DE CUENTAS GUARDADAS EN BD CON FUSIÓN =====
 const saveCuentaModal = document.getElementById('saveCuentaModal');
 const btnShowSaveCuenta = document.getElementById('btnShowSaveCuenta');
 const btnCloseSaveCuenta = document.getElementById('btnCloseSaveCuenta');
@@ -1980,6 +2104,14 @@ const tbodyCuentasBD = document.getElementById('tbodyCuentasBD');
 const contadorCuentas = document.getElementById('contador-cuentas');
 const totalCuentasInfo = document.getElementById('totalCuentasInfo');
 
+// Elementos para fusión
+const selectAllCuentas = document.getElementById('selectAllCuentas');
+const btnFusionarSeleccionadas = document.getElementById('btnFusionarSeleccionadas');
+const cuentasSeleccionadasCount = document.getElementById('cuentasSeleccionadasCount');
+
+let cuentasSeleccionadas = new Set();
+
+// Modal guardar cuenta
 const iNombre = document.getElementById('cuenta_nombre');
 const iRango = document.getElementById('cuenta_rango');
 const iFacturado = document.getElementById('cuenta_facturado');
@@ -2102,6 +2234,41 @@ btnDoSaveCuenta.addEventListener('click', async () => {
     }
 });
 
+// Función para actualizar el estado del botón de fusión
+function actualizarBotonFusion() {
+    const seleccionadas = Array.from(cuentasSeleccionadas);
+    cuentasSeleccionadasCount.textContent = seleccionadas.length;
+    
+    if (seleccionadas.length >= 2) {
+        btnFusionarSeleccionadas.disabled = false;
+        btnFusionarSeleccionadas.classList.remove('opacity-50', 'cursor-not-allowed');
+    } else {
+        btnFusionarSeleccionadas.disabled = true;
+        btnFusionarSeleccionadas.classList.add('opacity-50', 'cursor-not-allowed');
+    }
+}
+
+// Función para manejar selección de cuentas
+function manejarSeleccionCuenta(id, checked) {
+    if (checked) {
+        cuentasSeleccionadas.add(id);
+    } else {
+        cuentasSeleccionadas.delete(id);
+    }
+    
+    // Actualizar clase visual en la fila
+    const fila = document.querySelector(`tr[data-cuenta-id="${id}"]`);
+    if (fila) {
+        if (checked) {
+            fila.classList.add('fila-cuenta-seleccionada');
+        } else {
+            fila.classList.remove('fila-cuenta-seleccionada');
+        }
+    }
+    
+    actualizarBotonFusion();
+}
+
 async function renderCuentasBD() {
     const empresa = filtroEmpresaCuentas.value;
     const estado = filtroEstadoPagado.value;
@@ -2124,7 +2291,7 @@ async function renderCuentasBD() {
         if (cuentasFiltradas.length === 0) {
             tbodyCuentasBD.innerHTML = `
                 <tr>
-                    <td colspan="7" class="px-3 py-8 text-center text-slate-500">
+                    <td colspan="8" class="px-3 py-8 text-center text-slate-500">
                         <div class="flex flex-col items-center gap-2">
                             <div class="text-3xl">📭</div>
                             <div>No hay cuentas guardadas</div>
@@ -2140,9 +2307,17 @@ async function renderCuentasBD() {
                 ((cuenta.empresas || []).length > 3 ? ` +${(cuenta.empresas.length - 3)} más` : '');
             
             const estaPagado = cuenta.pagado == 1;
+            const seleccionada = cuentasSeleccionadas.has(cuenta.id) ? 'checked' : '';
+            const claseSeleccionada = cuentasSeleccionadas.has(cuenta.id) ? 'fila-cuenta-seleccionada' : '';
             
             html += `
-            <tr class="hover:bg-slate-50">
+            <tr data-cuenta-id="${cuenta.id}" class="hover:bg-slate-50 ${claseSeleccionada}">
+                <td class="px-3 py-3 text-center">
+                    <input type="checkbox" 
+                           class="cuenta-checkbox cuenta-seleccion" 
+                           value="${cuenta.id}" 
+                           ${seleccionada}>
+                </td>
                 <td class="px-3 py-3">
                     <div class="font-medium">${cuenta.nombre}</div>
                     <div class="text-xs text-slate-500">👤 ${cuenta.usuario || 'Sistema'}</div>
@@ -2187,14 +2362,24 @@ async function renderCuentasBD() {
         
         tbodyCuentasBD.innerHTML = html;
         
+        // Eventos para checkboxes de selección
+        document.querySelectorAll('.cuenta-seleccion').forEach(cb => {
+            cb.addEventListener('change', function() {
+                manejarSeleccionCuenta(parseInt(this.value), this.checked);
+            });
+        });
+        
+        // Eventos para botones de cargar
         document.querySelectorAll('.btnCargarCuenta').forEach(btn => {
             btn.addEventListener('click', () => cargarCuentaCompletaBD(btn.dataset.id));
         });
         
+        // Eventos para botones de eliminar
         document.querySelectorAll('.btnEliminarCuenta').forEach(btn => {
             btn.addEventListener('click', () => eliminarCuentaBD(btn.dataset.id));
         });
         
+        // Eventos para switches de estado
         document.querySelectorAll('.switch-estado-cuenta').forEach(switchInput => {
             if (switchInput._handler) {
                 switchInput.removeEventListener('change', switchInput._handler);
@@ -2219,11 +2404,13 @@ async function renderCuentasBD() {
             switchInput.addEventListener('change', switchInput._handler);
         });
         
+        actualizarBotonFusion();
+        
     } catch (error) {
         console.error('Error:', error);
         tbodyCuentasBD.innerHTML = `
             <tr>
-                <td colspan="7" class="px-3 py-8 text-center text-rose-600">
+                <td colspan="8" class="px-3 py-8 text-center text-rose-600">
                     <div>❌ Error al cargar cuentas: ${error.message}</div>
                 </td>
             </tr>`;
@@ -2250,7 +2437,6 @@ async function actualizarEstadoCuenta(id, nuevoEstado, switchElement) {
                 toast: true,
                 position: 'top-end'
             });
-            await renderCuentasBD();
         } else {
             throw new Error(resultado.message);
         }
@@ -2268,7 +2454,7 @@ async function actualizarEstadoCuenta(id, nuevoEstado, switchElement) {
 async function cargarCuentaCompletaBD(id) {
     const confirmacion = await Swal.fire({
         title: '¿Cargar esta cuenta?',
-        text: 'Se restaurarán los valores de préstamos tal como estaban en el momento del guardado (valores históricos)',
+        text: 'Se restaurarán los valores de la cuenta guardada',
         icon: 'question',
         showCancelButton: true,
         confirmButtonText: 'Sí, cargar',
@@ -2370,14 +2556,11 @@ async function cargarCuentaCompletaBD(id) {
             
             Swal.fire({
                 title: '✅ Cuenta cargada',
-                text: `"${cuenta.nombre}" cargada exitosamente. Se han restaurado los valores históricos de préstamos.`,
+                text: `"${cuenta.nombre}" cargada exitosamente`,
                 icon: 'success',
                 timer: 3000,
                 showConfirmButton: true,
-                confirmButtonText: 'Continuar',
-                willClose: () => {
-                    document.querySelector('form').submit();
-                }
+                confirmButtonText: 'Continuar'
             });
             
         } else {
@@ -2408,7 +2591,9 @@ async function eliminarCuentaBD(id) {
         const response = await fetch('', { method: 'POST', body: formData });
         const resultado = await response.json();
         
-        if (resultado.success) {
+                if (resultado.success) {
+            // Remover de seleccionadas si estaba
+            cuentasSeleccionadas.delete(parseInt(id));
             await renderCuentasBD();
             Swal.fire('✅ Eliminada', 'Cuenta eliminada correctamente', 'success');
         } else {
@@ -2419,7 +2604,134 @@ async function eliminarCuentaBD(id) {
     }
 }
 
+// Función para fusionar cuentas seleccionadas
+async function fusionarCuentasSeleccionadas() {
+    const ids = Array.from(cuentasSeleccionadas);
+    
+    if (ids.length < 2) {
+        Swal.fire({
+            title: '⚠️ Selecciona al menos 2 cuentas',
+            text: 'Debes seleccionar dos o más cuentas para fusionar',
+            icon: 'warning'
+        });
+        return;
+    }
+    
+    const confirmacion = await Swal.fire({
+        title: '🔗 Fusionar cuentas',
+        html: `
+            <p>Vas a fusionar <strong>${ids.length} cuentas</strong>.</p>
+            <p class="text-sm text-slate-600 mt-2">Los conductores que se repitan tendrán sus valores base <strong>sumados</strong>.</p>
+            <p class="text-xs text-amber-600 mt-3">Los préstamos y seguridad social se reiniciarán para que los selecciones nuevamente.</p>
+        `,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: '✅ Sí, fusionar',
+        confirmButtonColor: '#f59e0b',
+        cancelButtonText: 'Cancelar'
+    });
+    
+    if (!confirmacion.isConfirmed) return;
+    
+    try {
+        Swal.fire({
+            title: 'Fusionando cuentas...',
+            text: 'Por favor espera',
+            allowOutsideClick: false,
+            didOpen: () => Swal.showLoading()
+        });
+        
+        const formData = new FormData();
+        formData.append('accion', 'fusionar_cuentas');
+        formData.append('ids', JSON.stringify(ids));
+        
+        const response = await fetch('', { method: 'POST', body: formData });
+        const resultado = await response.json();
+        
+        if (resultado.success) {
+            const cuentaFusionada = resultado.cuenta_fusionada;
+            
+            // Limpiar selecciones
+            cuentasSeleccionadas.clear();
+            
+            // Cerrar modal de gestor
+            closeGestor();
+            
+            // Establecer los valores en el formulario principal
+            document.getElementById('filtro_desde').value = cuentaFusionada.desde;
+            document.getElementById('filtro_hasta').value = cuentaFusionada.hasta;
+            
+            // Seleccionar las empresas de la fusión
+            document.querySelectorAll('.empresa-checkbox input').forEach(cb => {
+                cb.checked = cuentaFusionada.empresas.includes(cb.value);
+            });
+            
+            // Limpiar datos actuales
+            prestSel = {};
+            ssMap = {};
+            accMap = {};
+            estadoPagoMap = {};
+            
+            setLS(PREST_SEL_KEY, prestSel);
+            setLS(SS_KEY, ssMap);
+            setLS(ACC_KEY, accMap);
+            setLS(ESTADO_PAGO_KEY, estadoPagoMap);
+            
+            // Eliminar filas manuales existentes
+            document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => tr.remove());
+            manualRows = [];
+            
+            // Crear nuevas filas manuales con los valores base sumados
+            if (cuentaFusionada.datos_json.filasManuales && cuentaFusionada.datos_json.filasManuales.length > 0) {
+                cuentaFusionada.datos_json.filasManuales.forEach(fila => {
+                    agregarFilaManual();
+                    const ultimaFila = tbody.querySelector('tr.fila-manual:last-child');
+                    if (ultimaFila) {
+                        const select = ultimaFila.querySelector('.conductor-select');
+                        const baseInput = ultimaFila.querySelector('.base-manual');
+                        
+                        if (select) select.value = fila.conductor;
+                        if (baseInput) baseInput.value = fmt(fila.base).replace('$', '');
+                        
+                        if (fila.conductor) {
+                            // No restauramos préstamos ni seguridad social
+                            // El usuario los seleccionará nuevamente
+                        }
+                    }
+                });
+                localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
+            }
+            
+            // Establecer el porcentaje de ajuste (promedio de las cuentas fusionadas)
+            document.getElementById('inp_porcentaje_ajuste').value = cuentaFusionada.porcentaje_ajuste;
+            
+            // Recalcular todo
+            recalcularTodo();
+            
+            // Cerrar SweetAlert y mostrar éxito
+            Swal.fire({
+                title: '✅ Cuentas fusionadas',
+                html: `
+                    <p>Se han fusionado <strong>${ids.length} cuentas</strong> exitosamente.</p>
+                    <p class="text-sm mt-2">Los valores base de conductores repetidos se han sumado.</p>
+                    <p class="text-xs text-blue-600 mt-3">Ahora puedes seleccionar los préstamos nuevamente.</p>
+                `,
+                icon: 'success',
+                confirmButtonText: 'Continuar'
+            });
+            
+        } else {
+            throw new Error(resultado.message);
+        }
+    } catch (error) {
+        Swal.fire('❌ Error', error.message, 'error');
+    }
+}
+
 function openGestor() {
+    // Limpiar selecciones anteriores
+    cuentasSeleccionadas.clear();
+    
     fetch('?obtener_cuentas=1')
         .then(r => r.json())
         .then(cuentas => {
@@ -2442,8 +2754,10 @@ function closeGestor() {
     buscaCuentaBD.value = '';
     filtroEmpresaCuentas.value = '';
     filtroEstadoPagado.value = '';
+    cuentasSeleccionadas.clear();
 }
 
+// Event listeners para gestor
 btnShowGestor.addEventListener('click', openGestor);
 btnCloseGestor.addEventListener('click', closeGestor);
 btnRecargarCuentas.addEventListener('click', renderCuentasBD);
@@ -2461,6 +2775,18 @@ btnAddDesdeFiltro.addEventListener('click', () => {
     setTimeout(() => openSaveCuenta(), 300);
 });
 
+// Select all cuentas
+selectAllCuentas?.addEventListener('change', function() {
+    document.querySelectorAll('.cuenta-seleccion').forEach(cb => {
+        cb.checked = this.checked;
+        manejarSeleccionCuenta(parseInt(cb.value), this.checked);
+    });
+});
+
+// Botón de fusión
+btnFusionarSeleccionadas?.addEventListener('click', fusionarCuentasSeleccionadas);
+
+// ===== MODAL PRÉSTAMOS EVENTOS =====
 document.getElementById('btnDeseleccionarTodos').addEventListener('click', () => {
     selectedIds.clear();
     
