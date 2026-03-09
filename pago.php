@@ -853,7 +853,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                     <th class="px-3 py-2 text-right">4x1000</th>
                     <th class="px-3 py-2 text-right">Aporte 10%</th>
                     <th class="px-3 py-2 text-right">Seg social</th>
-                    <th class="px-3 py-2 text-right">Préstamos</th>
+                    <th class="px-3 py-2 text-left">Préstamos</th>
                     <th class="px-3 py-2 text-left">N° Cuenta</th>
                     <th class="px-3 py-2 text-right">A pagar</th>
                     <th class="px-3 py-2 text-center">Estado</th>
@@ -884,14 +884,14 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                         <td class="px-3 py-2 text-right">
                             <input type="text" class="ss w-full max-w-[100px] rounded-lg border border-slate-300 px-2 py-1 text-right num" value="">
                         </td>
-                        <td class="px-3 py-2 text-right">
-                            <div class="flex items-center justify-end gap-2">
-                                <span class="num prest">0</span>
-                                <button type="button" class="btn-prest text-xs px-2 py-1 rounded border border-slate-300 bg-slate-50 hover:bg-slate-100" data-nombre="<?= htmlspecialchars($f['nombre']) ?>">
+                        <td class="px-3 py-2">
+                            <div class="flex items-center gap-1">
+                                <span class="num prest text-sm font-medium">0</span>
+                                <button type="button" class="btn-prest text-xs px-2 py-1 rounded border border-slate-300 bg-slate-50 hover:bg-slate-100">
                                     Sel
                                 </button>
                             </div>
-                            <div class="text-[10px] text-slate-500 text-right selected-deudor"></div>
+                            <div class="text-[10px] text-slate-500 selected-deudor truncate max-w-[150px]"></div>
                         </td>
                         <td class="px-3 py-2">
                             <input type="text" class="cta w-full max-w-[140px] rounded-lg border border-slate-300 px-2 py-1" value="" placeholder="N° cuenta">
@@ -1319,7 +1319,7 @@ function aplicarEstadoFila(tr, estado) {
     if (estado) tr.classList.add(`estado-${estado}`);
 }
 
-// ===== FUNCIÓN PRINCIPAL PARA ASIGNAR PRÉSTAMOS A FILAS =====
+// ===== FUNCIÓN PRINCIPAL PARA ASIGNAR PRÉSTAMOS A FILAS (MODIFICADA) =====
 function asignarPrestamosAFilas(usarValoresHistoricos = false) {
     modoHistoricoActivo = usarValoresHistoricos;
     
@@ -1338,53 +1338,54 @@ function asignarPrestamosAFilas(usarValoresHistoricos = false) {
         }
         
         let totalMostrar = 0;
-        let detalles = [];
-        let empresas = [];
+        let primerosNombres = []; // Aquí guardamos solo los primeros nombres
         
         prestamosDeEsteConductor.forEach(prestamoGuardado => {
             if (prestamoGuardado.esManual) {
                 totalMostrar += prestamoGuardado.valorManual;
-                detalles.push(`💰 Manual: $${fmt(prestamoGuardado.valorManual)}`);
-                empresas.push('Manual');
+                primerosNombres.push('💰 Manual');
             } else {
                 if (usarValoresHistoricos) {
                     totalMostrar += prestamoGuardado.totalActual || 0;
-                    detalles.push(prestamoGuardado.name || 'Desconocido');
-                    empresas.push(prestamoGuardado.empresa || 'N/A');
+                    // Extraer solo el primer nombre
+                    const nombreCompleto = prestamoGuardado.name || 'Desconocido';
+                    const primerNombre = nombreCompleto.split(' ')[0];
+                    primerosNombres.push(primerNombre);
                 } else {
                     const prestamoActual = PRESTAMOS_LIST.find(p => p.id === prestamoGuardado.id);
                     if (prestamoActual) {
                         totalMostrar += prestamoActual.total;
-                        detalles.push(prestamoActual.name);
-                        empresas.push(prestamoActual.empresa);
+                        const nombreCompleto = prestamoActual.name;
+                        const primerNombre = nombreCompleto.split(' ')[0];
+                        primerosNombres.push(primerNombre);
                     } else {
                         totalMostrar += prestamoGuardado.totalActual || 0;
-                        detalles.push(prestamoGuardado.name || 'Eliminado (usando histórico)');
-                        empresas.push(prestamoGuardado.empresa || 'N/A');
+                        const nombreCompleto = prestamoGuardado.name || 'Eliminado';
+                        const primerNombre = nombreCompleto.split(' ')[0];
+                        primerosNombres.push(primerNombre);
                     }
                 }
             }
         });
         
+        // Construir texto con primeros nombres (máximo 3 para no saturar)
+        let textoNombres = '';
+        if (primerosNombres.length > 3) {
+            textoNombres = primerosNombres.slice(0, 3).join(', ') + ` +${primerosNombres.length - 3} más`;
+        } else {
+            textoNombres = primerosNombres.join(', ');
+        }
+        
+        // Agregar indicador histórico si aplica
+        if (usarValoresHistoricos && prestamosDeEsteConductor.length > 0) {
+            textoNombres += ' <span class="badge-historico" title="Valor histórico (fecha de guardado)">📅 histórico</span>';
+        }
+        
         const prestSpan = tr.querySelector('.prest');
         const selLabel = tr.querySelector('.selected-deudor');
+        
         if (prestSpan) prestSpan.textContent = fmt(totalMostrar).replace('$', '');
-        if (selLabel) {
-            const empresasUnicas = [...new Set(empresas)].filter(e => e !== 'Manual');
-            let textoLabel = '';
-            
-            if (empresasUnicas.length > 0) {
-                textoLabel = `${empresasUnicas.length} empresa(s): $${fmt(totalMostrar).replace('$', '')}`;
-            } else if (prestamosDeEsteConductor.some(p => p.esManual)) {
-                textoLabel = `Manual: $${fmt(totalMostrar).replace('$', '')}`;
-            }
-            
-            if (usarValoresHistoricos && prestamosDeEsteConductor.length > 0) {
-                textoLabel += ' <span class="badge-historico" title="Valor histórico (fecha de guardado)">📅 histórico</span>';
-            }
-            
-            selLabel.innerHTML = textoLabel;
-        }
+        if (selLabel) selLabel.innerHTML = textoNombres;
     });
 }
 
@@ -1414,12 +1415,14 @@ function agregarFilaManual(manualIdFromLS = null) {
         <td class="px-3 py-2 text-right">
             <input type="text" class="ss w-full max-w-[80px] rounded-lg border border-slate-300 px-2 py-1 text-right num" value="">
         </td>
-        <td class="px-3 py-2 text-right">
-            <div class="flex items-center justify-end gap-2">
-                <span class="num prest">0</span>
-                <button type="button" class="btn-prest text-xs px-2 py-1 rounded border border-slate-300 bg-slate-50 hover:bg-slate-100">Sel</button>
+        <td class="px-3 py-2">
+            <div class="flex items-center gap-1">
+                <span class="num prest text-sm font-medium">0</span>
+                <button type="button" class="btn-prest text-xs px-2 py-1 rounded border border-slate-300 bg-slate-50 hover:bg-slate-100">
+                    Sel
+                </button>
             </div>
-            <div class="text-[10px] text-slate-500 text-right selected-deudor"></div>
+            <div class="text-[10px] text-slate-500 selected-deudor truncate max-w-[150px]"></div>
         </td>
         <td class="px-3 py-2">
             <input type="text" class="cta w-full max-w-[120px] rounded-lg border border-slate-300 px-2 py-1" placeholder="N° cuenta">
