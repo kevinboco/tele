@@ -881,9 +881,9 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
   /* PANELES LATERALES CON SCROLL VISIBLE */
   .side-panel {
     position: fixed;
-    left: -450px;
+    left: -550px; /* Aumentado para dar más espacio */
     top: 0;
-    width: 420px;
+    width: 550px; /* Aumentado de 420px a 550px */
     height: 100vh;
     background: white;
     box-shadow: 4px 0 25px rgba(0, 0, 0, 0.15);
@@ -913,7 +913,7 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
     padding: 1.25rem;
     padding-bottom: 2rem;
     overflow-y: auto;
-    overflow-x: hidden;
+    overflow-x: auto; /* Cambiado a auto para permitir scroll horizontal */
     flex: 1;
     min-height: 0;
   }
@@ -924,7 +924,60 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
   }
   
   #panel-clasif-rutas table {
-    min-width: 600px;
+    min-width: 900px; /* Aumentado de 600px a 900px para dar más espacio */
+  }
+  
+  /* Estilos para la tabla de clasificación de rutas */
+  .tabla-clasif-rutas {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  
+  .tabla-clasif-rutas th {
+    background-color: #f1f5f9;
+    color: #475569;
+    font-weight: 600;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 12px 8px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    border-bottom: 2px solid #cbd5e1;
+  }
+  
+  .tabla-clasif-rutas td {
+    padding: 10px 8px;
+    border-bottom: 1px solid #e2e8f0;
+    vertical-align: middle;
+  }
+  
+  .tabla-clasif-rutas tr:hover {
+    background-color: #f8fafc;
+  }
+  
+  /* Mini tarjeta de empresa */
+  .empresa-mini-card {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: white;
+    border: 1px solid #cbd5e1;
+    border-radius: 30px;
+    padding: 4px 10px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #334155;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    white-space: nowrap;
+  }
+  
+  .empresa-mini-card span {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   
   .side-panel-close {
@@ -953,7 +1006,7 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
   }
   
   .table-container-wrapper.with-panel {
-    margin-left: 420px;
+    margin-left: 550px; /* Aumentado de 420px a 550px */
   }
   
   .ball-active {
@@ -1357,7 +1410,7 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
     
     .side-panel {
       width: 90%;
-      max-width: 400px;
+      max-width: 500px; /* Aumentado en móvil también */
       left: -100%;
     }
     
@@ -2703,7 +2756,7 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
     </div>
   </div>
 
-  <!-- Panel clasificación rutas -->
+  <!-- Panel clasificación rutas (MEJORADO: MÁS ANCHO + MINI TARJETA DE EMPRESA) -->
   <div class="side-panel" id="panel-clasif-rutas">
     <div class="side-panel-header">
       <h3 class="text-lg font-semibold flex items-center gap-2">
@@ -2715,30 +2768,32 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
     <div class="side-panel-body">
       <div class="max-h-[calc(100vh-180px)] overflow-y-auto border border-slate-200 rounded-xl">
         <?php
-        // Obtener rutas únicas de todas las empresas seleccionadas
+        // Obtener rutas únicas de todas las empresas seleccionadas con DETALLE DE EMPRESA
         $rutasUnicas = [];
         foreach ($empresasSeleccionadas as $empresa) {
-            $sqlRutas = "SELECT DISTINCT ruta, tipo_vehiculo FROM viajes 
+            $sqlRutas = "SELECT DISTINCT ruta, tipo_vehiculo, empresa FROM viajes 
                          WHERE empresa = '$empresa' AND fecha BETWEEN '$desde' AND '$hasta'";
             $resRutas = $conn->query($sqlRutas);
             if ($resRutas) {
                 while ($r = $resRutas->fetch_assoc()) {
-                    $key = $r['ruta'] . '|' . $r['tipo_vehiculo'];
+                    $key = $r['ruta'] . '|' . $r['tipo_vehiculo'] . '|' . $r['empresa'];
                     $clasificacion = $clasif_rutas[mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo']), 'UTF-8')] ?? '';
                     $rutasUnicas[$key] = [
                         'ruta' => $r['ruta'],
                         'vehiculo' => $r['tipo_vehiculo'],
+                        'empresa' => $r['empresa'],
                         'clasificacion' => $clasificacion
                     ];
                 }
             }
         }
         ?>
-        <table class="w-full text-sm">
+        <table class="tabla-clasif-rutas">
           <thead class="bg-slate-100 text-slate-600 sticky top-0 z-10">
             <tr>
               <th class="px-3 py-2 text-left">Ruta</th>
               <th class="px-3 py-2 text-center">Vehículo</th>
+              <th class="px-3 py-2 text-center">Empresa</th>
               <th class="px-3 py-2 text-center">Clasificación</th>
             </tr>
           </thead>
@@ -2747,26 +2802,37 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
             $clasificacion_actual = $info['clasificacion'] ?? '';
             $estilo = obtenerEstiloClasificacion($clasificacion_actual);
             $clase_fila = $clasificacion_actual ? 'fila-clasificada-' . $clasificacion_actual : '';
+            $color_vehiculo = obtenerColorVehiculo($info['vehiculo']);
           ?>
             <tr class="fila-ruta hover:bg-slate-50 <?= $clase_fila ?>"
                 data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
                 data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>"
+                data-empresa="<?= htmlspecialchars($info['empresa']) ?>"
                 data-clasificacion="<?= htmlspecialchars($clasificacion_actual) ?>">
+              
               <td class="px-3 py-2 whitespace-nowrap text-left font-medium">
                 <?= htmlspecialchars($info['ruta']) ?>
               </td>
+              
               <td class="px-3 py-2 text-center">
-                <?php 
-                  $color_vehiculo = obtenerColorVehiculo($info['vehiculo']);
-                ?>
                 <span class="inline-block px-2 py-1 rounded-md text-xs font-medium <?= $color_vehiculo['bg'] ?> <?= $color_vehiculo['text'] ?> border <?= $color_vehiculo['border'] ?>">
                   <?= htmlspecialchars($info['vehiculo']) ?>
                 </span>
               </td>
+              
+              <td class="px-3 py-2 text-center">
+                <!-- MINI TARJETA DE EMPRESA -->
+                <div class="empresa-mini-card">
+                  <span>🏢</span>
+                  <span><?= htmlspecialchars($info['empresa']) ?></span>
+                </div>
+              </td>
+              
               <td class="px-3 py-2 text-center">
                 <select class="select-clasif-ruta rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100 w-full"
                         data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
                         data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>"
+                        data-empresa="<?= htmlspecialchars($info['empresa']) ?>"
                         onchange="actualizarColorFila(this)">
                   <option value="">Sin clasificar</option>
                   <?php foreach ($clasificaciones_disponibles as $clasif): 
