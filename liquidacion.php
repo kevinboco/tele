@@ -187,13 +187,13 @@ if (isset($_POST['guardar_columnas_seleccionadas'])) {
 }
 
 /* =======================================================
-   🔹 Endpoint AJAX: viajes por conductor (sin cambios)
+   🔹 Endpoint AJAX: viajes por conductor (MODIFICADO para respetar filtro de empresas)
 ======================================================= */
 if (isset($_GET['viajes_conductor'])) {
     $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
     $desde   = $_GET['desde'];
     $hasta   = $_GET['hasta'];
-    $empresa = $_GET['empresa'] ?? "";
+    $empresasFiltro = $_GET['empresas'] ?? ""; // Recibir las empresas seleccionadas
 
     $clasificaciones_disponibles = obtenerClasificacionesDisponibles($conn);
     $legend = [];
@@ -216,14 +216,21 @@ if (isset($_GET['viajes_conductor'])) {
         }
     }
 
+    // Construir consulta SQL respetando el filtro de empresas
     $sql = "SELECT fecha, ruta, empresa, tipo_vehiculo, COALESCE(pago_parcial,0) AS pago_parcial
             FROM viajes
             WHERE nombre = '$nombre'
               AND fecha BETWEEN '$desde' AND '$hasta'";
-    if ($empresa !== "") {
-        $empresa = $conn->real_escape_string($empresa);
-        $sql .= " AND empresa = '$empresa'";
+    
+    // Aplicar filtro de empresas si existe
+    if (!empty($empresasFiltro)) {
+        $empresasArray = explode(',', $empresasFiltro);
+        $empresasEscapadas = array_map(function($e) use ($conn) {
+            return "'" . $conn->real_escape_string($e) . "'";
+        }, $empresasArray);
+        $sql .= " AND empresa IN (" . implode(',', $empresasEscapadas) . ")";
     }
+    
     $sql .= " ORDER BY fecha ASC";
 
     $res = $conn->query($sql);
@@ -478,6 +485,9 @@ if (empty($empresasSeleccionadas) || in_array("", $empresasSeleccionadas)) {
     $empresasSeleccionadas = [];
     if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresasSeleccionadas[] = $r['empresa'];
 }
+
+// Guardar empresas seleccionadas como string para pasar al modal
+$empresasFiltroString = implode(',', $empresasSeleccionadas);
 
 // Obtener datos dinámicos
 $columnas_tarifas = obtenerColumnasTarifas($conn);
@@ -1847,6 +1857,7 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
     const RANGO_DESDE = <?= json_encode($desde) ?>;
     const RANGO_HASTA = <?= json_encode($hasta) ?>;
     const EMPRESAS_SELECCIONADAS = <?= json_encode($empresasSeleccionadas) ?>;
+    const EMPRESAS_FILTRO_STRING = <?= json_encode($empresasFiltroString) ?>;
     const CLASIFICACIONES_DISPONIBLES = <?= json_encode($clasificaciones_disponibles) ?>;
     
     // ===== SISTEMA DE BOLITAS Y PANELES =====
@@ -2463,7 +2474,7 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
       .catch(error => alert('❌ Error de conexión: ' + error));
     }
     
-    // ===== MODAL DE VIAJES =====
+    // ===== MODAL DE VIAJES (MODIFICADO para pasar el filtro de empresas) =====
     const viajesModal = document.getElementById('viajesModal');
     const viajesContent = document.getElementById('viajesContent');
     const viajesTitle = document.getElementById('viajesTitle');
@@ -2473,14 +2484,24 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
     
     function abrirModalViajes(nombreConductor, empresa) {
       viajesRango.textContent = RANGO_DESDE + " → " + RANGO_HASTA;
-      viajesEmpresa.textContent = empresa || "Todas las empresas";
+      
+      // Mostrar las empresas seleccionadas en el texto
+      if (EMPRESAS_SELECCIONADAS.length === 1) {
+        viajesEmpresa.textContent = EMPRESAS_SELECCIONADAS[0];
+      } else if (EMPRESAS_SELECCIONADAS.length > 1) {
+        viajesEmpresa.textContent = EMPRESAS_SELECCIONADAS.length + " empresas seleccionadas";
+      } else {
+        viajesEmpresa.textContent = "Todas las empresas";
+      }
+      
       viajesTitle.textContent = nombreConductor;
       
+      // Construir query string incluyendo el filtro de empresas
       const qs = new URLSearchParams({
         viajes_conductor: nombreConductor,
         desde: RANGO_DESDE,
         hasta: RANGO_HASTA,
-        empresa: ""  // Vacío para traer de todas las empresas seleccionadas
+        empresas: EMPRESAS_FILTRO_STRING  // Pasar las empresas seleccionadas
       });
       
       viajesContent.innerHTML = '<p class="text-center py-4 animate-pulse">Cargando viajes...</p>';
