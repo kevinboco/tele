@@ -2813,7 +2813,7 @@ document.getElementById('prestValorManual').addEventListener('input', () => {
     actualizarResumenSeleccion();
 });
 
-// ===== INICIALIZACIÓN =====
+// ===== INICIALIZACIÓ =====
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('btnSeleccionarTodas')?.addEventListener('click', () => {
         document.querySelectorAll('.empresa-checkbox input').forEach(cb => cb.checked = true);
