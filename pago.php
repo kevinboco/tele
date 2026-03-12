@@ -2043,6 +2043,7 @@ function actualizarResumenSeleccion() {
     }
 }
 
+// ===== FUNCIÓN MODIFICADA - SOLO ESTO CAMBIÓ =====
 function openPrestModalForRow(tr) {
     currentRow = tr;
     selectedIds = new Set();
@@ -2070,14 +2071,23 @@ function openPrestModalForRow(tr) {
         }
     });
     
-    document.getElementById('prestSearch').value = '';
+    // 🔥 NUEVO: Obtener primeras 3 letras del nombre y pre-llenar el buscador
+    const primerasTresLetras = baseName.substring(0, 3).toLowerCase();
+    document.getElementById('prestSearch').value = primerasTresLetras;
+    
     document.getElementById('prestValorManual').value = '';
     
     cargarEmpresasMultiSelect();
     renderizarListaPrestamos(PRESTAMOS_LIST);
     actualizarResumenSeleccion();
     
+    // Mostrar el modal
     document.getElementById('prestModal').classList.remove('hidden');
+    
+    // 🔥 Poner el foco en el campo de búsqueda y seleccionar el texto
+    const searchInput = document.getElementById('prestSearch');
+    searchInput.focus();
+    searchInput.select(); // Selecciona el texto para que si escribe, lo reemplace
 }
 
 function closePrestModal() {
