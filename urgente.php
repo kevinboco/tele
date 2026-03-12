@@ -1,6 +1,4 @@
 <?php
-session_start(); // INICIAR SESIÓN AL PRINCIPIO
-
 include("nav.php");
 // Conexión a la base de datos
 define('DB_HOST', 'mysql.hostinger.com');
@@ -28,42 +26,12 @@ CREATE TABLE IF NOT EXISTS config_prestamistas (
 $conn->query($sql_crear_tabla);
 
 // ============================================
-// 2. GESTIÓN DE DEUDORES EXCLUIDOS EN SESIÓN
-// ============================================
-if (!isset($_SESSION['deudores_excluidos'])) {
-    $_SESSION['deudores_excluidos'] = [];
-}
-
-// Agregar deudor a excluir
-if (isset($_POST['excluir_deudor_global']) && !empty($_POST['excluir_deudor_global'])) {
-    $deudor_a_excluir = $_POST['excluir_deudor_global'];
-    if (!in_array($deudor_a_excluir, $_SESSION['deudores_excluidos'])) {
-        $_SESSION['deudores_excluidos'][] = $deudor_a_excluir;
-    }
-    // Recargar la página para aplicar cambios
-    header("Location: " . $_SERVER['PHP_SELF']);
-    exit;
-}
-
-// Quitar deudor de excluidos
-if (isset($_POST['incluir_deudor_global']) && !empty($_POST['incluir_deudor_global'])) {
-    $deudor_a_incluir = $_POST['incluir_deudor_global'];
-    $key = array_search($deudor_a_incluir, $_SESSION['deudores_excluidos']);
-    if ($key !== false) {
-        unset($_SESSION['deudores_excluidos'][$key]);
-        $_SESSION['deudores_excluidos'] = array_values($_SESSION['deudores_excluidos']);
-    }
-    header("Location: " . $_SERVER['PHP_SELF']);
-    exit;
-}
-
-// ============================================
-// 3. FECHA DE CORTE - CAMBIO DE 10% A 13%
+// 2. FECHA DE CORTE - CAMBIO DE 10% A 13%
 // ============================================
 $FECHA_CORTE = new DateTime('2025-10-29');
 
 // ============================================
-// 4. PROCESAR GUARDADO DE CONFIGURACIÓN
+// 3. PROCESAR GUARDADO DE CONFIGURACIÓN
 // ============================================
 if (isset($_POST['guardar_config'])) {
     $prestamista = $_POST['prestamista_config'];
@@ -91,7 +59,7 @@ if (isset($_POST['guardar_config'])) {
 }
 
 // ============================================
-// 5. OBTENER CONFIGURACIÓN ACTUAL DE PRESTAMISTAS
+// 4. OBTENER CONFIGURACIÓN ACTUAL DE PRESTAMISTAS
 // ============================================
 $config_prestamistas = [];
 $sql_config = "SELECT * FROM config_prestamistas ORDER BY prestamista";
@@ -106,13 +74,13 @@ if ($result_config) {
 }
 
 // ============================================
-// 6. VARIABLE PARA MODO PAGADO/PENDIENTE
+// 5. VARIABLE PARA MODO PAGADO/PENDIENTE
 // ============================================
 $modo_pagados = isset($_POST['modo_pagados']) && $_POST['modo_pagados'] == '1';
 $fecha_pago_seleccionada = $_POST['fecha_pago'] ?? '';
 
 // ============================================
-// 7. FUNCIÓN PARA CALCULAR MESES
+// 6. FUNCIÓN PARA CALCULAR MESES
 // ============================================
 function calcularMesesAutomaticos($fecha_prestamo) {
     $hoy = new DateTime();
@@ -143,7 +111,7 @@ $empresas_seleccionadas_array = [];
 $prestamos_por_deudor = [];
 $otros_prestamos_por_deudor = [];
 
-// ARRAY para almacenar IDs excluidos (préstamos específicos)
+// ARRAY para almacenar IDs excluidos
 $prestamos_excluidos = isset($_POST['prestamos_excluidos']) ? explode(',', $_POST['prestamos_excluidos']) : [];
 
 // Totales generales
@@ -179,23 +147,14 @@ $sql_prestamistas_lista = "SELECT DISTINCT prestamista FROM prestamos WHERE pres
 $result_prestamistas_lista = $conn->query($sql_prestamistas_lista);
 
 // FUNCIÓN PARA CALCULAR GANANCIA DE UN PRESTAMISTA
-function calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestamistas, $prestamos_excluidos = [], $empresas_filtradas = '', $modo_pagados = false, $fecha_pago = '', $deudores_excluidos_sesion = []) {
+function calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestamistas, $prestamos_excluidos = [], $empresas_filtradas = '', $modo_pagados = false, $fecha_pago = '') {
     $FECHA_CORTE = '2025-10-29';
     
-    // Preparar condición para excluidos (IDs específicos)
+    // Preparar condición para excluidos
     $condicion_excluidos = '';
     if (!empty($prestamos_excluidos)) {
         $ids_excluidos = array_map('intval', $prestamos_excluidos);
         $condicion_excluidos = "AND id NOT IN (" . implode(',', $ids_excluidos) . ")";
-    }
-    
-    // Preparar condición para deudores excluidos en sesión
-    $condicion_deudores_excluidos = '';
-    if (!empty($deudores_excluidos_sesion)) {
-        $deudores_escapados = array_map(function($d) use ($conn) {
-            return "'" . $conn->real_escape_string($d) . "'";
-        }, $deudores_excluidos_sesion);
-        $condicion_deudores_excluidos = "AND deudor NOT IN (" . implode(',', $deudores_escapados) . ")";
     }
     
     // Preparar condición para empresas (múltiples)
@@ -235,8 +194,7 @@ function calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestam
             WHERE prestamista = ? 
             $condicion_pagado
             $condicion_empresa
-            $condicion_excluidos
-            $condicion_deudores_excluidos";
+            $condicion_excluidos";
     
     $stmt = $conn->prepare($sql);
     
@@ -296,7 +254,7 @@ if ($result_prestamistas_lista && $result_prestamistas_lista->num_rows > 0) {
     while ($prest = $result_prestamistas_lista->fetch_assoc()) {
         $prestamista_nombre = $prest['prestamista'];
         
-        $datos_ganancia = calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestamistas, $prestamos_excluidos, $empresa_seleccionada ?? '', $modo_pagados, $fecha_pago_seleccionada, $_SESSION['deudores_excluidos']);
+        $datos_ganancia = calcularGananciaPrestamista($conn, $prestamista_nombre, $config_prestamistas, $prestamos_excluidos, $empresa_seleccionada ?? '', $modo_pagados, $fecha_pago_seleccionada);
         
         $ganancias_por_prestamista[$prestamista_nombre] = $datos_ganancia;
         $total_todas_tus_comisiones += $datos_ganancia['tu_ganancia'];
@@ -304,7 +262,7 @@ if ($result_prestamistas_lista && $result_prestamistas_lista->num_rows > 0) {
 }
 
 // Si es POST procesamos el reporte
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) && !isset($_POST['excluir_deudor_global']) && !isset($_POST['incluir_deudor_global'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
     $deudores_seleccionados = isset($_POST['deudores']) ? $_POST['deudores'] : [];
     if (is_string($deudores_seleccionados)) {
         $deudores_seleccionados = $deudores_seleccionados !== '' ? explode(',', $deudores_seleccionados) : [];
@@ -312,7 +270,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
     $prestamista_seleccionado = $_POST['prestamista'] ?? '';
     $fecha_desde = $_POST['fecha_desde'] ?? '';
     $fecha_hasta = $_POST['fecha_hasta'] ?? '';
-    $empresa_seleccionada = $_POST['empresa'] ?? '';
+    $empresa_seleccionada = $_POST['empresa'] ?? ''; // Ahora viene como string con comas
     $empresas_seleccionadas_array = !empty($empresa_seleccionada) ? explode(',', $empresa_seleccionada) : [];
     $prestamos_excluidos = isset($_POST['prestamos_excluidos']) ? explode(',', $_POST['prestamos_excluidos']) : [];
     $modo_pagados = isset($_POST['modo_pagados']) && $_POST['modo_pagados'] == '1';
@@ -386,42 +344,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
         }
     }
 
-    // ============================================
-    // OBTENER DEUDORES PARA EL DROPDOWN GLOBAL
-    // ============================================
-    $deudores_para_dropdown = [];
-    if (!empty($fecha_desde) && !empty($fecha_hasta) && !empty($empresa_seleccionada)) {
-        $sql_deudores_dropdown = "SELECT DISTINCT p.deudor
-                                  FROM prestamos p
-                                  WHERE p.empresa IN (" . str_repeat('?,', count($empresas_seleccionadas_array) - 1) . "?)
-                                    AND p.fecha BETWEEN ? AND ?
-                                    AND p.deudor IS NOT NULL
-                                    AND p.deudor != ''
-                                  ORDER BY p.deudor";
-        
-        $stmt_dropdown = $conn->prepare($sql_deudores_dropdown);
-        
-        $params_dropdown = [];
-        $types_dropdown = "";
-        
-        foreach ($empresas_seleccionadas_array as $emp) {
-            $params_dropdown[] = trim($emp);
-            $types_dropdown .= "s";
-        }
-        
-        $params_dropdown[] = $fecha_desde;
-        $params_dropdown[] = $fecha_hasta;
-        $types_dropdown .= "ss";
-        
-        $stmt_dropdown->bind_param($types_dropdown, ...$params_dropdown);
-        $stmt_dropdown->execute();
-        $result_dropdown = $stmt_dropdown->get_result();
-        
-        while ($row_dropdown = $result_dropdown->fetch_assoc()) {
-            $deudores_para_dropdown[] = $row_dropdown['deudor'];
-        }
-    }
-
     // PRÉSTAMOS DE DEUDORES SELECCIONADOS
     if (!empty($prestamista_seleccionado) && !empty($empresa_seleccionada)) {
         
@@ -491,11 +413,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
             
             $meses = $modo_pagados ? 1 : calcularMesesAutomaticos($fila['fecha']);
             $fecha_prestamo_dt = new DateTime($fila['fecha']);
-            
-            // Verificar si el deudor está excluido en sesión
-            $deudor_excluido_sesion = in_array($deudor, $_SESSION['deudores_excluidos']);
-            
-            $es_excluido = in_array($fila['id'], $prestamos_excluidos) || $deudor_excluido_sesion;
+            $es_excluido = in_array($fila['id'], $prestamos_excluidos);
             
             $es_prestamo_viejo = ($fecha_prestamo_dt < $FECHA_CORTE);
             
@@ -550,8 +468,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
                 'total' => $total_prestamo,
                 'incluido' => !$es_excluido,
                 'excluido' => $es_excluido,
-                'pagado_at' => $modo_pagados ? $fecha_pago_seleccionada : NULL,
-                'deudor_excluido_sesion' => $deudor_excluido_sesion
+                'pagado_at' => $modo_pagados ? $fecha_pago_seleccionada : NULL
             ];
         }
     }
@@ -562,15 +479,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
         if (!empty($prestamos_excluidos)) {
             $ids_excluidos = array_map('intval', $prestamos_excluidos);
             $condicion_excluidos = " AND id NOT IN (" . implode(',', $ids_excluidos) . ")";
-        }
-        
-        // Condición para deudores excluidos en sesión
-        $condicion_deudores_excluidos = '';
-        if (!empty($_SESSION['deudores_excluidos'])) {
-            $deudores_escapados = array_map(function($d) use ($conn) {
-                return "'" . $conn->real_escape_string($d) . "'";
-            }, $_SESSION['deudores_excluidos']);
-            $condicion_deudores_excluidos = " AND deudor NOT IN (" . implode(',', $deudores_escapados) . ")";
         }
         
         $sql_otros = "SELECT 
@@ -586,7 +494,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
                         AND deudor IS NOT NULL
                         AND deudor != ''
                         $condicion_excluidos
-                        $condicion_deudores_excluidos
                       ORDER BY deudor, fecha";
         
         $stmt_otros = $conn->prepare($sql_otros);
@@ -659,7 +566,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
     $result_prestamistas = $conn->query($sql_prestamistas);
     $conductores_filtrados = [];
     $empresas_seleccionadas_array = [];
-    $deudores_para_dropdown = [];
 }
 ?>
 
@@ -737,119 +643,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
             font-size:0.75rem;
             text-transform:uppercase;
             color:var(--accent);
-        }
-
-        /* NUEVO ESTILO PARA EXCLUSIÓN GLOBAL */
-        .exclusion-global-section {
-            background: linear-gradient(135deg, #1e293b, #0f172a);
-            border-radius: 16px;
-            padding: 18px 20px;
-            margin-bottom: 20px;
-            border: 2px solid var(--danger);
-            box-shadow: 0 10px 25px rgba(239, 68, 68, 0.3);
-        }
-
-        .exclusion-global-header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 15px;
-        }
-
-        .exclusion-global-header h3 {
-            margin: 0;
-            color: #ef4444;
-            font-weight: 700;
-            font-size: 1.2rem;
-        }
-
-        .buscador-exclusion {
-            position: relative;
-            margin-bottom: 15px;
-        }
-
-        .buscador-exclusion input {
-            width: 100%;
-            padding: 12px 15px 12px 45px;
-            border-radius: 50px;
-            border: 1px solid rgba(239, 68, 68, 0.4);
-            background: #020617;
-            color: var(--text-main);
-            font-size: 0.95rem;
-        }
-
-        .buscador-exclusion .icon {
-            position: absolute;
-            left: 15px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: #ef4444;
-            font-size: 1.2rem;
-        }
-
-        .deudores-excluidos-list {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 10px;
-        }
-
-        .deudor-excluido-tag {
-            background: rgba(239, 68, 68, 0.2);
-            border: 1px solid rgba(239, 68, 68, 0.5);
-            border-radius: 50px;
-            padding: 6px 15px;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 0.85rem;
-            color: #ef4444;
-        }
-
-        .btn-quitar-excluido {
-            background: none;
-            border: none;
-            color: #ef4444;
-            cursor: pointer;
-            font-size: 1.2rem;
-            padding: 0 5px;
-            box-shadow: none;
-        }
-
-        .btn-quitar-excluido:hover {
-            color: white;
-        }
-
-        .dropdown-deudores {
-            width: 100%;
-            max-height: 300px;
-            overflow-y: auto;
-            background: #0b1220;
-            border: 1px solid rgba(239, 68, 68, 0.4);
-            border-radius: 12px;
-            margin-top: 5px;
-            position: absolute;
-            z-index: 1000;
-            display: none;
-        }
-
-        .dropdown-deudores.show {
-            display: block;
-        }
-
-        .dropdown-item {
-            padding: 10px 15px;
-            cursor: pointer;
-            border-bottom: 1px solid rgba(239, 68, 68, 0.2);
-            transition: all 0.2s;
-        }
-
-        .dropdown-item:hover {
-            background: rgba(239, 68, 68, 0.3);
-        }
-
-        .dropdown-item:last-child {
-            border-bottom: none;
         }
 
         .total-comisiones-general {
@@ -1050,12 +843,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
             background: rgba(34, 197, 94, 0.2);
             color: #22c55e;
             border: 1px solid rgba(34, 197, 94, 0.4);
-        }
-
-        .badge-excluido {
-            background: rgba(239, 68, 68, 0.2);
-            color: #ef4444;
-            border: 1px solid rgba(239, 68, 68, 0.4);
         }
 
         .nota-pagados{
@@ -1408,80 +1195,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
                 <h1>Reporte de Préstamos Consolidados</h1>
             </div>
         </div>
-
-        <!-- NUEVA SECCIÓN: EXCLUSIÓN GLOBAL POR DEUDOR (SOLO VISIBLE SI HAY FILTROS) -->
-        <?php if (!empty($fecha_desde) && !empty($fecha_hasta) && !empty($empresa_seleccionada) && !$modo_pagados): ?>
-        <div class="exclusion-global-section">
-            <div class="exclusion-global-header">
-                <span style="font-size: 1.5rem;">🚫</span>
-                <h3>EXCLUSIÓN GLOBAL DE DEUDORES</h3>
-                <span style="background: rgba(239,68,68,0.2); padding: 3px 10px; border-radius: 50px; font-size: 0.75rem; border: 1px solid #ef4444;">
-                    Solo para préstamos pendientes
-                </span>
-            </div>
-            
-            <!-- Deudores actualmente excluidos -->
-            <?php if (!empty($_SESSION['deudores_excluidos'])): ?>
-            <div style="margin-bottom: 15px;">
-                <strong style="color: #ef4444;">Deudores excluidos actualmente:</strong>
-                <div class="deudores-excluidos-list">
-                    <?php foreach ($_SESSION['deudores_excluidos'] as $deudor_excluido): ?>
-                    <span class="deudor-excluido-tag">
-                        <?php echo htmlspecialchars($deudor_excluido); ?>
-                        <form method="POST" style="display: inline; margin:0;">
-                            <input type="hidden" name="incluir_deudor_global" value="<?php echo htmlspecialchars($deudor_excluido); ?>">
-                            <button type="submit" class="btn-quitar-excluido" title="Quitar exclusión">×</button>
-                        </form>
-                    </span>
-                    <?php endforeach; ?>
-                </div>
-            </div>
-            <?php endif; ?>
-            
-            <!-- Buscador y dropdown -->
-            <div style="position: relative;">
-                <div class="buscador-exclusion">
-                    <span class="icon">🔍</span>
-                    <input type="text" id="buscadorDeudoresGlobal" placeholder="Buscar deudor para excluir globalmente..." autocomplete="off">
-                </div>
-                
-                <div id="dropdownDeudoresGlobal" class="dropdown-deudores">
-                    <?php if (!empty($deudores_para_dropdown)): ?>
-                        <?php 
-                        // Ordenar y mostrar solo los que NO están ya excluidos
-                        $deudores_disponibles = array_diff($deudores_para_dropdown, $_SESSION['deudores_excluidos']);
-                        sort($deudores_disponibles);
-                        foreach ($deudores_disponibles as $deudor): 
-                        ?>
-                        <div class="dropdown-item" data-value="<?php echo htmlspecialchars($deudor); ?>">
-                            <?php echo htmlspecialchars($deudor); ?>
-                        </div>
-                        <?php endforeach; ?>
-                    <?php else: ?>
-                        <div class="dropdown-item" style="color: #9ca3af; text-align: center;">
-                            No hay deudores disponibles para excluir
-                        </div>
-                    <?php endif; ?>
-                </div>
-                
-                <!-- Form oculto para enviar la exclusión -->
-                <form method="POST" id="formExcluirGlobal">
-                    <input type="hidden" name="excluir_deudor_global" id="excluirDeudorInput" value="">
-                    <!-- Mantener los filtros actuales -->
-                    <input type="hidden" name="modo_pagados" value="<?php echo $modo_pagados ? '1' : '0'; ?>">
-                    <input type="hidden" name="fecha_desde" value="<?php echo htmlspecialchars($fecha_desde); ?>">
-                    <input type="hidden" name="fecha_hasta" value="<?php echo htmlspecialchars($fecha_hasta); ?>">
-                    <input type="hidden" name="empresa" value="<?php echo htmlspecialchars($empresa_seleccionada); ?>">
-                    <input type="hidden" name="prestamista" value="<?php echo htmlspecialchars($prestamista_seleccionado); ?>">
-                    <input type="hidden" name="deudores" value="<?php echo htmlspecialchars(implode(',', $deudores_seleccionados)); ?>">
-                </form>
-            </div>
-            
-            <div style="margin-top: 10px; font-size: 0.8rem; color: #ef4444;">
-                <small>ⓘ Al seleccionar un deudor, TODOS sus préstamos se excluirán automáticamente de TODOS los prestamistas.</small>
-            </div>
-        </div>
-        <?php endif; ?>
         
         <!-- Switch para cambiar entre modo pendiente/pagado -->
         <div class="modo-switch-container">
@@ -1762,12 +1475,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
                                     $conductores_filtrados = array_unique($conductores_filtrados);
                                     sort($conductores_filtrados);
                                     foreach ($conductores_filtrados as $conductor): 
-                                        // Verificar si el conductor está excluido globalmente
-                                        $excluido_global = in_array($conductor, $_SESSION['deudores_excluidos']);
                                         $es_seleccionado = in_array($conductor, $deudores_seleccionados);
-                                        
-                                        // No mostrar conductores excluidos globalmente
-                                        if ($excluido_global) continue;
                                 ?>
                                     <div class="deudor-item <?php echo $es_seleccionado ? 'selected' : ''; ?>" 
                                          data-value="<?php echo htmlspecialchars($conductor); ?>">
@@ -1794,9 +1502,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
                             <div class="contador-deudores" id="contadorDeudores">
                                 <?php 
                                 if (!empty($conductores_filtrados)) {
-                                    // Contar solo los no excluidos
-                                    $conductores_no_excluidos = array_diff($conductores_filtrados, $_SESSION['deudores_excluidos']);
-                                    $total_conductores = count($conductores_no_excluidos);
+                                    $total_conductores = count($conductores_filtrados);
                                     $seleccionados = count($deudores_seleccionados);
                                     echo "Seleccionados: $seleccionados de $total_conductores conductores";
                                 }
@@ -1898,9 +1604,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
                         <td>
                             <span class="detalle-toggle" onclick="toggleDetalle('<?php echo md5($deudor); ?>')">
                                 <?php echo htmlspecialchars($deudor); ?>
-                                <?php if (in_array($deudor, $_SESSION['deudores_excluidos'])): ?>
-                                    <span class="badge-tipo badge-excluido">🚫 Excluido Global</span>
-                                <?php endif; ?>
                             </span>
                         </td>
                         <td><?php echo $datos['cantidad_prestamos']; ?></td>
@@ -1932,57 +1635,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
                                 <tbody>
                                     <?php foreach ($datos['prestamos_detalle'] as $index => $detalle): 
                                         $es_excluido = $detalle['excluido'] ?? false;
-                                        $excluido_global = $detalle['deudor_excluido_sesion'] ?? false;
                                     ?>
-                                    <tr class="fila-prestamo <?php echo $detalle['tipo'] == 'viejo' ? 'prestamo-viejo' : 'prestamo-nuevo'; ?> <?php echo ($es_excluido || $excluido_global) ? 'excluido' : ''; ?>" 
+                                    <tr class="fila-prestamo <?php echo $detalle['tipo'] == 'viejo' ? 'prestamo-viejo' : 'prestamo-nuevo'; ?> <?php echo $es_excluido ? 'excluido' : ''; ?>" 
                                         data-deudor="<?php echo md5($deudor); ?>" data-id="<?php echo $detalle['id']; ?>"
                                         data-monto="<?php echo $detalle['monto']; ?>"
                                         data-interes="<?php echo $detalle['interes_prestamista']; ?>"
                                         data-comision="<?php echo $detalle['comision_personal']; ?>">
                                         <td class="acciones">
-                                            <?php if ($excluido_global): ?>
-                                                <span class="badge-tipo badge-excluido" style="margin:0;">🚫</span>
-                                                <input type="checkbox" class="checkbox-excluir" style="display:none;">
-                                            <?php else: ?>
-                                                <input type="checkbox" class="checkbox-excluir" <?php echo !$es_excluido ? 'checked' : ''; ?> 
-                                                       onchange="togglePrestamo(this, <?php echo $detalle['id']; ?>)">
-                                            <?php endif; ?>
+                                            <input type="checkbox" class="checkbox-excluir" <?php echo !$es_excluido ? 'checked' : ''; ?> 
+                                                   onchange="togglePrestamo(this, <?php echo $detalle['id']; ?>)">
                                         </td>
                                         <td>
-                                            <?php if (!$excluido_global): ?>
                                             <input type="number" class="abono-input" placeholder="Abono" value="0"
                                                    onchange="calcularAbono(this)" min="0" step="1000">
-                                            <?php else: ?>
-                                            <span style="color: #ef4444;">Excluido</span>
-                                            <?php endif; ?>
                                         </td>
                                         <td><?php echo $detalle['fecha']; ?></td>
                                         <td>
                                             <span class="badge-tipo <?php echo $detalle['tipo'] == 'viejo' ? 'badge-viejo' : 'badge-nuevo'; ?>">
                                                 <?php echo $detalle['tipo'] == 'viejo' ? 'Viejo' : 'Nuevo'; ?>
                                             </span>
-                                            <?php if ($excluido_global): ?>
-                                                <span class="badge-tipo badge-excluido">Global</span>
-                                            <?php endif; ?>
                                         </td>
                                         <td class="moneda">
                                             $ <?php echo number_format($detalle['monto'], 0, ',', '.'); ?>
                                             <span class="capital-pendiente" id="pendiente-<?php echo $detalle['id']; ?>">
-                                                <?php if (!$excluido_global): ?>
-                                                    Faltan: $<?php echo number_format($detalle['monto'], 0, ',', '.'); ?>
-                                                <?php else: ?>
-                                                    Excluido
-                                                <?php endif; ?>
+                                                Faltan: $<?php echo number_format($detalle['monto'], 0, ',', '.'); ?>
                                             </span>
                                         </td>
                                         <?php if (!$modo_pagados): ?>
                                         <td class="acciones">
-                                            <?php if (!$excluido_global): ?>
                                             <input type="number" class="meses-input" value="<?php echo $detalle['meses']; ?>" 
                                                    min="1" max="36" onchange="recalcularPrestamo(this)"
                                                    data-monto="<?php echo $detalle['monto']; ?>"
                                                    data-tipo="<?php echo $detalle['tipo']; ?>">
-                                            <?php endif; ?>
                                         </td>
                                         <?php endif; ?>
                                         <td class="moneda interes-prestamista-prestamo">$ <?php echo number_format($detalle['interes_prestamista'], 0, ',', '.'); ?></td>
@@ -2066,9 +1750,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
             inicializarAbonos();
             actualizarListaEmpresas();
             
-            // Inicializar buscador global
-            initBuscadorGlobal();
-            
             const empresaSelect = document.getElementById('empresa');
             if (empresaSelect) {
                 empresaSelect.addEventListener('change', function() {
@@ -2078,47 +1759,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
                 });
             }
         });
-
-        function initBuscadorGlobal() {
-            const input = document.getElementById('buscadorDeudoresGlobal');
-            const dropdown = document.getElementById('dropdownDeudoresGlobal');
-            
-            if (!input || !dropdown) return;
-            
-            input.addEventListener('focus', function() {
-                dropdown.classList.add('show');
-            });
-            
-            input.addEventListener('input', function() {
-                const filtro = this.value.toLowerCase();
-                const items = dropdown.querySelectorAll('.dropdown-item');
-                
-                items.forEach(item => {
-                    const texto = item.textContent.toLowerCase();
-                    if (texto.includes(filtro) || filtro === '') {
-                        item.style.display = 'block';
-                    } else {
-                        item.style.display = 'none';
-                    }
-                });
-            });
-            
-            document.querySelectorAll('.dropdown-item').forEach(item => {
-                item.addEventListener('click', function() {
-                    const deudor = this.getAttribute('data-value');
-                    if (deudor) {
-                        document.getElementById('excluirDeudorInput').value = deudor;
-                        document.getElementById('formExcluirGlobal').submit();
-                    }
-                });
-            });
-            
-            document.addEventListener('click', function(e) {
-                if (!input.contains(e.target) && !dropdown.contains(e.target)) {
-                    dropdown.classList.remove('show');
-                }
-            });
-        }
 
         function toggleModoPagados() {
             const toggle = document.getElementById('toggleModo');
@@ -2397,7 +2037,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
                 const monto = parseFloat(fila.getAttribute('data-monto'));
                 const spanPendiente = document.getElementById('pendiente-' + prestamoId);
                 
-                if (spanPendiente && !fila.classList.contains('excluido')) {
+                if (spanPendiente) {
                     spanPendiente.textContent = 'Faltan: $' + formatNumber(monto);
                 }
                 
@@ -2417,38 +2057,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
             let prestamosIncluidos = 0;
             
             filasPrestamos.forEach(fila => {
-                // Verificar si está excluido globalmente o por checkbox
-                if (!fila.classList.contains('excluido')) {
-                    const checkbox = fila.querySelector('.checkbox-excluir');
-                    if (!checkbox || (checkbox && checkbox.checked)) {
-                        // Obtener valores actualizados (considerando abonos)
-                        const totalCell = fila.querySelector('.total-prestamo');
-                        const interesCell = fila.querySelector('.interes-prestamista-prestamo');
-                        const comisionCell = fila.querySelector('.comision-prestamo');
-                        
-                        // Extraer números de las celdas
-                        const total = parseFloat(totalCell.textContent.replace(/[^\d]/g, ''));
-                        const interes = parseFloat(interesCell.textContent.replace(/[^\d]/g, ''));
-                        const comision = parseFloat(comisionCell.textContent.replace(/[^\d]/g, ''));
-                        
-                        // El capital actual es el monto original menos lo que se ha devuelto
-                        // Pero para simplificar, usamos el valor del span de pendiente
-                        const spanPendiente = fila.querySelector('.capital-pendiente');
-                        let capitalActual = 0;
-                        if (spanPendiente) {
-                            const pendienteText = spanPendiente.textContent;
-                            const match = pendienteText.match(/\d+/g);
-                            if (match) {
-                                capitalActual = parseInt(match.join(''));
-                            }
+                const checkbox = fila.querySelector('.checkbox-excluir');
+                if (checkbox && checkbox.checked && !fila.classList.contains('excluido')) {
+                    // Obtener valores actualizados (considerando abonos)
+                    const totalCell = fila.querySelector('.total-prestamo');
+                    const interesCell = fila.querySelector('.interes-prestamista-prestamo');
+                    const comisionCell = fila.querySelector('.comision-prestamo');
+                    
+                    // Extraer números de las celdas
+                    const total = parseFloat(totalCell.textContent.replace(/[^\d]/g, ''));
+                    const interes = parseFloat(interesCell.textContent.replace(/[^\d]/g, ''));
+                    const comision = parseFloat(comisionCell.textContent.replace(/[^\d]/g, ''));
+                    
+                    // El capital actual es el monto original menos lo que se ha devuelto
+                    // Pero para simplificar, usamos el valor del span de pendiente
+                    const spanPendiente = fila.querySelector('.capital-pendiente');
+                    let capitalActual = 0;
+                    if (spanPendiente) {
+                        const pendienteText = spanPendiente.textContent;
+                        const match = pendienteText.match(/\d+/g);
+                        if (match) {
+                            capitalActual = parseInt(match.join(''));
                         }
-                        
-                        totalCapital += capitalActual;
-                        totalGeneral += total;
-                        totalInteresPrestamista += interes;
-                        totalComisionPersonal += comision;
-                        prestamosIncluidos++;
                     }
+                    
+                    totalCapital += capitalActual;
+                    totalGeneral += total;
+                    totalInteresPrestamista += interes;
+                    totalComisionPersonal += comision;
+                    prestamosIncluidos++;
                 }
             });
             
@@ -2464,7 +2101,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
             actualizarTotalesGenerales();
         }
         
-        // FUNCIÓN RESTAURADA: actualizarTotalesGenerales
+        // FUNCIÓN RESTAURADA: actualizarTotalesGeneral
         function actualizarTotalesGenerales() {
             let totalCapital = 0;
             let totalGeneral = 0;
