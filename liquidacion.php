@@ -508,12 +508,12 @@ if ($resClasif) {
    ======================================================= */
 $datosConsolidados = []; // clave: nombre_conductor
 $todosLosVehiculos = []; // para saber qué vehículos aparecen
-$rutas_sin_clasificar_por_conductor = [];
+$rutas_sin_clasificar_detalle = []; // NUEVO: almacenar detalles de rutas sin clasificar por conductor
 
 foreach ($empresasSeleccionadas as $empresa) {
     $empresa = $conn->real_escape_string($empresa);
     
-    $sql = "SELECT nombre, ruta, empresa, tipo_vehiculo, COALESCE(pago_parcial,0) AS pago_parcial
+    $sql = "SELECT nombre, ruta, empresa, tipo_vehiculo, fecha, COALESCE(pago_parcial,0) AS pago_parcial
             FROM viajes
             WHERE fecha BETWEEN '$desde' AND '$hasta'
               AND empresa = '$empresa'";
@@ -525,6 +525,7 @@ foreach ($empresasSeleccionadas as $empresa) {
             $nombre = $row['nombre'];
             $ruta = $row['ruta'];
             $vehiculo = $row['tipo_vehiculo'];
+            $fecha = $row['fecha'];
             $pagoParcial = (int)($row['pago_parcial'] ?? 0);
             $empresaActual = $row['empresa'];
             
@@ -557,14 +558,33 @@ foreach ($empresasSeleccionadas as $empresa) {
             $keyRuta = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
             $clasificacion_ruta = $clasif_rutas[$keyRuta] ?? '';
             
-            // Registrar rutas sin clasificar
+            // Registrar rutas sin clasificar con DETALLE
             if ($clasificacion_ruta === '' || $clasificacion_ruta === 'otro') {
-                if (!isset($rutas_sin_clasificar_por_conductor[$nombre])) {
-                    $rutas_sin_clasificar_por_conductor[$nombre] = [];
+                if (!isset($rutas_sin_clasificar_detalle[$nombre])) {
+                    $rutas_sin_clasificar_detalle[$nombre] = [];
                 }
-                $ruta_key = $ruta . '|' . $vehiculo . '|' . $empresaActual;
-                if (!in_array($ruta_key, $rutas_sin_clasificar_por_conductor[$nombre])) {
-                    $rutas_sin_clasificar_por_conductor[$nombre][] = $ruta_key;
+                
+                // Crear detalle de la ruta sin clasificar
+                $detalle_ruta = [
+                    'ruta' => $ruta,
+                    'vehiculo' => $vehiculo,
+                    'fecha' => $fecha,
+                    'empresa' => $empresaActual
+                ];
+                
+                // Evitar duplicados (misma ruta+mismo vehículo+misma fecha)
+                $key_detalle = $ruta . '|' . $vehiculo . '|' . $fecha . '|' . $empresaActual;
+                $existe = false;
+                foreach ($rutas_sin_clasificar_detalle[$nombre] as $existente) {
+                    $key_existente = $existente['ruta'] . '|' . $existente['vehiculo'] . '|' . $existente['fecha'] . '|' . $existente['empresa'];
+                    if ($key_existente === $key_detalle) {
+                        $existe = true;
+                        break;
+                    }
+                }
+                
+                if (!$existe) {
+                    $rutas_sin_clasificar_detalle[$nombre][] = $detalle_ruta;
                 }
             }
             
@@ -596,9 +616,9 @@ foreach ($datosConsolidados as $nombre => $info) {
     $totalPagadoPorConductor[$nombre] = array_sum($info["pagos_por_empresa"] ?? []);
 }
 
-// Calcular rutas sin clasificar por conductor
+// Calcular rutas sin clasificar por conductor (cantidad)
 $rutasSinClasificarCount = [];
-foreach ($rutas_sin_clasificar_por_conductor as $nombre => $rutas) {
+foreach ($rutas_sin_clasificar_detalle as $nombre => $rutas) {
     $rutasSinClasificarCount[$nombre] = count($rutas);
 }
 
@@ -622,19 +642,10 @@ if (!empty($empresasSeleccionadas)) {
 /* =======================================================
    🔹 NUEVO: DETECTAR ALERTAS PARA MOSTRAR ARRIBA
    ======================================================= */
-$alertas_sin_clasificar = [];
+$alertas_sin_clasificar = $rutas_sin_clasificar_detalle; // Ya tenemos los detalles
 $alertas_sin_tarifa = [];
 
 foreach ($datosConsolidados as $conductor => $info) {
-    // ALERTA 1: Conductores con rutas sin clasificar
-    $rutasSinClasificar = $rutasSinClasificarCount[$conductor] ?? 0;
-    if ($rutasSinClasificar > 0) {
-        $alertas_sin_clasificar[] = [
-            'conductor' => $conductor,
-            'cantidad' => $rutasSinClasificar
-        ];
-    }
-    
     // ALERTA 2: Conductores con clasificaciones que tienen tarifa en CERO
     foreach ($info["viajes_por_clasificacion"] as $clasif => $porEmpresa) {
         foreach ($porEmpresa as $empresa => $cantidad) {
@@ -1195,37 +1206,52 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
   .notificacion-titulo.rojo { color: #991b1b; }
   .notificacion-titulo.amarillo { color: #92400e; }
   
-  .notificacion-lista {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    max-height: 200px;
-    overflow-y: auto;
-    padding: 4px;
+  .notificacion-conductor {
+    margin-bottom: 16px;
+    background: rgba(255,255,255,0.5);
+    border-radius: 12px;
+    padding: 12px;
+    border: 1px solid rgba(0,0,0,0.05);
   }
   
-  .notificacion-item {
-    background: white;
-    border-radius: 40px;
-    padding: 8px 16px;
-    font-size: 0.95rem;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-    display: inline-flex;
+  .notificacion-conductor-nombre {
+    font-weight: 700;
+    font-size: 1.1rem;
+    margin-bottom: 8px;
+    color: #7f1d1d;
+    display: flex;
     align-items: center;
     gap: 8px;
+  }
+  
+  .notificacion-conductor-nombre.amarillo {
+    color: #854d0e;
+  }
+  
+  .notificacion-rutas-lista {
+    margin-left: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  
+  .notificacion-ruta-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.95rem;
+    padding: 4px 8px;
+    background: white;
+    border-radius: 40px;
     border: 1px solid rgba(0,0,0,0.05);
-    transition: all 0.2s;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.02);
   }
   
-  .notificacion-item:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 12px rgba(0,0,0,0.1);
+  .notificacion-ruta-item:hover {
+    background: #fef2f2;
   }
   
-  .notificacion-item.rojo { border-left: 4px solid #dc2626; }
-  .notificacion-item.amarillo { border-left: 4px solid #d97706; }
-  
-  .notificacion-badge {
+  .notificacion-ruta-item .vehiculo-badge {
     background: #f1f5f9;
     border-radius: 20px;
     padding: 2px 8px;
@@ -1234,14 +1260,57 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
     color: #475569;
   }
   
-  .notificacion-detalle {
-    color: #334155;
-    font-size: 0.9rem;
+  .notificacion-ruta-item .fecha-badge {
+    color: #b45309;
+    font-size: 0.8rem;
+    font-weight: 500;
+    margin-left: auto;
   }
   
-  .notificacion-detalle strong {
-    color: #0f172a;
+  .notificacion-item-detalle {
+    background: white;
+    border-radius: 40px;
+    padding: 8px 16px;
+    font-size: 0.95rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    border: 1px solid rgba(0,0,0,0.05);
+    transition: all 0.2s;
+    width: 100%;
+    margin-bottom: 4px;
+  }
+  
+  .notificacion-item-detalle.amarillo {
+    border-left: 4px solid #d97706;
+  }
+  
+  .notificacion-item-detalle .empresa {
     font-weight: 600;
+    color: #334155;
+  }
+  
+  .notificacion-item-detalle .vehiculo {
+    background: #f1f5f9;
+    border-radius: 20px;
+    padding: 2px 8px;
+    font-size: 0.75rem;
+  }
+  
+  .notificacion-item-detalle .clasificacion {
+    background: #fef3c7;
+    border-radius: 20px;
+    padding: 2px 8px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #92400e;
+  }
+  
+  .notificacion-item-detalle .viajes {
+    margin-left: auto;
+    font-size: 0.8rem;
+    color: #6b7280;
   }
   
   @keyframes slideDown {
@@ -1286,13 +1355,12 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
       margin-left: 0;
     }
     
-    .notificacion-lista {
-      flex-direction: column;
-      max-height: 300px;
+    .notificacion-rutas-lista {
+      margin-left: 8px;
     }
     
-    .notificacion-item {
-      width: 100%;
+    .notificacion-ruta-item {
+      flex-wrap: wrap;
     }
   }
 </style>
@@ -1425,11 +1493,11 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
   <main class="max-w-[1800px] mx-auto px-3 md:px-4 py-6">
     <div class="table-container-wrapper" id="tableContainerWrapper">
       
-      <!-- ===== NUEVO: NOTIFICACIONES SUPERIORES ===== -->
+      <!-- ===== NUEVO: NOTIFICACIONES SUPERIORES CON DETALLE COMPLETO ===== -->
       <?php if (!empty($alertas_sin_clasificar) || !empty($alertas_sin_tarifa)): ?>
       <div class="notificaciones-container">
         
-        <!-- NOTIFICACIÓN 1: Conductores con rutas sin clasificar -->
+        <!-- NOTIFICACIÓN 1: Conductores con rutas sin clasificar (CON DETALLE) -->
         <?php if (!empty($alertas_sin_clasificar)): ?>
         <div class="notificacion notificacion-roja">
           <div class="notificacion-titulo rojo">
@@ -1437,10 +1505,31 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
             <span><?= count($alertas_sin_clasificar) ?> conductor(es) con rutas sin clasificar</span>
           </div>
           <div class="notificacion-lista">
-            <?php foreach ($alertas_sin_clasificar as $alerta): ?>
-            <div class="notificacion-item rojo">
-              <span class="font-semibold"><?= htmlspecialchars($alerta['conductor']) ?></span>
-              <span class="notificacion-badge"><?= $alerta['cantidad'] ?> ruta(s)</span>
+            <?php foreach ($alertas_sin_clasificar as $conductor => $rutas): 
+              $total_rutas = count($rutas);
+            ?>
+            <div class="notificacion-conductor">
+              <div class="notificacion-conductor-nombre">
+                <span>👤</span>
+                <span><?= htmlspecialchars($conductor) ?></span>
+                <span class="text-sm bg-red-200 text-red-800 px-2 py-0.5 rounded-full"><?= $total_rutas ?> ruta(s)</span>
+              </div>
+              <div class="notificacion-rutas-lista">
+                <?php foreach (array_slice($rutas, 0, 10) as $ruta): ?>
+                <div class="notificacion-ruta-item">
+                  <span>•</span>
+                  <span class="font-medium"><?= htmlspecialchars($ruta['ruta']) ?></span>
+                  <span class="vehiculo-badge"><?= htmlspecialchars($ruta['vehiculo']) ?></span>
+                  <span class="text-xs text-slate-500">🏢 <?= htmlspecialchars($ruta['empresa']) ?></span>
+                  <span class="fecha-badge"><?= htmlspecialchars($ruta['fecha']) ?></span>
+                </div>
+                <?php endforeach; ?>
+                <?php if ($total_rutas > 10): ?>
+                <div class="text-sm text-red-600 mt-1 ml-4">
+                  ... y <?= ($total_rutas - 10) ?> ruta(s) más
+                </div>
+                <?php endif; ?>
+              </div>
             </div>
             <?php endforeach; ?>
           </div>
@@ -1455,20 +1544,30 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
             <span><?= count($alertas_sin_tarifa) ?> clasificaciones sin tarifa asignada (valor $0)</span>
           </div>
           <div class="notificacion-lista">
-            <?php foreach ($alertas_sin_tarifa as $alerta): ?>
-            <div class="notificacion-item amarillo" title="<?= $alerta['cantidad_viajes'] ?> viaje(s) afectado(s)">
-              <div class="flex flex-col">
-                <div class="flex items-center gap-2">
-                  <span class="font-semibold"><?= htmlspecialchars($alerta['conductor']) ?></span>
-                  <span class="text-xs bg-white/80 px-2 py-0.5 rounded-full"><?= $alerta['cantidad_viajes'] ?> viajes</span>
+            <?php 
+            // Agrupar por conductor para mejor visualización
+            $alertas_por_conductor = [];
+            foreach ($alertas_sin_tarifa as $alerta) {
+                $alertas_por_conductor[$alerta['conductor']][] = $alerta;
+            }
+            ?>
+            
+            <?php foreach ($alertas_por_conductor as $conductor => $alertas_conductor): ?>
+            <div class="notificacion-conductor">
+              <div class="notificacion-conductor-nombre amarillo">
+                <span>👤</span>
+                <span><?= htmlspecialchars($conductor) ?></span>
+                <span class="text-sm bg-yellow-200 text-yellow-800 px-2 py-0.5 rounded-full"><?= count($alertas_conductor) ?> clasificaciones</span>
+              </div>
+              <div class="notificacion-rutas-lista">
+                <?php foreach ($alertas_conductor as $alerta): ?>
+                <div class="notificacion-item-detalle amarillo" title="<?= $alerta['cantidad_viajes'] ?> viaje(s) afectado(s)">
+                  <span class="empresa">🏢 <?= htmlspecialchars($alerta['empresa']) ?></span>
+                  <span class="vehiculo">🚐 <?= htmlspecialchars($alerta['vehiculo']) ?></span>
+                  <span class="clasificacion"><?= htmlspecialchars(ucfirst($alerta['clasificacion'])) ?></span>
+                  <span class="viajes"><?= $alerta['cantidad_viajes'] ?> viaje(s)</span>
                 </div>
-                <div class="text-xs text-amber-700 mt-1">
-                  <span>🏢 <?= htmlspecialchars($alerta['empresa']) ?></span>
-                  <span class="mx-1">·</span>
-                  <span>🚐 <?= htmlspecialchars($alerta['vehiculo']) ?></span>
-                  <span class="mx-1">·</span>
-                  <span class="font-medium"><?= htmlspecialchars(ucfirst($alerta['clasificacion'])) ?></span>
-                </div>
+                <?php endforeach; ?>
               </div>
             </div>
             <?php endforeach; ?>
