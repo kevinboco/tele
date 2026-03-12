@@ -2101,7 +2101,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             actualizarTotalesGenerales();
         }
         
-        // FUNCIÓN RESTAURADA: actualizarTotalesGenerales
+        // FUNCIÓN RESTAURADA: actualizarTotalesGeneral
         function actualizarTotalesGenerales() {
             let totalCapital = 0;
             let totalGeneral = 0;
