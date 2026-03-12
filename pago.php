@@ -2043,7 +2043,7 @@ function actualizarResumenSeleccion() {
     }
 }
 
-// ===== FUNCIÓN MODIFICADA - SOLO ESTO CAMBIÓ =====
+// ===== FUNCIÓN MODIFICADA - CORREGIDA =====
 function openPrestModalForRow(tr) {
     currentRow = tr;
     selectedIds = new Set();
@@ -2071,23 +2071,27 @@ function openPrestModalForRow(tr) {
         }
     });
     
-    // 🔥 NUEVO: Obtener primeras 3 letras del nombre y pre-llenar el buscador
+    // 🔥 CORREGIDO: Pre-llenar con primeras 3 letras
     const primerasTresLetras = baseName.substring(0, 3).toLowerCase();
-    document.getElementById('prestSearch').value = primerasTresLetras;
+    const searchInput = document.getElementById('prestSearch');
+    searchInput.value = primerasTresLetras;
     
-    document.getElementById('prestValorManual').value = '';
-    
+    // Cargar empresas y renderizar
     cargarEmpresasMultiSelect();
     renderizarListaPrestamos(PRESTAMOS_LIST);
+    
+    // 🔥 IMPORTANTE: Ejecutar el filtro con las 3 letras
+    filtrarPrestamosMultiempresa();
+    
+    document.getElementById('prestValorManual').value = '';
     actualizarResumenSeleccion();
     
     // Mostrar el modal
     document.getElementById('prestModal').classList.remove('hidden');
     
-    // 🔥 Poner el foco en el campo de búsqueda y seleccionar el texto
-    const searchInput = document.getElementById('prestSearch');
+    // 🔥 CORREGIDO: Poner cursor al final SIN seleccionar el texto
     searchInput.focus();
-    searchInput.select(); // Selecciona el texto para que si escribe, lo reemplace
+    searchInput.setSelectionRange(primerasTresLetras.length, primerasTresLetras.length);
 }
 
 function closePrestModal() {
