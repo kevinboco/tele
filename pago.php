@@ -940,6 +940,15 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 </div>
             </div>
             <div class="flex flex-col md:flex-row gap-3 w-full md:w-auto">
+                <!-- NUEVO: Selector de estado -->
+                <select id="filtroEstado" class="rounded-lg border border-slate-300 px-3 py-2 text-sm min-w-[150px] bg-white">
+                    <option value="">📊 Todos los estados</option>
+                    <option value="pagado">✅ Pagado</option>
+                    <option value="pendiente">❌ Pendiente</option>
+                    <option value="procesando">🔄 Procesando</option>
+                    <option value="parcial">⚠️ Parcial</option>
+                </select>
+                
                 <div class="buscar-container w-full md:w-64">
                     <input id="buscadorConductores" type="text" 
                            placeholder="Buscar conductor..." 
@@ -1424,6 +1433,7 @@ const selectAllCheckbox = document.getElementById('selectAllCheckbox');
 const buscadorConductores = document.getElementById('buscadorConductores');
 const clearBuscar = document.getElementById('clearBuscar');
 const contadorConductores = document.getElementById('contador-conductores');
+const filtroEstado = document.getElementById('filtroEstado');
 
 // ===== FUNCIÓN PARA OBTENER NOMBRE DE CONDUCTOR =====
 function obtenerNombreConductorDeFila(tr) {
@@ -1767,24 +1777,51 @@ function restaurarSeleccionCheckbox(tr) {
     }
 }
 
-// ===== FILTRO DE CONDUCTORES =====
-function filtrarConductores() {
-    const texto = normalizarTexto(buscadorConductores.value);
+// ===== NUEVA FUNCIÓN PARA FILTRAR POR ESTADO =====
+function filtrarPorEstado() {
+    const estadoSeleccionado = filtroEstado.value;
+    const textoBusqueda = normalizarTexto(buscadorConductores.value);
+    
     let visibles = 0;
+    let totalFilas = 0;
     
     tbody.querySelectorAll('tr').forEach(tr => {
-        const nombre = normalizarTexto(obtenerNombreConductorDeFila(tr));
-        if (texto === '' || nombre.includes(texto)) {
+        let mostrar = true;
+        
+        // Filtrar por estado si hay uno seleccionado
+        if (estadoSeleccionado) {
+            const selectEstado = tr.querySelector('.estado-pago');
+            const estadoActual = selectEstado ? selectEstado.value : '';
+            if (estadoActual !== estadoSeleccionado) {
+                mostrar = false;
+            }
+        }
+        
+        // Filtrar por nombre si hay búsqueda
+        if (mostrar && textoBusqueda) {
+            const nombre = normalizarTexto(obtenerNombreConductorDeFila(tr));
+            if (!nombre.includes(textoBusqueda)) {
+                mostrar = false;
+            }
+        }
+        
+        if (mostrar) {
             tr.style.display = '';
             visibles++;
         } else {
             tr.style.display = 'none';
         }
+        
+        totalFilas++;
     });
     
-    contadorConductores.textContent = `Mostrando ${visibles} de ${tbody.children.length} conductores`;
-    clearBuscar.style.display = texto ? 'block' : 'none';
+    contadorConductores.textContent = `Mostrando ${visibles} de ${totalFilas} conductores`;
     actualizarPanelFlotante();
+}
+
+// ===== FILTRO DE CONDUCTORES (ACTUALIZADO) =====
+function filtrarConductores() {
+    filtrarPorEstado(); // Ahora usa la función combinada
 }
 
 // ===== CÁLCULO PRINCIPAL =====
@@ -2849,7 +2886,10 @@ document.addEventListener('DOMContentLoaded', function() {
     
     hacerPanelArrastrable();
     
+    // Event listeners para filtros
+    filtroEstado.addEventListener('change', filtrarConductores);
     buscadorConductores.addEventListener('input', filtrarConductores);
+    
     clearBuscar.addEventListener('click', () => {
         buscadorConductores.value = '';
         filtrarConductores();
