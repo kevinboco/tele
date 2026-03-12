@@ -1,2735 +1,2939 @@
 <?php
-include("nav.php");
+session_start();
+
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
 if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); }
-$conn->set_charset("utf8mb4");
+$conn->set_charset('utf8mb4');
 
-/* =======================================================
-   🔹 FUNCIONES DINÁMICAS (sin cambios)
-======================================================= */
+/* = Helpers ================= */
+function strip_accents($s){
+  $t = @iconv('UTF-8','ASCII//TRANSLIT//IGNORE',$s);
+  if ($t !== false) return $t;
+  $repl = ['á'=>'a','é'=>'e','í'=>'i','ó'=>'o','ú'=>'u','ñ'=>'n','Á'=>'A','É'=>'E','Í'=>'I','Ó'=>'O','Ú'=>'U','Ñ'=>'N'];
+  return strtr($s,$repl);
+}
+function norm_person($s){
+  $s = strip_accents((string)$s);
+  $s = mb_strtolower($s,'UTF-8');
+  $s = preg_replace('/[^a-z0-9\s]/',' ', $s);
+  $s = preg_replace('/\s+/',' ', trim($s));
+  return $s;
+}
 
-// Obtener columnas de tarifas dinámicamente
-function obtenerColumnasTarifas($conn) {
-    $columnas = [];
-    $res = $conn->query("SHOW COLUMNS FROM tarifas");
-    if ($res) {
-        while ($row = $res->fetch_assoc()) {
-            $field = $row['Field'];
-            $excluir = ['id', 'empresa', 'tipo_vehiculo', 'created_at', 'updated_at'];
-            if (!in_array($field, $excluir)) {
-                $columnas[] = $field;
+/* ================= CREAR TABLAS CUENTAS GUARDADAS ================= */
+$conn->query("
+CREATE TABLE IF NOT EXISTS cuentas_guardadas (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    nombre VARCHAR(255) NOT NULL,
+    desde DATE NOT NULL,
+    hasta DATE NOT NULL,
+    facturado DECIMAL(15,2) NOT NULL,
+    porcentaje_ajuste DECIMAL(5,2) NOT NULL,
+    pagado TINYINT(1) NOT NULL DEFAULT 0,
+    datos_json LONGTEXT NOT NULL,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    usuario VARCHAR(100),
+    INDEX idx_fecha (fecha_creacion),
+    INDEX idx_pagado (pagado)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+");
+
+$conn->query("
+CREATE TABLE IF NOT EXISTS cuentas_guardadas_empresas (
+    cuenta_id INT NOT NULL,
+    empresa_nombre VARCHAR(100) NOT NULL,
+    PRIMARY KEY (cuenta_id, empresa_nombre),
+    FOREIGN KEY (cuenta_id) REFERENCES cuentas_guardadas(id) ON DELETE CASCADE,
+    INDEX idx_empresa (empresa_nombre)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+");
+
+/* ================= AJAX HANDLERS ================= */
+if (isset($_GET['obtener_cuentas'])) {
+    header('Content-Type: application/json');
+    
+    $empresa = $conn->real_escape_string($_GET['empresa'] ?? '');
+    $estado = $_GET['estado'] ?? '';
+    
+    $sql = "SELECT c.*, 
+                   GROUP_CONCAT(e.empresa_nombre ORDER BY e.empresa_nombre SEPARATOR '||') as empresas_list
+            FROM cuentas_guardadas c
+            LEFT JOIN cuentas_guardadas_empresas e ON c.id = e.cuenta_id";
+    
+    $where = [];
+    if (!empty($empresa)) {
+        $where[] = "c.id IN (SELECT cuenta_id FROM cuentas_guardadas_empresas WHERE empresa_nombre = '$empresa')";
+    }
+    if ($estado !== '') {
+        $estado_int = intval($estado);
+        $where[] = "c.pagado = $estado_int";
+    }
+    
+    if (!empty($where)) {
+        $sql .= " WHERE " . implode(' AND ', $where);
+    }
+    
+    $sql .= " GROUP BY c.id ORDER BY c.fecha_creacion DESC";
+    
+    $result = $conn->query($sql);
+    $cuentas = [];
+    
+    if ($result && $result->num_rows > 0) {
+        while ($row = $result->fetch_assoc()) {
+            $row['pagado'] = (int)$row['pagado'];
+            
+            $datos_json = json_decode($row['datos_json'], true);
+            $row['datos_json'] = ($datos_json === null) ? [] : $datos_json;
+            
+            $row['empresas'] = !empty($row['empresas_list']) 
+                ? explode('||', $row['empresas_list']) 
+                : [];
+            unset($row['empresas_list']);
+            
+            $cuentas[] = $row;
+        }
+    }
+    
+    echo json_encode($cuentas, JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'guardar_cuenta') {
+    header('Content-Type: application/json');
+    
+    $nombre = $conn->real_escape_string($_POST['nombre'] ?? '');
+    $desde = $conn->real_escape_string($_POST['desde'] ?? '');
+    $hasta = $conn->real_escape_string($_POST['hasta'] ?? '');
+    $facturado = floatval($_POST['facturado'] ?? 0);
+    $porcentaje_ajuste = floatval($_POST['porcentaje_ajuste'] ?? 0);
+    $pagado = intval($_POST['pagado'] ?? 0);
+    $datos_json = $conn->real_escape_string($_POST['datos_json'] ?? '{}');
+    $empresas = isset($_POST['empresas']) ? json_decode($_POST['empresas'], true) : [];
+    $usuario = $conn->real_escape_string($_SESSION['usuario'] ?? 'Sistema');
+    
+    if (empty($nombre) || empty($empresas)) {
+        echo json_encode(['success' => false, 'message' => 'Faltan datos obligatorios']);
+        exit;
+    }
+    
+    $conn->begin_transaction();
+    
+    try {
+        $sql = "INSERT INTO cuentas_guardadas (nombre, desde, hasta, facturado, porcentaje_ajuste, pagado, datos_json, usuario) 
+                VALUES ('$nombre', '$desde', '$hasta', $facturado, $porcentaje_ajuste, $pagado, '$datos_json', '$usuario')";
+        
+        if (!$conn->query($sql)) {
+            throw new Exception("Error al guardar cuenta: " . $conn->error);
+        }
+        
+        $cuenta_id = $conn->insert_id;
+        
+        foreach ($empresas as $empresa) {
+            $empresa_esc = $conn->real_escape_string($empresa);
+            $sql_emp = "INSERT INTO cuentas_guardadas_empresas (cuenta_id, empresa_nombre) VALUES ($cuenta_id, '$empresa_esc')";
+            if (!$conn->query($sql_emp)) {
+                throw new Exception("Error al guardar empresa: " . $conn->error);
+            }
+        }
+        
+        $conn->commit();
+        echo json_encode(['success' => true, 'id' => $cuenta_id, 'message' => 'Cuenta guardada exitosamente']);
+        
+    } catch (Exception $e) {
+        $conn->rollback();
+        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    }
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'eliminar_cuenta') {
+    header('Content-Type: application/json');
+    $id = intval($_POST['id']);
+    
+    $sql = "DELETE FROM cuentas_guardadas WHERE id = $id";
+    $resultado = $conn->query($sql);
+    
+    echo json_encode(['success' => $resultado, 'message' => $resultado ? 'Cuenta eliminada' : 'Error al eliminar']);
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'cargar_cuenta') {
+    header('Content-Type: application/json');
+    $id = intval($_POST['id']);
+    
+    $sql = "SELECT c.*, GROUP_CONCAT(e.empresa_nombre ORDER BY e.empresa_nombre SEPARATOR '||') as empresas_list
+            FROM cuentas_guardadas c
+            LEFT JOIN cuentas_guardadas_empresas e ON c.id = e.cuenta_id
+            WHERE c.id = $id
+            GROUP BY c.id";
+            
+    $result = $conn->query($sql);
+    
+    if ($result && $result->num_rows > 0) {
+        $row = $result->fetch_assoc();
+        $row['pagado'] = (int)$row['pagado'];
+        
+        $datos_json = json_decode($row['datos_json'], true);
+        $row['datos_json'] = ($datos_json === null) ? [] : $datos_json;
+        
+        $row['empresas'] = !empty($row['empresas_list']) 
+            ? explode('||', $row['empresas_list']) 
+            : [];
+        unset($row['empresas_list']);
+        
+        echo json_encode(['success' => true, 'cuenta' => $row]);
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Cuenta no encontrada']);
+    }
+    exit;
+}
+
+/* ================= FUNCIÓN DE FUSIÓN CORREGIDA ================= */
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'fusionar_cuentas') {
+    header('Content-Type: application/json');
+    $ids = isset($_POST['ids']) ? json_decode($_POST['ids'], true) : [];
+    
+    if (empty($ids) || count($ids) < 2) {
+        echo json_encode(['success' => false, 'message' => 'Se necesitan al menos 2 cuentas para fusionar']);
+        exit;
+    }
+    
+    $ids_esc = array_map('intval', $ids);
+    $ids_str = implode(',', $ids_esc);
+    
+    $sql = "SELECT c.*, 
+                   GROUP_CONCAT(e.empresa_nombre ORDER BY e.empresa_nombre SEPARATOR '||') as empresas_list
+            FROM cuentas_guardadas c
+            LEFT JOIN cuentas_guardadas_empresas e ON c.id = e.cuenta_id
+            WHERE c.id IN ($ids_str)
+            GROUP BY c.id";
+            
+    $result = $conn->query($sql);
+    $cuentas = [];
+    
+    if ($result && $result->num_rows > 0) {
+        while ($row = $result->fetch_assoc()) {
+            $datos_json = json_decode($row['datos_json'], true);
+            $row['datos_json'] = ($datos_json === null) ? [] : $datos_json;
+            $row['empresas'] = !empty($row['empresas_list']) ? explode('||', $row['empresas_list']) : [];
+            $cuentas[] = $row;
+        }
+    }
+    
+    // ===== DATOS BÁSICOS DE LA FUSIÓN =====
+    $fusionado = [
+        'nombre' => 'Fusión: ' . implode(' + ', array_slice(array_column($cuentas, 'nombre'), 0, 2)) . (count($cuentas) > 2 ? ' +' . (count($cuentas)-2) . ' más' : ''),
+        'desde' => min(array_column($cuentas, 'desde')),
+        'hasta' => max(array_column($cuentas, 'hasta')),
+        'facturado' => array_sum(array_column($cuentas, 'facturado')),
+        'porcentaje_ajuste' => round(array_sum(array_column($cuentas, 'porcentaje_ajuste')) / count($cuentas), 2),
+        'pagado' => 0,
+        'empresas' => array_values(array_unique(array_merge(...array_column($cuentas, 'empresas')))),
+        'datos_json' => [
+            'prestamos' => new stdClass(),        // OBJETO vacío - el usuario los asignará manualmente
+            'segSocial' => new stdClass(),        // OBJETO vacío - el usuario los asignará manualmente
+            'cuentasBancarias' => new stdClass(), // OBJETO vacío - el usuario los asignará manualmente
+            'estadosPago' => new stdClass(),      // OBJETO vacío - el usuario los asignará manualmente
+            'filasManuales' => []                  // Array vacío - se llenará con conductores fusionados
+        ]
+    ];
+    
+    // ===== SUMAR VALORES BASE DE CONDUCTORES (esto está bien) =====
+    $conductores_fusionados = [];
+    
+    foreach ($cuentas as $cuenta) {
+        $datos = $cuenta['datos_json'];
+        
+        // Procesar filas manuales (valores base)
+        if (isset($datos['filasManuales']) && is_array($datos['filasManuales'])) {
+            foreach ($datos['filasManuales'] as $fila) {
+                $conductor = $fila['conductor'];
+                $base = floatval($fila['base'] ?? 0);
+                
+                if (!isset($conductores_fusionados[$conductor])) {
+                    $conductores_fusionados[$conductor] = 0;
+                }
+                $conductores_fusionados[$conductor] += $base;
+            }
+        }
+        
+        // También considerar conductores de tabla principal
+        if (isset($datos['conductoresBase']) && is_array($datos['conductoresBase'])) {
+            foreach ($datos['conductoresBase'] as $conductor => $base) {
+                if (!isset($conductores_fusionados[$conductor])) {
+                    $conductores_fusionados[$conductor] = 0;
+                }
+                $conductores_fusionados[$conductor] += $base;
             }
         }
     }
-    return $columnas;
-}
-
-// Crear nueva columna en tarifas
-function crearNuevaColumnaTarifa($conn, $nombre_columna) {
-    $nombre_columna = preg_replace('/[^a-zA-Z0-9_]/', '_', $nombre_columna);
-    $nombre_columna = strtolower($nombre_columna);
     
-    $columnas_existentes = obtenerColumnasTarifas($conn);
-    if (in_array($nombre_columna, $columnas_existentes)) {
-        return true;
-    }
-    
-    $sql = "ALTER TABLE tarifas ADD COLUMN `$nombre_columna` DECIMAL(10,2) DEFAULT 0.00";
-    return $conn->query($sql);
-}
-
-// Obtener clasificaciones disponibles
-function obtenerClasificacionesDisponibles($conn) {
-    return obtenerColumnasTarifas($conn);
-}
-
-// Mapeo de colores para clasificaciones
-function obtenerEstiloClasificacion($clasificacion) {
-    $estilos = [
-        'completo'    => ['bg' => 'bg-emerald-100', 'text' => 'text-emerald-700', 'border' => 'border-emerald-200', 'row' => 'bg-emerald-50/40', 'label' => 'Completo'],
-        'medio'       => ['bg' => 'bg-amber-100', 'text' => 'text-amber-800', 'border' => 'border-amber-200', 'row' => 'bg-amber-50/40', 'label' => 'Medio'],
-        'extra'       => ['bg' => 'bg-slate-200', 'text' => 'text-slate-800', 'border' => 'border-slate-300', 'row' => 'bg-slate-50', 'label' => 'Extra'],
-        'siapana'     => ['bg' => 'bg-fuchsia-100', 'text' => 'text-fuchsia-700', 'border' => 'border-fuchsia-200', 'row' => 'bg-fuchsia-50/40', 'label' => 'Siapana'],
-        'carrotanque' => ['bg' => 'bg-cyan-100', 'text' => 'text-cyan-800', 'border' => 'border-cyan-200', 'row' => 'bg-cyan-50/40', 'label' => 'Carrotanque'],
-        'riohacha'    => ['bg' => 'bg-indigo-100', 'text' => 'text-indigo-700', 'border' => 'border-indigo-200', 'row' => 'bg-indigo-50/40', 'label' => 'Riohacha'],
-        'pru'         => ['bg' => 'bg-teal-100', 'text' => 'text-teal-700', 'border' => 'border-teal-200', 'row' => 'bg-teal-50/40', 'label' => 'Pru'],
-        'maco'        => ['bg' => 'bg-rose-100', 'text' => 'text-rose-700', 'border' => 'border-rose-200', 'row' => 'bg-rose-50/40', 'label' => 'Maco']
-    ];
-    
-    if (isset($estilos[$clasificacion])) {
-        return $estilos[$clasificacion];
-    }
-    
-    $colors = [
-        ['bg' => 'bg-violet-100', 'text' => 'text-violet-700', 'border' => 'border-violet-200'],
-        ['bg' => 'bg-orange-100', 'text' => 'text-orange-700', 'border' => 'border-orange-200'],
-        ['bg' => 'bg-lime-100', 'text' => 'text-lime-700', 'border' => 'border-lime-200'],
-        ['bg' => 'bg-sky-100', 'text' => 'text-sky-700', 'border' => 'border-sky-200'],
-        ['bg' => 'bg-pink-100', 'text' => 'text-pink-700', 'border' => 'border-pink-200'],
-        ['bg' => 'bg-purple-100', 'text' => 'text-purple-700', 'border' => 'border-purple-200'],
-        ['bg' => 'bg-yellow-100', 'text' => 'text-yellow-700', 'border' => 'border-yellow-200'],
-        ['bg' => 'bg-red-100', 'text' => 'text-red-700', 'border' => 'border-red-200'],
-    ];
-    
-    $hash = crc32($clasificacion);
-    $color_index = abs($hash) % count($colors);
-    
-    return [
-        'bg' => $colors[$color_index]['bg'],
-        'text' => $colors[$color_index]['text'],
-        'border' => $colors[$color_index]['border'],
-        'row' => str_replace('bg-', 'bg-', $colors[$color_index]['bg']) . '/40',
-        'label' => ucfirst($clasificacion)
-    ];
-}
-
-// Colores únicos por tipo de vehículo
-function obtenerColorVehiculo($vehiculo) {
-    $colores_vehiculos = [
-        'camioneta' => ['bg' => 'bg-blue-100', 'text' => 'text-blue-700', 'border' => 'border-blue-200', 'dark' => 'bg-blue-50'],
-        'turbo' => ['bg' => 'bg-green-100', 'text' => 'text-green-700', 'border' => 'border-green-200', 'dark' => 'bg-green-50'],
-        'mensual' => ['bg' => 'bg-orange-100', 'text' => 'text-orange-700', 'border' => 'border-orange-200', 'dark' => 'bg-orange-50'],
-        'camión' => ['bg' => 'bg-purple-100', 'text' => 'text-purple-700', 'border' => 'border-purple-200', 'dark' => 'bg-purple-50'],
-        'buseta' => ['bg' => 'bg-pink-100', 'text' => 'text-pink-700', 'border' => 'border-pink-200', 'dark' => 'bg-pink-50'],
-        'minivan' => ['bg' => 'bg-teal-100', 'text' => 'text-teal-700', 'border' => 'border-teal-200', 'dark' => 'bg-teal-50'],
-        'automóvil' => ['bg' => 'bg-red-100', 'text' => 'text-red-700', 'border' => 'border-red-200', 'dark' => 'bg-red-50'],
-        'moto' => ['bg' => 'bg-indigo-100', 'text' => 'text-indigo-700', 'border' => 'border-indigo-200', 'dark' => 'bg-indigo-50'],
-        'bicicleta' => ['bg' => 'bg-lime-100', 'text' => 'text-lime-700', 'border' => 'border-lime-200', 'dark' => 'bg-lime-50'],
-        'furgoneta' => ['bg' => 'bg-amber-100', 'text' => 'text-amber-700', 'border' => 'border-amber-200', 'dark' => 'bg-amber-50'],
-    ];
-    
-    $vehiculo_lower = strtolower($vehiculo);
-    
-    if (isset($colores_vehiculos[$vehiculo_lower])) {
-        return $colores_vehiculos[$vehiculo_lower];
-    }
-    
-    foreach ($colores_vehiculos as $key => $color) {
-        if (strpos($vehiculo_lower, $key) !== false) {
-            return $color;
+    // ===== CREAR FILAS MANUALES CON VALORES BASE SUMADOS =====
+    // PERO DEJAR VACÍOS: cuenta, segSocial, estado (el usuario los llenará)
+    foreach ($conductores_fusionados as $conductor => $base_total) {
+        if ($base_total > 0) {
+            $fusionado['datos_json']['filasManuales'][] = [
+                'conductor' => $conductor,
+                'base' => $base_total,
+                'cuenta' => '',    // Vacío - usuario lo llena
+                'segSocial' => 0,   // Vacío - usuario lo llena
+                'estado' => ''      // Vacío - usuario lo selecciona
+            ];
         }
     }
     
-    $colores_genericos = [
-        ['bg' => 'bg-violet-100', 'text' => 'text-violet-700', 'border' => 'border-violet-200', 'dark' => 'bg-violet-50'],
-        ['bg' => 'bg-cyan-100', 'text' => 'text-cyan-700', 'border' => 'border-cyan-200', 'dark' => 'bg-cyan-50'],
-        ['bg' => 'bg-emerald-100', 'text' => 'text-emerald-700', 'border' => 'border-emerald-200', 'dark' => 'bg-emerald-50'],
-        ['bg' => 'bg-fuchsia-100', 'text' => 'text-fuchsia-700', 'border' => 'border-fuchsia-200', 'dark' => 'bg-fuchsia-50'],
-        ['bg' => 'bg-rose-100', 'text' => 'text-rose-700', 'border' => 'border-rose-200', 'dark' => 'bg-rose-50'],
-        ['bg' => 'bg-sky-100', 'text' => 'text-sky-700', 'border' => 'border-sky-200', 'dark' => 'bg-sky-50'],
-    ];
-    
-    $hash = crc32($vehiculo);
-    $color_index = abs($hash) % count($colores_genericos);
-    
-    return $colores_genericos[$color_index];
-}
-
-/* =======================================================
-   🔹 PROCESAR POST (sin cambios)
-======================================================= */
-if (isset($_POST['crear_clasificacion'])) {
-    $nombre_clasificacion = trim($conn->real_escape_string($_POST['nombre_clasificacion']));
-    if (empty($nombre_clasificacion)) { echo "error: nombre vacío"; exit; }
-    $nombre_columna = preg_replace('/[^a-zA-Z0-9_]/', '_', $nombre_clasificacion);
-    $nombre_columna = strtolower($nombre_columna);
-    if (crearNuevaColumnaTarifa($conn, $nombre_columna)) { echo "ok"; } else { echo "error: " . $conn->error; }
+    echo json_encode(['success' => true, 'cuenta_fusionada' => $fusionado]);
     exit;
 }
 
-if (isset($_POST['guardar_tarifa'])) {
-    $empresa  = $conn->real_escape_string($_POST['empresa']);
-    $vehiculo = $conn->real_escape_string($_POST['tipo_vehiculo']);
-    $campo    = $conn->real_escape_string($_POST['campo']);
-    $valor    = (float)$_POST['valor'];
-    $campo = strtolower($campo);
-    $campo = preg_replace('/[^a-z0-9_]/', '_', $campo);
-    $columnas_tarifas = obtenerColumnasTarifas($conn);
-    if (!in_array($campo, $columnas_tarifas)) { 
-        if (crearNuevaColumnaTarifa($conn, $campo)) {
-            $columnas_tarifas = obtenerColumnasTarifas($conn);
-        } else {
-            echo "error: no se pudo crear el campo '$campo'";
-            exit;
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'actualizar_pagado_cuenta') {
+    header('Content-Type: application/json');
+    $id = intval($_POST['id']);
+    $pagado = intval($_POST['pagado']);
+    
+    $sql = "UPDATE cuentas_guardadas SET pagado = $pagado WHERE id = $id";
+    $resultado = $conn->query($sql);
+    
+    echo json_encode([
+        'success' => $resultado, 
+        'message' => $resultado ? 'Estado actualizado correctamente' : 'Error al actualizar el estado'
+    ]);
+    exit;
+}
+
+/* ================= TARIFAS DINÁMICAS ================= */
+$columnas_tarifas = [];
+$tarifas = [];
+
+$resColumns = $conn->query("SHOW COLUMNS FROM tarifas");
+if ($resColumns) {
+    while ($col = $resColumns->fetch_assoc()) {
+        $field = $col['Field'];
+        if (!in_array($field, ['id', 'empresa', 'tipo_vehiculo', 'created_at', 'updated_at'])) {
+            $columnas_tarifas[] = $field;
         }
     }
-    $conn->query("INSERT IGNORE INTO tarifas (empresa, tipo_vehiculo) VALUES ('$empresa', '$vehiculo')");
-    $sql = "UPDATE tarifas SET `$campo` = $valor WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'";
-    echo $conn->query($sql) ? "ok" : "error: " . $conn->error;
-    exit;
 }
 
-if (isset($_POST['guardar_clasificacion'])) {
-    $ruta       = $conn->real_escape_string($_POST['ruta']);
-    $vehiculo   = $conn->real_escape_string($_POST['tipo_vehiculo']);
-    $clasif     = $conn->real_escape_string($_POST['clasificacion']);
-    $clasif = strtolower($clasif);
-    if ($clasif === '') {
-        $sql = "DELETE FROM ruta_clasificacion WHERE ruta = '$ruta' AND tipo_vehiculo = '$vehiculo'";
-    } else {
-        $sql = "INSERT INTO ruta_clasificacion (ruta, tipo_vehiculo, clasificacion)
-                VALUES ('$ruta', '$vehiculo', '$clasif')
-                ON DUPLICATE KEY UPDATE clasificacion = VALUES(clasificacion)";
+/* ================= OBTENER CLASIFICACIONES ================= */
+$todas_clasificaciones = [];
+$resClasifAll = $conn->query("SELECT DISTINCT clasificacion FROM ruta_clasificacion");
+if ($resClasifAll) {
+    while ($r = $resClasifAll->fetch_assoc()) {
+        $todas_clasificaciones[] = strtolower($r['clasificacion']);
     }
-    echo $conn->query($sql) ? "ok" : ("error: " . $conn->error);
-    exit;
 }
 
-if (isset($_POST['guardar_columnas_seleccionadas'])) {
-    $columnas = $_POST['columnas'] ?? [];
-    $empresas = $_POST['empresas'] ?? "";
-    $desde = $_GET['desde'] ?? "";
-    $hasta = $_GET['hasta'] ?? "";
-    $session_key = "columnas_seleccionadas_" . md5($empresas . $desde . $hasta);
-    setcookie($session_key, json_encode($columnas), time() + (86400 * 7), "/");
-    echo "ok";
-    exit;
+foreach ($columnas_tarifas as $columna) {
+    $columna_normalizada = strtolower($columna);
+    if (!in_array($columna_normalizada, $todas_clasificaciones)) {
+        $todas_clasificaciones[] = $columna_normalizada;
+    }
 }
 
-/* =======================================================
-   🔹 Endpoint AJAX: viajes por conductor (sin cambios)
-======================================================= */
+/* ================= Cargar clasificaciones ================= */
+$clasificaciones = [];
+$resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
+if ($resClasif) {
+    while ($r = $resClasif->fetch_assoc()) {
+        $key = mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo']), 'UTF-8');
+        $clasificaciones[$key] = strtolower($r['clasificacion']);
+    }
+}
+
+/* ================= AJAX: Viajes por conductor ================= */
 if (isset($_GET['viajes_conductor'])) {
     $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
-    $desde   = $_GET['desde'];
-    $hasta   = $_GET['hasta'];
-    $empresa = $_GET['empresa'] ?? "";
+    $desde   = $conn->real_escape_string($_GET['desde'] ?? '');
+    $hasta   = $conn->real_escape_string($_GET['hasta'] ?? '');
+    $empresas = isset($_GET['empresas']) ? json_decode($_GET['empresas'], true) : [];
 
-    $clasificaciones_disponibles = obtenerClasificacionesDisponibles($conn);
-    $legend = [];
-    foreach ($clasificaciones_disponibles as $clasif) {
-        $estilo = obtenerEstiloClasificacion($clasif);
-        $legend[$clasif] = [
-            'label' => $estilo['label'],
-            'badge' => "{$estilo['bg']} {$estilo['text']} border {$estilo['border']}",
-            'row' => $estilo['row']
-        ];
-    }
-    $legend['otro'] = ['label'=>'Sin clasificar', 'badge'=>'bg-gray-100 text-gray-700 border border-gray-200', 'row'=>'bg-gray-50/20'];
-
-    $clasif_rutas = [];
-    $resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
-    if ($resClasif) {
-        while ($r = $resClasif->fetch_assoc()) {
-            $key = mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo']), 'UTF-8');
-            $clasif_rutas[$key] = $r['clasificacion'];
-        }
-    }
-
-    $sql = "SELECT fecha, ruta, empresa, tipo_vehiculo, COALESCE(pago_parcial,0) AS pago_parcial
+    $sql = "SELECT fecha, ruta, empresa, tipo_vehiculo
             FROM viajes
             WHERE nombre = '$nombre'
               AND fecha BETWEEN '$desde' AND '$hasta'";
-    if ($empresa !== "") {
-        $empresa = $conn->real_escape_string($empresa);
-        $sql .= " AND empresa = '$empresa'";
+    
+    if (!empty($empresas)) {
+        $empresas_escapadas = array_map(function($e) use ($conn) {
+            return "'" . $conn->real_escape_string($e) . "'";
+        }, $empresas);
+        $sql .= " AND empresa IN (" . implode(',', $empresas_escapadas) . ")";
     }
+    
     $sql .= " ORDER BY fecha ASC";
 
     $res = $conn->query($sql);
 
+    $rowsHTML = "";
+    $counts = ['otro' => 0];
+    foreach ($todas_clasificaciones as $clas) {
+        $counts[strtolower($clas)] = 0;
+    }
+
     if ($res && $res->num_rows > 0) {
-        $counts = array_fill_keys(array_keys($legend), 0);
-        $rutas_sin_clasificar = [];
-        $total_sin_clasificar = 0;
-        $rowsHTML = "";
-        
         while ($r = $res->fetch_assoc()) {
             $ruta = (string)$r['ruta'];
             $vehiculo = $r['tipo_vehiculo'];
             
             $key = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
-            $cat = $clasif_rutas[$key] ?? 'otro';
-            $cat = strtolower($cat);
+            $cat = isset($clasificaciones[$key]) ? strtolower($clasificaciones[$key]) : 'otro';
             
-            if ($cat === 'otro' || $cat === '') {
-                $total_sin_clasificar++;
-                $rutas_sin_clasificar[] = [
-                    'ruta' => $ruta,
-                    'vehiculo' => $vehiculo,
-                    'fecha' => $r['fecha']
-                ];
-            }
-            
-            if ($cat !== 'otro' && !isset($legend[$cat])) {
-                $estilo = obtenerEstiloClasificacion($cat);
-                $legend[$cat] = [
-                    'label' => $estilo['label'],
-                    'badge' => "{$estilo['bg']} {$estilo['text']} border {$estilo['border']}",
-                    'row' => $estilo['row']
-                ];
-                $counts[$cat] = 0;
+            if (!in_array($cat, $todas_clasificaciones)) {
+                $cat = 'otro';
             }
 
-            $counts[$cat]++;
+            if (isset($counts[$cat])) {
+                $counts[$cat]++;
+            } else {
+                $counts[$cat] = 1;
+            }
 
-            $l = $legend[$cat];
-            $badge = "<span class='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold {$l['badge']}'>".$l['label']."</span>";
-            $rowCls = trim("row-viaje hover:bg-blue-50 transition-colors {$l['row']} cat-$cat");
+            $color_class = '';
+            switch($cat) {
+                case 'completo': $color_class = 'bg-emerald-100 text-emerald-800 border-emerald-300'; break;
+                case 'medio': $color_class = 'bg-amber-100 text-amber-800 border-amber-300'; break;
+                case 'extra': $color_class = 'bg-slate-200 text-slate-800 border-slate-300'; break;
+                case 'siapana': $color_class = 'bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200'; break;
+                case 'carrotanque': $color_class = 'bg-cyan-100 text-cyan-800 border-cyan-200'; break;
+                default: $color_class = 'bg-gray-100 text-gray-700 border-gray-200';
+            }
 
-            $pp = (int)($r['pago_parcial'] ?? 0);
-            $pagoParcialHTML = $pp > 0 ? '$'.number_format($pp,0,',','.') : "<span class='text-slate-400'>—</span>";
-
-            $rowsHTML .= "<tr class='{$rowCls}'>
-                    <td class='px-3 py-2 text-center'>".htmlspecialchars($r['fecha'])."</td>
+            $rowsHTML .= "<tr class='viaje-item cat-$cat'>
+                    <td class='px-3 py-2'>".htmlspecialchars($r['fecha'])."</td>
                     <td class='px-3 py-2'>
-                      <div class='flex items-center justify-center gap-2'>
-                        {$badge}
-                        <span>".htmlspecialchars($ruta)."</span>
-                      </div>
+                        <span class='inline-block px-2 py-1 rounded text-xs font-medium border $color_class'>
+                            ".htmlspecialchars($ruta)."
+                        </span>
                     </td>
-                    <td class='px-3 py-2 text-center'>".htmlspecialchars($r['empresa'])."</td>
-                    <td class='px-3 py-2 text-center'>".htmlspecialchars($vehiculo)."</td>
-                    <td class='px-3 py-2 text-center'>{$pagoParcialHTML}</td>
+                    <td class='px-3 py-2'>
+                        <span class='inline-block px-2 py-1 rounded text-xs bg-blue-50 text-blue-700 border border-blue-200'>
+                            ".htmlspecialchars($r['empresa'])."
+                        </span>
+                    </td>
+                    <td class='px-3 py-2'>
+                        <span class='inline-block px-2 py-1 rounded text-xs bg-slate-100 border border-slate-300'>
+                            ".htmlspecialchars($vehiculo)."
+                        </span>
+                    </td>
                   </tr>";
         }
-
-        echo "<div class='space-y-3'>";
-        
-        if ($total_sin_clasificar > 0) {
-            echo "<div class='bg-amber-50 border border-amber-200 rounded-xl p-4 mb-3'>
-                    <div class='flex items-center gap-2 mb-2'>
-                        <span class='text-amber-600 font-bold text-lg'>⚠️</span>
-                        <span class='font-semibold text-amber-800'>Este conductor tiene $total_sin_clasificar viaje(s) sin clasificar</span>
-                    </div>
-                    <div class='text-sm text-amber-700'>
-                        <p class='mb-2'>Rutas sin clasificación:</p>";
-            
-            foreach (array_slice($rutas_sin_clasificar, 0, 5) as $rsc) {
-                echo "<div class='flex items-center gap-2 mb-1'>
-                        <span class='text-xs'>•</span>
-                        <span>".htmlspecialchars($rsc['ruta'])." (".htmlspecialchars($rsc['vehiculo']).")</span>
-                        <span class='text-xs text-amber-500'>".$rsc['fecha']."</span>
-                      </div>";
-            }
-            
-            if ($total_sin_clasificar > 5) {
-                echo "<p class='text-xs text-amber-600 mt-1'>... y ".($total_sin_clasificar - 5)." más</p>";
-            }
-            
-            echo "</div>
-                  </div>";
-        }
-        
-        echo "<div class='flex flex-wrap gap-2 text-xs' id='legendFilterBar'>";
-        foreach (array_keys($legend) as $k) {
-            if ($counts[$k] > 0) {
-                $l = $legend[$k];
-                $countVal = $counts[$k] ?? 0;
-                $badgeClass = str_replace(['bg-','/40'], ['bg-',''], $l['row']);
-                echo "<button
-                        class='legend-pill inline-flex items-center gap-2 px-3 py-2 rounded-full {$l['badge']} hover:opacity-90 transition ring-0 outline-none border cursor-pointer select-none'
-                        data-tipo='{$k}'
-                      >
-                        <span class='w-2.5 h-2.5 rounded-full {$badgeClass} bg-opacity-100 border border-white/30 shadow-inner'></span>
-                        <span class='font-semibold text-[13px]'>{$l['label']}</span>
-                        <span class='text-[11px] font-semibold opacity-80'>({$countVal})</span>
-                      </button>";
-            }
-        }
-        echo "</div>";
-
-        echo "<div class='overflow-x-auto max-h-[350px]'>
-                <table class='min-w-full text-sm text-left'>
-                  <thead class='bg-blue-600 text-white sticky top-0 z-10'>
-                    <tr>
-                      <th class='px-3 py-2 text-center'>Fecha</th>
-                      <th class='px-3 py-2 text-center'>Ruta</th>
-                      <th class='px-3 py-2 text-center'>Empresa</th>
-                      <th class='px-3 py-2 text-center'>Vehículo</th>
-                      <th class='px-3 py-2 text-center'>Pago parcial</th>
-                    </tr>
-                  </thead>
-                  <tbody id='viajesTableBody' class='divide-y divide-gray-100'>
-                    {$rowsHTML}
-                  </tbody>
-                </table>
-              </div>";
-        
-        echo "</div>";
-        
-        echo "<script>
-                function attachFiltroViajes(){
-                    const pills = document.querySelectorAll('#legendFilterBar .legend-pill');
-                    const rows  = document.querySelectorAll('#viajesTableBody .row-viaje');
-                    if (!pills.length || !rows.length) return;
-
-                    let activeCat = null;
-
-                    function applyFilter(cat){
-                        if (cat === activeCat) {
-                            activeCat = null;
-                        } else {
-                            activeCat = cat;
-                        }
-
-                        pills.forEach(p => {
-                            const pcat = p.getAttribute('data-tipo');
-                            if (activeCat && pcat === activeCat) {
-                                p.classList.add('ring-2','ring-blue-500','ring-offset-1','ring-offset-white');
-                            } else {
-                                p.classList.remove('ring-2','ring-blue-500','ring-offset-1','ring-offset-white');
-                            }
-                        });
-
-                        rows.forEach(r => {
-                            if (!activeCat) {
-                                r.style.display = '';
-                            } else {
-                                if (r.classList.contains('cat-' + activeCat)) {
-                                    r.style.display = '';
-                                } else {
-                                    r.style.display = 'none';
-                                }
-                            }
-                        });
-                    }
-
-                    pills.forEach(p => {
-                        p.addEventListener('click', ()=>{
-                            const cat = p.getAttribute('data-tipo');
-                            applyFilter(cat);
-                        });
-                    });
-                }
-                
-                setTimeout(attachFiltroViajes, 100);
-              </script>";
-
     } else {
-        echo "<p class='text-center text-gray-500 py-4'>No se encontraron viajes para este conductor en ese rango.</p>";
+        $rowsHTML .= "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresas seleccionadas.</td></tr>";
     }
+
+    ?>
+    <div class='space-y-3'>
+        <div class='flex flex-wrap gap-2 text-xs' id="legendFilterBar">
+            <?php
+            $colores_base = [
+                'completo'         => 'bg-emerald-100 text-emerald-700 border border-emerald-200',
+                'medio'            => 'bg-amber-100 text-amber-800 border border-amber-200',
+                'extra'            => 'bg-slate-200 text-slate-800 border border-slate-300',
+                'siapana'          => 'bg-fuchsia-100 text-fuchsia-700 border border-fuchsia-200',
+                'carrotanque'      => 'bg-cyan-100 text-cyan-800 border border-cyan-200',
+            ];
+            
+            $legend = [];
+            foreach ($todas_clasificaciones as $clas) {
+                $clas_normalizada = strtolower($clas);
+                
+                if (isset($colores_base[$clas_normalizada])) {
+                    $legend[$clas_normalizada] = [
+                        'label' => ucwords(str_replace(['_', ' medio', ' completo'], [' ', ' Medio', ' Completo'], $clas)),
+                        'badge' => $colores_base[$clas_normalizada]
+                    ];
+                } else {
+                    $legend[$clas_normalizada] = [
+                        'label' => ucwords(str_replace('_', ' ', $clas)),
+                        'badge' => 'bg-gray-100 text-gray-700 border border-gray-200'
+                    ];
+                }
+            }
+            $legend['otro'] = ['label'=>'Sin clasificar','badge'=>'bg-gray-100 text-gray-700 border border-gray-200'];
+
+            foreach ($legend as $k => $l) {
+                $countVal = $counts[$k] ?? 0;
+                if ($countVal > 0) {
+                    echo "<button
+                            class='legend-pill inline-flex items-center gap-2 px-3 py-2 rounded-full {$l['badge']} hover:opacity-90 transition ring-0 outline-none border cursor-pointer select-none'
+                            data-tipo='{$k}'
+                          >
+                            <span class='w-2.5 h-2.5 rounded-full bg-opacity-100 border border-white/30 shadow-inner'></span>
+                            <span class='font-semibold text-[13px]'>{$l['label']}</span>
+                            <span class='text-[11px] font-semibold opacity-80'>({$countVal})</span>
+                          </button>";
+                }
+            }
+            ?>
+        </div>
+
+        <div class='overflow-x-auto'>
+            <table class='min-w-full text-sm text-left'>
+                <thead class='bg-blue-600 text-white'>
+                <tr>
+                    <th class='px-3 py-2'>Fecha</th>
+                    <th class='px-3 py-2'>Ruta</th>
+                    <th class='px-3 py-2'>Empresa</th>
+                    <th class='px-3 py-2'>Vehículo</th>
+                </tr>
+                </thead>
+                <tbody class='divide-y divide-gray-100 bg-white' id="viajesTableBody">
+                <?= $rowsHTML ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <?php
     exit;
 }
 
-/* =======================================================
-   🔹 Formulario inicial (con CHECKBOXES)
-======================================================= */
+/* ================= Form si faltan fechas ================= */
 if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
     $empresas = [];
     $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
     if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresas[] = $r['empresa'];
     ?>
     <!DOCTYPE html>
-    <html lang="es">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-      <title>Filtrar viajes</title>
-      <script src="https://cdn.tailwindcss.com"></script>
+    <html lang="es"><head>
+        <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+        <title>Ajuste de Pago</title><script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="min-h-screen bg-slate-100 text-slate-800">
-      <div class="max-w-lg mx-auto p-6">
+    <div class="max-w-lg mx-auto p-6">
         <div class="bg-white shadow-sm rounded-2xl p-6 border border-slate-200">
-          <h2 class="text-2xl font-bold text-center mb-2">📅 Filtrar viajes por rango</h2>
-          <p class="text-center text-slate-500 mb-6">Selecciona el periodo y una o varias empresas.</p>
-          <form method="get" class="space-y-4">
-            <label class="block">
-              <span class="block text-sm font-medium mb-1">Desde</span>
-              <input type="date" name="desde" required
-                     class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"/>
-            </label>
-            <label class="block">
-              <span class="block text-sm font-medium mb-1">Hasta</span>
-              <input type="date" name="hasta" required
-                     class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition"/>
-            </label>
-            
-            <!-- EMPRESAS CON CHECKBOX (MÚLTIPLE SELECCIÓN) -->
-            <div class="block">
-              <span class="block text-sm font-medium mb-2">Empresas (selecciona una o varias)</span>
-              <div class="space-y-2 max-h-60 overflow-y-auto border border-slate-200 rounded-xl p-3">
-                <label class="flex items-center gap-2 p-2 hover:bg-slate-50 rounded-lg">
-                  <input type="checkbox" name="empresas[]" value="" class="rounded border-slate-300 text-blue-600 focus:ring-blue-500">
-                  <span class="text-sm font-medium">-- Todas --</span>
+            <h2 class="text-2xl font-bold text-center mb-2">📅 Ajuste de Pago por rango</h2>
+            <form method="get" class="space-y-4">
+                <label class="block"><span class="block text-sm font-medium mb-1">Desde</span>
+                    <input type="date" name="desde" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
                 </label>
-                <?php foreach($empresas as $e): ?>
-                  <label class="flex items-center gap-2 p-2 hover:bg-slate-50 rounded-lg">
-                    <input type="checkbox" name="empresas[]" value="<?= htmlspecialchars($e) ?>" class="rounded border-slate-300 text-blue-600 focus:ring-blue-500">
-                    <span class="text-sm font-medium"><?= htmlspecialchars($e) ?></span>
-                  </label>
-                <?php endforeach; ?>
-              </div>
-              <p class="text-xs text-slate-500 mt-1">Puedes seleccionar múltiples empresas. Los datos se consolidarán en una sola tabla.</p>
-            </div>
-            
-            <button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow hover:bg-blue-700 active:bg-blue-800 focus:ring-4 focus:ring-blue-200 transition">
-              Filtrar
-            </button>
-          </form>
+                <label class="block"><span class="block text-sm font-medium mb-1">Hasta</span>
+                    <input type="date" name="hasta" required class="w-full rounded-xl border border-slate-300 px-3 py-2">
+                </label>
+                <div class="block">
+                    <span class="block text-sm font-medium mb-2">Empresas (puedes seleccionar varias)</span>
+                    <div class="max-h-60 overflow-y-auto border border-slate-300 rounded-xl p-3 space-y-2">
+                        <?php foreach($empresas as $e): ?>
+                        <label class="flex items-center gap-2">
+                            <input type="checkbox" name="empresas[]" value="<?= htmlspecialchars($e) ?>" class="rounded border-slate-300">
+                            <span><?= htmlspecialchars($e) ?></span>
+                        </label>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <button class="w-full rounded-xl bg-blue-600 text-white py-2.5 font-semibold shadow">Continuar</button>
+            </form>
         </div>
-      </div>
-    </body>
-    </html>
-    <?php
-    exit;
+    </div>
+    </body></html>
+    <?php exit;
 }
+include("nav.php");
 
-/* =======================================================
-   🔹 Cálculo y armado de tablas DINÁMICO - AHORA CONSOLIDADO EN UNA SOLA TABLA
-======================================================= */
+/* ================= Parámetros ================= */
 $desde = $_GET['desde'];
 $hasta = $_GET['hasta'];
-$empresasSeleccionadas = $_GET['empresas'] ?? [];
+$empresasSeleccionadas = isset($_GET['empresas']) ? $_GET['empresas'] : [];
+$empresasSeleccionadasEsc = array_map(function($e) use ($conn) {
+    return $conn->real_escape_string($e);
+}, $empresasSeleccionadas);
 
-// Si "Todas" está seleccionado o no hay selección, obtener todas las empresas
-if (empty($empresasSeleccionadas) || in_array("", $empresasSeleccionadas)) {
-    $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
-    $empresasSeleccionadas = [];
-    if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresasSeleccionadas[] = $r['empresa'];
-}
-
-// Obtener datos dinámicos
-$columnas_tarifas = obtenerColumnasTarifas($conn);
-$clasificaciones_disponibles = obtenerClasificacionesDisponibles($conn);
-
-// Cargar columnas seleccionadas desde cookie
-$session_key = "columnas_seleccionadas_" . md5(implode(',', $empresasSeleccionadas) . $desde . $hasta);
-$columnas_seleccionadas = [];
-
-if (isset($_COOKIE[$session_key])) {
-    $columnas_seleccionadas = json_decode($_COOKIE[$session_key], true);
-} else {
-    $columnas_seleccionadas = $clasificaciones_disponibles;
-}
-
-// Cargar clasificaciones de rutas desde BD
-$clasif_rutas = [];
-$resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
-if ($resClasif) {
-    while ($r = $resClasif->fetch_assoc()) {
-        $key = mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo']), 'UTF-8');
-        $clasif_rutas[$key] = strtolower($r['clasificacion']);
-    }
-}
-
-/* =======================================================
-   🔹 CONSOLIDAR DATOS DE TODAS LAS EMPRESAS EN UNA SOLA ESTRUCTURA
-   ======================================================= */
-$datosConsolidados = []; // clave: nombre_conductor
-$todosLosVehiculos = []; // para saber qué vehículos aparecen
-$rutas_sin_clasificar_por_conductor = [];
-
-foreach ($empresasSeleccionadas as $empresa) {
-    $empresa = $conn->real_escape_string($empresa);
-    
-    $sql = "SELECT nombre, ruta, empresa, tipo_vehiculo, COALESCE(pago_parcial,0) AS pago_parcial
-            FROM viajes
-            WHERE fecha BETWEEN '$desde' AND '$hasta'
-              AND empresa = '$empresa'";
-    
-    $res = $conn->query($sql);
-    
-    if ($res) {
-        while ($row = $res->fetch_assoc()) {
-            $nombre = $row['nombre'];
-            $ruta = $row['ruta'];
-            $vehiculo = $row['tipo_vehiculo'];
-            $pagoParcial = (int)($row['pago_parcial'] ?? 0);
-            $empresaActual = $row['empresa'];
+/* ================= CARGAR TARIFAS ================= */
+$tarifas = [];
+if (!empty($empresasSeleccionadasEsc)) {
+    $empresasStr = "'" . implode("','", $empresasSeleccionadasEsc) . "'";
+    $resT = $conn->query("SELECT * FROM tarifas WHERE empresa IN ($empresasStr)");
+    if ($resT) {
+        while($r = $resT->fetch_assoc()) {
+            $empresa = $r['empresa'];
+            $tipo_vehiculo = $r['tipo_vehiculo'];
             
-            // Registrar vehículo
-            if (!in_array($vehiculo, $todosLosVehiculos)) {
-                $todosLosVehiculos[] = $vehiculo;
+            if (!isset($tarifas[$empresa])) {
+                $tarifas[$empresa] = [];
             }
             
-            // Inicializar conductor si no existe
-            if (!isset($datosConsolidados[$nombre])) {
-                $datosConsolidados[$nombre] = [
-                    "vehiculos" => [], // Para saber qué vehículos usa este conductor
-                    "pagos_por_empresa" => [], // Para calcular pagado correctamente respetando empresas
-                    "viajes_por_clasificacion" => [] // [clasificacion][empresa] = cantidad
-                ];
+            $tarifa_normalizada = [];
+            foreach ($r as $key => $value) {
+                $tarifa_normalizada[strtolower($key)] = $value;
             }
             
-            // Registrar el vehículo del conductor (para mostrar en la tabla, usaremos el más común o el primero)
-            if (!in_array($vehiculo, $datosConsolidados[$nombre]["vehiculos"])) {
-                $datosConsolidados[$nombre]["vehiculos"][] = $vehiculo;
-            }
-            
-            // Acumular pago parcial por empresa
-            if (!isset($datosConsolidados[$nombre]["pagos_por_empresa"][$empresaActual])) {
-                $datosConsolidados[$nombre]["pagos_por_empresa"][$empresaActual] = 0;
-            }
-            $datosConsolidados[$nombre]["pagos_por_empresa"][$empresaActual] += $pagoParcial;
-            
-            // Determinar clasificación de la ruta
-            $keyRuta = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
-            $clasificacion_ruta = $clasif_rutas[$keyRuta] ?? '';
-            
-            // Registrar rutas sin clasificar
-            if ($clasificacion_ruta === '' || $clasificacion_ruta === 'otro') {
-                if (!isset($rutas_sin_clasificar_por_conductor[$nombre])) {
-                    $rutas_sin_clasificar_por_conductor[$nombre] = [];
-                }
-                $ruta_key = $ruta . '|' . $vehiculo . '|' . $empresaActual;
-                if (!in_array($ruta_key, $rutas_sin_clasificar_por_conductor[$nombre])) {
-                    $rutas_sin_clasificar_por_conductor[$nombre][] = $ruta_key;
-                }
-            }
-            
-            // Acumular viajes por clasificación y por empresa
-            if ($clasificacion_ruta !== '') {
-                if (!isset($datosConsolidados[$nombre]["viajes_por_clasificacion"][$clasificacion_ruta])) {
-                    $datosConsolidados[$nombre]["viajes_por_clasificacion"][$clasificacion_ruta] = [];
-                }
-                if (!isset($datosConsolidados[$nombre]["viajes_por_clasificacion"][$clasificacion_ruta][$empresaActual])) {
-                    $datosConsolidados[$nombre]["viajes_por_clasificacion"][$clasificacion_ruta][$empresaActual] = 0;
-                }
-                $datosConsolidados[$nombre]["viajes_por_clasificacion"][$clasificacion_ruta][$empresaActual]++;
-            }
+            $tarifas[$empresa][$tipo_vehiculo] = $tarifa_normalizada;
         }
     }
 }
 
-// Determinar el vehículo principal de cada conductor (el más usado, o el primero)
-$vehiculoPrincipal = [];
-foreach ($datosConsolidados as $nombre => $info) {
-    // Por ahora, tomamos el primer vehículo de la lista
-    // En una versión más avanzada, podríamos contar cuál es el más frecuente
-    $vehiculoPrincipal[$nombre] = !empty($info["vehiculos"]) ? $info["vehiculos"][0] : 'Desconocido';
+/* ================= Viajes del rango ================= */
+$sqlV = "SELECT nombre, ruta, empresa, tipo_vehiculo
+         FROM viajes
+         WHERE fecha BETWEEN '$desde' AND '$hasta'";
+if (!empty($empresasSeleccionadasEsc)) {
+    $empresasStr = "'" . implode("','", $empresasSeleccionadasEsc) . "'";
+    $sqlV .= " AND empresa IN ($empresasStr)";
 }
+$resV = $conn->query($sqlV);
 
-// Calcular el total pagado por conductor (sumando todas las empresas)
-$totalPagadoPorConductor = [];
-foreach ($datosConsolidados as $nombre => $info) {
-    $totalPagadoPorConductor[$nombre] = array_sum($info["pagos_por_empresa"] ?? []);
-}
+$viajesPorConductor = [];
+$contadores = [];
 
-// Calcular rutas sin clasificar por conductor
-$rutasSinClasificarCount = [];
-foreach ($rutas_sin_clasificar_por_conductor as $nombre => $rutas) {
-    $rutasSinClasificarCount[$nombre] = count($rutas);
-}
-
-// Obtener todas las empresas para el listado
-$todasEmpresas = [];
-$resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
-if ($resEmp) while ($r = $resEmp->fetch_assoc()) $todasEmpresas[] = $r['empresa'];
-
-// Tarifas guardadas (necesitamos todas las empresas seleccionadas)
-$tarifas_guardadas = [];
-if (!empty($empresasSeleccionadas)) {
-    $empresasList = "'" . implode("','", array_map([$conn, 'real_escape_string'], $empresasSeleccionadas)) . "'";
-    $resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa IN ($empresasList)");
-    if ($resTarifas) {
-        while ($r = $resTarifas->fetch_assoc()) {
-            $tarifas_guardadas[$r['empresa']][$r['tipo_vehiculo']] = $r;
+if ($resV) {
+    while ($row = $resV->fetch_assoc()) {
+        $nombre = $row['nombre'];
+        $empresa = $row['empresa'];
+        $ruta = $row['ruta'];
+        $vehiculo = $row['tipo_vehiculo'];
+        
+        if (!isset($viajesPorConductor[$nombre])) {
+            $viajesPorConductor[$nombre] = [];
         }
-    }
-}
-
-/* =======================================================
-   🔹 NUEVO: DETECTAR ALERTAS PARA MOSTRAR ARRIBA
-   ======================================================= */
-$alertas_sin_clasificar = [];
-$alertas_sin_tarifa = [];
-
-foreach ($datosConsolidados as $conductor => $info) {
-    // ALERTA 1: Conductores con rutas sin clasificar
-    $rutasSinClasificar = $rutasSinClasificarCount[$conductor] ?? 0;
-    if ($rutasSinClasificar > 0) {
-        $alertas_sin_clasificar[] = [
-            'conductor' => $conductor,
-            'cantidad' => $rutasSinClasificar
+        $viajesPorConductor[$nombre][] = [
+            'empresa' => $empresa,
+            'ruta' => $ruta,
+            'vehiculo' => $vehiculo
         ];
-    }
-    
-    // ALERTA 2: Conductores con clasificaciones que tienen tarifa en CERO
-    foreach ($info["viajes_por_clasificacion"] as $clasif => $porEmpresa) {
-        foreach ($porEmpresa as $empresa => $cantidad) {
-            // Buscar en tarifas_guardadas si existe esta combinación y si el valor es 0
-            $tarifa_valor = 0;
-            $vehiculo = $vehiculoPrincipal[$conductor] ?? 'Desconocido';
-            
-            if (isset($tarifas_guardadas[$empresa][$vehiculo][$clasif])) {
-                $tarifa_valor = (float)$tarifas_guardadas[$empresa][$vehiculo][$clasif];
+        
+        if (!isset($contadores[$nombre])) {
+            $contadores[$nombre] = [];
+            foreach ($todas_clasificaciones as $clas) {
+                $clas_normalizada = strtolower($clas);
+                $contadores[$nombre][$clas_normalizada] = 0;
             }
-            
-            // Si la tarifa es 0, agregar a alertas
-            if ($tarifa_valor == 0) {
-                $alertas_sin_tarifa[] = [
-                    'conductor' => $conductor,
-                    'empresa' => $empresa,
-                    'vehiculo' => $vehiculo,
-                    'clasificacion' => $clasif,
-                    'cantidad_viajes' => $cantidad
-                ];
-            }
+        }
+        
+        $key = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
+        $clasif = isset($clasificaciones[$key]) ? strtolower($clasificaciones[$key]) : '';
+        
+        if ($clasif !== '' && in_array($clasif, $todas_clasificaciones)) {
+            $contadores[$nombre][$clasif]++;
         }
     }
 }
 
-// Eliminar duplicados en alertas sin tarifa (misma combinación conductor+empresa+vehiculo+clasificacion)
-$alertas_sin_tarifa_unicas = [];
-$visto = [];
-foreach ($alertas_sin_tarifa as $alerta) {
-    $key = $alerta['conductor'] . '|' . $alerta['empresa'] . '|' . $alerta['vehiculo'] . '|' . $alerta['clasificacion'];
-    if (!in_array($key, $visto)) {
-        $visto[] = $key;
-        $alertas_sin_tarifa_unicas[] = $alerta;
+/* ================= PRÉSTAMOS - TODAS LAS EMPRESAS ================= */
+$prestamosList = [];
+$i = 0;
+
+$qPrest = "
+  SELECT deudor,
+         empresa,
+         SUM(
+           monto + 
+           monto * 
+           CASE 
+             WHEN fecha >= '2025-10-29' THEN 0.13
+             ELSE 0.10
+           END *
+           CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
+         ) AS total
+  FROM prestamos
+  WHERE (pagado IS NULL OR pagado = 0)
+  GROUP BY deudor, empresa";
+
+if ($rP = $conn->query($qPrest)) {
+    while($r = $rP->fetch_assoc()){
+        $name = $r['deudor'];
+        $key  = norm_person($name);
+        $total = (int)round($r['total']);
+        $empresa = $r['empresa'];
+        $prestamosList[] = ['id'=>$i++, 'name'=>$name, 'key'=>$key, 'total'=>$total, 'empresa'=>$empresa];
     }
 }
-$alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
+
+/* ================= Filas base ================= */
+$filas = []; 
+$total_facturado = 0;
+$conductoresBaseMap = []; // Para guardar los valores base originales
+
+foreach ($contadores as $nombre => $v) {
+    $total = 0;
+    
+    $viajesConductor = $viajesPorConductor[$nombre] ?? [];
+    
+    foreach ($viajesConductor as $viaje) {
+        $empresa = $viaje['empresa'];
+        $ruta = $viaje['ruta'];
+        $vehiculo = $viaje['vehiculo'];
+        
+        $key = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
+        $clasif = isset($clasificaciones[$key]) ? strtolower($clasificaciones[$key]) : 'otro';
+        
+        $precio = 0;
+        if (isset($tarifas[$empresa][$vehiculo])) {
+            $t = $tarifas[$empresa][$vehiculo];
+            
+            if (isset($t[$clasif])) {
+                $precio = (float)$t[$clasif];
+            } else {
+                $clasif_guion = str_replace(' ', '_', $clasif);
+                if (isset($t[$clasif_guion])) {
+                    $precio = (float)$t[$clasif_guion];
+                } else {
+                    $clasif_espacio = str_replace('_', ' ', $clasif);
+                    if (isset($t[$clasif_espacio])) {
+                        $precio = (float)$t[$clasif_espacio];
+                    }
+                }
+            }
+        }
+        
+        $total += $precio;
+    }
+
+    $filas[] = ['nombre'=>$nombre, 'total_bruto'=>(int)$total];
+    $conductoresBaseMap[$nombre] = (int)$total;
+    $total_facturado += (int)$total;
+}
+
+usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 ?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Liquidación de Conductores - Consolidado</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<style>
-  /* ===== ESTILOS CORREGIDOS CON BOLAS ABAJO Y TOOLTIPS VISIBLES ===== */
-  
-  /* BARRAS DE DESPLAZAMIENTO VISIBLES */
-  ::-webkit-scrollbar {
-    height: 10px;
-    width: 10px;
-    background: #f1f1f1;
-  }
-  
-  ::-webkit-scrollbar-thumb {
-    background: #d1d5db;
-    border-radius: 999px;
-    border: 2px solid #f1f1f1;
-  }
-  
-  ::-webkit-scrollbar-thumb:hover {
-    background: #9ca3af;
-  }
-  
-  ::-webkit-scrollbar-track {
-    background: #f1f1f1;
-    border-radius: 999px;
-  }
-  
-  /* Para Firefox */
-  * {
-    scrollbar-width: thin;
-    scrollbar-color: #d1d5db #f1f1f1;
-  }
-  
-  input[type=number]::-webkit-inner-spin-button,
-  input[type=number]::-webkit-outer-spin-button{ 
-    -webkit-appearance: none; 
-    margin: 0; 
-  }
-  
-  .buscar-container { position: relative; }
-  .buscar-clear { 
-    position: absolute; 
-    right: 10px; 
-    top: 50%; 
-    transform: translateY(-50%); 
-    background: none; 
-    border: none; 
-    color: #64748b; 
-    cursor: pointer; 
-    display: none; 
-  }
-  .buscar-clear:hover { color: #475569; }
-  
-  .vehiculo-mensual {
-    background-color: #fef3c7 !important;
-    border: 1px solid #f59e0b !important;
-    color: #92400e !important;
-    font-weight: 600;
-  }
-  
-  .alerta-sin-clasificar {
-    animation: pulse-alerta 2s infinite;
-  }
-  
-  @keyframes pulse-alerta {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.7; }
-  }
-  
-  /* ===== BOLITAS FLOTANTES EN LA PARTE INFERIOR ===== */
-  .floating-balls-container {
-    position: fixed;
-    left: 50%;
-    transform: translateX(-50%);
-    bottom: 20px; /* Ahora están en la parte inferior */
-    display: flex;
-    flex-direction: row;
-    gap: 20px;
-    z-index: 9998;
-  }
-  
-  .floating-ball {
-    width: 70px;
-    height: 70px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    border: 3px solid white;
-    position: relative;
-    z-index: 9999;
-    overflow: visible; /* Cambiado para que el tooltip sea visible */
-    user-select: none;
-  }
-  
-  .floating-ball:hover {
-    transform: scale(1.15) translateY(-5px);
-    box-shadow: 0 15px 30px rgba(0, 0, 0, 0.3);
-  }
-  
-  .floating-ball:active {
-    transform: scale(0.95);
-  }
-  
-  .ball-content {
-    font-size: 28px;
-    font-weight: bold;
-    color: white;
-    text-shadow: 0 2px 4px rgba(0,0,0,0.3);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  
-  /* ===== TOOLTIP AHORA SIEMPRE VISIBLE AL HACER HOVER ===== */
-  .ball-tooltip {
-    position: absolute;
-    bottom: 80px; /* Aparece arriba de la bola */
-    left: 50%;
-    transform: translateX(-50%);
-    background: #1e293b;
-    color: white;
-    padding: 8px 16px;
-    border-radius: 30px;
-    font-size: 14px;
-    font-weight: 600;
-    white-space: nowrap;
-    box-shadow: 0 6px 16px rgba(0,0,0,0.2);
-    border: 1px solid #334155;
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.2s ease;
-    pointer-events: none;
-    z-index: 10000;
-  }
-  
-  .floating-ball:hover .ball-tooltip {
-    opacity: 1;
-    visibility: visible;
-    bottom: 90px; /* Se desplaza un poco hacia arriba */
-  }
-  
-  /* Flecha del tooltip */
-  .ball-tooltip::after {
-    content: '';
-    position: absolute;
-    top: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    border-width: 8px;
-    border-style: solid;
-    border-color: #1e293b transparent transparent transparent;
-  }
-  
-  .ball-tarifas { background: linear-gradient(135deg, #3b82f6, #1d4ed8); }
-  .ball-crear-clasif { background: linear-gradient(135deg, #10b981, #059669); }
-  .ball-clasif-rutas { background: linear-gradient(135deg, #f59e0b, #d97706); }
-  .ball-selector-columnas { background: linear-gradient(135deg, #8b5cf6, #7c3aed); }
-  
-  .side-panel-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.4);
-    z-index: 9997;
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.3s;
-  }
-  
-  .side-panel-overlay.active {
-    opacity: 1;
-    visibility: visible;
-  }
-  
-  /* PANELES LATERALES CON SCROLL VISIBLE */
-  .side-panel {
-    position: fixed;
-    left: -450px;
-    top: 0;
-    width: 420px;
-    height: 100vh;
-    background: white;
-    box-shadow: 4px 0 25px rgba(0, 0, 0, 0.15);
-    z-index: 9998;
-    transition: left 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    overflow-y: auto;
-    overflow-x: hidden;
-    display: flex;
-    flex-direction: column;
-  }
-  
-  .side-panel.active {
-    left: 0;
-  }
-  
-  .side-panel-header {
-    position: sticky;
-    top: 0;
-    background: white;
-    border-bottom: 1px solid #e2e8f0;
-    padding: 1.25rem;
-    z-index: 10;
-    flex-shrink: 0;
-  }
-  
-  .side-panel-body {
-    padding: 1.25rem;
-    padding-bottom: 2rem;
-    overflow-y: auto;
-    overflow-x: hidden;
-    flex: 1;
-    min-height: 0;
-  }
-  
-  /* Scroll horizontal para el panel de clasificación de rutas */
-  #panel-clasif-rutas .side-panel-body {
-    overflow-x: auto;
-  }
-  
-  #panel-clasif-rutas table {
-    min-width: 600px;
-  }
-  
-  .side-panel-close {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background: #f1f5f9;
-    border: 1px solid #e2e8f0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: all 0.2s;
-    color: #64748b;
-    flex-shrink: 0;
-  }
-  
-  .side-panel-close:hover {
-    background: #e2e8f0;
-    color: #1e293b;
-  }
-  
-  .table-container-wrapper {
-    transition: margin-left 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    margin-left: 0;
-  }
-  
-  .table-container-wrapper.with-panel {
-    margin-left: 420px;
-  }
-  
-  .ball-active {
-    animation: pulse-ball 2s infinite;
-    box-shadow: 0 0 0 8px rgba(59, 130, 246, 0.2);
-  }
-  
-  @keyframes pulse-ball {
-    0%, 100% { box-shadow: 0 8px 20px rgba(0,0,0,0.2), 0 0 0 0 rgba(59, 130, 246, 0.4); }
-    50% { box-shadow: 0 8px 20px rgba(0,0,0,0.2), 0 0 0 12px rgba(59, 130, 246, 0); }
-  }
-  
-  @keyframes fadeInDown {
-    from {
-      opacity: 0;
-      transform: translateY(-20px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-  
-  .animate-fade-in-down {
-    animation: fadeInDown 0.3s ease-out;
-  }
-
-  .viajes-backdrop{ 
-    position:fixed; 
-    inset:0; 
-    background:rgba(0,0,0,.45); 
-    display:none; 
-    align-items:center; 
-    justify-content:center; 
-    z-index:10000; 
-  }
-  .viajes-backdrop.show{ display:flex; }
-  .viajes-card{ 
-    width:min(720px,94vw); 
-    max-height:90vh; 
-    overflow:hidden; 
-    border-radius:16px; 
-    background:#fff;
-    box-shadow:0 20px 60px rgba(0,0,0,.25); 
-    border:1px solid #e5e7eb; 
-  }
-  .viajes-header{
-    padding:14px 16px;
-    border-bottom:1px solid #eef2f7
-  }
-  .viajes-body{
-    padding:14px 16px;
-    overflow:auto; 
-    max-height:70vh
-  }
-  .viajes-close{
-    padding:6px 10px; 
-    border-radius:10px; 
-    cursor:pointer;
-  }
-  .viajes-close:hover{
-    background:#f3f4f6
-  }
-
-  .conductor-link{
-    cursor:pointer; 
-    color:#0d6efd; 
-    text-decoration:underline;
-  }
-
-  .row-viaje:hover { background-color: #f8fafc; }
-  .cat-completo { background-color: rgba(209, 250, 229, 0.1); }
-  .cat-medio { background-color: rgba(254, 243, 199, 0.1); }
-  .cat-extra { background-color: rgba(241, 245, 249, 0.1); }
-  .cat-siapana { background-color: rgba(250, 232, 255, 0.1); }
-  .cat-carrotanque { background-color: rgba(207, 250, 254, 0.1); }
-  .cat-otro { background-color: rgba(243, 244, 246, 0.1); }
-  
-  .tarjeta-tarifa-acordeon {
-    transition: all 0.3s ease;
-  }
-  
-  .tarjeta-tarifa-acordeon:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  }
-  
-  .acordeon-header {
-    transition: background-color 0.2s ease;
-  }
-  
-  .acordeon-content {
-    transition: all 0.3s ease;
-    max-height: 0;
-    overflow: hidden;
-  }
-  
-  .acordeon-content.expanded {
-    max-height: 2000px;
-    overflow-y: auto;
-  }
-  
-  .acordeon-icon {
-    transition: transform 0.3s ease;
-  }
-  
-  .acordeon-icon.expanded {
-    transform: rotate(90deg);
-  }
-  
-  .fila-clasificada-completo {
-    background-color: rgba(209, 250, 229, 0.3) !important;
-    border-left: 4px solid #10b981 !important;
-  }
-  
-  .fila-clasificada-medio {
-    background-color: rgba(254, 243, 199, 0.3) !important;
-    border-left: 4px solid #f59e0b !important;
-  }
-  
-  .fila-clasificada-extra {
-    background-color: rgba(241, 245, 249, 0.3) !important;
-    border-left: 4px solid #64748b !important;
-  }
-  
-  .fila-clasificada-siapana {
-    background-color: rgba(250, 232, 255, 0.3) !important;
-    border-left: 4px solid #d946ef !important;
-  }
-  
-  .fila-clasificada-carrotanque {
-    background-color: rgba(207, 250, 254, 0.3) !important;
-    border-left: 4px solid #06b6d4 !important;
-  }
-  
-  .fila-clasificada-riohacha {
-    background-color: rgba(224, 231, 255, 0.3) !important;
-    border-left: 4px solid #4f46e5 !important;
-  }
-  
-  .fila-clasificada-pru {
-    background-color: rgba(204, 251, 241, 0.3) !important;
-    border-left: 4px solid #14b8a6 !important;
-  }
-  
-  .fila-clasificada-maco {
-    background-color: rgba(255, 228, 230, 0.3) !important;
-    border-left: 4px solid #f43f5e !important;
-  }
-  
-  .columna-checkbox-item {
-    transition: all 0.2s ease;
-  }
-  
-  .columna-checkbox-item:hover {
-    background-color: #f8fafc;
-  }
-  
-  .columna-checkbox-item.selected {
-    background-color: #eff6ff;
-    border-color: #3b82f6;
-  }
-  
-  .checkbox-columna {
-    width: 18px;
-    height: 18px;
-    border-radius: 4px;
-    border: 2px solid #cbd5e1;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s;
-    flex-shrink: 0;
-  }
-  
-  .checkbox-columna.checked {
-    background-color: #3b82f6;
-    border-color: #3b82f6;
-  }
-  
-  .checkbox-columna.checked::after {
-    content: "✓";
-    color: white;
-    font-size: 12px;
-    font-weight: bold;
-  }
-  
-  .columna-oculta {
-    display: none !important;
-  }
-  
-  .columna-visualizada {
-    display: table-cell !important;
-  }
-  
-  /* Totales generales destacados */
-  .totales-generales {
-    background: linear-gradient(135deg, #1e293b, #0f172a);
-    color: white;
-    border-radius: 16px;
-    padding: 20px;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.2);
-    margin-bottom: 24px;
-  }
-  
-  .totales-generales .stat {
-    background: rgba(255,255,255,0.1);
-    backdrop-filter: blur(5px);
-    border: 1px solid rgba(255,255,255,0.2);
-    border-radius: 12px;
-    padding: 12px 20px;
-  }
-  
-  /* Indicador de múltiples empresas en el vehículo */
-  .multi-empresa-badge {
-    font-size: 10px;
-    background: rgba(59, 130, 246, 0.1);
-    border: 1px solid rgba(59, 130, 246, 0.3);
-    border-radius: 12px;
-    padding: 2px 6px;
-    margin-left: 4px;
-  }
-  
-  /* NUEVOS ESTILOS PARA LAS NOTIFICACIONES SUPERIORES */
-  .notificaciones-container {
-    margin-bottom: 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-  
-  .notificacion {
-    border-radius: 16px;
-    padding: 20px;
-    box-shadow: 0 8px 20px rgba(0,0,0,0.08);
-    animation: slideDown 0.3s ease-out;
-  }
-  
-  .notificacion-roja {
-    background: linear-gradient(135deg, #fee2e2, #fecaca);
-    border-left: 8px solid #dc2626;
-    border: 1px solid #fca5a5;
-  }
-  
-  .notificacion-amarilla {
-    background: linear-gradient(135deg, #fef3c7, #fde68a);
-    border-left: 8px solid #d97706;
-    border: 1px solid #fcd34d;
-  }
-  
-  .notificacion-titulo {
-    font-size: 1.25rem;
-    font-weight: 700;
-    margin-bottom: 12px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  
-  .notificacion-titulo.rojo { color: #991b1b; }
-  .notificacion-titulo.amarillo { color: #92400e; }
-  
-  .notificacion-lista {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    max-height: 200px;
-    overflow-y: auto;
-    padding: 4px;
-  }
-  
-  .notificacion-item {
-    background: white;
-    border-radius: 40px;
-    padding: 8px 16px;
-    font-size: 0.95rem;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    border: 1px solid rgba(0,0,0,0.05);
-    transition: all 0.2s;
-  }
-  
-  .notificacion-item:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 12px rgba(0,0,0,0.1);
-  }
-  
-  .notificacion-item.rojo { border-left: 4px solid #dc2626; }
-  .notificacion-item.amarillo { border-left: 4px solid #d97706; }
-  
-  .notificacion-badge {
-    background: #f1f5f9;
-    border-radius: 20px;
-    padding: 2px 8px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #475569;
-  }
-  
-  .notificacion-detalle {
-    color: #334155;
-    font-size: 0.9rem;
-  }
-  
-  .notificacion-detalle strong {
-    color: #0f172a;
-    font-weight: 600;
-  }
-  
-  @keyframes slideDown {
-    from {
-      opacity: 0;
-      transform: translateY(-20px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-  
-  @media (max-width: 768px) {
-    .floating-balls-container {
-      bottom: 15px;
-      gap: 10px;
-    }
-    
-    .floating-ball {
-      width: 55px;
-      height: 55px;
-    }
-    
-    .ball-content {
-      font-size: 22px;
-    }
-    
-    .ball-tooltip {
-      font-size: 12px;
-      padding: 6px 12px;
-      bottom: 70px;
-    }
-    
-    .side-panel {
-      width: 90%;
-      max-width: 400px;
-      left: -100%;
-    }
-    
-    .table-container-wrapper.with-panel {
-      margin-left: 0;
-    }
-    
-    .notificacion-lista {
-      flex-direction: column;
-      max-height: 300px;
-    }
-    
-    .notificacion-item {
-      width: 100%;
-    }
-  }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Ajuste de Pago - Múltiples Empresas</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+        .num { font-variant-numeric: tabular-nums; }
+        .table-sticky thead tr { position: sticky; top: 0; z-index: 30; }
+        .table-sticky thead th { position: sticky; top: 0; z-index: 31; background-color: #2563eb !important; color: #fff !important; }
+        .viajes-backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:10000; }
+        .viajes-backdrop.show{ display:flex; }
+        .viajes-card{ width:min(720px,94vw); max-height:90vh; overflow:hidden; border-radius:16px; background:#fff; box-shadow:0 20px 60px rgba(0,0,0,.25); border:1px solid #e5e7eb; }
+        .viajes-header{padding:14px 16px;border-bottom:1px solid #eef2f7}
+        .viajes-body{padding:14px 16px;overflow:auto; max-height:70vh}
+        .conductor-link{cursor:pointer; color:#0d6efd; text-decoration:underline;}
+        .estado-pagado { background-color: #f0fdf4 !important; border-left: 4px solid #22c55e; }
+        .estado-pendiente { background-color: #fef2f2 !important; border-left: 4px solid #ef4444; }
+        .estado-procesando { background-color: #fffbeb !important; border-left: 4px solid #f59e0b; }
+        .estado-parcial { background-color: #eff6ff !important; border-left: 4px solid #3b82f6; }
+        .fila-manual { background-color: #f0f9ff !important; border-left: 4px solid #0ea5e9; }
+        .buscar-container { position: relative; }
+        .buscar-clear { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); display: none; }
+        #floatingPanel { box-shadow: 0 10px 40px rgba(0,0,0,0.15); z-index: 9999; }
+        #panelDragHandle { cursor: move; }
+        .fila-seleccionada { background-color: #f0f9ff !important; }
+        .empresas-container { max-height: 150px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 0.75rem; padding: 0.75rem; background: white; }
+        .empresa-checkbox { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; }
+        .switch-pagado { position: relative; display: inline-block; width: 50px; height: 24px; }
+        .switch-pagado input { opacity: 0; width: 0; height: 0; }
+        .switch-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ef4444; transition: .3s; border-radius: 34px; }
+        .switch-slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
+        input:checked + .switch-slider { background-color: #22c55e; }
+        input:checked + .switch-slider:before { transform: translateX(26px); }
+        .bd-badge { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .switch-small { width: 40px; height: 20px; }
+        .switch-small .switch-slider:before { height: 14px; width: 14px; left: 3px; bottom: 3px; }
+        input:checked + .switch-small .switch-slider:before { transform: translateX(20px); }
+        
+        .empresas-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 0.5rem;
+            max-height: 200px;
+            overflow-y: auto;
+            padding: 0.5rem;
+            background: #f8fafc;
+            border-radius: 0.75rem;
+            border: 1px solid #e2e8f0;
+        }
+        .empresa-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            background: white;
+            border-radius: 0.5rem;
+            border: 1px solid #e2e8f0;
+            transition: all 0.2s;
+        }
+        .empresa-item:hover {
+            background: #eff6ff;
+            border-color: #3b82f6;
+        }
+        .empresa-item input[type="checkbox"] {
+            width: 1rem;
+            height: 1rem;
+            border-radius: 0.25rem;
+            border: 1px solid #cbd5e1;
+        }
+        .empresa-item input[type="checkbox"]:checked {
+            background-color: #3b82f6;
+            border-color: #3b82f6;
+        }
+        .badge-empresa {
+            background: #e2e8f0;
+            color: #475569;
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 9999px;
+            margin-left: auto;
+        }
+        .separador-empresa {
+            background: linear-gradient(to right, #f1f5f9, transparent);
+            padding: 0.5rem 1rem;
+            font-weight: 600;
+            color: #334155;
+            border-bottom: 1px solid #e2e8f0;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .prest-item {
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+        .prest-item:hover {
+            background-color: #f0f9ff;
+            border-left-color: #3b82f6;
+        }
+        .resumen-seleccion {
+            background: #f0fdf4;
+            border: 1px solid #86efac;
+            border-radius: 0.75rem;
+            padding: 0.75rem;
+        }
+        .badge-historico {
+            background: #fef3c7;
+            color: #92400e;
+            font-size: 0.65rem;
+            padding: 0.15rem 0.4rem;
+            border-radius: 9999px;
+            margin-left: 0.25rem;
+            display: inline-block;
+            border: 1px solid #fbbf24;
+        }
+        .disponible-positivo { color: #059669; font-weight: 600; }
+        .disponible-negativo { color: #dc2626; font-weight: 600; }
+        
+        /* Estilos para checkboxes de selección múltiple en cuentas */
+        .cuenta-checkbox {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: #3b82f6;
+        }
+        .fila-cuenta-seleccionada {
+            background-color: #eff6ff !important;
+            border-left: 4px solid #3b82f6;
+        }
+        
+        @media (max-width: 640px) {
+            .prest-modal-content {
+                width: 95% !important;
+                margin: 0.5rem auto !important;
+                max-height: 98vh !important;
+            }
+            .prest-list-container {
+                max-height: 50vh !important;
+            }
+            .empresas-grid {
+                grid-template-columns: 1fr !important;
+            }
+        }
+        
+        @media (min-width: 641px) and (max-width: 1024px) {
+            .prest-modal-content {
+                width: 90% !important;
+            }
+            .prest-list-container {
+                max-height: 55vh !important;
+            }
+        }
+        
+        @media (min-width: 1025px) {
+            .prest-list-container {
+                max-height: 65vh !important;
+            }
+        }
+    </style>
 </head>
-<body class="bg-slate-100 min-h-screen text-slate-800">
-
-  <!-- BOLITAS FLOTANTES EN LA PARTE INFERIOR CON TOOLTIPS VISIBLES -->
-  <div class="floating-balls-container">
-    <div class="floating-ball ball-tarifas" id="ball-tarifas" data-panel="tarifas">
-      <div class="ball-content">🚐</div>
-      <div class="ball-tooltip">Tarifas por tipo de vehículo</div>
-    </div>
-    <div class="floating-ball ball-crear-clasif" id="ball-crear-clasif" data-panel="crear-clasif">
-      <div class="ball-content">➕</div>
-      <div class="ball-tooltip">Crear nueva clasificación</div>
-    </div>
-    <div class="floating-ball ball-clasif-rutas" id="ball-clasif-rutas" data-panel="clasif-rutas">
-      <div class="ball-content">🧭</div>
-      <div class="ball-tooltip">Clasificar rutas existentes</div>
-    </div>
-    <div class="floating-ball ball-selector-columnas" id="ball-selector-columnas" data-panel="selector-columnas">
-      <div class="ball-content">📊</div>
-      <div class="ball-tooltip">Seleccionar columnas</div>
-    </div>
-  </div>
-
-  <!-- ===== HEADER MEJORADO CON SELECTOR DE EMPRESAS SIEMPRE VISIBLE ===== -->
-  <header class="max-w-[1800px] mx-auto px-3 md:px-4 pt-6">
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+<header class="max-w-[1600px] mx-auto px-3 md:px-4 pt-6">
     <div class="bg-white border border-slate-200 rounded-2xl shadow-sm px-5 py-4">
-      
-      <!-- Fila superior: Título y selector de empresas -->
-      <div class="flex flex-col gap-4">
-        
-        <!-- Título y contador -->
-        <div class="flex items-center justify-between">
-          <h2 class="text-xl md:text-2xl font-bold">🪙 Liquidación de Conductores - CONSOLIDADO</h2>
-          <span class="text-sm bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-medium">
-            📊 <?= count($empresasSeleccionadas) ?> empresa(s) · <?= count($datosConsolidados) ?> conductor(es)
-          </span>
-        </div>
-        
-        <!-- FORMULARIO COMPLETO (Fechas + Empresas con Checkboxes) - SIEMPRE VISIBLE -->
-        <form method="get" class="space-y-4">
-          
-          <!-- Fila de fechas -->
-          <div class="flex flex-col md:flex-row gap-3">
-            <label class="flex-1">
-              <span class="block text-xs font-medium text-slate-600 mb-1">Desde</span>
-              <input type="date" name="desde" value="<?= htmlspecialchars($desde) ?>" required
-                     class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
-            </label>
-            
-            <label class="flex-1">
-              <span class="block text-xs font-medium text-slate-600 mb-1">Hasta</span>
-              <input type="date" name="hasta" value="<?= htmlspecialchars($hasta) ?>" required
-                     class="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition">
-            </label>
-          </div>
-          
-          <!-- SECCIÓN DE EMPRESAS -->
-          <div class="block">
-            <span class="block text-sm font-medium mb-2">Empresas (selecciona una o varias)</span>
-            
-            <div class="space-y-2 max-h-60 overflow-y-auto border border-slate-200 rounded-xl p-3 bg-white">
-              <?php
-              // Obtener todas las empresas (ya las tenemos en $todasEmpresas)
-              ?>
-              
-              <!-- Opción "Todas" -->
-              <label class="flex items-center gap-2 p-2 hover:bg-slate-50 rounded-lg cursor-pointer">
-                <input type="checkbox" name="empresas[]" value="" 
-                       <?= in_array("", $empresasSeleccionadas) ? 'checked' : '' ?>
-                       class="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer">
-                <span class="text-sm font-medium">🌐 -- Todas las empresas --</span>
-              </label>
-              
-              <!-- Lista de empresas individuales -->
-              <?php foreach($todasEmpresas as $emp): ?>
-                <label class="flex items-center gap-2 p-2 hover:bg-slate-50 rounded-lg cursor-pointer">
-                  <input type="checkbox" name="empresas[]" value="<?= htmlspecialchars($emp) ?>"
-                         <?= in_array($emp, $empresasSeleccionadas) ? 'checked' : '' ?>
-                         class="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer">
-                  <span class="text-sm font-medium">🏢 <?= htmlspecialchars($emp) ?></span>
-                </label>
-              <?php endforeach; ?>
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <h2 class="text-xl md:text-2xl font-bold">
+                🧾 Ajuste de Pago 
+                <span class="bd-badge text-xs px-2 py-1 rounded-full ml-2">Base de Datos</span>
+                <span class="bg-purple-600 text-white text-xs px-2 py-1 rounded-full ml-1">Múltiples Empresas</span>
+            </h2>
+            <div class="flex items-center gap-2">
+                <button id="btnShowSaveCuenta" class="rounded-lg border border-amber-300 px-3 py-2 text-sm bg-amber-50 hover:bg-amber-100">⭐ Guardar cuenta</button>
+                <button id="btnShowGestorCuentas" class="rounded-lg border border-blue-300 px-3 py-2 text-sm bg-blue-50 hover:bg-blue-100">📚 Cuentas guardadas</button>
             </div>
-            
-            <p class="text-xs text-slate-500 mt-2">
-              💡 Los datos de todas las empresas seleccionadas se consolidan en UNA SOLA TABLA.
-            </p>
-          </div>
-          
-          <!-- Botón de aplicar filtros -->
-          <div class="flex justify-end">
-            <button type="submit" 
-                    class="inline-flex items-center gap-2 rounded-xl bg-blue-600 text-white px-6 py-2.5 text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 focus:ring-4 focus:ring-blue-200 transition">
-              🔄 Aplicar filtros
-            </button>
-          </div>
+        </div>
+
+        <form method="get" class="mt-4 grid grid-cols-1 md:grid-cols-12 gap-3">
+            <div class="md:col-span-2">
+                <label class="text-xs font-medium">Desde</label>
+                <input type="date" name="desde" id="filtro_desde" value="<?= htmlspecialchars($desde) ?>" class="w-full border rounded-xl px-3 py-2">
+            </div>
+            <div class="md:col-span-2">
+                <label class="text-xs font-medium">Hasta</label>
+                <input type="date" name="hasta" id="filtro_hasta" value="<?= htmlspecialchars($hasta) ?>" class="w-full border rounded-xl px-3 py-2">
+            </div>
+            <div class="md:col-span-6">
+                <label class="text-xs font-medium">Empresas</label>
+                <div class="empresas-container" id="empresasContainer">
+                    <?php
+                    $resEmp2 = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
+                    while ($e = $resEmp2->fetch_assoc()) {
+                        $checked = in_array($e['empresa'], $empresasSeleccionadas) ? 'checked' : '';
+                        echo "<div class='empresa-checkbox'>";
+                        echo "<input type='checkbox' name='empresas[]' value='" . htmlspecialchars($e['empresa']) . "' $checked>";
+                        echo "<label class='text-sm'>" . htmlspecialchars($e['empresa']) . "</label>";
+                        echo "</div>";
+                    }
+                    ?>
+                </div>
+                <div class="flex gap-2 mt-2">
+                    <button type="button" id="btnSeleccionarTodas" class="text-xs px-3 py-1.5 bg-blue-50 rounded-lg border border-blue-200 hover:bg-blue-100">✓ Todas</button>
+                    <button type="button" id="btnLimpiarTodas" class="text-xs px-3 py-1.5 bg-slate-50 rounded-lg border border-slate-200 hover:bg-slate-100">✗ Limpiar</button>
+                </div>
+            </div>
+            <div class="md:col-span-2 flex items-end">
+                <button type="submit" class="w-full bg-blue-600 text-white py-2.5 rounded-xl font-semibold shadow hover:bg-blue-700 transition">Aplicar</button>
+            </div>
         </form>
-        
-        <!-- Resumen de empresas seleccionadas (feedback visual) -->
-        <div class="flex flex-wrap items-center gap-2 mt-2 pt-3 border-t border-slate-100">
-          <span class="text-sm font-medium text-slate-600">Empresas seleccionadas:</span>
-          <?php if (in_array("", $empresasSeleccionadas)): ?>
-            <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-purple-100 text-purple-700 text-xs font-medium border border-purple-200">
-              🌐 TODAS LAS EMPRESAS
-            </span>
-          <?php else: ?>
-            <?php foreach ($empresasSeleccionadas as $emp): ?>
-              <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-medium border border-blue-200">
-                🏢 <?= htmlspecialchars($emp) ?>
-              </span>
-            <?php endforeach; ?>
-          <?php endif; ?>
-          
-          <span class="text-sm text-slate-500 ml-auto">
-            📅 <?= htmlspecialchars($desde) ?> → <?= htmlspecialchars($hasta) ?>
-          </span>
-        </div>
-        
-      </div>
     </div>
-  </header>
+</header>
 
-  <!-- Overlay -->
-  <div class="side-panel-overlay" id="sidePanelOverlay"></div>
-
-  <!-- Contenido principal -->
-  <main class="max-w-[1800px] mx-auto px-3 md:px-4 py-6">
-    <div class="table-container-wrapper" id="tableContainerWrapper">
-      
-      <!-- ===== NUEVO: NOTIFICACIONES SUPERIORES ===== -->
-      <?php if (!empty($alertas_sin_clasificar) || !empty($alertas_sin_tarifa)): ?>
-      <div class="notificaciones-container">
-        
-        <!-- NOTIFICACIÓN 1: Conductores con rutas sin clasificar -->
-        <?php if (!empty($alertas_sin_clasificar)): ?>
-        <div class="notificacion notificacion-roja">
-          <div class="notificacion-titulo rojo">
-            <span>🔴</span>
-            <span><?= count($alertas_sin_clasificar) ?> conductor(es) con rutas sin clasificar</span>
-          </div>
-          <div class="notificacion-lista">
-            <?php foreach ($alertas_sin_clasificar as $alerta): ?>
-            <div class="notificacion-item rojo">
-              <span class="font-semibold"><?= htmlspecialchars($alerta['conductor']) ?></span>
-              <span class="notificacion-badge"><?= $alerta['cantidad'] ?> ruta(s)</span>
+<main class="max-w-[1600px] mx-auto px-3 md:px-4 py-6 space-y-5">
+    <!-- Panel de totales -->
+    <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+        <div class="grid grid-cols-1 md:grid-cols-7 gap-4">
+            <div>
+                <div class="text-xs text-slate-500 mb-1">Conductores</div>
+                <div class="text-lg font-semibold"><?= count($filas) ?></div>
             </div>
-            <?php endforeach; ?>
-          </div>
-        </div>
-        <?php endif; ?>
-        
-        <!-- NOTIFICACIÓN 2: Conductores con clasificaciones sin tarifa asignada (valor $0) -->
-        <?php if (!empty($alertas_sin_tarifa)): ?>
-        <div class="notificacion notificacion-amarilla">
-          <div class="notificacion-titulo amarillo">
-            <span>🟡</span>
-            <span><?= count($alertas_sin_tarifa) ?> clasificaciones sin tarifa asignada (valor $0)</span>
-          </div>
-          <div class="notificacion-lista">
-            <?php foreach ($alertas_sin_tarifa as $alerta): ?>
-            <div class="notificacion-item amarillo" title="<?= $alerta['cantidad_viajes'] ?> viaje(s) afectado(s)">
-              <div class="flex flex-col">
-                <div class="flex items-center gap-2">
-                  <span class="font-semibold"><?= htmlspecialchars($alerta['conductor']) ?></span>
-                  <span class="text-xs bg-white/80 px-2 py-0.5 rounded-full"><?= $alerta['cantidad_viajes'] ?> viajes</span>
-                </div>
-                <div class="text-xs text-amber-700 mt-1">
-                  <span>🏢 <?= htmlspecialchars($alerta['empresa']) ?></span>
-                  <span class="mx-1">·</span>
-                  <span>🚐 <?= htmlspecialchars($alerta['vehiculo']) ?></span>
-                  <span class="mx-1">·</span>
-                  <span class="font-medium"><?= htmlspecialchars(ucfirst($alerta['clasificacion'])) ?></span>
-                </div>
-              </div>
+            <label class="block md:col-span-2">
+                <span class="block text-xs font-medium mb-1">Cuenta de cobro</span>
+                <input id="inp_facturado" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num"
+                       value="<?= number_format($total_facturado,0,',','.') ?>">
+            </label>
+            <label class="block md:col-span-2">
+                <span class="block text-xs font-medium mb-1">Viajes manuales</span>
+                <input id="inp_viajes_manuales" type="text" class="w-full rounded-xl border border-green-200 px-3 py-2 text-right num bg-green-50" value="0" readonly>
+            </label>
+            <label class="block">
+                <span class="block text-xs font-medium mb-1">% Ajuste</span>
+                <input id="inp_porcentaje_ajuste" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num"
+                       value="5" placeholder="Ej: 5">
+            </label>
+            <div>
+                <div class="text-xs text-slate-500 mb-1">Total ajuste</div>
+                <div id="lbl_total_ajuste" class="text-lg font-semibold text-amber-600 num">0</div>
             </div>
-            <?php endforeach; ?>
-          </div>
         </div>
-        <?php endif; ?>
-        
-      </div>
-      <?php endif; ?>
-
-      <!-- Totales generales -->
-      <div class="totales-generales mb-6">
-        <div class="flex items-center gap-3 mb-4">
-          <span class="text-2xl">📊</span>
-          <h3 class="text-xl font-bold">TOTALES CONSOLIDADOS</h3>
-          <span class="bg-white/20 px-3 py-1 rounded-full text-sm"><?= count($empresasSeleccionadas) ?> empresas · <?= count($datosConsolidados) ?> conductores</span>
+        <div class="mt-2 text-xs text-slate-600">
+            <span class="font-semibold">Empresas seleccionadas:</span> 
+            <?= !empty($empresasSeleccionadas) ? implode(' • ', array_map('htmlspecialchars', $empresasSeleccionadas)) : 'Todas' ?>
         </div>
-        
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div class="stat">
-            <div class="text-sm opacity-80">Viajes totales</div>
-            <div class="text-2xl font-bold" id="total_viajes_general">0</div>
-          </div>
-          <div class="stat">
-            <div class="text-sm opacity-80">Total a pagar</div>
-            <div class="text-2xl font-bold" id="total_general_general">0</div>
-          </div>
-          <div class="stat">
-            <div class="text-sm opacity-80">Pagado</div>
-            <div class="text-2xl font-bold" id="total_pagado_general">0</div>
-          </div>
-          <div class="stat">
-            <div class="text-sm opacity-80">Faltante</div>
-            <div class="text-2xl font-bold" id="total_faltante_general">0</div>
-          </div>
+    </section>
+
+    <!-- Tabla principal -->
+    <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+            <div>
+                <h3 class="text-lg font-semibold">Conductores</h3>
+                <div id="contador-conductores" class="text-xs text-slate-500 mt-1">
+                    Mostrando <?= count($filas) ?> de <?= count($filas) ?> conductores
+                </div>
+            </div>
+            <div class="flex flex-col md:flex-row gap-3 w-full md:w-auto">
+                <div class="buscar-container w-full md:w-64">
+                    <input id="buscadorConductores" type="text" 
+                           placeholder="Buscar conductor..." 
+                           class="w-full rounded-lg border border-slate-300 px-3 py-2 pl-3 pr-10">
+                    <button id="clearBuscar" class="buscar-clear">✕</button>
+                </div>
+                <button id="btnAddManual" class="rounded-lg bg-green-600 text-white px-4 py-2 text-sm hover:bg-green-700 whitespace-nowrap">
+                    ➕ Agregar manual
+                </button>
+            </div>
         </div>
-      </div>
 
-      <!-- Botón para selector de columnas -->
-      <div class="mb-4 flex justify-end">
-        <button onclick="togglePanel('selector-columnas')" 
-                class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500 text-white hover:from-purple-600 hover:to-indigo-600 transition shadow-md">
-          <span>📊</span>
-          <span class="text-sm font-medium">Seleccionar columnas</span>
-        </button>
-      </div>
-
-      <!-- Buscador global -->
-      <div class="mb-4 flex gap-3">
-        <div class="buscar-container w-96">
-          <input type="text" 
-                 placeholder="Buscar conductor en todas las empresas..." 
-                 class="buscador-global w-full rounded-xl border border-slate-300 px-4 py-3 pr-10 text-sm"
-                 id="buscadorGlobal">
-          <button class="buscar-clear-global buscar-clear" id="clearBuscador">✕</button>
-        </div>
-        <span class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-2 text-blue-700 text-sm font-medium">
-          <span id="conductoresVisibles"><?= count($datosConsolidados) ?></span>/<span id="conductoresTotales"><?= count($datosConsolidados) ?></span> conductores
-        </span>
-      </div>
-
-      <!-- TABLA CONSOLIDADA ÚNICA -->
-      <?php if (!empty($datosConsolidados)): ?>
-      <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-        <div class="overflow-x-auto rounded-xl border border-slate-200 max-h-[70vh]">
-          <table class="w-full text-sm" id="tablaConsolidada">
-            <thead class="bg-blue-600 text-white sticky top-0 z-20">
-              <tr>
-                <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 70px;">Estado</th>
-                <th class="px-4 py-3 text-left sticky top-0 bg-blue-600" style="min-width: 220px;">Conductor</th>
-                <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 150px;">Tipo Vehículo</th>
-                
-                <?php foreach ($clasificaciones_disponibles as $clasif): 
-                  $estilo = obtenerEstiloClasificacion($clasif);
-                  $abreviaturas = [
-                      'completo' => 'COM', 'medio' => 'MED', 'extra' => 'EXT',
-                      'carrotanque' => 'CTK', 'siapana' => 'SIA', 'riohacha' => 'RIO',
-                      'pru' => 'PRU', 'maco' => 'MAC'
-                  ];
-                  $abreviatura = $abreviaturas[$clasif] ?? strtoupper(substr($clasif, 0, 3));
-                  
-                  $visible = in_array($clasif, $columnas_seleccionadas);
-                  $clase_visibilidad = $visible ? 'columna-visualizada' : 'columna-oculta';
-                  
-                  $colorMap = [
-                      'bg-emerald-100' => '#d1fae5', 'text-emerald-700' => '#047857',
-                      'bg-amber-100' => '#fef3c7', 'text-amber-800' => '#92400e',
-                      'bg-slate-200' => '#e2e8f0', 'text-slate-800' => '#1e293b',
-                      'bg-fuchsia-100' => '#fae8ff', 'text-fuchsia-700' => '#a21caf',
-                      'bg-cyan-100' => '#cffafe', 'text-cyan-800' => '#155e75',
-                      'bg-indigo-100' => '#e0e7ff', 'text-indigo-700' => '#4338ca',
-                      'bg-teal-100' => '#ccfbf1', 'text-teal-700' => '#0f766e',
-                      'bg-rose-100' => '#ffe4e6', 'text-rose-700' => '#be123c',
-                  ];
-                  
-                  $bg_color = $colorMap[$estilo['bg']] ?? '#f1f5f9';
-                  $text_color = $colorMap[$estilo['text']] ?? '#1e293b';
+        <div class="overflow-auto max-h-[70vh] rounded-xl border border-slate-200 table-sticky">
+            <table class="min-w-[1200px] w-full text-sm">
+                <thead class="bg-blue-600 text-white">
+                <tr>
+                    <th class="px-3 py-2 text-left">Conductor</th>
+                    <th class="px-3 py-2 text-right">Base</th>
+                    <th class="px-3 py-2 text-right">Ajuste</th>
+                    <th class="px-3 py-2 text-right">Llegó</th>
+                    <th class="px-3 py-2 text-right">Ret 3.5%</th>
+                    <th class="px-3 py-2 text-right">4x1000</th>
+                    <th class="px-3 py-2 text-right">Aporte 10%</th>
+                    <th class="px-3 py-2 text-right">Seg social</th>
+                    <th class="px-3 py-2 text-left">Préstamos</th>
+                    <th class="px-3 py-2 text-left">N° Cuenta</th>
+                    <th class="px-3 py-2 text-right">A pagar</th>
+                    <th class="px-3 py-2 text-center">Estado</th>
+                    <th class="px-3 py-2 text-center">
+                        <input type="checkbox" id="selectAllCheckbox" class="checkbox-conductor" title="Seleccionar todos">
+                    </th>
+                </tr>
+                </thead>
+                <tbody id="tbody" class="divide-y divide-slate-100 bg-white">
+                <?php 
+                $contador_filas = 0;
+                foreach ($filas as $f): 
+                    $contador_filas++;
+                    $nombre_normalizado = htmlspecialchars(mb_strtolower($f['nombre']));
                 ?>
-                <th class="px-4 py-3 text-center sticky top-0 <?= $clase_visibilidad ?> columna-tabla" 
-                    data-columna="<?= htmlspecialchars($clasif) ?>"
-                    style="min-width: 80px; background-color: <?= $bg_color ?>; color: <?= $text_color ?>; z-index: 19;">
-                  <?= htmlspecialchars($abreviatura) ?>
-                </th>
+                    <tr data-conductor="<?= $nombre_normalizado ?>" data-base="<?= $f['total_bruto'] ?>" data-row-index="<?= $contador_filas ?>">
+                        <td class="px-3 py-2">
+                            <button type="button" class="conductor-link text-blue-600 hover:underline" data-nombre="<?= htmlspecialchars($f['nombre']) ?>" title="Ver viajes">
+                                <?= htmlspecialchars($f['nombre']) ?>
+                            </button>
+                        </td>
+                        <td class="px-3 py-2 text-right num base"><?= number_format($f['total_bruto'],0,',','.') ?></td>
+                        <td class="px-3 py-2 text-right num ajuste">0</td>
+                        <td class="px-3 py-2 text-right num llego">0</td>
+                        <td class="px-3 py-2 text-right num ret">0</td>
+                        <td class="px-3 py-2 text-right num mil4">0</td>
+                        <td class="px-3 py-2 text-right num apor">0</td>
+                        <td class="px-3 py-2 text-right">
+                            <input type="text" class="ss w-full max-w-[100px] rounded-lg border border-slate-300 px-2 py-1 text-right num" value="">
+                        </td>
+                        <td class="px-3 py-2">
+                            <div class="flex items-center gap-1">
+                                <span class="num prest text-sm font-medium">0</span>
+                                <button type="button" class="btn-prest text-xs px-2 py-1 rounded border border-slate-300 bg-slate-50 hover:bg-slate-100">
+                                    Sel
+                                </button>
+                            </div>
+                            <div class="text-[10px] text-slate-500 selected-deudor truncate max-w-[150px]"></div>
+                        </td>
+                        <td class="px-3 py-2">
+                            <input type="text" class="cta w-full max-w-[140px] rounded-lg border border-slate-300 px-2 py-1" value="" placeholder="N° cuenta">
+                        </td>
+                        <td class="px-3 py-2 text-right num pagar">0</td>
+                        <td class="px-3 py-2 text-center">
+                            <select class="estado-pago w-full max-w-[120px] rounded-lg border border-slate-300 px-2 py-1 text-sm">
+                                <option value="">Sin estado</option>
+                                <option value="pagado">✅ Pagado</option>
+                                <option value="pendiente">❌ Pendiente</option>
+                                <option value="procesando">🔄 Procesando</option>
+                                <option value="parcial">⚠️ Parcial</option>
+                            </select>
+                        </td>
+                        <td class="px-3 py-2 text-center">
+                            <input type="checkbox" class="checkbox-conductor selector-conductor">
+                        </td>
+                    </tr>
                 <?php endforeach; ?>
-                <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 140px;">Total</th>
-                <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 120px;">Pagado</th>
-                <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 100px;">Faltante</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100 bg-white" id="tbodyConsolidado">
-            <?php foreach ($datosConsolidados as $conductor => $info): 
-              $vehiculo = $vehiculoPrincipal[$conductor] ?? 'Desconocido';
-              $esMensual = (stripos($vehiculo, 'mensual') !== false);
-              $claseVehiculo = $esMensual ? 'vehiculo-mensual' : '';
-              $rutasSinClasificar = $rutasSinClasificarCount[$conductor] ?? 0;
-              $color_vehiculo = obtenerColorVehiculo($vehiculo);
-              
-              // Calcular total pagado (suma de todas las empresas)
-              $totalPagado = $totalPagadoPorConductor[$conductor] ?? 0;
-              
-              // Preparar data-atributos con los viajes por clasificación y empresa para el cálculo en JS
-              $viajesData = [];
-              foreach ($info["viajes_por_clasificacion"] as $clasif => $porEmpresa) {
-                  foreach ($porEmpresa as $emp => $cantidad) {
-                      $viajesData[] = $clasif . '|' . $emp . '|' . $cantidad;
-                  }
-              }
-              $viajesDataStr = implode(',', $viajesData);
-              
-              // Calcular cantidad total por clasificación (para mostrar en la tabla)
-              $totalesPorClasificacion = [];
-              foreach ($info["viajes_por_clasificacion"] as $clasif => $porEmpresa) {
-                  $totalesPorClasificacion[$clasif] = array_sum($porEmpresa);
-              }
-            ?>
-              <tr data-conductor="<?= htmlspecialchars($conductor) ?>" 
-                  data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
-                  data-pagado="<?= $totalPagado ?>"
-                  data-sin-clasificar="<?= $rutasSinClasificar ?>"
-                  data-viajes-data="<?= htmlspecialchars($viajesDataStr) ?>"
-                  data-vehiculo="<?= htmlspecialchars($vehiculo) ?>"
-                  class="hover:bg-blue-50/40 transition-colors <?php echo $rutasSinClasificar > 0 ? 'alerta-sin-clasificar' : ''; ?> fila-conductor">
-                
-                <td class="px-4 py-3 text-center">
-                  <?php if ($rutasSinClasificar > 0): ?>
-                    <div class="flex flex-col items-center justify-center gap-1" title="<?= $rutasSinClasificar ?> ruta(s) sin clasificar">
-                      <span class="text-amber-600 font-bold animate-pulse">⚠️</span>
-                      <span class="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded-full font-bold">
-                        <?= $rutasSinClasificar ?>
-                      </span>
-                    </div>
-                  <?php else: ?>
-                    <div class="flex flex-col items-center justify-center gap-1" title="Todas las rutas clasificadas">
-                      <span class="text-emerald-600">✅</span>
-                      <span class="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full font-bold">0</span>
-                    </div>
-                  <?php endif; ?>
-                </td>
-                
-                <td class="px-4 py-3">
-                  <button type="button"
-                          class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition flex items-center gap-2"
-                          data-conductor="<?= htmlspecialchars($conductor) ?>"
-                          onclick="abrirModalViajes('<?= htmlspecialchars($conductor) ?>', '')">
-                    <?php if ($rutasSinClasificar > 0): ?>
-                      <span class="text-amber-600">⚠️</span>
-                    <?php endif; ?>
-                    <?= htmlspecialchars($conductor) ?>
-                  </button>
-                  
-                  <!-- Mostrar badge si trabajó en múltiples empresas -->
-                  <?php if (count($info["pagos_por_empresa"]) > 1): ?>
-                  <span class="multi-empresa-badge" title="Trabajó en <?= count($info["pagos_por_empresa"]) ?> empresas">
-                    +<?= count($info["pagos_por_empresa"]) ?>
-                  </span>
-                  <?php endif; ?>
-                </td>
-                
-                <td class="px-4 py-3 text-center">
-                  <span class="inline-block <?= $claseVehiculo ?> px-3 py-1.5 rounded-lg text-xs font-medium border <?= $color_vehiculo['border'] ?> <?= $color_vehiculo['text'] ?> <?= $color_vehiculo['bg'] ?>">
-                    <?= htmlspecialchars($vehiculo) ?>
-                    <?php if ($esMensual): ?>
-                      <span class="ml-1">📅</span>
-                    <?php endif; ?>
-                  </span>
-                </td>
-                
-                <?php foreach ($clasificaciones_disponibles as $clasif): 
-                  $estilo = obtenerEstiloClasificacion($clasif);
-                  $cantidad = $totalesPorClasificacion[$clasif] ?? 0;
-                  $visible = in_array($clasif, $columnas_seleccionadas);
-                  $clase_visibilidad = $visible ? 'columna-visualizada' : 'columna-oculta';
-                  
-                  $colorMap = [
-                      'bg-emerald-100' => '#f0fdf4', 'text-emerald-700' => '#047857',
-                      'bg-amber-100' => '#fffbeb', 'text-amber-800' => '#92400e',
-                      'bg-slate-200' => '#f8fafc', 'text-slate-800' => '#1e293b',
-                      'bg-fuchsia-100' => '#fdf4ff', 'text-fuchsia-700' => '#a21caf',
-                      'bg-cyan-100' => '#ecfeff', 'text-cyan-800' => '#155e75',
-                      'bg-indigo-100' => '#eef2ff', 'text-indigo-700' => '#4338ca',
-                      'bg-teal-100' => '#f0fdfa', 'text-teal-700' => '#0f766e',
-                      'bg-rose-100' => '#fff1f2', 'text-rose-700' => '#be123c',
-                  ];
-                  
-                  $bg_cell_color = $colorMap[$estilo['bg']] ?? '#f8fafc';
-                  $text_cell_color = $colorMap[$estilo['text']] ?? '#1e293b';
-                ?>
-                <td class="px-4 py-3 text-center font-medium <?= $clase_visibilidad ?> columna-tabla" 
-                    data-columna="<?= htmlspecialchars($clasif) ?>"
-                    data-cantidad="<?= $cantidad ?>"
-                    data-clasificacion="<?= htmlspecialchars($clasif) ?>"
-                    style="min-width: 80px; background-color: <?= $bg_cell_color ?>; color: <?= $text_cell_color ?>;">
-                  <?= $cantidad ?>
-                </td>
-                <?php endforeach; ?>
-
-                <td class="px-4 py-3">
-                  <input type="text"
-                         class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none"
-                         readonly dir="ltr"
-                         value="0">
-                </td>
-                <td class="px-4 py-3">
-                  <input type="text"
-                         class="pagado w-full rounded-xl border border-emerald-200 px-3 py-2 text-right bg-emerald-50 outline-none"
-                         readonly dir="ltr"
-                         value="<?= number_format($totalPagado, 0, ',', '.') ?>">
-                </td>
-                <td class="px-4 py-3">
-                  <input type="text"
-                         class="faltante w-full rounded-xl border border-rose-200 px-3 py-2 text-right bg-rose-50 outline-none"
-                         readonly dir="ltr"
-                         value="0">
-                </td>
-              </tr>
-            <?php endforeach; ?>
-            </tbody>
-          </table>
+                </tbody>
+                <tfoot class="bg-slate-50 font-semibold">
+                <tr>
+                    <td class="px-3 py-2" colspan="3">Totales</td>
+                    <td class="px-3 py-2 text-right num" id="tot_llego">0</td>
+                    <td class="px-3 py-2 text-right num" id="tot_ret">0</td>
+                    <td class="px-3 py-2 text-right num" id="tot_mil4">0</td>
+                    <td class="px-3 py-2 text-right num" id="tot_apor">0</td>
+                    <td class="px-3 py-2 text-right num" id="tot_ss">0</td>
+                    <td class="px-3 py-2 text-right num" id="tot_prest">0</td>
+                    <td class="px-3 py-2"></td>
+                    <td class="px-3 py-2 text-right num" id="tot_pagar">0</td>
+                    <td class="px-3 py-2" colspan="2"></td>
+                </tr>
+                </tfoot>
+            </table>
         </div>
-      </div>
-      <?php else: ?>
-      <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-12 text-center">
-        <span class="text-6xl mb-4 block">📭</span>
-        <h3 class="text-xl font-bold text-slate-700 mb-2">No hay datos para mostrar</h3>
-        <p class="text-slate-500">No se encontraron viajes en el período seleccionado para las empresas elegidas.</p>
-      </div>
-      <?php endif; ?>
+    </section>
+</main>
+
+<!-- Panel flotante de selección -->
+<div id="floatingPanel" class="hidden fixed z-50 bg-white border border-blue-300 rounded-xl shadow-lg" style="top: 100px; left: 100px; min-width: 300px;">
+    <div id="panelDragHandle" class="cursor-move bg-blue-600 text-white px-4 py-3 rounded-t-xl flex items-center justify-between">
+        <div class="font-semibold flex items-center gap-2">
+            <span>📊 Sumatoria</span>
+            <span id="selectedCount" class="bg-blue-500 text-white text-xs px-2 py-1 rounded-full">0</span>
+        </div>
+        <button id="closePanel" class="text-white hover:bg-blue-700 p-1 rounded">✕</button>
     </div>
-  </main>
+    
+    <div class="p-4">
+        <div class="grid grid-cols-2 gap-3">
+            <div class="bg-slate-50 p-3 rounded-lg">
+                <div class="text-xs text-slate-500 mb-1">Total a pagar</div>
+                <div id="panelTotalPagar" class="text-xl font-bold text-emerald-600 num">0</div>
+            </div>
+            <div class="bg-slate-50 p-3 rounded-lg">
+                <div class="text-xs text-slate-500 mb-1">Promedio</div>
+                <div id="panelPromedio" class="text-lg font-semibold text-blue-600 num">0</div>
+            </div>
+        </div>
+        
+        <div class="text-xs text-slate-500 mt-3 space-y-1">
+            <div class="flex justify-between">
+                <span>Valor que llegó:</span>
+                <span id="panelLlego" class="num font-semibold">0</span>
+            </div>
+            <div class="flex justify-between">
+                <span>Retención 3.5%:</span>
+                <span id="panelRet" class="num">0</span>
+            </div>
+            <div class="flex justify-between">
+                <span>4×1000:</span>
+                <span id="panelMil4" class="num">0</span>
+            </div>
+            <div class="flex justify-between">
+                <span>Aporte 10%:</span>
+                <span id="panelApor" class="num">0</span>
+            </div>
+            <div class="flex justify-between">
+                <span>Seg. social:</span>
+                <span id="panelSS" class="num">0</span>
+            </div>
+            <div class="flex justify-between">
+                <span>Préstamos:</span>
+                <span id="panelPrest" class="num">0</span>
+            </div>
+        </div>
+    </div>
+</div>
 
-  <!-- Modal VIAJES -->
-  <div id="viajesModal" class="viajes-backdrop">
+<!-- ===== MODAL PRÉSTAMOS ===== -->
+<div id="prestModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
+    <div class="absolute inset-0 bg-black/30"></div>
+    <div class="relative mx-auto my-4 md:my-8 prest-modal-content bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden flex flex-col" style="width: 95%; max-width: 1200px; max-height: 98vh;">
+        
+        <!-- HEADER -->
+        <div class="px-4 md:px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-indigo-50 flex-none">
+            <div class="flex items-center justify-between">
+                <h3 class="text-base md:text-lg font-semibold flex items-center gap-2">
+                    <span class="text-xl">💰</span>
+                    <span>Préstamos de: <span id="conductorNombre" class="text-blue-700 font-bold"></span></span>
+                </h3>
+                <button id="btnCloseModal" class="p-2 rounded hover:bg-white/50 text-xl">✕</button>
+            </div>
+            
+            <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                <div class="bg-white p-3 rounded-lg border border-blue-200">
+                    <div class="text-xs text-slate-500 mb-1">💵 Disponible para préstamos</div>
+                    <div id="disponibleConductor" class="text-lg md:text-xl font-bold text-blue-600 num">$0</div>
+                    <div class="text-xs text-slate-400 mt-1">Valor a pagar sin préstamos</div>
+                </div>
+                <div class="bg-white p-3 rounded-lg border border-amber-200">
+                    <div class="text-xs text-slate-500 mb-1">📋 Préstamos seleccionados</div>
+                    <div id="totalSeleccionado" class="text-lg md:text-xl font-bold text-amber-600 num">$0</div>
+                    <div id="diferenciaDisponible" class="text-xs mt-1 font-medium"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- FILTROS -->
+        <div class="px-4 md:px-6 py-3 border-b border-slate-200 bg-slate-50 flex-none">
+            <div class="mb-3">
+                <label class="block text-xs font-medium text-slate-700 mb-2">
+                    🏢 Filtrar por empresas:
+                </label>
+                <div class="empresas-grid" id="empresasMultiSelect"></div>
+            </div>
+            
+            <div class="flex flex-col sm:flex-row gap-2">
+                <div class="flex-1">
+                    <input id="prestSearch" 
+                           type="text" 
+                           placeholder="🔍 Buscar deudor..." 
+                           class="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm">
+                </div>
+                <div class="flex gap-2 flex-none">
+                    <button id="btnDeseleccionarTodos" 
+                            class="px-4 py-2.5 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-sm font-medium text-amber-700 whitespace-nowrap">
+                        ✕ Deseleccionar todos
+                    </button>
+                    <button id="btnLimpiarFiltros" 
+                            class="px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-sm whitespace-nowrap">
+                        Limpiar filtros
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- LISTA DE PRÉSTAMOS -->
+        <div id="prestList" class="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-50 prest-list-container" style="min-height: 300px;">
+            <div class="p-8 text-center text-slate-500">
+                <div class="text-5xl mb-3">📭</div>
+                <div class="text-lg font-medium">Cargando préstamos...</div>
+            </div>
+        </div>
+        
+        <!-- FOOTER -->
+        <div class="flex-none border-t border-slate-200 bg-white p-4 md:p-6">
+            <div class="mb-4 text-sm">
+                <div class="flex flex-wrap justify-between items-center gap-2">
+                    <div>
+                        <span class="font-medium">Préstamos seleccionados:</span>
+                        <span id="selCount" class="ml-1 font-bold text-blue-600">0</span>
+                    </div>
+                    <div>
+                        <span class="font-medium">Total:</span>
+                        <span id="selTotal" class="ml-1 font-bold text-emerald-600 num">$0</span>
+                    </div>
+                </div>
+                <div id="detalleEmpresas" class="text-xs text-slate-500 mt-1 truncate">
+                    Ninguna selección
+                </div>
+            </div>
+            
+            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div class="flex items-center gap-3 w-full sm:w-auto">
+                    <span class="text-sm text-slate-600 whitespace-nowrap">💰 Valor manual:</span>
+                    <input id="prestValorManual" 
+                           type="text" 
+                           class="flex-1 sm:w-40 rounded-lg border border-amber-300 px-3 py-2.5 text-right num" 
+                           placeholder="0">
+                </div>
+                
+                <div class="flex gap-2 w-full sm:w-auto">
+                    <button id="btnCancel" 
+                            class="flex-1 sm:flex-none rounded-lg border border-slate-300 px-5 py-2.5 bg-white hover:bg-slate-50 font-medium">
+                        Cancelar
+                    </button>
+                    <button id="btnAssign" 
+                            class="flex-1 sm:flex-none rounded-lg border border-blue-600 px-6 py-2.5 bg-blue-600 text-white hover:bg-blue-700 font-medium shadow-lg">
+                        ✅ Asignar selección
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Viajes -->
+<div id="viajesModal" class="viajes-backdrop">
     <div class="viajes-card">
-      <div class="viajes-header">
-        <div class="flex flex-col gap-2 w-full">
-          <div class="flex items-center justify-between">
-            <h3 class="text-lg font-semibold flex items-center gap-2">
-              🧳 Viajes — <span id="viajesTitle" class="font-normal"></span>
-            </h3>
-            <button class="viajes-close text-slate-600 hover:bg-slate-100 border border-slate-300 px-2 py-1 rounded-lg text-sm" id="viajesCloseBtn">
-              ✕ Cerrar
-            </button>
-          </div>
-          <div class="flex items-center gap-4 text-xs text-slate-500">
-            <span id="viajesRango"></span>
-            <span>•</span>
-            <span id="viajesEmpresa">Todas las empresas</span>
-          </div>
+        <div class="viajes-header flex items-center justify-between">
+            <h3 class="text-lg font-semibold">Viajes de <span id="viajesTitle"></span></h3>
+            <button id="viajesCloseBtn" class="border px-3 py-1 rounded hover:bg-slate-100">✕</button>
         </div>
-      </div>
-      <div class="viajes-body" id="viajesContent"></div>
+        <div class="viajes-body" id="viajesContent">Cargando...</div>
     </div>
-  </div>
+</div>
 
-  <script>
-    // ===== VARIABLES GLOBALES =====
-    const RANGO_DESDE = <?= json_encode($desde) ?>;
-    const RANGO_HASTA = <?= json_encode($hasta) ?>;
-    const EMPRESAS_SELECCIONADAS = <?= json_encode($empresasSeleccionadas) ?>;
-    const CLASIFICACIONES_DISPONIBLES = <?= json_encode($clasificaciones_disponibles) ?>;
-    
-    // ===== SISTEMA DE BOLITAS Y PANELES =====
-    let activePanel = null;
-    const panels = ['tarifas', 'crear-clasif', 'clasif-rutas', 'selector-columnas'];
-    
-    document.addEventListener('DOMContentLoaded', function() {
-      panels.forEach(panelId => {
-        const ball = document.getElementById(`ball-${panelId}`);
-        const panel = document.getElementById(`panel-${panelId}`);
-        const closeBtn = panel?.querySelector('.side-panel-close');
-        const overlay = document.getElementById('sidePanelOverlay');
-        const tableWrapper = document.getElementById('tableContainerWrapper');
+<!-- Modal Guardar Cuenta -->
+<div id="saveCuentaModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
+    <div class="absolute inset-0 bg-black/30"></div>
+    <div class="relative mx-auto my-8 w-full max-w-lg bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+            <h3 class="text-lg font-semibold">⭐ Guardar cuenta de cobro</h3>
+            <button id="btnCloseSaveCuenta" class="p-2 rounded hover:bg-slate-100">✕</button>
+        </div>
+        <div class="p-5 space-y-3">
+            <label class="block">
+                <span class="block text-xs font-medium mb-1">Nombre de la cuenta</span>
+                <input id="cuenta_nombre" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" placeholder="Ej: Hospital Sep 2025">
+            </label>
+            
+            <div class="block">
+                <span class="block text-xs font-medium mb-2">Empresas seleccionadas</span>
+                <div id="cuenta_empresas_container" class="max-h-32 overflow-y-auto border border-slate-200 rounded-xl p-3 bg-slate-50 text-sm">
+                    Cargando empresas...
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-3">
+                <label class="block">
+                    <span class="block text-xs font-medium mb-1">Rango</span>
+                    <input id="cuenta_rango" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-slate-50" readonly>
+                </label>
+                <label class="block">
+                    <span class="block text-xs font-medium mb-1">Facturado</span>
+                    <input id="cuenta_facturado" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num">
+                </label>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-3">
+                <label class="block">
+                    <span class="block text-xs font-medium mb-1">% Ajuste</span>
+                    <input id="cuenta_porcentaje" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-right num" value="5">
+                </label>
+                <div class="block">
+                    <span class="block text-xs font-medium mb-1">Estado</span>
+                    <div class="flex items-center gap-3 p-2 border border-slate-200 rounded-xl">
+                        <span id="pagadoLabel" class="text-sm px-2 py-1 rounded-full bg-red-100 text-red-700">NO PAGADO</span>
+                        <label class="switch-pagado ml-auto">
+                            <input type="checkbox" id="cuenta_pagado">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="text-xs text-slate-500 mt-2 p-3 bg-blue-50 rounded-xl">
+                <strong>📌 Nota:</strong> Se guardarán todos los datos: conductores, préstamos asignados (con los valores actuales), seguridad social, cuentas bancarias, estados de pago y filas manuales.
+            </div>
+        </div>
+        <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
+            <button id="btnCancelSaveCuenta" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
+            <button id="btnDoSaveCuenta" class="rounded-lg border border-amber-500 text-white px-4 py-2 bg-amber-500 hover:bg-amber-600">Guardar en BD</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Gestor de Cuentas CON FUNCIÓN DE FUSIÓN CORREGIDA -->
+<div id="gestorCuentasModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
+    <div class="absolute inset-0 bg-black/30"></div>
+    <div class="relative mx-auto my-8 w-full max-w-6xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+            <h3 class="text-lg font-semibold">📚 Cuentas guardadas 
+                <span class="bd-badge text-xs px-2 py-1 rounded-full ml-2">Base de Datos</span>
+            </h3>
+            <button id="btnCloseGestor" class="p-2 rounded hover:bg-slate-100">✕</button>
+        </div>
         
-        if (ball && panel) {
-          ball.addEventListener('click', () => togglePanel(panelId));
+        <div class="p-4 space-y-3">
+            <!-- Filtros y controles -->
+            <div class="flex flex-col md:flex-row gap-3">
+                <select id="filtroEmpresaCuentas" class="rounded-xl border border-slate-300 px-3 py-2 min-w-[200px]">
+                    <option value="">Todas las empresas</option>
+                </select>
+                
+                <select id="filtroEstadoPagado" class="rounded-xl border border-slate-300 px-3 py-2 min-w-[150px]">
+                    <option value="">Todos los estados</option>
+                    <option value="0">🔴 No pagadas</option>
+                    <option value="1">🟢 Pagadas</option>
+                </select>
+                
+                <div class="buscar-container flex-1">
+                    <input id="buscaCuentaBD" type="text" placeholder="Buscar por nombre o empresa..." 
+                           class="w-full rounded-xl border border-slate-300 px-3 py-2">
+                    <button id="clearBuscarBD" class="buscar-clear">✕</button>
+                </div>
+                
+                <button id="btnRecargarCuentas" class="rounded-lg border border-blue-300 px-4 py-2 bg-blue-50 hover:bg-blue-100 whitespace-nowrap">
+                    🔄 Recargar
+                </button>
+            </div>
+            
+            <!-- Barra de acciones para fusión -->
+            <div class="flex items-center justify-between bg-amber-50 p-3 rounded-xl border border-amber-200">
+                <div class="flex items-center gap-3">
+                    <span class="text-sm font-medium text-amber-800">🔀 Acciones con seleccionadas:</span>
+                    <button id="btnFusionarSeleccionadas" 
+                            class="px-4 py-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled>
+                        🔗 Fusionar seleccionadas
+                    </button>
+                </div>
+                <div class="text-xs text-amber-700">
+                    <span id="cuentasSeleccionadasCount">0</span> cuentas seleccionadas
+                </div>
+            </div>
+            
+            <div class="text-xs text-slate-500" id="contador-cuentas">
+                Cargando cuentas desde Base de Datos...
+            </div>
+            
+            <!-- Tabla de cuentas con checkboxes -->
+            <div class="overflow-auto max-h-[50vh] rounded-xl border border-slate-200">
+                <table class="min-w-full text-sm">
+                    <thead class="bg-blue-600 text-white">
+                    <tr>
+                        <th class="px-3 py-2 text-center w-10">
+                            <input type="checkbox" id="selectAllCuentas" class="cuenta-checkbox" title="Seleccionar todas">
+                        </th>
+                        <th class="px-3 py-2 text-left">Nombre / Usuario</th>
+                        <th class="px-3 py-2 text-left">Empresas</th>
+                        <th class="px-3 py-2 text-left">Rango</th>
+                        <th class="px-3 py-2 text-right">Facturado</th>
+                        <th class="px-3 py-2 text-center">Estado</th>
+                        <th class="px-3 py-2 text-center">Fecha</th>
+                        <th class="px-3 py-2 text-right">Acciones</th>
+                    </tr>
+                    </thead>
+                    <tbody id="tbodyCuentasBD" class="divide-y divide-slate-100 bg-white">
+                        <tr>
+                            <td colspan="8" class="px-3 py-8 text-center text-slate-500">
+                                <div class="animate-pulse">Cargando cuentas...</div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <div class="px-5 py-4 border-t border-slate-200 flex justify-between items-center">
+            <div class="text-sm text-slate-600">
+                <span id="totalCuentasInfo">0 cuentas</span>
+            </div>
+            <button id="btnAddDesdeFiltro" class="rounded-lg border border-amber-300 px-4 py-2 text-sm bg-amber-50 hover:bg-amber-100">
+                ⭐ Guardar rango actual
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+// ===== CONSTANTES Y VARIABLES GLOBALES =====
+const EMPRESAS_SELECCIONADAS = <?= json_encode($empresasSeleccionadas) ?>;
+const COMPANY_SCOPE = EMPRESAS_SELECCIONADAS.length > 0 ? EMPRESAS_SELECCIONADAS.join('_') : '__todas__';
+const ACC_KEY = 'cuentas_temp:'+COMPANY_SCOPE;
+const SS_KEY = 'seg_social_temp:'+COMPANY_SCOPE;
+const PREST_SEL_KEY = 'prestamo_sel_multi:v4:'+COMPANY_SCOPE;
+const ESTADO_PAGO_KEY = 'estado_pago_temp:'+COMPANY_SCOPE;
+const MANUAL_ROWS_KEY = 'filas_manuales_temp:'+COMPANY_SCOPE;
+const SELECTED_CONDUCTORS_KEY = 'conductores_seleccionados_temp:'+COMPANY_SCOPE;
+const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
+const CONDUCTORES_LIST = <?= json_encode(array_map(fn($f)=>$f['nombre'],$filas), JSON_UNESCAPED_UNICODE); ?>;
+
+console.log('✅ Préstamos cargados:', PRESTAMOS_LIST.length);
+
+// ===== VARIABLE PARA CONTROLAR MODO HISTÓRICO =====
+let modoHistoricoActivo = false;
+
+// ===== FUNCIONES UTILITARIAS =====
+function toInt(s) {
+    if (typeof s === 'number') return Math.round(s);
+    s = (s || '').toString().replace(/\./g, '').replace(/,/g, '').replace(/[^\d-]/g, '');
+    return parseInt(s || '0', 10) || 0;
+}
+
+function fmt(n) {
+    return '$' + (n || 0).toLocaleString('es-CO');
+}
+
+function getLS(k) {
+    try { return JSON.parse(localStorage.getItem(k) || '{}'); } catch { return {}; }
+}
+
+function setLS(k, v) {
+    localStorage.setItem(k, JSON.stringify(v));
+}
+
+function normalizarTexto(texto) {
+    return texto.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+}
+
+// ===== VARIABLES GLOBALES =====
+let accMap = getLS(ACC_KEY);
+let ssMap = getLS(SS_KEY);
+let prestSel = getLS(PREST_SEL_KEY) || {};
+let estadoPagoMap = getLS(ESTADO_PAGO_KEY) || {};
+let manualRows = JSON.parse(localStorage.getItem(MANUAL_ROWS_KEY) || '[]');
+let selectedConductors = JSON.parse(localStorage.getItem(SELECTED_CONDUCTORS_KEY) || '[]');
+
+// ===== REFERENCIAS DOM =====
+const tbody = document.getElementById('tbody');
+const btnAddManual = document.getElementById('btnAddManual');
+const floatingPanel = document.getElementById('floatingPanel');
+const panelDragHandle = document.getElementById('panelDragHandle');
+const closePanel = document.getElementById('closePanel');
+const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+const buscadorConductores = document.getElementById('buscadorConductores');
+const clearBuscar = document.getElementById('clearBuscar');
+const contadorConductores = document.getElementById('contador-conductores');
+
+// ===== FUNCIÓN PARA OBTENER NOMBRE DE CONDUCTOR =====
+function obtenerNombreConductorDeFila(tr) {
+    if (tr.classList.contains('fila-manual')) {
+        const select = tr.querySelector('.conductor-select');
+        return select ? select.value.trim() : '';
+    } else {
+        const link = tr.querySelector('.conductor-link');
+        return link ? link.textContent.trim() : '';
+    }
+}
+
+// ===== FUNCIÓN PARA OBTENER VALOR A PAGAR DE UNA FILA =====
+function obtenerValorAPagarFila(tr) {
+    const pagarCell = tr.querySelector('.pagar');
+    return pagarCell ? toInt(pagarCell.textContent) : 0;
+}
+
+// ===== FUNCIÓN PARA APLICAR ESTADO DE PAGO =====
+function aplicarEstadoFila(tr, estado) {
+    tr.classList.remove('estado-pagado', 'estado-pendiente', 'estado-procesando', 'estado-parcial');
+    if (estado) tr.classList.add(`estado-${estado}`);
+}
+
+// ===== FUNCIÓN PRINCIPAL PARA ASIGNAR PRÉSTAMOS A FILAS =====
+function asignarPrestamosAFilas(usarValoresHistoricos = false) {
+    modoHistoricoActivo = usarValoresHistoricos;
+    
+    document.querySelectorAll('#tbody tr').forEach(tr => {
+        let nombreConductor = obtenerNombreConductorDeFila(tr);
+        if (!nombreConductor) return;
+        
+        const prestamosDeEsteConductor = prestSel[nombreConductor] || [];
+        
+        if (prestamosDeEsteConductor.length === 0) {
+            const prestSpan = tr.querySelector('.prest');
+            if (prestSpan) prestSpan.textContent = '0';
+            const selLabel = tr.querySelector('.selected-deudor');
+            if (selLabel) selLabel.textContent = '';
+            return;
         }
         
-        if (closeBtn) {
-          closeBtn.addEventListener('click', () => togglePanel(panelId));
-        }
-      });
-      
-      if (document.getElementById('sidePanelOverlay')) {
-        document.getElementById('sidePanelOverlay').addEventListener('click', () => {
-          if (activePanel) togglePanel(activePanel);
+        let totalMostrar = 0;
+        let primerosNombres = [];
+        
+        prestamosDeEsteConductor.forEach(prestamoGuardado => {
+            if (prestamoGuardado.esManual) {
+                totalMostrar += prestamoGuardado.valorManual;
+                primerosNombres.push('💰 Manual');
+            } else {
+                if (usarValoresHistoricos) {
+                    totalMostrar += prestamoGuardado.totalActual || 0;
+                    const nombreCompleto = prestamoGuardado.name || 'Desconocido';
+                    const primerNombre = nombreCompleto.split(' ')[0];
+                    primerosNombres.push(primerNombre);
+                } else {
+                    const prestamoActual = PRESTAMOS_LIST.find(p => p.id === prestamoGuardado.id);
+                    if (prestamoActual) {
+                        totalMostrar += prestamoActual.total;
+                        const nombreCompleto = prestamoActual.name;
+                        const primerNombre = nombreCompleto.split(' ')[0];
+                        primerosNombres.push(primerNombre);
+                    } else {
+                        totalMostrar += prestamoGuardado.totalActual || 0;
+                        const nombreCompleto = prestamoGuardado.name || 'Eliminado';
+                        const primerNombre = nombreCompleto.split(' ')[0];
+                        primerosNombres.push(primerNombre);
+                    }
+                }
+            }
         });
-      }
-      
-      document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && activePanel) togglePanel(activePanel);
-      });
-      
-      colapsarTodosTarifas();
-      inicializarColoresClasificacion();
-      inicializarSeleccionColumnas();
-      configurarEventosTarifas();
-      configurarBuscadorGlobal();
-      
-      // Inicializar formato de tarifas y recalcular
-      configurarFormatoTarifas();
-      setTimeout(recalcularTodo, 100);
+        
+        let textoNombres = '';
+        if (primerosNombres.length > 3) {
+            textoNombres = primerosNombres.slice(0, 3).join(', ') + ` +${primerosNombres.length - 3} más`;
+        } else {
+            textoNombres = primerosNombres.join(', ');
+        }
+        
+        if (usarValoresHistoricos && prestamosDeEsteConductor.length > 0) {
+            textoNombres += ' <span class="badge-historico" title="Valor histórico (fecha de guardado)">📅 histórico</span>';
+        }
+        
+        const prestSpan = tr.querySelector('.prest');
+        const selLabel = tr.querySelector('.selected-deudor');
+        
+        if (prestSpan) prestSpan.textContent = fmt(totalMostrar).replace('$', '');
+        if (selLabel) selLabel.innerHTML = textoNombres;
+    });
+}
+
+// ===== FUNCIÓN PARA AGREGAR FILA MANUAL =====
+function agregarFilaManual(manualIdFromLS = null) {
+    const manualId = manualIdFromLS || ('manual_' + Date.now());
+    const nuevaFila = document.createElement('tr');
+    nuevaFila.className = 'fila-manual';
+    nuevaFila.dataset.manualId = manualId;
+    nuevaFila.dataset.conductor = '';
+    
+    nuevaFila.innerHTML = `
+        <td class="px-3 py-2">
+            <select class="conductor-select w-full max-w-[200px] rounded-lg border border-slate-300 px-2 py-1">
+                <option value="">-- Seleccionar --</option>
+                ${CONDUCTORES_LIST.map(c => `<option value="${c}">${c}</option>`).join('')}
+            </select>
+        </td>
+        <td class="px-3 py-2 text-right">
+            <input type="text" class="base-manual w-full max-w-[100px] rounded-lg border border-slate-300 px-2 py-1 text-right num" value="0">
+        </td>
+        <td class="px-3 py-2 text-right num ajuste">0</td>
+        <td class="px-3 py-2 text-right num llego">0</td>
+        <td class="px-3 py-2 text-right num ret">0</td>
+        <td class="px-3 py-2 text-right num mil4">0</td>
+        <td class="px-3 py-2 text-right num apor">0</td>
+        <td class="px-3 py-2 text-right">
+            <input type="text" class="ss w-full max-w-[80px] rounded-lg border border-slate-300 px-2 py-1 text-right num" value="">
+        </td>
+        <td class="px-3 py-2">
+            <div class="flex items-center gap-1">
+                <span class="num prest text-sm font-medium">0</span>
+                <button type="button" class="btn-prest text-xs px-2 py-1 rounded border border-slate-300 bg-slate-50 hover:bg-slate-100">
+                    Sel
+                </button>
+            </div>
+            <div class="text-[10px] text-slate-500 selected-deudor truncate max-w-[150px]"></div>
+        </td>
+        <td class="px-3 py-2">
+            <input type="text" class="cta w-full max-w-[120px] rounded-lg border border-slate-300 px-2 py-1" placeholder="N° cuenta">
+        </td>
+        <td class="px-3 py-2 text-right num pagar">0</td>
+        <td class="px-3 py-2 text-center">
+            <select class="estado-pago w-full max-w-[100px] rounded-lg border border-slate-300 px-2 py-1 text-xs">
+                <option value="">Sin estado</option>
+                <option value="pagado">✅ Pagado</option>
+                <option value="pendiente">❌ Pendiente</option>
+                <option value="procesando">🔄 Procesando</option>
+                <option value="parcial">⚠️ Parcial</option>
+            </select>
+        </td>
+        <td class="px-3 py-2 text-center">
+            <div class="flex items-center justify-center gap-2">
+                <input type="checkbox" class="checkbox-conductor selector-conductor">
+                <button type="button" class="btn-eliminar-manual text-xs px-2 py-1 rounded border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700">🗑️</button>
+            </div>
+        </td>
+    `;
+
+    tbody.appendChild(nuevaFila);
+
+    if (!manualIdFromLS) {
+        manualRows.push(manualId);
+        localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
+    }
+
+    configurarEventosFila(nuevaFila);
+    asignarPrestamosAFilas(modoHistoricoActivo);
+    recalcularTodo();
+    filtrarConductores();
+}
+
+// ===== CONFIGURAR EVENTOS PARA FILA =====
+function configurarEventosFila(tr) {
+    const baseInput = tr.querySelector('.base-manual');
+    const cta = tr.querySelector('.cta');
+    const ss = tr.querySelector('.ss');
+    const estadoPago = tr.querySelector('.estado-pago');
+    const btnEliminar = tr.querySelector('.btn-eliminar-manual');
+    const btnPrest = tr.querySelector('.btn-prest');
+    const conductorSelect = tr.querySelector('.conductor-select');
+    const checkbox = tr.querySelector('.selector-conductor');
+
+    if (checkbox) {
+        checkbox.addEventListener('change', () => {
+            if (checkbox.checked) tr.classList.add('fila-seleccionada');
+            else tr.classList.remove('fila-seleccionada');
+            actualizarPanelFlotante();
+            guardarSeleccionCheckboxes();
+        });
+    }
+
+    if (baseInput) {
+        baseInput.addEventListener('input', () => {
+            baseInput.value = fmt(toInt(baseInput.value)).replace('$', '');
+            recalcularTodo();
+        });
+    }
+
+    if (cta) {
+        const nombreConductor = conductorSelect ? conductorSelect.value : tr.querySelector('.conductor-link')?.textContent.trim();
+        if (nombreConductor && accMap[nombreConductor]) {
+            cta.value = accMap[nombreConductor];
+        }
+        
+        cta.addEventListener('change', () => {
+            const name = conductorSelect ? conductorSelect.value : tr.querySelector('.conductor-link')?.textContent.trim();
+            if (name) {
+                accMap[name] = cta.value.trim();
+                setLS(ACC_KEY, accMap);
+            }
+        });
+    }
+
+    if (ss) {
+        const nombreConductor = conductorSelect ? conductorSelect.value : tr.querySelector('.conductor-link')?.textContent.trim();
+        if (nombreConductor && ssMap[nombreConductor]) {
+            ss.value = fmt(ssMap[nombreConductor]).replace('$', '');
+        }
+        
+        ss.addEventListener('input', () => {
+            const name = conductorSelect ? conductorSelect.value : tr.querySelector('.conductor-link')?.textContent.trim();
+            if (name) {
+                ssMap[name] = toInt(ss.value);
+                setLS(SS_KEY, ssMap);
+                recalcularTodo();
+            }
+        });
+    }
+
+    if (estadoPago) {
+        const nombreConductor = conductorSelect ? conductorSelect.value : tr.querySelector('.conductor-link')?.textContent.trim();
+        if (nombreConductor && estadoPagoMap[nombreConductor]) {
+            estadoPago.value = estadoPagoMap[nombreConductor];
+            aplicarEstadoFila(tr, estadoPagoMap[nombreConductor]);
+        }
+        
+        estadoPago.addEventListener('change', () => {
+            const name = conductorSelect ? conductorSelect.value : tr.querySelector('.conductor-link')?.textContent.trim();
+            if (name) {
+                estadoPagoMap[name] = estadoPago.value;
+                setLS(ESTADO_PAGO_KEY, estadoPagoMap);
+                aplicarEstadoFila(tr, estadoPago.value);
+            }
+        });
+    }
+
+    if (btnEliminar) {
+        btnEliminar.addEventListener('click', () => {
+            const manualId = tr.dataset.manualId;
+            manualRows = manualRows.filter(id => id !== manualId);
+            localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
+            tr.remove();
+            recalcularTodo();
+            actualizarPanelFlotante();
+            filtrarConductores();
+        });
+    }
+
+    if (btnPrest) {
+        btnPrest.addEventListener('click', () => openPrestModalForRow(tr));
+    }
+
+    if (conductorSelect) {
+        conductorSelect.addEventListener('change', () => {
+            const newBaseName = conductorSelect.value;
+            tr.dataset.conductor = normalizarTexto(newBaseName);
+            
+            if (cta && accMap[newBaseName]) cta.value = accMap[newBaseName];
+            if (ss && ssMap[newBaseName]) ss.value = fmt(ssMap[newBaseName]).replace('$', '');
+            if (estadoPago && estadoPagoMap[newBaseName]) {
+                estadoPago.value = estadoPagoMap[newBaseName];
+                aplicarEstadoFila(tr, estadoPagoMap[newBaseName]);
+            }
+            
+            asignarPrestamosAFilas(modoHistoricoActivo);
+            recalcularTodo();
+            filtrarConductores();
+        });
+    }
+
+    if (!conductorSelect) {
+        const nombreConductor = tr.querySelector('.conductor-link')?.textContent.trim();
+        if (nombreConductor) {
+            if (cta && accMap[nombreConductor]) cta.value = accMap[nombreConductor];
+            if (ss && ssMap[nombreConductor]) ss.value = fmt(ssMap[nombreConductor]).replace('$', '');
+        }
+    }
+
+    restaurarSeleccionCheckbox(tr);
+}
+
+// ===== PANEL FLOTANTE =====
+function actualizarPanelFlotante() {
+    const checkboxes = document.querySelectorAll('#tbody .selector-conductor:checked');
+    const count = checkboxes.length;
+    
+    if (count === 0) {
+        floatingPanel.classList.add('hidden');
+        return;
+    }
+    
+    floatingPanel.classList.remove('hidden');
+    
+    let totalPagar = 0, totalLlego = 0, totalRet = 0, totalMil4 = 0, totalApor = 0, totalSS = 0, totalPrest = 0;
+    
+    checkboxes.forEach(cb => {
+        const tr = cb.closest('tr');
+        if (!tr) return;
+        
+        totalPagar += toInt(tr.querySelector('.pagar')?.textContent || '0');
+        totalLlego += toInt(tr.querySelector('.llego')?.textContent || '0');
+        totalRet += toInt(tr.querySelector('.ret')?.textContent || '0');
+        totalMil4 += toInt(tr.querySelector('.mil4')?.textContent || '0');
+        totalApor += toInt(tr.querySelector('.apor')?.textContent || '0');
+        totalPrest += toInt(tr.querySelector('.prest')?.textContent || '0');
+        
+        const ssInput = tr.querySelector('.ss');
+        if (ssInput) totalSS += toInt(ssInput.value);
     });
     
-    function togglePanel(panelId) {
-      const ball = document.getElementById(`ball-${panelId}`);
-      const panel = document.getElementById(`panel-${panelId}`);
-      const overlay = document.getElementById('sidePanelOverlay');
-      const tableWrapper = document.getElementById('tableContainerWrapper');
-      
-      if (!panel || !ball) return;
-      
-      if (activePanel === panelId) {
-        panel.classList.remove('active');
-        ball.classList.remove('ball-active');
-        overlay?.classList.remove('active');
-        tableWrapper?.classList.remove('with-panel');
-        activePanel = null;
-      } else {
-        if (activePanel) {
-          document.getElementById(`panel-${activePanel}`)?.classList.remove('active');
-          document.getElementById(`ball-${activePanel}`)?.classList.remove('ball-active');
+    document.getElementById('selectedCount').textContent = count;
+    document.getElementById('panelTotalPagar').textContent = fmt(totalPagar);
+    document.getElementById('panelPromedio').textContent = fmt(count > 0 ? Math.round(totalPagar / count) : 0);
+    document.getElementById('panelLlego').textContent = fmt(totalLlego);
+    document.getElementById('panelRet').textContent = fmt(totalRet);
+    document.getElementById('panelMil4').textContent = fmt(totalMil4);
+    document.getElementById('panelApor').textContent = fmt(totalApor);
+    document.getElementById('panelSS').textContent = fmt(totalSS);
+    document.getElementById('panelPrest').textContent = fmt(totalPrest);
+}
+
+function guardarSeleccionCheckboxes() {
+    const seleccionados = [];
+    document.querySelectorAll('#tbody .selector-conductor:checked').forEach(cb => {
+        const tr = cb.closest('tr');
+        const nombre = obtenerNombreConductorDeFila(tr);
+        if (nombre) seleccionados.push(nombre);
+    });
+    selectedConductors = seleccionados;
+    localStorage.setItem(SELECTED_CONDUCTORS_KEY, JSON.stringify(selectedConductors));
+}
+
+function restaurarSeleccionCheckbox(tr) {
+    if (!tr) return;
+    let nombreConductor = obtenerNombreConductorDeFila(tr);
+    if (nombreConductor && selectedConductors.includes(nombreConductor)) {
+        const checkbox = tr.querySelector('.selector-conductor');
+        if (checkbox) {
+            checkbox.checked = true;
+            tr.classList.add('fila-seleccionada');
+        }
+    }
+}
+
+// ===== FILTRO DE CONDUCTORES =====
+function filtrarConductores() {
+    const texto = normalizarTexto(buscadorConductores.value);
+    let visibles = 0;
+    
+    tbody.querySelectorAll('tr').forEach(tr => {
+        const nombre = normalizarTexto(obtenerNombreConductorDeFila(tr));
+        if (texto === '' || nombre.includes(texto)) {
+            tr.style.display = '';
+            visibles++;
+        } else {
+            tr.style.display = 'none';
+        }
+    });
+    
+    contadorConductores.textContent = `Mostrando ${visibles} de ${tbody.children.length} conductores`;
+    clearBuscar.style.display = texto ? 'block' : 'none';
+    actualizarPanelFlotante();
+}
+
+// ===== CÁLCULO PRINCIPAL =====
+function recalcularTodo() {
+    const porcentaje = parseFloat(document.getElementById('inp_porcentaje_ajuste').value) || 0;
+    const rows = [...tbody.querySelectorAll('tr')];
+    
+    let totalAutomaticos = <?= $total_facturado ?>;
+    let totalManuales = 0;
+    let sumLlego = 0, sumRet = 0, sumMil4 = 0, sumApor = 0, sumSS = 0, sumPrest = 0, sumPagar = 0;
+    
+    rows.forEach(tr => {
+        if (tr.style.display === 'none') return;
+        
+        let base;
+        if (tr.classList.contains('fila-manual')) {
+            base = toInt(tr.querySelector('.base-manual')?.value);
+            totalManuales += base;
+        } else {
+            base = toInt(tr.querySelector('.base')?.textContent);
         }
         
-        panel.classList.add('active');
-        ball.classList.add('ball-active');
-        overlay?.classList.add('active');
-        tableWrapper?.classList.add('with-panel');
-        activePanel = panelId;
-      }
-    }
+        const ajuste = Math.round(base * (porcentaje / 100));
+        const llego = base - ajuste;
+        const prest = toInt(tr.querySelector('.prest')?.textContent || '0');
+        const ret = Math.round(llego * 0.035);
+        const mil4 = Math.round(llego * 0.004);
+        const apor = Math.round(llego * 0.10);
+        const ss = toInt(tr.querySelector('.ss')?.value || '0');
+        const pagar = llego - ret - mil4 - apor - ss - prest;
+        
+        if (tr.querySelector('.ajuste')) tr.querySelector('.ajuste').textContent = fmt(ajuste).replace('$', '');
+        if (tr.querySelector('.llego')) tr.querySelector('.llego').textContent = fmt(llego).replace('$', '');
+        if (tr.querySelector('.ret')) tr.querySelector('.ret').textContent = fmt(ret).replace('$', '');
+        if (tr.querySelector('.mil4')) tr.querySelector('.mil4').textContent = fmt(mil4).replace('$', '');
+        if (tr.querySelector('.apor')) tr.querySelector('.apor').textContent = fmt(apor).replace('$', '');
+        if (tr.querySelector('.pagar')) tr.querySelector('.pagar').textContent = fmt(pagar).replace('$', '');
+        
+        sumLlego += llego;
+        sumRet += ret;
+        sumMil4 += mil4;
+        sumApor += apor;
+        sumSS += ss;
+        sumPrest += prest;
+        sumPagar += pagar;
+    });
     
-    // ===== FUNCIONES DE ACORDEÓN =====
-    function toggleAcordeon(vehiculoId) {
-      const content = document.getElementById('content-' + vehiculoId);
-      const icon = document.getElementById('icon-' + vehiculoId);
-      if (content && icon) {
-        if (content.classList.contains('expanded')) {
-          content.classList.remove('expanded');
-          icon.classList.remove('expanded');
-          content.style.maxHeight = '0';
-        } else {
-          content.classList.add('expanded');
-          icon.classList.add('expanded');
-          content.style.maxHeight = content.scrollHeight + 'px';
+    const totalFacturado = totalAutomaticos + totalManuales;
+    document.getElementById('inp_facturado').value = fmt(totalFacturado).replace('$', '');
+    document.getElementById('inp_viajes_manuales').value = fmt(totalManuales).replace('$', '');
+    document.getElementById('lbl_total_ajuste').textContent = fmt(Math.round(totalFacturado * (porcentaje / 100)));
+    document.getElementById('tot_llego').textContent = fmt(sumLlego);
+    document.getElementById('tot_ret').textContent = fmt(sumRet);
+    document.getElementById('tot_mil4').textContent = fmt(sumMil4);
+    document.getElementById('tot_apor').textContent = fmt(sumApor);
+    document.getElementById('tot_ss').textContent = fmt(sumSS);
+    document.getElementById('tot_prest').textContent = fmt(sumPrest);
+    document.getElementById('tot_pagar').textContent = fmt(sumPagar);
+    
+    actualizarPanelFlotante();
+}
+
+// ===== PANEL ARRASTRABLE =====
+function hacerPanelArrastrable() {
+    let isDragging = false, currentX, currentY, initialX, initialY, xOffset = 0, yOffset = 0;
+    
+    panelDragHandle.addEventListener('mousedown', (e) => {
+        initialX = e.clientX - xOffset;
+        initialY = e.clientY - yOffset;
+        if (e.target === panelDragHandle || panelDragHandle.contains(e.target)) isDragging = true;
+    });
+    
+    document.addEventListener('mousemove', (e) => {
+        if (isDragging) {
+            e.preventDefault();
+            currentX = e.clientX - initialX;
+            currentY = e.clientY - yOffset;
+            xOffset = currentX;
+            yOffset = currentY;
+            floatingPanel.style.transform = `translate3d(${currentX}px, ${currentY}px, 0)`;
         }
-      }
+    });
+    
+    document.addEventListener('mouseup', () => isDragging = false);
+}
+
+// ===== MODAL PRÉSTAMOS =====
+let currentRow = null;
+let selectedIds = new Set();
+let conductorActual = '';
+
+function cargarEmpresasMultiSelect() {
+    const container = document.getElementById('empresasMultiSelect');
+    if (!container) return;
+    
+    const todasLasEmpresas = [...new Set(PRESTAMOS_LIST
+        .map(p => p.empresa)
+        .filter(emp => emp && emp.trim() !== '')
+    )].sort();
+    
+    if (todasLasEmpresas.length === 0) {
+        container.innerHTML = '<div class="text-sm text-slate-500 p-4">No hay empresas con préstamos</div>';
+        return;
     }
     
-    function expandirTodosTarifas() {
-      document.querySelectorAll('.acordeon-content').forEach(content => {
-        if (!content.classList.contains('expanded')) {
-          content.classList.add('expanded');
-          content.style.maxHeight = content.scrollHeight + 'px';
-          const vehiculoId = content.id.replace('content-', '');
-          const icon = document.getElementById('icon-' + vehiculoId);
-          if (icon) icon.classList.add('expanded');
+    container.innerHTML = todasLasEmpresas.map(empresa => {
+        const count = PRESTAMOS_LIST.filter(p => p.empresa === empresa).length;
+        return `
+            <label class="empresa-item">
+                <input type="checkbox" 
+                       class="empresa-checkbox-prestamo w-4 h-4" 
+                       value="${empresa}">
+                <span class="text-sm font-medium truncate">${empresa}</span>
+                <span class="badge-empresa">${count}</span>
+            </label>
+        `;
+    }).join('');
+    
+    document.querySelectorAll('.empresa-checkbox-prestamo').forEach(cb => {
+        cb.addEventListener('change', () => filtrarPrestamosMultiempresa());
+    });
+}
+
+function filtrarPrestamosMultiempresa() {
+    const textoBusqueda = normalizarTexto(document.getElementById('prestSearch').value || '');
+    
+    const empresasSeleccionadas = [];
+    document.querySelectorAll('.empresa-checkbox-prestamo:checked').forEach(cb => {
+        empresasSeleccionadas.push(cb.value);
+    });
+    
+    let prestamosFiltrados = PRESTAMOS_LIST;
+    
+    if (empresasSeleccionadas.length > 0) {
+        prestamosFiltrados = prestamosFiltrados.filter(p => 
+            empresasSeleccionadas.includes(p.empresa)
+        );
+    }
+    
+    if (textoBusqueda) {
+        prestamosFiltrados = prestamosFiltrados.filter(p => 
+            normalizarTexto(p.name).includes(textoBusqueda)
+        );
+    }
+    
+    renderizarListaPrestamos(prestamosFiltrados);
+}
+
+function renderizarListaPrestamos(prestamos) {
+    const list = document.getElementById('prestList');
+    if (!list) return;
+    
+    if (prestamos.length === 0) {
+        list.innerHTML = `
+            <div class="p-8 text-center text-slate-500">
+                <div class="text-5xl mb-3">📭</div>
+                <div class="text-lg font-medium">No hay préstamos</div>
+                <div class="text-sm">Selecciona otras empresas o cambia la búsqueda</div>
+            </div>
+        `;
+        return;
+    }
+    
+    prestamos.sort((a, b) => {
+        if (a.empresa !== b.empresa) return a.empresa.localeCompare(b.empresa);
+        return a.name.localeCompare(b.name);
+    });
+    
+    let html = '';
+    let currentEmpresa = '';
+    
+    prestamos.forEach(item => {
+        if (currentEmpresa !== item.empresa) {
+            currentEmpresa = item.empresa;
+            html += `
+                <div class="separador-empresa bg-slate-100 px-4 py-2 font-semibold text-sm text-slate-700 sticky top-0 z-10">
+                    🏢 ${item.empresa}
+                </div>
+            `;
         }
-      });
-    }
+        
+        const checked = selectedIds.has(item.id) ? 'checked' : '';
+        html += `
+            <div class="prest-item flex justify-between items-center p-3 hover:bg-blue-50 transition group bg-white border-b border-slate-100">
+                <div class="flex items-center gap-3 flex-1">
+                    <input type="checkbox" 
+                           class="prest-checkbox w-4 h-4 rounded border-slate-300 text-blue-600" 
+                           data-id="${item.id}" 
+                           ${checked}>
+                    <div class="flex flex-col">
+                        <span class="text-sm font-medium">${item.name}</span>
+                        <span class="text-xs text-slate-400">ID: ${item.id}</span>
+                    </div>
+                </div>
+                <span class="num text-sm font-bold text-emerald-600">
+                    $${fmt(item.total).replace('$', '')}
+                </span>
+            </div>
+        `;
+    });
     
-    function colapsarTodosTarifas() {
-      document.querySelectorAll('.acordeon-content').forEach(content => {
-        if (content.classList.contains('expanded')) {
-          content.classList.remove('expanded');
-          content.style.maxHeight = '0';
-          const vehiculoId = content.id.replace('content-', '');
-          const icon = document.getElementById('icon-' + vehiculoId);
-          if (icon) icon.classList.remove('expanded');
-        }
-      });
-    }
+    list.innerHTML = html;
     
-    // ===== CLASIFICACIÓN DE RUTAS =====
-    function inicializarColoresClasificacion() {
-      document.querySelectorAll('.fila-ruta').forEach(fila => {
-        const select = fila.querySelector('.select-clasif-ruta');
-        if (select) actualizarColorFila(select);
-      });
-    }
-    
-    function actualizarColorFila(selectElement) {
-      const fila = selectElement.closest('tr');
-      const clasificacion = selectElement.value.toLowerCase();
-      const ruta = fila.dataset.ruta;
-      const vehiculo = fila.dataset.vehiculo;
-      
-      fila.classList.forEach(className => {
-        if (className.startsWith('fila-clasificada-')) {
-          fila.classList.remove(className);
-        }
-      });
-      
-      fila.dataset.clasificacion = clasificacion;
-      
-      if (clasificacion) {
-        fila.classList.add('fila-clasificada-' + clasificacion);
-      }
-      
-      guardarClasificacionRuta(ruta, vehiculo, clasificacion);
-    }
-    
-    function guardarClasificacionRuta(ruta, vehiculo, clasificacion) {
-      fetch('<?= basename(__FILE__) ?>', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          guardar_clasificacion: 1,
-          ruta: ruta,
-          tipo_vehiculo: vehiculo,
-          clasificacion: clasificacion
-        })
-      })
-      .then(r => r.text())
-      .then(t => {
-        if (t.trim() !== 'ok') console.error('Error guardando clasificación:', t);
-      });
-    }
-    
-    // ===== SELECCIÓN DE COLUMNAS =====
-    let columnasSeleccionadas = <?= json_encode($columnas_seleccionadas) ?>;
-    
-    function inicializarSeleccionColumnas() {
-      columnasSeleccionadas.forEach(columna => {
-        const checkbox = document.getElementById('checkbox-' + columna);
-        if (checkbox) checkbox.classList.add('checked');
-        const item = document.querySelector('[data-columna="' + columna + '"]');
-        if (item) item.classList.add('selected');
-      });
-      actualizarContadorColumnas();
-      actualizarColumnasTabla();
-    }
-    
-    function toggleColumna(columna) {
-      const checkbox = document.getElementById('checkbox-' + columna);
-      const item = document.querySelector('[data-columna="' + columna + '"]');
-      
-      if (columnasSeleccionadas.includes(columna)) {
-        columnasSeleccionadas = columnasSeleccionadas.filter(c => c !== columna);
-        if (checkbox) checkbox.classList.remove('checked');
-        if (item) item.classList.remove('selected');
-      } else {
-        columnasSeleccionadas.push(columna);
-        if (checkbox) checkbox.classList.add('checked');
-        if (item) item.classList.add('selected');
-      }
-      
-      actualizarContadorColumnas();
-      actualizarColumnasTabla();
-    }
-    
-    function seleccionarTodasColumnas() {
-      columnasSeleccionadas = [];
-      document.querySelectorAll('.columna-checkbox-item').forEach(item => {
-        const columna = item.dataset.columna;
-        columnasSeleccionadas.push(columna);
-        const checkbox = document.getElementById('checkbox-' + columna);
-        if (checkbox) checkbox.classList.add('checked');
-        item.classList.add('selected');
-      });
-      actualizarContadorColumnas();
-      actualizarColumnasTabla();
-    }
-    
-    function deseleccionarTodasColumnas() {
-      columnasSeleccionadas = [];
-      document.querySelectorAll('.columna-checkbox-item').forEach(item => {
-        const columna = item.dataset.columna;
-        const checkbox = document.getElementById('checkbox-' + columna);
-        if (checkbox) checkbox.classList.remove('checked');
-        item.classList.remove('selected');
-      });
-      actualizarContadorColumnas();
-      actualizarColumnasTabla();
-    }
-    
-    function actualizarContadorColumnas() {
-      const contadorPanel = document.getElementById('contador-seleccionadas-panel');
-      if (contadorPanel) contadorPanel.textContent = columnasSeleccionadas.length;
-    }
-    
-    function actualizarColumnasTabla() {
-      document.querySelectorAll('.columna-tabla').forEach(columna => {
-        const nombreColumna = columna.dataset.columna;
-        if (columnasSeleccionadas.includes(nombreColumna)) {
-          columna.classList.remove('columna-oculta');
-          columna.classList.add('columna-visualizada');
-        } else {
-          columna.classList.remove('columna-visualizada');
-          columna.classList.add('columna-oculta');
-        }
-      });
-    }
-    
-    function guardarSeleccionColumnas() {
-      const desde = RANGO_DESDE;
-      const hasta = RANGO_HASTA;
-      const empresas = EMPRESAS_SELECCIONADAS.join(',');
-      
-      fetch('<?= basename(__FILE__) ?>', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          guardar_columnas_seleccionadas: 1,
-          columnas: JSON.stringify(columnasSeleccionadas),
-          empresas: empresas,
-          desde: desde,
-          hasta: hasta
-        })
-      })
-      .then(r => r.text())
-      .then(respuesta => {
-        if (respuesta.trim() === 'ok') {
-          mostrarNotificacion('✅ Selección de columnas guardada', 'success');
-        } else {
-          mostrarNotificacion('❌ Error al guardar selección', 'error');
-        }
-      })
-      .catch(error => {
-        console.error('Error:', error);
-        mostrarNotificacion('❌ Error de conexión', 'error');
-      });
-    }
-    
-    function mostrarNotificacion(mensaje, tipo) {
-      const notificacion = document.createElement('div');
-      notificacion.className = `fixed top-4 right-4 px-4 py-3 rounded-lg shadow-lg z-[10001] animate-fade-in-down ${
-        tipo === 'success' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 
-        'bg-rose-100 text-rose-800 border border-rose-200'
-      }`;
-      notificacion.innerHTML = `
-        <div class="flex items-center gap-2">
-          <span class="text-lg">${tipo === 'success' ? '✅' : '❌'}</span>
-          <span class="font-medium">${mensaje}</span>
-        </div>
-      `;
-      document.body.appendChild(notificacion);
-      setTimeout(() => notificacion.remove(), 3000);
-    }
-    
-    // ===== FUNCIONES DE TARIFAS =====
-    function configurarEventosTarifas() {
-      document.addEventListener('change', function(e) {
-        if (e.target.matches('.tarifa-input')) {
-          const input = e.target;
-          const empresa = input.dataset.empresa;
-          const tipoVehiculo = input.dataset.vehiculo;
-          const campo = input.dataset.campo.toLowerCase();
-          
-          // Usar el valor real (sin formato) del dataset
-          const valorReal = parseInt(input.dataset.valorReal || '0', 10);
-          
-          fetch('<?= basename(__FILE__) ?>', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-              guardar_tarifa: 1,
-              empresa: empresa,
-              tipo_vehiculo: tipoVehiculo,
-              campo: campo,
-              valor: valorReal
-            })
-          })
-          .then(r => r.text())
-          .then(t => {
-            if (t.trim() === 'ok') {
-              input.defaultValue = input.value;
-              recalcularTodo();
+    document.querySelectorAll('.prest-checkbox').forEach(cb => {
+        cb.addEventListener('change', function() {
+            const id = parseInt(this.dataset.id);
+            if (this.checked) {
+                selectedIds.add(id);
             } else {
-              console.error('Error guardando tarifa:', t);
-              input.value = input.defaultValue;
+                selectedIds.delete(id);
             }
-          })
-          .catch(error => {
-            console.error('Error de conexión:', error);
-            input.value = input.defaultValue;
-          });
+            actualizarResumenSeleccion();
+        });
+    });
+    
+    actualizarResumenSeleccion();
+}
+
+function actualizarResumenSeleccion() {
+    const seleccionados = PRESTAMOS_LIST.filter(p => selectedIds.has(p.id));
+    const totalSeleccionado = seleccionados.reduce((sum, p) => sum + (p.total || 0), 0);
+    
+    const valorManual = toInt(document.getElementById('prestValorManual').value);
+    const totalConManual = totalSeleccionado + valorManual;
+    
+    document.getElementById('selCount').textContent = seleccionados.length;
+    document.getElementById('selTotal').textContent = fmt(totalConManual);
+    document.getElementById('totalSeleccionado').textContent = fmt(totalConManual);
+    
+    const porEmpresa = {};
+    seleccionados.forEach(p => {
+        if (!porEmpresa[p.empresa]) porEmpresa[p.empresa] = 0;
+        porEmpresa[p.empresa] += p.total;
+    });
+    
+    if (valorManual > 0) {
+        porEmpresa['Manual'] = valorManual;
+    }
+    
+    const detalleEmpresas = Object.entries(porEmpresa)
+        .map(([emp, monto]) => `${emp}: $${fmt(monto).replace('$', '')}`)
+        .join(' • ');
+    
+    document.getElementById('detalleEmpresas').textContent = detalleEmpresas || 'Ninguna selección';
+    
+    if (currentRow) {
+        const disponible = obtenerValorAPagarFila(currentRow);
+        const diferencia = disponible - totalConManual;
+        const diffElement = document.getElementById('diferenciaDisponible');
+        
+        if (diferencia >= 0) {
+            diffElement.innerHTML = `✅ Queda disponible: <span class="disponible-positivo">$${fmt(diferencia).replace('$', '')}</span>`;
+        } else {
+            diffElement.innerHTML = `❌ Excede por: <span class="disponible-negativo">$${fmt(Math.abs(diferencia)).replace('$', '')}</span>`;
         }
-      });
-      
-      document.querySelectorAll('.tarifa-input').forEach(input => {
-        input.defaultValue = input.value;
-      });
+    }
+}
+
+function openPrestModalForRow(tr) {
+    currentRow = tr;
+    selectedIds = new Set();
+    
+    let baseName = obtenerNombreConductorDeFila(tr);
+    if (!baseName) {
+        Swal.fire({
+            title: '⚠️ Selecciona un conductor',
+            text: 'Primero debes seleccionar el conductor',
+            icon: 'warning',
+            timer: 2000
+        });
+        return;
     }
     
-    // ===== FORMATO DE NÚMEROS CON PUNTOS EN INPUTS DE TARIFAS =====
-    function formatearNumeroMiles(valor) {
-        // Eliminar todo lo que no sea dígito
-        let numeros = valor.replace(/\D/g, '');
-        
-        // Si está vacío, retornar vacío
-        if (numeros === '') return '';
-        
-        // Convertir a número y formatear con puntos
-        let numero = parseInt(numeros, 10);
-        return numero.toLocaleString('es-CO').replace(/,/g, '.');
+    conductorActual = baseName;
+    document.getElementById('conductorNombre').textContent = baseName;
+    
+    const disponible = obtenerValorAPagarFila(tr);
+    document.getElementById('disponibleConductor').textContent = fmt(disponible);
+    
+    (prestSel[baseName] || []).forEach(p => {
+        if (!p.esManual && p.id !== undefined) {
+            selectedIds.add(Number(p.id));
+        }
+    });
+    
+    document.getElementById('prestSearch').value = '';
+    document.getElementById('prestValorManual').value = '';
+    
+    cargarEmpresasMultiSelect();
+    renderizarListaPrestamos(PRESTAMOS_LIST);
+    actualizarResumenSeleccion();
+    
+    document.getElementById('prestModal').classList.remove('hidden');
+}
+
+function closePrestModal() {
+    document.getElementById('prestModal').classList.add('hidden');
+    currentRow = null;
+    selectedIds.clear();
+    conductorActual = '';
+}
+
+// ===== GESTIÓN DE CUENTAS GUARDADAS EN BD =====
+const saveCuentaModal = document.getElementById('saveCuentaModal');
+const btnShowSaveCuenta = document.getElementById('btnShowSaveCuenta');
+const btnCloseSaveCuenta = document.getElementById('btnCloseSaveCuenta');
+const btnCancelSaveCuenta = document.getElementById('btnCancelSaveCuenta');
+const btnDoSaveCuenta = document.getElementById('btnDoSaveCuenta');
+const gestorModal = document.getElementById('gestorCuentasModal');
+const btnShowGestor = document.getElementById('btnShowGestorCuentas');
+const btnCloseGestor = document.getElementById('btnCloseGestor');
+const btnRecargarCuentas = document.getElementById('btnRecargarCuentas');
+const btnAddDesdeFiltro = document.getElementById('btnAddDesdeFiltro');
+const filtroEmpresaCuentas = document.getElementById('filtroEmpresaCuentas');
+const filtroEstadoPagado = document.getElementById('filtroEstadoPagado');
+const buscaCuentaBD = document.getElementById('buscaCuentaBD');
+const clearBuscarBD = document.getElementById('clearBuscarBD');
+const tbodyCuentasBD = document.getElementById('tbodyCuentasBD');
+const contadorCuentas = document.getElementById('contador-cuentas');
+const totalCuentasInfo = document.getElementById('totalCuentasInfo');
+
+// Elementos para fusión
+const selectAllCuentas = document.getElementById('selectAllCuentas');
+const btnFusionarSeleccionadas = document.getElementById('btnFusionarSeleccionadas');
+const cuentasSeleccionadasCount = document.getElementById('cuentasSeleccionadasCount');
+
+let cuentasSeleccionadas = new Set();
+
+// Modal guardar cuenta
+const iNombre = document.getElementById('cuenta_nombre');
+const iRango = document.getElementById('cuenta_rango');
+const iFacturado = document.getElementById('cuenta_facturado');
+const iPorcentaje = document.getElementById('cuenta_porcentaje');
+const iPagado = document.getElementById('cuenta_pagado');
+const pagadoLabel = document.getElementById('pagadoLabel');
+const empresasContainer = document.getElementById('cuenta_empresas_container');
+
+iPagado?.addEventListener('change', () => {
+    if (pagadoLabel) {
+        pagadoLabel.textContent = iPagado.checked ? 'PAGADO' : 'NO PAGADO';
+        pagadoLabel.className = iPagado.checked 
+            ? 'text-sm px-2 py-1 rounded-full bg-green-100 text-green-700' 
+            : 'text-sm px-2 py-1 rounded-full bg-red-100 text-red-700';
+    }
+});
+
+function openSaveCuenta() {
+    const empresas = <?= json_encode($empresasSeleccionadas) ?>;
+    
+    if (empresas.length === 0) {
+        Swal.fire({
+            title: '⚠️ Selecciona empresas',
+            text: 'Debes seleccionar al menos una empresa para guardar la cuenta',
+            icon: 'warning'
+        });
+        return;
     }
     
-    function configurarFormatoTarifas() {
-        // Seleccionar todos los inputs de tarifa
-        document.querySelectorAll('.tarifa-input').forEach(input => {
-            // Guardar el valor original sin formato como atributo data
-            let valorNumerico = input.value.replace(/\D/g, '');
-            if (valorNumerico !== '' && valorNumerico !== '0') {
-                input.dataset.valorReal = valorNumerico;
-                // Formatear el valor inicial si existe
-                input.value = formatearNumeroMiles(valorNumerico);
-            } else {
-                input.dataset.valorReal = '0';
+    empresasContainer.innerHTML = empresas.map(emp => 
+        `<div class="py-1 px-2 bg-white rounded border border-slate-200 mb-1 text-sm">✓ ${emp}</div>`
+    ).join('');
+    
+    iRango.value = '<?= $desde ?> → <?= $hasta ?>';
+    iNombre.value = `${empresas[0]} ${iRango.value}`;
+    iFacturado.value = document.getElementById('inp_facturado').value;
+    iPorcentaje.value = document.getElementById('inp_porcentaje_ajuste').value;
+    iPagado.checked = false;
+    pagadoLabel.textContent = 'NO PAGADO';
+    pagadoLabel.className = 'text-sm px-2 py-1 rounded-full bg-red-100 text-red-700';
+    
+    saveCuentaModal.classList.remove('hidden');
+    setTimeout(() => iNombre.focus(), 100);
+}
+
+function closeSaveCuenta() {
+    saveCuentaModal.classList.add('hidden');
+}
+
+btnShowSaveCuenta.addEventListener('click', openSaveCuenta);
+btnCloseSaveCuenta.addEventListener('click', closeSaveCuenta);
+btnCancelSaveCuenta.addEventListener('click', closeSaveCuenta);
+
+btnDoSaveCuenta.addEventListener('click', async () => {
+    const nombre = iNombre.value.trim();
+    if (!nombre) {
+        Swal.fire('⚠️ Nombre requerido', 'Debes ingresar un nombre para la cuenta', 'warning');
+        return;
+    }
+    
+    const empresas = <?= json_encode($empresasSeleccionadas) ?>;
+    const desde = '<?= $desde ?>';
+    const hasta = '<?= $hasta ?>';
+    const facturado = toInt(iFacturado.value);
+    const porcentaje = parseFloat(iPorcentaje.value) || 0;
+    const pagado = iPagado.checked ? 1 : 0;
+    
+    const datosParaGuardar = {
+        prestamos: prestSel,
+        segSocial: ssMap,
+        cuentasBancarias: accMap,
+        estadosPago: estadoPagoMap,
+        filasManuales: []
+    };
+    
+    document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => {
+        const conductor = tr.querySelector('.conductor-select')?.value || '';
+        const base = toInt(tr.querySelector('.base-manual')?.value || '0');
+        const cuenta = tr.querySelector('.cta')?.value || '';
+        const segSocial = toInt(tr.querySelector('.ss')?.value || '0');
+        const estado = tr.querySelector('.estado-pago')?.value || '';
+        
+        if (conductor) {
+            datosParaGuardar.filasManuales.push({ conductor, base, cuenta, segSocial, estado });
+        }
+    });
+    
+    const formData = new FormData();
+    formData.append('accion', 'guardar_cuenta');
+    formData.append('nombre', nombre);
+    formData.append('desde', desde);
+    formData.append('hasta', hasta);
+    formData.append('facturado', facturado);
+    formData.append('porcentaje_ajuste', porcentaje);
+    formData.append('pagado', pagado);
+    formData.append('empresas', JSON.stringify(empresas));
+    formData.append('datos_json', JSON.stringify(datosParaGuardar));
+    
+    try {
+        const response = await fetch('', { method: 'POST', body: formData });
+        const resultado = await response.json();
+        
+        if (resultado.success) {
+            Swal.fire({
+                title: '✅ Cuenta guardada',
+                text: 'La cuenta se guardó exitosamente en la base de datos',
+                icon: 'success',
+                timer: 2000,
+                showConfirmButton: false
+            });
+            closeSaveCuenta();
+            if (!gestorModal.classList.contains('hidden')) {
+                await renderCuentasBD();
+            }
+        } else {
+            throw new Error(resultado.message);
+        }
+    } catch (error) {
+        Swal.fire('❌ Error', error.message, 'error');
+    }
+});
+
+// Función para actualizar el estado del botón de fusión
+function actualizarBotonFusion() {
+    const seleccionadas = Array.from(cuentasSeleccionadas);
+    cuentasSeleccionadasCount.textContent = seleccionadas.length;
+    
+    if (seleccionadas.length >= 2) {
+        btnFusionarSeleccionadas.disabled = false;
+        btnFusionarSeleccionadas.classList.remove('opacity-50', 'cursor-not-allowed');
+    } else {
+        btnFusionarSeleccionadas.disabled = true;
+        btnFusionarSeleccionadas.classList.add('opacity-50', 'cursor-not-allowed');
+    }
+}
+
+// Función para manejar selección de cuentas
+function manejarSeleccionCuenta(id, checked) {
+    if (checked) {
+        cuentasSeleccionadas.add(id);
+    } else {
+        cuentasSeleccionadas.delete(id);
+    }
+    
+    // Actualizar clase visual en la fila
+    const fila = document.querySelector(`tr[data-cuenta-id="${id}"]`);
+    if (fila) {
+        if (checked) {
+            fila.classList.add('fila-cuenta-seleccionada');
+        } else {
+            fila.classList.remove('fila-cuenta-seleccionada');
+        }
+    }
+    
+    actualizarBotonFusion();
+}
+
+async function renderCuentasBD() {
+    const empresa = filtroEmpresaCuentas.value;
+    const estado = filtroEstadoPagado.value;
+    const filtro = (buscaCuentaBD.value || '').toLowerCase();
+    
+    try {
+        const response = await fetch(`?obtener_cuentas=1&empresa=${encodeURIComponent(empresa)}&estado=${encodeURIComponent(estado)}`);
+        const cuentas = await response.json();
+        
+        const cuentasFiltradas = cuentas.filter(c => 
+            !filtro || 
+            c.nombre.toLowerCase().includes(filtro) ||
+            c.usuario?.toLowerCase().includes(filtro) ||
+            (c.empresas || []).some(e => e.toLowerCase().includes(filtro))
+        );
+        
+        contadorCuentas.textContent = `Mostrando ${cuentasFiltradas.length} de ${cuentas.length} cuentas`;
+        totalCuentasInfo.textContent = `${cuentasFiltradas.length} cuentas`;
+        
+        if (cuentasFiltradas.length === 0) {
+            tbodyCuentasBD.innerHTML = `
+                <tr>
+                    <td colspan="8" class="px-3 py-8 text-center text-slate-500">
+                        <div class="flex flex-col items-center gap-2">
+                            <div class="text-3xl">📭</div>
+                            <div>No hay cuentas guardadas</div>
+                        </div>
+                    </td>
+                </tr>`;
+            return;
+        }
+        
+        let html = '';
+        cuentasFiltradas.forEach(cuenta => {
+            const empresasStr = (cuenta.empresas || []).slice(0, 3).join(', ') + 
+                ((cuenta.empresas || []).length > 3 ? ` +${(cuenta.empresas.length - 3)} más` : '');
+            
+            const estaPagado = cuenta.pagado == 1;
+            const seleccionada = cuentasSeleccionadas.has(cuenta.id) ? 'checked' : '';
+            const claseSeleccionada = cuentasSeleccionadas.has(cuenta.id) ? 'fila-cuenta-seleccionada' : '';
+            
+            html += `
+            <tr data-cuenta-id="${cuenta.id}" class="hover:bg-slate-50 ${claseSeleccionada}">
+                <td class="px-3 py-3 text-center">
+                    <input type="checkbox" 
+                           class="cuenta-checkbox cuenta-seleccion" 
+                           value="${cuenta.id}" 
+                           ${seleccionada}>
+                </td>
+                <td class="px-3 py-3">
+                    <div class="font-medium">${cuenta.nombre}</div>
+                    <div class="text-xs text-slate-500">👤 ${cuenta.usuario || 'Sistema'}</div>
+                </td>
+                <td class="px-3 py-3">
+                    <div class="text-xs max-w-[200px] truncate" title="${(cuenta.empresas || []).join(', ')}">
+                        ${empresasStr || '—'}
+                    </div>
+                </td>
+                <td class="px-3 py-3 text-xs">
+                    ${cuenta.desde} → ${cuenta.hasta}
+                </td>
+                <td class="px-3 py-3 text-right num font-semibold">${fmt(cuenta.facturado || 0)}</td>
+                <td class="px-3 py-3 text-center">
+                    <div class="flex justify-center">
+                        <label class="switch-pagado switch-small" style="width: 40px; height: 20px;">
+                            <input type="checkbox" 
+                                   class="switch-estado-cuenta" 
+                                   data-id="${cuenta.id}" 
+                                   ${estaPagado ? 'checked' : ''}>
+                            <span class="switch-slider" style="background-color: ${estaPagado ? '#22c55e' : '#ef4444'};"></span>
+                        </label>
+                    </div>
+                </td>
+                <td class="px-3 py-3 text-center text-xs text-slate-500">
+                    ${new Date(cuenta.fecha_creacion).toLocaleDateString('es-CO')}
+                </td>
+                <td class="px-3 py-3 text-right">
+                    <div class="inline-flex gap-2">
+                        <button class="btnCargarCuenta border px-3 py-2 rounded bg-blue-50 hover:bg-blue-100 text-xs text-blue-700" 
+                                data-id="${cuenta.id}" title="Cargar esta cuenta">
+                            📂 Cargar
+                        </button>
+                        <button class="btnEliminarCuenta border px-3 py-2 rounded bg-rose-50 hover:bg-rose-100 text-xs text-rose-700" 
+                                data-id="${cuenta.id}" title="Eliminar">
+                            🗑️
+                        </button>
+                    </div>
+                </td>
+            </tr>`;
+        });
+        
+        tbodyCuentasBD.innerHTML = html;
+        
+        // Eventos para checkboxes de selección
+        document.querySelectorAll('.cuenta-seleccion').forEach(cb => {
+            cb.addEventListener('change', function() {
+                manejarSeleccionCuenta(parseInt(this.value), this.checked);
+            });
+        });
+        
+        // Eventos para botones de cargar
+        document.querySelectorAll('.btnCargarCuenta').forEach(btn => {
+            btn.addEventListener('click', () => cargarCuentaCompletaBD(btn.dataset.id));
+        });
+        
+        // Eventos para botones de eliminar
+        document.querySelectorAll('.btnEliminarCuenta').forEach(btn => {
+            btn.addEventListener('click', () => eliminarCuentaBD(btn.dataset.id));
+        });
+        
+        // Eventos para switches de estado
+        document.querySelectorAll('.switch-estado-cuenta').forEach(switchInput => {
+            if (switchInput._handler) {
+                switchInput.removeEventListener('change', switchInput._handler);
             }
             
-            // Evento mientras el usuario escribe
-            input.addEventListener('input', function(e) {
-                let cursorPos = this.selectionStart;
-                let valorOriginal = this.value;
-                let soloNumeros = valorOriginal.replace(/\D/g, '');
+            switchInput._handler = async function(e) {
+                e.stopPropagation();
                 
-                // Si no hay números, poner valorReal = '0'
-                if (soloNumeros === '') {
-                    this.dataset.valorReal = '0';
-                    this.value = '';
-                    return;
-                }
+                const id = this.dataset.id;
+                const nuevoEstado = this.checked;
                 
-                // Guardar el valor real (solo números) en un atributo data
-                this.dataset.valorReal = soloNumeros;
+                this.disabled = true;
                 
-                // Formatear el número
-                let formateado = formatearNumeroMiles(soloNumeros);
+                const slider = this.nextElementSibling;
+                slider.style.backgroundColor = nuevoEstado ? '#22c55e' : '#ef4444';
                 
-                // Actualizar el valor en el input (solo visual)
-                this.value = formateado;
+                await actualizarEstadoCuenta(id, nuevoEstado, this);
                 
-                // Ajustar la posición del cursor después del formateo
-                if (soloNumeros.length > 0) {
-                    // Calcular nueva posición del cursor
-                    let digitosAntesCursor = valorOriginal.slice(0, cursorPos).replace(/\D/g, '').length;
-                    let nuevoCursor = 0;
-                    let contadorDigitos = 0;
-                    
-                    for (let i = 0; i < formateado.length; i++) {
-                        nuevoCursor++;
-                        if (formateado[i].match(/\d/)) {
-                            contadorDigitos++;
-                            if (contadorDigitos === digitosAntesCursor) {
-                                break;
-                            }
+                this.disabled = false;
+            };
+            
+            switchInput.addEventListener('change', switchInput._handler);
+        });
+        
+        actualizarBotonFusion();
+        
+    } catch (error) {
+        console.error('Error:', error);
+        tbodyCuentasBD.innerHTML = `
+            <tr>
+                <td colspan="8" class="px-3 py-8 text-center text-rose-600">
+                    <div>❌ Error al cargar cuentas: ${error.message}</div>
+                </td>
+            </tr>`;
+    }
+}
+
+async function actualizarEstadoCuenta(id, nuevoEstado, switchElement) {
+    try {
+        const formData = new FormData();
+        formData.append('accion', 'actualizar_pagado_cuenta');
+        formData.append('id', id);
+        formData.append('pagado', nuevoEstado ? 1 : 0);
+        
+        const response = await fetch('', { method: 'POST', body: formData });
+        const resultado = await response.json();
+        
+        if (resultado.success) {
+            Swal.fire({
+                title: nuevoEstado ? '🟢 Pagado' : '🔴 No pagado',
+                text: 'Estado actualizado correctamente',
+                icon: 'success',
+                timer: 1500,
+                showConfirmButton: false,
+                toast: true,
+                position: 'top-end'
+            });
+        } else {
+            throw new Error(resultado.message);
+        }
+    } catch (error) {
+        switchElement.checked = !nuevoEstado;
+        Swal.fire({
+            title: '❌ Error',
+            text: error.message,
+            icon: 'error',
+            timer: 2000
+        });
+    }
+}
+
+async function cargarCuentaCompletaBD(id) {
+    const confirmacion = await Swal.fire({
+        title: '¿Cargar esta cuenta?',
+        text: 'Se restaurarán los valores de la cuenta guardada',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, cargar',
+        cancelButtonText: 'Cancelar'
+    });
+    
+    if (!confirmacion.isConfirmed) return;
+    
+    try {
+        const formData = new FormData();
+        formData.append('accion', 'cargar_cuenta');
+        formData.append('id', id);
+        
+        const response = await fetch('', { method: 'POST', body: formData });
+        const resultado = await response.json();
+        
+        if (resultado.success) {
+            const cuenta = resultado.cuenta;
+            
+            document.getElementById('filtro_desde').value = cuenta.desde;
+            document.getElementById('filtro_hasta').value = cuenta.hasta;
+            
+            const empresasGuardadas = cuenta.empresas || [];
+            document.querySelectorAll('.empresa-checkbox input').forEach(cb => {
+                cb.checked = empresasGuardadas.includes(cb.value);
+            });
+            
+            const datos = cuenta.datos_json || {};
+            
+            prestSel = datos.prestamos || {};
+            ssMap = datos.segSocial || {};
+            accMap = datos.cuentasBancarias || {};
+            estadoPagoMap = datos.estadosPago || {};
+            
+            setLS(PREST_SEL_KEY, prestSel);
+            setLS(SS_KEY, ssMap);
+            setLS(ACC_KEY, accMap);
+            setLS(ESTADO_PAGO_KEY, estadoPagoMap);
+            
+            document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => tr.remove());
+            manualRows = [];
+            
+            if (datos.filasManuales && datos.filasManuales.length > 0) {
+                datos.filasManuales.forEach(fila => {
+                    agregarFilaManual();
+                    const ultimaFila = tbody.querySelector('tr.fila-manual:last-child');
+                    if (ultimaFila) {
+                        const select = ultimaFila.querySelector('.conductor-select');
+                        const baseInput = ultimaFila.querySelector('.base-manual');
+                        const ctaInput = ultimaFila.querySelector('.cta');
+                        const ssInput = ultimaFila.querySelector('.ss');
+                        const estadoSelect = ultimaFila.querySelector('.estado-pago');
+                        
+                        if (select) select.value = fila.conductor;
+                        if (baseInput) baseInput.value = fmt(fila.base).replace('$', '');
+                        if (ctaInput) ctaInput.value = fila.cuenta;
+                        if (ssInput) ssInput.value = fmt(fila.segSocial).replace('$', '');
+                        if (estadoSelect) estadoSelect.value = fila.estado;
+                        
+                        if (fila.conductor) {
+                            if (fila.cuenta) accMap[fila.conductor] = fila.cuenta;
+                            if (fila.segSocial) ssMap[fila.conductor] = fila.segSocial;
+                            if (fila.estado) estadoPagoMap[fila.conductor] = fila.estado;
                         }
                     }
-                    
-                    this.setSelectionRange(nuevoCursor, nuevoCursor);
-                }
-            });
-            
-            // Evento al salir del input - asegurar formato correcto
-            input.addEventListener('blur', function() {
-                let valorReal = this.dataset.valorReal || '0';
-                if (valorReal === '0' || valorReal === '') {
-                    this.value = '';
-                } else {
-                    this.value = formatearNumeroMiles(valorReal);
-                }
-            });
-            
-            // Prevenir que se peguen caracteres no numéricos
-            input.addEventListener('keydown', function(e) {
-                // Permitir teclas de control, números, teclas de navegación
-                if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'ArrowLeft' || 
-                    e.key === 'ArrowRight' || e.key === 'Tab' || e.key === 'Home' || 
-                    e.key === 'End' || e.ctrlKey || e.metaKey) {
-                    return;
-                }
-                
-                // Permitir números
-                if (e.key.match(/\d/)) {
-                    return;
-                }
-                
-                // Bloquear cualquier otra tecla
-                e.preventDefault();
-            });
-            
-            // En el evento paste, limpiar el contenido pegado
-            input.addEventListener('paste', function(e) {
-                e.preventDefault();
-                let pastedText = (e.clipboardData || window.clipboardData).getData('text');
-                let soloNumeros = pastedText.replace(/\D/g, '');
-                
-                if (soloNumeros) {
-                    let nuevoValor = (this.dataset.valorReal || '') + soloNumeros;
-                    this.dataset.valorReal = nuevoValor;
-                    this.value = formatearNumeroMiles(nuevoValor);
-                    
-                    // Disparar evento input para actualizar
-                    this.dispatchEvent(new Event('input', { bubbles: true }));
-                }
-            });
-        });
-    }
-    
-    // ===== BUSCADOR GLOBAL =====
-    function configurarBuscadorGlobal() {
-      const input = document.getElementById('buscadorGlobal');
-      const clearBtn = document.getElementById('clearBuscador');
-      
-      if (input) {
-        input.addEventListener('input', filtrarGlobal);
-      }
-      
-      if (clearBtn) {
-        clearBtn.addEventListener('click', () => {
-          input.value = '';
-          filtrarGlobal();
-          input.focus();
-        });
-      }
-    }
-    
-    function filtrarGlobal() {
-      const input = document.getElementById('buscadorGlobal');
-      const textoBusqueda = input ? normalizarTexto(input.value) : '';
-      const filas = document.querySelectorAll('#tbodyConsolidado tr');
-      const clearBtn = document.getElementById('clearBuscador');
-      
-      let visibles = 0;
-      
-      filas.forEach(fila => {
-        const nombreConductor = fila.querySelector('.conductor-link')?.textContent?.replace('⚠️', '').trim() || '';
-        const nombreNormalizado = normalizarTexto(nombreConductor);
-        
-        if (textoBusqueda === '' || nombreNormalizado.includes(textoBusqueda)) {
-          fila.style.display = '';
-          visibles++;
-        } else {
-          fila.style.display = 'none';
-        }
-      });
-      
-      document.getElementById('conductoresVisibles').textContent = visibles;
-      if (clearBtn) clearBtn.style.display = textoBusqueda === '' ? 'none' : 'block';
-      
-      recalcularTodo();
-    }
-    
-    function normalizarTexto(texto) {
-      return texto.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-    }
-    
-    // ===== FUNCIONES DE CÁLCULO =====
-    function getTarifas() {
-      const tarifas = {};
-      document.querySelectorAll('.tarjeta-tarifa-acordeon').forEach(card => {
-        const empresa = card.dataset.empresa;
-        const vehiculo = card.dataset.vehiculo;
-        
-        if (!tarifas[empresa]) tarifas[empresa] = {};
-        if (!tarifas[empresa][vehiculo]) tarifas[empresa][vehiculo] = {};
-        
-        card.querySelectorAll('input[data-campo]').forEach(input => {
-          const campo = input.dataset.campo.toLowerCase();
-          // Usar el valor real del dataset
-          const valor = parseInt(input.dataset.valorReal || '0', 10);
-          tarifas[empresa][vehiculo][campo] = valor;
-        });
-      });
-      return tarifas;
-    }
-    
-    function formatNumber(num) {
-      return new Intl.NumberFormat('es-CO').format(num || 0);
-    }
-    
-    function recalcularTodo() {
-      const tarifas = getTarifas();
-      const filas = document.querySelectorAll('#tbodyConsolidado tr');
-      
-      let totalViajesGlobal = 0;
-      let totalPagadoGlobal = 0;
-      let totalFaltanteGlobal = 0;
-      
-      filas.forEach(fila => {
-        if (fila.style.display === 'none') return;
-        
-        const vehiculo = fila.dataset.vehiculo;
-        const pagado = parseInt(fila.dataset.pagado || '0') || 0;
-        const viajesData = fila.dataset.viajesData || '';
-        
-        // Parsear viajesData: formato "clasif|empresa|cantidad,clasif|empresa|cantidad,..."
-        const viajes = viajesData.split(',').filter(item => item);
-        
-        let totalFila = 0;
-        
-        // Calcular total respetando empresa y clasificación
-        viajes.forEach(item => {
-          const partes = item.split('|');
-          if (partes.length === 3) {
-            const clasif = partes[0];
-            const empresa = partes[1];
-            const cantidad = parseInt(partes[2]) || 0;
-            
-            const tarifaEmpresa = tarifas[empresa]?.[vehiculo]?.[clasif] || 0;
-            totalFila += cantidad * tarifaEmpresa;
-          }
-        });
-        
-        let faltante = totalFila - pagado;
-        if (faltante < 0) faltante = 0;
-        
-        // Actualizar celdas
-        const totalInput = fila.querySelector('input.totales');
-        if (totalInput) totalInput.value = formatNumber(totalFila);
-        
-        const faltanteInput = fila.querySelector('input.faltante');
-        if (faltanteInput) faltanteInput.value = formatNumber(faltante);
-        
-        totalViajesGlobal += totalFila;
-        totalPagadoGlobal += pagado;
-        totalFaltanteGlobal += faltante;
-      });
-      
-      // Actualizar totales generales
-      document.getElementById('total_viajes_general').textContent = formatNumber(totalViajesGlobal);
-      document.getElementById('total_general_general').textContent = formatNumber(totalViajesGlobal);
-      document.getElementById('total_pagado_general').textContent = formatNumber(totalPagadoGlobal);
-      document.getElementById('total_faltante_general').textContent = formatNumber(totalFaltanteGlobal);
-    }
-    
-    // ===== CREAR NUEVA CLASIFICACIÓN =====
-    function crearYAsignarClasificacion() {
-      const nombreClasif = document.getElementById('txt_nueva_clasificacion').value.trim();
-      const patronRuta = document.getElementById('txt_patron_ruta').value.trim().toLowerCase();
-      
-      if (!nombreClasif) {
-        alert('Escribe el nombre de la nueva clasificación.');
-        return;
-      }
-      
-      fetch('<?= basename(__FILE__) ?>', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          crear_clasificacion: 1,
-          nombre_clasificacion: nombreClasif
-        })
-      })
-      .then(r => r.text())
-      .then(respuesta => {
-        if (respuesta.trim() === 'ok') {
-          if (patronRuta) {
-            const filas = document.querySelectorAll('.fila-ruta');
-            let contador = 0;
-            
-            filas.forEach(row => {
-              const ruta = row.dataset.ruta.toLowerCase();
-              if (ruta.includes(patronRuta)) {
-                const sel = row.querySelector('.select-clasif-ruta');
-                sel.value = nombreClasif.toLowerCase();
-                actualizarColorFila(sel);
-                contador++;
-              }
-            });
-            
-            alert(`✅ Se creó "${nombreClasif}" y se aplicó a ${contador} rutas. Recarga la página.`);
-          } else {
-            alert(`✅ Se creó la clasificación "${nombreClasif}". Recarga la página.`);
-          }
-          
-          document.getElementById('txt_nueva_clasificacion').value = '';
-          document.getElementById('txt_patron_ruta').value = '';
-        } else {
-          alert('❌ Error: ' + respuesta);
-        }
-      })
-      .catch(error => alert('❌ Error de conexión: ' + error));
-    }
-    
-    // ===== MODAL DE VIAJES =====
-    const viajesModal = document.getElementById('viajesModal');
-    const viajesContent = document.getElementById('viajesContent');
-    const viajesTitle = document.getElementById('viajesTitle');
-    const viajesClose = document.getElementById('viajesCloseBtn');
-    const viajesRango = document.getElementById('viajesRango');
-    const viajesEmpresa = document.getElementById('viajesEmpresa');
-    
-    function abrirModalViajes(nombreConductor, empresa) {
-      viajesRango.textContent = RANGO_DESDE + " → " + RANGO_HASTA;
-      viajesEmpresa.textContent = empresa || "Todas las empresas";
-      viajesTitle.textContent = nombreConductor;
-      
-      const qs = new URLSearchParams({
-        viajes_conductor: nombreConductor,
-        desde: RANGO_DESDE,
-        hasta: RANGO_HASTA,
-        empresa: ""  // Vacío para traer de todas las empresas seleccionadas
-      });
-      
-      viajesContent.innerHTML = '<p class="text-center py-4 animate-pulse">Cargando viajes...</p>';
-      viajesModal.classList.add('show');
-      
-      fetch('<?= basename(__FILE__) ?>?' + qs.toString())
-        .then(r => r.text())
-        .then(html => {
-          viajesContent.innerHTML = html;
-        })
-        .catch(() => {
-          viajesContent.innerHTML = '<p class="text-center text-rose-600">Error cargando viajes.</p>';
-        });
-    }
-    
-    function cerrarModalViajes() {
-      viajesModal.classList.remove('show');
-      viajesContent.innerHTML = '';
-    }
-    
-    if (viajesClose) viajesClose.addEventListener('click', cerrarModalViajes);
-    if (viajesModal) {
-      viajesModal.addEventListener('click', (e) => {
-        if (e.target === viajesModal) cerrarModalViajes();
-      });
-    }
-    
-    // Recalcular al cambiar algo
-    document.addEventListener('input', function(e) {
-      if (e.target.matches('.tarifa-input')) {
-        recalcularTodo();
-      }
-    });
-  </script>
-
-<?php
-// ===== PANELES (deben ir después del header pero antes del cierre de body) =====
-?>
-
-  <!-- Panel tarifas -->
-  <div class="side-panel" id="panel-tarifas">
-    <div class="side-panel-header">
-      <h3 class="text-lg font-semibold flex items-center gap-2">
-        <span>🚐 Tarifas por Tipo de Vehículo</span>
-        <span class="text-xs text-slate-500">(<?= count($columnas_tarifas) ?> tipos)</span>
-      </h3>
-      <button class="side-panel-close" data-panel="tarifas">✕</button>
-    </div>
-    <div class="side-panel-body">
-      <div class="flex justify-end gap-2 mb-4">
-        <button onclick="expandirTodosTarifas()" 
-                class="text-xs px-3 py-1.5 rounded-lg border border-green-300 hover:bg-green-50 transition text-green-600">
-          Expandir todos
-        </button>
-        <button onclick="colapsarTodosTarifas()" 
-                class="text-xs px-3 py-1.5 rounded-lg border border-amber-300 hover:bg-amber-50 transition text-amber-600">
-          Colapsar todos
-        </button>
-      </div>
-      
-      <!-- Tarifas agrupadas por empresa -->
-      <?php 
-      // Obtener todos los vehículos únicos de todas las empresas seleccionadas
-      $vehiculosPorEmpresa = [];
-      foreach ($empresasSeleccionadas as $empresa) {
-          $sqlVeh = "SELECT DISTINCT tipo_vehiculo FROM viajes WHERE empresa = '$empresa' AND fecha BETWEEN '$desde' AND '$hasta'";
-          $resVeh = $conn->query($sqlVeh);
-          if ($resVeh) {
-              while ($r = $resVeh->fetch_assoc()) {
-                  $vehiculosPorEmpresa[$empresa][] = $r['tipo_vehiculo'];
-              }
-          }
-      }
-      
-      foreach ($empresasSeleccionadas as $empresa): 
-        $vehiculosEmpresa = $vehiculosPorEmpresa[$empresa] ?? [];
-        if (empty($vehiculosEmpresa)) continue;
-      ?>
-      <div class="mb-6">
-        <h4 class="text-md font-bold mb-3 flex items-center gap-2 border-b pb-2">
-          <span>🏢 <?= htmlspecialchars($empresa) ?></span>
-        </h4>
-        <div id="tarifas_grid_<?= md5($empresa) ?>" class="grid grid-cols-1 gap-3">
-          <?php foreach ($vehiculosEmpresa as $veh):
-            $color_vehiculo = obtenerColorVehiculo($veh);
-            $t = $tarifas_guardadas[$empresa][$veh] ?? [];
-            $veh_id = preg_replace('/[^a-z0-9]/i', '-', strtolower($veh . '-' . $empresa));
-          ?>
-          <div class="tarjeta-tarifa-acordeon rounded-xl border <?= $color_vehiculo['border'] ?> overflow-hidden shadow-sm"
-               data-vehiculo="<?= htmlspecialchars($veh) ?>"
-               data-empresa="<?= htmlspecialchars($empresa) ?>"
-               id="acordeon-<?= $veh_id ?>"
-               style="background-color: <?= str_replace('bg-', '#', $color_vehiculo['dark']) ?>;">
-            
-            <div class="acordeon-header flex items-center justify-between px-4 py-3.5 cursor-pointer transition <?= $color_vehiculo['bg'] ?> hover:opacity-90"
-                 onclick="toggleAcordeon('<?= $veh_id ?>')"
-                 style="background-color: <?= str_replace('bg-', '#', $color_vehiculo['bg']) ?>;">
-              <div class="flex items-center gap-3">
-                <span class="acordeon-icon text-lg transition-transform duration-300 <?= $color_vehiculo['text'] ?>" id="icon-<?= $veh_id ?>">▶️</span>
-                <div>
-                  <div class="text-base font-semibold <?= $color_vehiculo['text'] ?>">
-                    <?= htmlspecialchars($veh) ?>
-                  </div>
-                  <div class="text-xs text-slate-500 mt-0.5">
-                    <?= count($columnas_tarifas) ?> tipos de tarifas
-                  </div>
-                </div>
-              </div>
-              <span class="text-xs px-2 py-1 rounded-full <?= $color_vehiculo['text'] ?> border <?= $color_vehiculo['border'] ?> bg-white/80">
-                Configurar
-              </span>
-            </div>
-            
-            <div class="acordeon-content px-4 py-3 border-t <?= $color_vehiculo['border'] ?> bg-white" id="content-<?= $veh_id ?>">
-              <div class="space-y-3">
-                <?php foreach ($columnas_tarifas as $columna): 
-                  $valor = isset($t[$columna]) ? (float)$t[$columna] : 0;
-                  $etiqueta = ucfirst($columna);
-                  
-                  $etiquetas_especiales = [
-                      'completo' => 'Viaje Completo',
-                      'medio' => 'Viaje Medio',
-                      'extra' => 'Viaje Extra',
-                      'carrotanque' => 'Carrotanque',
-                      'siapana' => 'Siapana',
-                      'riohacha' => 'Riohacha',
-                      'pru' => 'Pru',
-                      'maco' => 'Maco'
-                  ];
-                  
-                  $etiqueta_final = $etiquetas_especiales[$columna] ?? $etiqueta;
-                  $estilo_clasif = obtenerEstiloClasificacion($columna);
-                ?>
-                <label class="block">
-                  <span class="block text-sm font-medium mb-1 <?= $estilo_clasif['text'] ?>">
-                    <?= htmlspecialchars($etiqueta_final) ?>
-                  </span>
-                  <div class="relative">
-                    <input type="text" step="1000" value="<?= $valor ?>"
-                           data-campo="<?= htmlspecialchars($columna) ?>"
-                           data-empresa="<?= htmlspecialchars($empresa) ?>"
-                           data-vehiculo="<?= htmlspecialchars($veh) ?>"
-                           class="w-full rounded-xl border <?= $estilo_clasif['border'] ?> px-3 py-2 pr-10 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition tarifa-input"
-                           style="border-color: <?= str_replace('border-', '#', $estilo_clasif['border']) ?>;">
-                    <span class="absolute right-3 top-1/2 transform -translate-y-1/2 text-sm font-semibold <?= $estilo_clasif['text'] ?>">
-                      $
-                    </span>
-                  </div>
-                </label>
-                <?php endforeach; ?>
-              </div>
-            </div>
-          </div>
-          <?php endforeach; ?>
-        </div>
-      </div>
-      <?php endforeach; ?>
-      
-      <p class="text-xs text-slate-500 mt-4">
-        Los cambios se guardan automáticamente al modificar cualquier valor.
-      </p>
-    </div>
-  </div>
-  
-  <!-- Panel crear clasificación -->
-  <div class="side-panel" id="panel-crear-clasif">
-    <div class="side-panel-header">
-      <h3 class="text-lg font-semibold flex items-center gap-2">
-        <span>➕ Crear Nueva Clasificación</span>
-      </h3>
-      <button class="side-panel-close" data-panel="crear-clasif">✕</button>
-    </div>
-    <div class="side-panel-body">
-      <p class="text-sm text-slate-600 mb-4">
-        Crea una nueva clasificación. Se agregará a la tabla tarifas.
-      </p>
-      <div class="space-y-4">
-        <div>
-          <label class="block text-sm font-medium mb-2">Nombre de la nueva clasificación</label>
-          <input id="txt_nueva_clasificacion" type="text"
-                 class="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
-                 placeholder="Ej: Premium, Nocturno, Express...">
-        </div>
-        <div>
-          <label class="block text-sm font-medium mb-2">Texto que deben contener las rutas (opcional)</label>
-          <input id="txt_patron_ruta" type="text"
-                 class="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
-                 placeholder="Dejar vacío para solo crear la clasificación">
-        </div>
-        <button type="button"
-                onclick="crearYAsignarClasificacion()"
-                class="w-full inline-flex items-center justify-center rounded-xl bg-green-600 text-white px-4 py-3 text-sm font-semibold hover:bg-green-700 active:bg-green-800 focus:ring-4 focus:ring-green-200 transition">
-          ⚙️ Crear y Aplicar
-        </button>
-      </div>
-      <p class="text-xs text-slate-500 mt-4">
-        La nueva clasificación se creará en la tabla tarifas. Vuelve a dar <strong>Filtrar</strong> para ver los cambios.
-      </p>
-    </div>
-  </div>
-
-  <!-- Panel clasificación rutas -->
-  <div class="side-panel" id="panel-clasif-rutas">
-    <div class="side-panel-header">
-      <h3 class="text-lg font-semibold flex items-center gap-2">
-        <span>🧭 Clasificar Rutas Existentes</span>
-        <span class="text-xs text-slate-500"><?= count($rutasUnicas ?? []) ?> rutas</span>
-      </h3>
-      <button class="side-panel-close" data-panel="clasif-rutas">✕</button>
-    </div>
-    <div class="side-panel-body">
-      <div class="max-h-[calc(100vh-180px)] overflow-y-auto border border-slate-200 rounded-xl">
-        <?php
-        // Obtener rutas únicas de todas las empresas seleccionadas
-        $rutasUnicas = [];
-        foreach ($empresasSeleccionadas as $empresa) {
-            $sqlRutas = "SELECT DISTINCT ruta, tipo_vehiculo FROM viajes 
-                         WHERE empresa = '$empresa' AND fecha BETWEEN '$desde' AND '$hasta'";
-            $resRutas = $conn->query($sqlRutas);
-            if ($resRutas) {
-                while ($r = $resRutas->fetch_assoc()) {
-                    $key = $r['ruta'] . '|' . $r['tipo_vehiculo'];
-                    $clasificacion = $clasif_rutas[mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo']), 'UTF-8')] ?? '';
-                    $rutasUnicas[$key] = [
-                        'ruta' => $r['ruta'],
-                        'vehiculo' => $r['tipo_vehiculo'],
-                        'clasificacion' => $clasificacion
-                    ];
-                }
+                });
+                localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
             }
+            
+            document.querySelectorAll('#tbody tr').forEach(tr => {
+                const nombre = obtenerNombreConductorDeFila(tr);
+                if (nombre) {
+                    if (accMap[nombre]) {
+                        const cta = tr.querySelector('.cta');
+                        if (cta) cta.value = accMap[nombre];
+                    }
+                    if (ssMap[nombre]) {
+                        const ss = tr.querySelector('.ss');
+                        if (ss) ss.value = fmt(ssMap[nombre]).replace('$', '');
+                    }
+                    if (estadoPagoMap[nombre]) {
+                        const estado = tr.querySelector('.estado-pago');
+                        if (estado) {
+                            estado.value = estadoPagoMap[nombre];
+                            aplicarEstadoFila(tr, estadoPagoMap[nombre]);
+                        }
+                    }
+                }
+            });
+            
+            asignarPrestamosAFilas(true);
+            
+            if (cuenta.porcentaje_ajuste) {
+                document.getElementById('inp_porcentaje_ajuste').value = cuenta.porcentaje_ajuste;
+            }
+            
+            recalcularTodo();
+            closeGestor();
+            
+            Swal.fire({
+                title: '✅ Cuenta cargada',
+                text: `"${cuenta.nombre}" cargada exitosamente`,
+                icon: 'success',
+                timer: 3000,
+                showConfirmButton: true,
+                confirmButtonText: 'Continuar'
+            });
+            
+        } else {
+            throw new Error(resultado.message);
         }
-        ?>
-        <table class="w-full text-sm">
-          <thead class="bg-slate-100 text-slate-600 sticky top-0 z-10">
-            <tr>
-              <th class="px-3 py-2 text-left">Ruta</th>
-              <th class="px-3 py-2 text-center">Vehículo</th>
-              <th class="px-3 py-2 text-center">Clasificación</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100" id="tablaClasificacionRutas">
-          <?php foreach($rutasUnicas as $info): 
-            $clasificacion_actual = $info['clasificacion'] ?? '';
-            $estilo = obtenerEstiloClasificacion($clasificacion_actual);
-            $clase_fila = $clasificacion_actual ? 'fila-clasificada-' . $clasificacion_actual : '';
-          ?>
-            <tr class="fila-ruta hover:bg-slate-50 <?= $clase_fila ?>"
-                data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
-                data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>"
-                data-clasificacion="<?= htmlspecialchars($clasificacion_actual) ?>">
-              <td class="px-3 py-2 whitespace-nowrap text-left font-medium">
-                <?= htmlspecialchars($info['ruta']) ?>
-              </td>
-              <td class="px-3 py-2 text-center">
-                <?php 
-                  $color_vehiculo = obtenerColorVehiculo($info['vehiculo']);
-                ?>
-                <span class="inline-block px-2 py-1 rounded-md text-xs font-medium <?= $color_vehiculo['bg'] ?> <?= $color_vehiculo['text'] ?> border <?= $color_vehiculo['border'] ?>">
-                  <?= htmlspecialchars($info['vehiculo']) ?>
-                </span>
-              </td>
-              <td class="px-3 py-2 text-center">
-                <select class="select-clasif-ruta rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100 w-full"
-                        data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
-                        data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>"
-                        onchange="actualizarColorFila(this)">
-                  <option value="">Sin clasificar</option>
-                  <?php foreach ($clasificaciones_disponibles as $clasif): 
-                    $estilo_opcion = obtenerEstiloClasificacion($clasif);
-                  ?>
-                  <option value="<?= htmlspecialchars($clasif) ?>" 
-                          <?= $info['clasificacion']===$clasif ? 'selected' : '' ?>
-                          style="background-color: <?= str_replace('bg-', '#', $estilo_opcion['bg']) ?>20; color: <?= str_replace('text-', '#', $estilo_opcion['text']) ?>;">
-                    <?= htmlspecialchars(ucfirst($clasif)) ?>
-                  </option>
-                  <?php endforeach; ?>
-                </select>
-              </td>
-            </tr>
-          <?php endforeach; ?>
-          </tbody>
-        </table>
-      </div>
-      <p class="text-xs text-slate-500 mt-4">
-        Selecciona una clasificación para cada ruta. Los cambios se guardan automáticamente.
-      </p>
-    </div>
-  </div>
+    } catch (error) {
+        Swal.fire('❌ Error', error.message, 'error');
+    }
+}
 
-  <!-- Panel selector columna -->
-  <div class="side-panel" id="panel-selector-columnas">
-    <div class="side-panel-header">
-      <h3 class="text-lg font-semibold flex items-center gap-2">
-        <span>📊 Seleccionar Columnas</span>
-      </h3>
-      <button class="side-panel-close" data-panel="selector-columnas">✕</button>
-    </div>
-    <div class="side-panel-body">
-      <div class="flex flex-col gap-4">
-        <div>
-          <p class="text-sm text-slate-600 mb-3">
-            Marca/desmarca las columnas que quieres ver en las tablas.
-            <span id="contador-seleccionadas-panel" class="font-semibold text-blue-600"><?= count($columnas_seleccionadas) ?></span> de 
-            <?= count($clasificaciones_disponibles) ?> seleccionadas
-          </p>
-        </div>
+async function eliminarCuentaBD(id) {
+    const confirmacion = await Swal.fire({
+        title: '¿Eliminar cuenta?',
+        text: 'Esta acción no se puede deshacer',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, eliminar',
+        confirmButtonColor: '#ef4444'
+    });
+    
+    if (!confirmacion.isConfirmed) return;
+    
+    try {
+        const formData = new FormData();
+        formData.append('accion', 'eliminar_cuenta');
+        formData.append('id', id);
         
-        <div class="flex flex-wrap gap-2">
-          <button onclick="seleccionarTodasColumnas()" 
-                  class="text-xs px-3 py-1.5 rounded-lg border border-green-300 bg-green-50 text-green-700 hover:bg-green-100 transition">
-            ✅ Seleccionar todas
-          </button>
-          <button onclick="deseleccionarTodasColumnas()" 
-                  class="text-xs px-3 py-1.5 rounded-lg border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 transition">
-            ❌ Deseleccionar todas
-          </button>
-          <button onclick="guardarSeleccionColumnas()" 
-                  class="text-xs px-3 py-1.5 rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 transition">
-            💾 Guardar selección
-          </button>
-        </div>
+        const response = await fetch('', { method: 'POST', body: formData });
+        const resultado = await response.json();
         
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[60vh] overflow-y-auto p-2 border border-slate-200 rounded-lg">
-          <?php foreach ($clasificaciones_disponibles as $clasif): 
-            $estilo = obtenerEstiloClasificacion($clasif);
-            $seleccionada = in_array($clasif, $columnas_seleccionadas);
-          ?>
-          <div class="columna-checkbox-item flex items-center gap-2 p-3 border border-slate-200 rounded-lg cursor-pointer transition <?= $seleccionada ? 'selected' : '' ?>"
-               data-columna="<?= htmlspecialchars($clasif) ?>"
-               onclick="toggleColumna('<?= htmlspecialchars($clasif) ?>')">
-            <div class="checkbox-columna <?= $seleccionada ? 'checked' : '' ?>" 
-                 id="checkbox-<?= htmlspecialchars($clasif) ?>"></div>
-            <div class="flex-1 flex flex-col">
-              <span class="text-sm font-medium <?= $estilo['text'] ?>">
-                <?= ucfirst($clasif) ?>
-              </span>
-              <span class="text-xs text-slate-500">Columna: <?= htmlspecialchars($clasif) ?></span>
-            </div>
-            <div class="w-3 h-3 rounded-full" style="background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>;"></div>
-          </div>
-          <?php endforeach; ?>
-        </div>
-      </div>
-    </div>
-  </div>
+        if (resultado.success) {
+            // Remover de seleccionadas si estaba
+            cuentasSeleccionadas.delete(parseInt(id));
+            await renderCuentasBD();
+            Swal.fire('✅ Eliminada', 'Cuenta eliminada correctamente', 'success');
+        } else {
+            throw new Error(resultado.message);
+        }
+    } catch (error) {
+        Swal.fire('❌ Error', error.message, 'error');
+    }
+}
 
+// Función para fusionar cuentas seleccionadas - CORREGIDA
+async function fusionarCuentasSeleccionadas() {
+    const ids = Array.from(cuentasSeleccionadas);
+    
+    if (ids.length < 2) {
+        Swal.fire({
+            title: '⚠️ Selecciona al menos 2 cuentas',
+            text: 'Debes seleccionar dos o más cuentas para fusionar',
+            icon: 'warning'
+        });
+        return;
+    }
+    
+    const confirmacion = await Swal.fire({
+        title: '🔗 Fusionar cuentas',
+        html: `
+            <p>Vas a fusionar <strong>${ids.length} cuentas</strong>.</p>
+            <p class="text-sm text-slate-600 mt-2">Los conductores que se repitan tendrán sus valores base <strong>SUMADOS</strong>.</p>
+            <p class="text-xs text-blue-600 mt-3">✅ Los préstamos, seguridad social y cuentas bancarias se dejarán <strong>VACÍOS</strong> para que los asignes manualmente.</p>
+            <p class="text-xs text-amber-600 mt-1">Después de asignarlos, al guardar la cuenta fusionada, TODO se guardará correctamente.</p>
+        `,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: '✅ Sí, fusionar',
+        confirmButtonColor: '#f59e0b',
+        cancelButtonText: 'Cancelar'
+    });
+    
+    if (!confirmacion.isConfirmed) return;
+    
+    try {
+        Swal.fire({
+            title: 'Fusionando cuentas...',
+            text: 'Por favor espera',
+            allowOutsideClick: false,
+            didOpen: () => Swal.showLoading()
+        });
+        
+        const formData = new FormData();
+        formData.append('accion', 'fusionar_cuentas');
+        formData.append('ids', JSON.stringify(ids));
+        
+        const response = await fetch('', { method: 'POST', body: formData });
+        const resultado = await response.json();
+        
+        if (resultado.success) {
+            const cuentaFusionada = resultado.cuenta_fusionada;
+            
+            // Limpiar selecciones
+            cuentasSeleccionadas.clear();
+            
+            // Cerrar modal de gestor
+            closeGestor();
+            
+            // Establecer los valores en el formulario principal
+            document.getElementById('filtro_desde').value = cuentaFusionada.desde;
+            document.getElementById('filtro_hasta').value = cuentaFusionada.hasta;
+            
+            // Seleccionar las empresas de la fusión
+            document.querySelectorAll('.empresa-checkbox input').forEach(cb => {
+                cb.checked = cuentaFusionada.empresas.includes(cb.value);
+            });
+            
+            // Limpiar datos actuales (préstamos, seguridad social, etc.) - TODOS VACÍOS
+            prestSel = {};
+            ssMap = {};
+            accMap = {};
+            estadoPagoMap = {};
+            
+            setLS(PREST_SEL_KEY, prestSel);
+            setLS(SS_KEY, ssMap);
+            setLS(ACC_KEY, accMap);
+            setLS(ESTADO_PAGO_KEY, estadoPagoMap);
+            
+            // Eliminar filas manuales existentes
+            document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => tr.remove());
+            manualRows = [];
+            
+            // Crear nuevas filas manuales con los valores base SUMADOS
+            if (cuentaFusionada.datos_json.filasManuales && cuentaFusionada.datos_json.filasManuales.length > 0) {
+                cuentaFusionada.datos_json.filasManuales.forEach(fila => {
+                    agregarFilaManual();
+                    const ultimaFila = tbody.querySelector('tr.fila-manual:last-child');
+                    if (ultimaFila) {
+                        const select = ultimaFila.querySelector('.conductor-select');
+                        const baseInput = ultimaFila.querySelector('.base-manual');
+                        
+                        if (select) select.value = fila.conductor;
+                        if (baseInput) baseInput.value = fmt(fila.base).replace('$', '');
+                        
+                        // NO asignamos cuenta, segSocial ni estado - quedan vacíos
+                    }
+                });
+                localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
+            }
+            
+            // Establecer el porcentaje de ajuste (promedio de las cuentas fusionadas)
+            document.getElementById('inp_porcentaje_ajuste').value = cuentaFusionada.porcentaje_ajuste;
+            
+            // Recalcular todo - esto aplicará todos los cálculos automáticos
+            recalcularTodo();
+            
+            // Cerrar SweetAlert y mostrar éxito
+            Swal.fire({
+                title: '✅ Cuentas fusionadas',
+                html: `
+                    <p>Se han fusionado <strong>${ids.length} cuentas</strong> exitosamente.</p>
+                    <p class="text-sm mt-2">Los valores base de conductores repetidos se han <strong>SUMADO</strong>.</p>
+                    <p class="text-sm text-emerald-600">✓ Los cálculos (ajuste, retención, 4x1000, aporte) se han aplicado automáticamente.</p>
+                    <p class="text-xs text-blue-600 mt-3">⚠️ <strong>IMPORTANTE:</strong> Los préstamos, seguridad social y cuentas bancarias están VACÍOS.</p>
+                    <p class="text-xs text-blue-600">Ahora puedes asignarlos manualmente. Cuando guardes esta cuenta fusionada, TODO se guardará correctamente.</p>
+                `,
+                icon: 'success',
+                confirmButtonText: 'Continuar'
+            });
+            
+        } else {
+            throw new Error(resultado.message);
+        }
+    } catch (error) {
+        Swal.fire('❌ Error', error.message, 'error');
+    }
+}
+
+function openGestor() {
+    // Limpiar selecciones anteriores
+    cuentasSeleccionadas.clear();
+    
+    fetch('?obtener_cuentas=1')
+        .then(r => r.json())
+        .then(cuentas => {
+            const empresasUnicas = new Set();
+            cuentas.forEach(c => (c.empresas || []).forEach(e => empresasUnicas.add(e)));
+            
+            filtroEmpresaCuentas.innerHTML = '<option value="">Todas las empresas</option>';
+            [...empresasUnicas].sort().forEach(emp => {
+                filtroEmpresaCuentas.innerHTML += `<option value="${emp}">${emp}</option>`;
+            });
+        });
+    
+    renderCuentasBD();
+    gestorModal.classList.remove('hidden');
+    setTimeout(() => buscaCuentaBD.focus(), 100);
+}
+
+function closeGestor() {
+    gestorModal.classList.add('hidden');
+    buscaCuentaBD.value = '';
+    filtroEmpresaCuentas.value = '';
+    filtroEstadoPagado.value = '';
+    cuentasSeleccionadas.clear();
+}
+
+// Event listeners para gestor
+btnShowGestor.addEventListener('click', openGestor);
+btnCloseGestor.addEventListener('click', closeGestor);
+btnRecargarCuentas.addEventListener('click', renderCuentasBD);
+filtroEmpresaCuentas.addEventListener('change', renderCuentasBD);
+filtroEstadoPagado.addEventListener('change', renderCuentasBD);
+buscaCuentaBD.addEventListener('input', renderCuentasBD);
+clearBuscarBD.addEventListener('click', () => {
+    buscaCuentaBD.value = '';
+    renderCuentasBD();
+    buscaCuentaBD.focus();
+});
+
+btnAddDesdeFiltro.addEventListener('click', () => {
+    closeGestor();
+    setTimeout(() => openSaveCuenta(), 300);
+});
+
+// Select all cuentas
+selectAllCuentas?.addEventListener('change', function() {
+    document.querySelectorAll('.cuenta-seleccion').forEach(cb => {
+        cb.checked = this.checked;
+        manejarSeleccionCuenta(parseInt(cb.value), this.checked);
+    });
+});
+
+// Botón de fusión
+btnFusionarSeleccionadas?.addEventListener('click', fusionarCuentasSeleccionadas);
+
+// ===== MODAL PRÉSTAMOS EVENTOS =====
+document.getElementById('btnDeseleccionarTodos').addEventListener('click', () => {
+    selectedIds.clear();
+    
+    document.querySelectorAll('.prest-checkbox').forEach(cb => {
+        cb.checked = false;
+    });
+    
+    actualizarResumenSeleccion();
+    
+    Swal.fire({
+        title: '✓ Deseleccionados',
+        text: 'Todos los préstamos han sido deseleccionados',
+        icon: 'success',
+        timer: 1000,
+        showConfirmButton: false,
+        toast: true,
+        position: 'top-end'
+    });
+});
+
+document.getElementById('prestValorManual').addEventListener('input', () => {
+    actualizarResumenSeleccion();
+});
+
+// ===== INICIALIZACIÓ =====
+document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('btnSeleccionarTodas')?.addEventListener('click', () => {
+        document.querySelectorAll('.empresa-checkbox input').forEach(cb => cb.checked = true);
+    });
+    
+    document.getElementById('btnLimpiarTodas')?.addEventListener('click', () => {
+        document.querySelectorAll('.empresa-checkbox input').forEach(cb => cb.checked = false);
+    });
+    
+    document.querySelectorAll('#tbody tr').forEach(tr => {
+        if (!tr.classList.contains('fila-manual')) {
+            configurarEventosFila(tr);
+        }
+    });
+    
+    manualRows.forEach(id => agregarFilaManual(id));
+    
+    asignarPrestamosAFilas(false);
+    
+    hacerPanelArrastrable();
+    
+    buscadorConductores.addEventListener('input', filtrarConductores);
+    clearBuscar.addEventListener('click', () => {
+        buscadorConductores.value = '';
+        filtrarConductores();
+        buscadorConductores.focus();
+    });
+    
+    btnAddManual.addEventListener('click', () => agregarFilaManual());
+    
+    closePanel.addEventListener('click', () => floatingPanel.classList.add('hidden'));
+    
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', () => {
+            document.querySelectorAll('#tbody .selector-conductor').forEach(cb => {
+                cb.checked = selectAllCheckbox.checked;
+                const tr = cb.closest('tr');
+                if (tr) tr.classList.toggle('fila-seleccionada', selectAllCheckbox.checked);
+            });
+            actualizarPanelFlotante();
+            guardarSeleccionCheckboxes();
+        });
+    }
+    
+    document.getElementById('inp_porcentaje_ajuste').addEventListener('input', recalcularTodo);
+    
+    document.getElementById('btnCloseModal').addEventListener('click', closePrestModal);
+    document.getElementById('btnCancel').addEventListener('click', closePrestModal);
+    
+    document.getElementById('btnLimpiarFiltros').addEventListener('click', () => {
+        document.querySelectorAll('.empresa-checkbox-prestamo').forEach(cb => cb.checked = false);
+        document.getElementById('prestSearch').value = '';
+        renderizarListaPrestamos(PRESTAMOS_LIST);
+    });
+    
+    document.getElementById('prestSearch').addEventListener('input', () => {
+        filtrarPrestamosMultiempresa();
+    });
+    
+    document.getElementById('btnAssign').addEventListener('click', () => {
+        if (!currentRow) return;
+        
+        let baseName = obtenerNombreConductorDeFila(currentRow);
+        if (!baseName) return;
+        
+        const valorManual = toInt(document.getElementById('prestValorManual').value);
+        
+        if (valorManual > 0) {
+            prestSel[baseName] = [{
+                esManual: true,
+                valorManual: valorManual,
+                descripcion: 'Valor manual ingresado'
+            }];
+        } else {
+            const prestamosSeleccionados = PRESTAMOS_LIST.filter(it => selectedIds.has(it.id));
+            prestSel[baseName] = prestamosSeleccionados.map(it => ({
+                id: it.id,
+                name: it.name,
+                totalActual: it.total,
+                empresa: it.empresa,
+                esManual: false,
+                valorManual: null
+            }));
+        }
+        
+        setLS(PREST_SEL_KEY, prestSel);
+        
+        asignarPrestamosAFilas(modoHistoricoActivo);
+        recalcularTodo();
+        closePrestModal();
+    });
+    
+    document.querySelectorAll('#tbody .conductor-link').forEach(btn => {
+        btn.addEventListener('click', () => abrirModalViajes(btn.textContent.trim()));
+    });
+    
+    document.getElementById('viajesCloseBtn').addEventListener('click', () => {
+        document.getElementById('viajesModal').classList.remove('show');
+    });
+    
+    setTimeout(recalcularTodo, 100);
+    
+    window.abrirModalViajes = function(nombre) {
+        document.getElementById('viajesTitle').textContent = nombre;
+        document.getElementById('viajesModal').classList.add('show');
+        
+        const qs = new URLSearchParams({
+            viajes_conductor: nombre,
+            desde: '<?= $desde ?>',
+            hasta: '<?= $hasta ?>',
+            empresas: JSON.stringify(EMPRESAS_SELECCIONADAS)
+        });
+        
+        fetch('<?= basename(__FILE__) ?>?' + qs.toString())
+            .then(r => r.text())
+            .then(html => document.getElementById('viajesContent').innerHTML = html)
+            .catch(() => document.getElementById('viajesContent').innerHTML = '<p class="text-center text-red-600">Error cargando viajes</p>');
+    };
+});
+</script>
 </body>
 </html>
-<?php
-$conn->close();
-?>
+<?php $conn->close(); ?>
