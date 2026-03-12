@@ -618,6 +618,59 @@ if (!empty($empresasSeleccionadas)) {
         }
     }
 }
+
+/* =======================================================
+   🔹 NUEVO: DETECTAR ALERTAS PARA MOSTRAR ARRIBA
+   ======================================================= */
+$alertas_sin_clasificar = [];
+$alertas_sin_tarifa = [];
+
+foreach ($datosConsolidados as $conductor => $info) {
+    // ALERTA 1: Conductores con rutas sin clasificar
+    $rutasSinClasificar = $rutasSinClasificarCount[$conductor] ?? 0;
+    if ($rutasSinClasificar > 0) {
+        $alertas_sin_clasificar[] = [
+            'conductor' => $conductor,
+            'cantidad' => $rutasSinClasificar
+        ];
+    }
+    
+    // ALERTA 2: Conductores con clasificaciones que tienen tarifa en CERO
+    foreach ($info["viajes_por_clasificacion"] as $clasif => $porEmpresa) {
+        foreach ($porEmpresa as $empresa => $cantidad) {
+            // Buscar en tarifas_guardadas si existe esta combinación y si el valor es 0
+            $tarifa_valor = 0;
+            $vehiculo = $vehiculoPrincipal[$conductor] ?? 'Desconocido';
+            
+            if (isset($tarifas_guardadas[$empresa][$vehiculo][$clasif])) {
+                $tarifa_valor = (float)$tarifas_guardadas[$empresa][$vehiculo][$clasif];
+            }
+            
+            // Si la tarifa es 0, agregar a alertas
+            if ($tarifa_valor == 0) {
+                $alertas_sin_tarifa[] = [
+                    'conductor' => $conductor,
+                    'empresa' => $empresa,
+                    'vehiculo' => $vehiculo,
+                    'clasificacion' => $clasif,
+                    'cantidad_viajes' => $cantidad
+                ];
+            }
+        }
+    }
+}
+
+// Eliminar duplicados en alertas sin tarifa (misma combinación conductor+empresa+vehiculo+clasificacion)
+$alertas_sin_tarifa_unicas = [];
+$visto = [];
+foreach ($alertas_sin_tarifa as $alerta) {
+    $key = $alerta['conductor'] . '|' . $alerta['empresa'] . '|' . $alerta['vehiculo'] . '|' . $alerta['clasificacion'];
+    if (!in_array($key, $visto)) {
+        $visto[] = $key;
+        $alertas_sin_tarifa_unicas[] = $alerta;
+    }
+}
+$alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -1103,6 +1156,105 @@ if (!empty($empresasSeleccionadas)) {
     margin-left: 4px;
   }
   
+  /* NUEVOS ESTILOS PARA LAS NOTIFICACIONES SUPERIORES */
+  .notificaciones-container {
+    margin-bottom: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  
+  .notificacion {
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+    animation: slideDown 0.3s ease-out;
+  }
+  
+  .notificacion-roja {
+    background: linear-gradient(135deg, #fee2e2, #fecaca);
+    border-left: 8px solid #dc2626;
+    border: 1px solid #fca5a5;
+  }
+  
+  .notificacion-amarilla {
+    background: linear-gradient(135deg, #fef3c7, #fde68a);
+    border-left: 8px solid #d97706;
+    border: 1px solid #fcd34d;
+  }
+  
+  .notificacion-titulo {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .notificacion-titulo.rojo { color: #991b1b; }
+  .notificacion-titulo.amarillo { color: #92400e; }
+  
+  .notificacion-lista {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 4px;
+  }
+  
+  .notificacion-item {
+    background: white;
+    border-radius: 40px;
+    padding: 8px 16px;
+    font-size: 0.95rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid rgba(0,0,0,0.05);
+    transition: all 0.2s;
+  }
+  
+  .notificacion-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(0,0,0,0.1);
+  }
+  
+  .notificacion-item.rojo { border-left: 4px solid #dc2626; }
+  .notificacion-item.amarillo { border-left: 4px solid #d97706; }
+  
+  .notificacion-badge {
+    background: #f1f5f9;
+    border-radius: 20px;
+    padding: 2px 8px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #475569;
+  }
+  
+  .notificacion-detalle {
+    color: #334155;
+    font-size: 0.9rem;
+  }
+  
+  .notificacion-detalle strong {
+    color: #0f172a;
+    font-weight: 600;
+  }
+  
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
   @media (max-width: 768px) {
     .floating-balls-container {
       bottom: 15px;
@@ -1132,6 +1284,15 @@ if (!empty($empresasSeleccionadas)) {
     
     .table-container-wrapper.with-panel {
       margin-left: 0;
+    }
+    
+    .notificacion-lista {
+      flex-direction: column;
+      max-height: 300px;
+    }
+    
+    .notificacion-item {
+      width: 100%;
     }
   }
 </style>
@@ -1264,6 +1425,60 @@ if (!empty($empresasSeleccionadas)) {
   <main class="max-w-[1800px] mx-auto px-3 md:px-4 py-6">
     <div class="table-container-wrapper" id="tableContainerWrapper">
       
+      <!-- ===== NUEVO: NOTIFICACIONES SUPERIORES ===== -->
+      <?php if (!empty($alertas_sin_clasificar) || !empty($alertas_sin_tarifa)): ?>
+      <div class="notificaciones-container">
+        
+        <!-- NOTIFICACIÓN 1: Conductores con rutas sin clasificar -->
+        <?php if (!empty($alertas_sin_clasificar)): ?>
+        <div class="notificacion notificacion-roja">
+          <div class="notificacion-titulo rojo">
+            <span>🔴</span>
+            <span><?= count($alertas_sin_clasificar) ?> conductor(es) con rutas sin clasificar</span>
+          </div>
+          <div class="notificacion-lista">
+            <?php foreach ($alertas_sin_clasificar as $alerta): ?>
+            <div class="notificacion-item rojo">
+              <span class="font-semibold"><?= htmlspecialchars($alerta['conductor']) ?></span>
+              <span class="notificacion-badge"><?= $alerta['cantidad'] ?> ruta(s)</span>
+            </div>
+            <?php endforeach; ?>
+          </div>
+        </div>
+        <?php endif; ?>
+        
+        <!-- NOTIFICACIÓN 2: Conductores con clasificaciones sin tarifa asignada (valor $0) -->
+        <?php if (!empty($alertas_sin_tarifa)): ?>
+        <div class="notificacion notificacion-amarilla">
+          <div class="notificacion-titulo amarillo">
+            <span>🟡</span>
+            <span><?= count($alertas_sin_tarifa) ?> clasificaciones sin tarifa asignada (valor $0)</span>
+          </div>
+          <div class="notificacion-lista">
+            <?php foreach ($alertas_sin_tarifa as $alerta): ?>
+            <div class="notificacion-item amarillo" title="<?= $alerta['cantidad_viajes'] ?> viaje(s) afectado(s)">
+              <div class="flex flex-col">
+                <div class="flex items-center gap-2">
+                  <span class="font-semibold"><?= htmlspecialchars($alerta['conductor']) ?></span>
+                  <span class="text-xs bg-white/80 px-2 py-0.5 rounded-full"><?= $alerta['cantidad_viajes'] ?> viajes</span>
+                </div>
+                <div class="text-xs text-amber-700 mt-1">
+                  <span>🏢 <?= htmlspecialchars($alerta['empresa']) ?></span>
+                  <span class="mx-1">·</span>
+                  <span>🚐 <?= htmlspecialchars($alerta['vehiculo']) ?></span>
+                  <span class="mx-1">·</span>
+                  <span class="font-medium"><?= htmlspecialchars(ucfirst($alerta['clasificacion'])) ?></span>
+                </div>
+              </div>
+            </div>
+            <?php endforeach; ?>
+          </div>
+        </div>
+        <?php endif; ?>
+        
+      </div>
+      <?php endif; ?>
+
       <!-- Totales generales -->
       <div class="totales-generales mb-6">
         <div class="flex items-center gap-3 mb-4">
