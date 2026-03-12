@@ -878,19 +878,21 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
     visibility: visible;
   }
   
-  /* PANELES LATERALES CON SCROLL VISIBLE */
+  /* PANELES LATERALES - AHORA CON ANCHO DINÁMICO */
   .side-panel {
     position: fixed;
-    left: -550px; /* Aumentado para dar más espacio */
+    left: -100%; /* Cambiado para permitir ancho dinámico */
     top: 0;
-    width: 550px; /* Aumentado de 420px a 550px */
+    width: auto; /* Ancho automático basado en contenido */
+    min-width: 500px; /* Ancho mínimo */
+    max-width: 90vw; /* Máximo 90% del viewport */
     height: 100vh;
     background: white;
     box-shadow: 4px 0 25px rgba(0, 0, 0, 0.15);
     z-index: 9998;
     transition: left 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     overflow-y: auto;
-    overflow-x: hidden;
+    overflow-x: auto; /* Scroll horizontal solo si es absolutamente necesario */
     display: flex;
     flex-direction: column;
   }
@@ -913,24 +915,18 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
     padding: 1.25rem;
     padding-bottom: 2rem;
     overflow-y: auto;
-    overflow-x: auto; /* Cambiado a auto para permitir scroll horizontal */
+    overflow-x: auto; /* Scroll horizontal si es necesario */
     flex: 1;
     min-height: 0;
+    width: fit-content; /* El contenido determina el ancho */
+    min-width: 100%; /* Mínimo el ancho del panel */
   }
   
-  /* Scroll horizontal para el panel de clasificación de rutas */
-  #panel-clasif-rutas .side-panel-body {
-    overflow-x: auto;
-  }
-  
-  #panel-clasif-rutas table {
-    min-width: 900px; /* Aumentado de 600px a 900px para dar más espacio */
-  }
-  
-  /* Estilos para la tabla de clasificación de rutas */
+  /* Estilos para la tabla de clasificación de rutas - AHORA SE AJUSTA AL CONTENIDO */
   .tabla-clasif-rutas {
-    width: 100%;
     border-collapse: collapse;
+    width: max-content; /* La tabla ocupa el ancho necesario */
+    min-width: 100%; /* Mínimo el ancho del contenedor */
   }
   
   .tabla-clasif-rutas th {
@@ -940,44 +936,77 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
     font-size: 0.85rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    padding: 12px 8px;
+    padding: 12px 16px; /* Padding aumentado */
     position: sticky;
     top: 0;
     z-index: 10;
     border-bottom: 2px solid #cbd5e1;
+    white-space: nowrap; /* Evita que el texto se rompa */
   }
   
   .tabla-clasif-rutas td {
-    padding: 10px 8px;
+    padding: 12px 16px; /* Padding aumentado */
     border-bottom: 1px solid #e2e8f0;
     vertical-align: middle;
+    white-space: nowrap; /* Evita que el texto se rompa */
   }
   
   .tabla-clasif-rutas tr:hover {
     background-color: #f8fafc;
   }
   
-  /* Mini tarjeta de empresa */
+  /* Mini tarjeta de empresa - MEJORADA */
   .empresa-mini-card {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    background: white;
+    gap: 6px;
+    background: linear-gradient(135deg, #f8fafc, #f1f5f9);
     border: 1px solid #cbd5e1;
     border-radius: 30px;
-    padding: 4px 10px;
-    font-size: 0.75rem;
+    padding: 6px 14px;
+    font-size: 0.85rem;
     font-weight: 500;
-    color: #334155;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    color: #1e293b;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     white-space: nowrap;
+    transition: all 0.2s;
+  }
+  
+  .empresa-mini-card:hover {
+    background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
+    border-color: #94a3b8;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
   }
   
   .empresa-mini-card span {
-    max-width: 120px;
+    max-width: 200px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  
+  /* Select de clasificación - MEJORADO */
+  .select-clasif-ruta {
+    border-radius: 30px;
+    border: 1px solid #cbd5e1;
+    padding: 8px 16px;
+    font-size: 0.85rem;
+    background-color: white;
+    cursor: pointer;
+    transition: all 0.2s;
+    min-width: 150px;
+  }
+  
+  .select-clasif-ruta:hover {
+    border-color: #3b82f6;
+    box-shadow: 0 2px 8px rgba(59,130,246,0.1);
+  }
+  
+  .select-clasif-ruta:focus {
+    outline: none;
+    ring: 2px solid #3b82f6;
+    border-color: #3b82f6;
   }
   
   .side-panel-close {
@@ -1006,7 +1035,7 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
   }
   
   .table-container-wrapper.with-panel {
-    margin-left: 550px; /* Aumentado de 420px a 550px */
+    margin-left: min(550px, 90vw); /* Se ajusta según el ancho del panel */
   }
   
   .ball-active {
@@ -1409,9 +1438,8 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
     }
     
     .side-panel {
-      width: 90%;
-      max-width: 500px; /* Aumentado en móvil también */
-      left: -100%;
+      min-width: 95vw; /* En móvil, ocupa casi todo el ancho */
+      max-width: 95vw;
     }
     
     .table-container-wrapper.with-panel {
@@ -1424,6 +1452,22 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
     
     .notificacion-ruta-item {
       flex-wrap: wrap;
+    }
+    
+    .tabla-clasif-rutas th,
+    .tabla-clasif-rutas td {
+      padding: 8px 12px; /* Padding reducido en móvil */
+      font-size: 0.8rem;
+    }
+    
+    .select-clasif-ruta {
+      min-width: 120px;
+      padding: 6px 12px;
+    }
+    
+    .empresa-mini-card {
+      padding: 4px 10px;
+      font-size: 0.8rem;
     }
   }
 </style>
@@ -2756,7 +2800,7 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
     </div>
   </div>
 
-  <!-- Panel clasificación rutas (MEJORADO: MÁS ANCHO + MINI TARJETA DE EMPRESA) -->
+  <!-- Panel clasificación rutas (MEJORADO: ANCHO DINÁMICO + MINI TARJETA DE EMPRESA) -->
   <div class="side-panel" id="panel-clasif-rutas">
     <div class="side-panel-header">
       <h3 class="text-lg font-semibold flex items-center gap-2">
@@ -2766,7 +2810,7 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
       <button class="side-panel-close" data-panel="clasif-rutas">✕</button>
     </div>
     <div class="side-panel-body">
-      <div class="max-h-[calc(100vh-180px)] overflow-y-auto border border-slate-200 rounded-xl">
+      <div class="border border-slate-200 rounded-xl overflow-auto">
         <?php
         // Obtener rutas únicas de todas las empresas seleccionadas con DETALLE DE EMPRESA
         $rutasUnicas = [];
@@ -2791,10 +2835,10 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
         <table class="tabla-clasif-rutas">
           <thead class="bg-slate-100 text-slate-600 sticky top-0 z-10">
             <tr>
-              <th class="px-3 py-2 text-left">Ruta</th>
-              <th class="px-3 py-2 text-center">Vehículo</th>
-              <th class="px-3 py-2 text-center">Empresa</th>
-              <th class="px-3 py-2 text-center">Clasificación</th>
+              <th class="px-4 py-3 text-left">Ruta</th>
+              <th class="px-4 py-3 text-center">Vehículo</th>
+              <th class="px-4 py-3 text-center">Empresa</th>
+              <th class="px-4 py-3 text-center">Clasificación</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100" id="tablaClasificacionRutas">
@@ -2810,26 +2854,26 @@ $alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
                 data-empresa="<?= htmlspecialchars($info['empresa']) ?>"
                 data-clasificacion="<?= htmlspecialchars($clasificacion_actual) ?>">
               
-              <td class="px-3 py-2 whitespace-nowrap text-left font-medium">
+              <td class="px-4 py-3 whitespace-nowrap text-left font-medium">
                 <?= htmlspecialchars($info['ruta']) ?>
               </td>
               
-              <td class="px-3 py-2 text-center">
-                <span class="inline-block px-2 py-1 rounded-md text-xs font-medium <?= $color_vehiculo['bg'] ?> <?= $color_vehiculo['text'] ?> border <?= $color_vehiculo['border'] ?>">
+              <td class="px-4 py-3 text-center">
+                <span class="inline-block px-3 py-1.5 rounded-md text-sm font-medium <?= $color_vehiculo['bg'] ?> <?= $color_vehiculo['text'] ?> border <?= $color_vehiculo['border'] ?>">
                   <?= htmlspecialchars($info['vehiculo']) ?>
                 </span>
               </td>
               
-              <td class="px-3 py-2 text-center">
-                <!-- MINI TARJETA DE EMPRESA -->
+              <td class="px-4 py-3 text-center">
+                <!-- MINI TARJETA DE EMPRESA MEJORADA -->
                 <div class="empresa-mini-card">
                   <span>🏢</span>
                   <span><?= htmlspecialchars($info['empresa']) ?></span>
                 </div>
               </td>
               
-              <td class="px-3 py-2 text-center">
-                <select class="select-clasif-ruta rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100 w-full"
+              <td class="px-4 py-3 text-center">
+                <select class="select-clasif-ruta rounded-full border border-slate-300 px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100 w-full"
                         data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
                         data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>"
                         data-empresa="<?= htmlspecialchars($info['empresa']) ?>"
