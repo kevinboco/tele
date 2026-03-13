@@ -1,5 +1,43 @@
 <?php
 include("nav.php");
+session_start(); // INICIAR SESIÓN PARA MANTENER EXCLUSIONES
+
+// ============================================
+// GESTIÓN DE EXCLUSIONES POR CONDUCTOR (SESSION)
+// ============================================
+// Inicializar array de conductores excluidos si no existe
+if (!isset($_SESSION['conductores_excluidos'])) {
+    $_SESSION['conductores_excluidos'] = [];
+}
+
+// Procesar exclusión de conductor por AJAX
+if (isset($_POST['ajax']) && $_POST['ajax'] == 'toggle_conductor') {
+    $conductor = $_POST['conductor'];
+    $excluir = $_POST['excluir'] == 'true';
+    
+    if ($excluir) {
+        // Agregar conductor a excluidos
+        if (!in_array($conductor, $_SESSION['conductores_excluidos'])) {
+            $_SESSION['conductores_excluidos'][] = $conductor;
+        }
+    } else {
+        // Quitar conductor de excluidos
+        $key = array_search($conductor, $_SESSION['conductores_excluidos']);
+        if ($key !== false) {
+            unset($_SESSION['conductores_excluidos'][$key]);
+            $_SESSION['conductores_excluidos'] = array_values($_SESSION['conductores_excluidos']);
+        }
+    }
+    
+    echo json_encode(['success' => true, 'excluidos' => $_SESSION['conductores_excluidos']]);
+    exit;
+}
+
+// Botón para limpiar todas las exclusiones
+if (isset($_POST['limpiar_exclusiones'])) {
+    $_SESSION['conductores_excluidos'] = [];
+}
+
 // Conexión a la base de datos
 define('DB_HOST', 'mysql.hostinger.com');
 define('DB_USER', 'u648222299_keboco5');
@@ -262,7 +300,7 @@ if ($result_prestamistas_lista && $result_prestamistas_lista->num_rows > 0) {
 }
 
 // Si es POST procesamos el reporte
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) && !isset($_POST['ajax']) && !isset($_POST['limpiar_exclusiones'])) {
     $deudores_seleccionados = isset($_POST['deudores']) ? $_POST['deudores'] : [];
     if (is_string($deudores_seleccionados)) {
         $deudores_seleccionados = $deudores_seleccionados !== '' ? explode(',', $deudores_seleccionados) : [];
@@ -270,7 +308,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
     $prestamista_seleccionado = $_POST['prestamista'] ?? '';
     $fecha_desde = $_POST['fecha_desde'] ?? '';
     $fecha_hasta = $_POST['fecha_hasta'] ?? '';
-    $empresa_seleccionada = $_POST['empresa'] ?? ''; // Ahora viene como string con comas
+    $empresa_seleccionada = $_POST['empresa'] ?? '';
     $empresas_seleccionadas_array = !empty($empresa_seleccionada) ? explode(',', $empresa_seleccionada) : [];
     $prestamos_excluidos = isset($_POST['prestamos_excluidos']) ? explode(',', $_POST['prestamos_excluidos']) : [];
     $modo_pagados = isset($_POST['modo_pagados']) && $_POST['modo_pagados'] == '1';
@@ -413,7 +451,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             
             $meses = $modo_pagados ? 1 : calcularMesesAutomaticos($fila['fecha']);
             $fecha_prestamo_dt = new DateTime($fila['fecha']);
-            $es_excluido = in_array($fila['id'], $prestamos_excluidos);
+            
+            // Verificar si el conductor está en la lista de excluidos por SESSION
+            $conductor_excluido = in_array($deudor, $_SESSION['conductores_excluidos']);
+            $es_excluido = in_array($fila['id'], $prestamos_excluidos) || $conductor_excluido;
             
             $es_prestamo_viejo = ($fecha_prestamo_dt < $FECHA_CORTE);
             
@@ -468,6 +509,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 'total' => $total_prestamo,
                 'incluido' => !$es_excluido,
                 'excluido' => $es_excluido,
+                'conductor_excluido' => $conductor_excluido,
                 'pagado_at' => $modo_pagados ? $fecha_pago_seleccionada : NULL
             ];
         }
@@ -521,6 +563,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 continue;
             }
 
+            // Verificar si el conductor está excluido por SESSION
+            if (in_array($deudor, $_SESSION['conductores_excluidos'])) {
+                continue;
+            }
+
             $meses = calcularMesesAutomaticos($fila['fecha']);
             $fecha_prestamo_dt = new DateTime($fila['fecha']);
             $es_prestamo_viejo = ($fecha_prestamo_dt < $FECHA_CORTE);
@@ -564,8 +611,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
 } else {
     $sql_prestamistas = "SELECT DISTINCT prestamista FROM prestamos WHERE prestamista != '' AND (pagado_at IS NULL) ORDER BY prestamista";
     $result_prestamistas = $conn->query($sql_prestamistas);
-    $conductores_filtrados = [];
-    $empresas_seleccionadas_array = [];
+    $conductores_filtrados = isset($conductores_filtrados) ? $conductores_filtrados : [];
+    $empresas_seleccionadas_array = isset($empresas_seleccionadas_array) ? $empresas_seleccionadas_array : [];
 }
 ?>
 
@@ -590,6 +637,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             --text-soft: #9ca3af;
             --border-subtle: #1f2937;
             --table-header: #020617;
+            --excluded-bg: rgba(127, 29, 29, 0.7);
+            --excluded-border: #991b1b;
         }
 
         *{
@@ -815,6 +864,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             cursor: pointer;
         }
 
+        .btn-limpiar {
+            width: auto;
+            padding: 6px 16px;
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-weight: 600;
+            font-size: 0.8rem;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+
         .ganancia-cell {
             background: rgba(34, 197, 94, 0.1);
             border: 1px solid rgba(34, 197, 94, 0.3);
@@ -843,6 +905,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             background: rgba(34, 197, 94, 0.2);
             color: #22c55e;
             border: 1px solid rgba(34, 197, 94, 0.4);
+        }
+
+        .badge-excluido {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            margin-left: 10px;
         }
 
         .nota-pagados{
@@ -929,9 +998,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         }
 
         .excluido{
-            background:rgba(127,29,29,0.45) !important;
-            text-decoration:line-through;
-            color:#9ca3af;
+            background:var(--excluded-bg) !important;
+            border-left: 4px solid var(--excluded-border);
+        }
+        
+        .conductor-excluido {
+            background: rgba(127, 29, 29, 0.3) !important;
+            border-left: 4px solid #dc2626;
         }
 
         .abono-input {
@@ -968,6 +1041,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             transform:scale(1.2);
             cursor:pointer;
         }
+        
+        .checkbox-conductor {
+            transform: scale(1.2);
+            cursor: pointer;
+            margin-right: 8px;
+        }
 
         .acciones{text-align:center;}
 
@@ -987,7 +1066,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         .deudores-container{
             border:1px solid var(--border-subtle);
             border-radius:14px;
-            max-height:220px;
+            max-height:300px;
             overflow-y:auto;
             background:#020617;
         }
@@ -998,12 +1077,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             border-bottom:1px solid rgba(31,41,55,0.9);
             display:flex;
             align-items:center;
-            justify-content:space-between;
+            gap: 8px;
         }
 
         .deudor-item.selected{
             background:linear-gradient(90deg,#1d4ed8,#22c55e);
             color:white;
+        }
+        
+        .deudor-item.excluido {
+            background: rgba(127, 29, 29, 0.5);
+            border-left: 4px solid #dc2626;
+        }
+        
+        .deudor-item.excluido .deudor-nombre {
+            text-decoration: line-through;
+            color: #f87171;
+        }
+
+        .deudor-nombre {
+            flex: 1;
+            font-size: 0.9rem;
+        }
+
+        .deudor-pill {
+            background: rgba(56,189,248,0.15);
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            color: var(--accent);
+            border: 1px solid rgba(56,189,248,0.3);
+            white-space: nowrap;
+        }
+        
+        .excluido-pill {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.4);
         }
 
         /* Estilos para selección múltiple de empresas */
@@ -1136,6 +1246,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             color: #f59e0b;
         }
 
+        .header-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .exclusiones-info {
+            background: rgba(239, 68, 68, 0.15);
+            border-radius: 8px;
+            padding: 5px 12px;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #ef4444;
+            font-size: 0.85rem;
+        }
+
         @media (max-width: 900px){
             .container{padding:16px;}
             .config-table th:nth-child(2),
@@ -1246,7 +1372,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         
         <!-- Configuración de Porcentajes por Prestamista -->
         <div class="config-section">
-            <h3>⚙ Configurar Porcentajes por Prestamista</h3>
+            <div class="header-actions">
+                <h3>⚙ Configurar Porcentajes por Prestamista</h3>
+                <?php if (!empty($_SESSION['conductores_excluidos'])): ?>
+                <form method="POST" style="display: inline;">
+                    <button type="submit" name="limpiar_exclusiones" class="btn-limpiar">
+                        🧹 Limpiar exclusiones (<?php echo count($_SESSION['conductores_excluidos']); ?>)
+                    </button>
+                </form>
+                <?php endif; ?>
+            </div>
             
             <?php if (isset($mensaje_config)): ?>
                 <div class="mensaje-config <?php echo $tipo_mensaje == 'success' ? 'mensaje-success' : 'mensaje-error'; ?>">
@@ -1347,6 +1482,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     <?php endif; ?>
                 </tbody>
             </table>
+            
+            <?php if (!empty($_SESSION['conductores_excluidos'])): ?>
+            <div class="exclusiones-info" style="margin-top: 15px;">
+                <strong>🚫 Conductores excluidos:</strong> 
+                <?php echo implode(', ', $_SESSION['conductores_excluidos']); ?>
+            </div>
+            <?php endif; ?>
         </div>
         
         <div class="nota-pagados">
@@ -1456,7 +1598,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                 <div class="form-col">
                     <div class="form-card">
                         <div class="form-group">
-                            <label for="deudores">Seleccionar Conductores:</label>
+                            <div class="header-actions">
+                                <label for="deudores"><strong>Seleccionar Conductores:</strong></label>
+                                <?php if (!empty($_SESSION['conductores_excluidos'])): ?>
+                                <span class="exclusiones-info" style="font-size: 0.75rem;">
+                                    🚫 <?php echo count($_SESSION['conductores_excluidos']); ?> excluidos
+                                </span>
+                                <?php endif; ?>
+                            </div>
                             
                             <div class="buscador-container">
                                 <input type="text" id="buscadorDeudores" class="buscador-input" 
@@ -1476,11 +1625,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                     sort($conductores_filtrados);
                                     foreach ($conductores_filtrados as $conductor): 
                                         $es_seleccionado = in_array($conductor, $deudores_seleccionados);
+                                        $es_excluido = in_array($conductor, $_SESSION['conductores_excluidos']);
                                 ?>
-                                    <div class="deudor-item <?php echo $es_seleccionado ? 'selected' : ''; ?>" 
+                                    <div class="deudor-item <?php echo $es_seleccionado ? 'selected' : ''; ?> <?php echo $es_excluido ? 'excluido' : ''; ?>" 
                                          data-value="<?php echo htmlspecialchars($conductor); ?>">
-                                        <span><?php echo htmlspecialchars($conductor); ?></span>
+                                        <input type="checkbox" 
+                                               class="checkbox-conductor" 
+                                               <?php echo $es_excluido ? 'checked' : ''; ?>
+                                               onchange="toggleExcluirConductor('<?php echo htmlspecialchars($conductor); ?>', this)">
+                                        <span class="deudor-nombre <?php echo $es_excluido ? 'excluido' : ''; ?>">
+                                            <?php echo htmlspecialchars($conductor); ?>
+                                        </span>
+                                        <?php if ($es_excluido): ?>
+                                        <span class="deudor-pill excluido-pill">🚫 Excluido</span>
+                                        <?php else: ?>
                                         <span class="deudor-pill">Conductor</span>
+                                        <?php endif; ?>
                                     </div>
                                 <?php 
                                     endforeach; 
@@ -1504,7 +1664,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                 if (!empty($conductores_filtrados)) {
                                     $total_conductores = count($conductores_filtrados);
                                     $seleccionados = count($deudores_seleccionados);
-                                    echo "Seleccionados: $seleccionados de $total_conductores conductores";
+                                    $excluidos = count($_SESSION['conductores_excluidos']);
+                                    echo "Seleccionados: $seleccionados de $total_conductores conductores | Excluidos: $excluidos";
                                 }
                                 ?>
                             </div>
@@ -1552,6 +1713,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         <div class="resultados">
             <h2 style="font-size:1.1rem;font-weight:600;margin-bottom:6px;">
                 Resultados para: <span style="color:var(--accent);"><?php echo htmlspecialchars($prestamista_seleccionado); ?></span>
+                <?php if (!empty($_SESSION['conductores_excluidos'])): ?>
+                <span class="badge-tipo badge-excluido">
+                    🚫 <?php echo count($_SESSION['conductores_excluidos']); ?> conductores excluidos
+                </span>
+                <?php endif; ?>
                 <?php 
                 $config_actual = isset($config_prestamistas[$prestamista_seleccionado]) 
                     ? $config_prestamistas[$prestamista_seleccionado] 
@@ -1599,12 +1765,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                         $total_general += $datos['total_general'];
                         $total_interes_prestamista_general += $datos['total_interes_prestamista'];
                         $total_comision_personal_general += $datos['total_comision_personal'];
+                        $conductor_excluido = in_array($deudor, $_SESSION['conductores_excluidos']);
                     ?>
-                    <tr class="header-deudor" id="fila-<?php echo md5($deudor); ?>">
+                    <tr class="header-deudor <?php echo $conductor_excluido ? 'conductor-excluido' : ''; ?>" id="fila-<?php echo md5($deudor); ?>">
                         <td>
                             <span class="detalle-toggle" onclick="toggleDetalle('<?php echo md5($deudor); ?>')">
                                 <?php echo htmlspecialchars($deudor); ?>
                             </span>
+                            <?php if ($conductor_excluido): ?>
+                            <span class="badge-tipo badge-excluido">🚫 Excluido</span>
+                            <?php endif; ?>
                         </td>
                         <td><?php echo $datos['cantidad_prestamos']; ?></td>
                         <td class="moneda capital-deudor">$ <?php echo number_format($datos['total_capital'], 0, ',', '.'); ?></td>
@@ -1635,19 +1805,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                 <tbody>
                                     <?php foreach ($datos['prestamos_detalle'] as $index => $detalle): 
                                         $es_excluido = $detalle['excluido'] ?? false;
+                                        $clase_excluido = $es_excluido ? 'excluido' : '';
+                                        if ($detalle['conductor_excluido'] ?? false) {
+                                            $clase_excluido = 'conductor-excluido';
+                                        }
                                     ?>
-                                    <tr class="fila-prestamo <?php echo $detalle['tipo'] == 'viejo' ? 'prestamo-viejo' : 'prestamo-nuevo'; ?> <?php echo $es_excluido ? 'excluido' : ''; ?>" 
+                                    <tr class="fila-prestamo <?php echo $detalle['tipo'] == 'viejo' ? 'prestamo-viejo' : 'prestamo-nuevo'; ?> <?php echo $clase_excluido; ?>" 
                                         data-deudor="<?php echo md5($deudor); ?>" data-id="<?php echo $detalle['id']; ?>"
                                         data-monto="<?php echo $detalle['monto']; ?>"
                                         data-interes="<?php echo $detalle['interes_prestamista']; ?>"
                                         data-comision="<?php echo $detalle['comision_personal']; ?>">
                                         <td class="acciones">
                                             <input type="checkbox" class="checkbox-excluir" <?php echo !$es_excluido ? 'checked' : ''; ?> 
-                                                   onchange="togglePrestamo(this, <?php echo $detalle['id']; ?>)">
+                                                   onchange="togglePrestamo(this, <?php echo $detalle['id']; ?>)"
+                                                   <?php echo ($detalle['conductor_excluido'] ?? false) ? 'disabled' : ''; ?>>
                                         </td>
                                         <td>
                                             <input type="number" class="abono-input" placeholder="Abono" value="0"
-                                                   onchange="calcularAbono(this)" min="0" step="1000">
+                                                   onchange="calcularAbono(this)" min="0" step="1000"
+                                                   <?php echo ($detalle['conductor_excluido'] ?? false) ? 'disabled' : ''; ?>>
                                         </td>
                                         <td><?php echo $detalle['fecha']; ?></td>
                                         <td>
@@ -1666,7 +1842,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                                             <input type="number" class="meses-input" value="<?php echo $detalle['meses']; ?>" 
                                                    min="1" max="36" onchange="recalcularPrestamo(this)"
                                                    data-monto="<?php echo $detalle['monto']; ?>"
-                                                   data-tipo="<?php echo $detalle['tipo']; ?>">
+                                                   data-tipo="<?php echo $detalle['tipo']; ?>"
+                                                   <?php echo ($detalle['conductor_excluido'] ?? false) ? 'disabled' : ''; ?>>
                                         </td>
                                         <?php endif; ?>
                                         <td class="moneda interes-prestamista-prestamo">$ <?php echo number_format($detalle['interes_prestamista'], 0, ',', '.'); ?></td>
@@ -1739,6 +1916,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
     <script>
         let deudoresSeleccionados = <?php echo json_encode($deudores_seleccionados); ?>;
         let prestamosExcluidos = <?php echo json_encode($prestamos_excluidos); ?>;
+        let conductoresExcluidos = <?php echo json_encode($_SESSION['conductores_excluidos']); ?>;
         let modoPagados = <?php echo $modo_pagados ? 'true' : 'false'; ?>;
         let abonos = {};
         let empresasSeleccionadas = <?php echo json_encode($empresas_seleccionadas_array); ?>;
@@ -1749,6 +1927,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             actualizarCampoExcluidos();
             inicializarAbonos();
             actualizarListaEmpresas();
+            aplicarExclusionesConductores();
             
             const empresaSelect = document.getElementById('empresa');
             if (empresaSelect) {
@@ -1782,22 +1961,117 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             actualizarContador();
         }
 
+        function toggleExcluirConductor(conductor, checkbox) {
+            const excluir = checkbox.checked;
+            
+            // Enviar por AJAX para guardar en SESSION
+            fetch(window.location.href, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'ajax=toggle_conductor&conductor=' + encodeURIComponent(conductor) + '&excluir=' + excluir
+            })
+            .then(response => response.json())
+            .then(data => {
+                conductoresExcluidos = data.excluidos;
+                
+                // Actualizar UI
+                actualizarUIExclusiones();
+                
+                // Recargar el reporte si estamos viendo uno
+                if (document.getElementById('formPrincipal')) {
+                    document.getElementById('formPrincipal').submit();
+                }
+            })
+            .catch(error => console.error('Error:', error));
+        }
+
+        function actualizarUIExclusiones() {
+            // Actualizar estilos en la lista de conductores
+            document.querySelectorAll('.deudor-item').forEach(item => {
+                const conductor = item.getAttribute('data-value');
+                const checkbox = item.querySelector('.checkbox-conductor');
+                const nombreSpan = item.querySelector('.deudor-nombre');
+                const pillSpan = item.querySelector('.deudor-pill');
+                
+                if (conductoresExcluidos.includes(conductor)) {
+                    item.classList.add('excluido');
+                    if (checkbox) checkbox.checked = true;
+                    if (nombreSpan) nombreSpan.classList.add('excluido');
+                    if (pillSpan) {
+                        pillSpan.textContent = '🚫 Excluido';
+                        pillSpan.classList.add('excluido-pill');
+                    }
+                } else {
+                    item.classList.remove('excluido');
+                    if (checkbox) checkbox.checked = false;
+                    if (nombreSpan) nombreSpan.classList.remove('excluido');
+                    if (pillSpan) {
+                        pillSpan.textContent = 'Conductor';
+                        pillSpan.classList.remove('excluido-pill');
+                    }
+                }
+            });
+            
+            // Actualizar contador
+            actualizarContador();
+        }
+
+        function aplicarExclusionesConductores() {
+            // Deshabilitar checkboxes de préstamos de conductores excluidos
+            conductoresExcluidos.forEach(conductor => {
+                const conductorId = md5(conductor);
+                document.querySelectorAll('.fila-prestamo[data-deudor="' + conductorId + '"]').forEach(fila => {
+                    fila.classList.add('conductor-excluido');
+                    fila.querySelectorAll('input').forEach(input => {
+                        if (input.type !== 'button') {
+                            input.disabled = true;
+                        }
+                    });
+                });
+                
+                // Marcar fila de deudor
+                const filaDeudor = document.getElementById('fila-' + conductorId);
+                if (filaDeudor) {
+                    filaDeudor.classList.add('conductor-excluido');
+                }
+            });
+        }
+
         function actualizarListaDeudores() {
             document.querySelectorAll('.deudor-item').forEach(item => {
                 const valor = item.getAttribute('data-value');
+                const checkbox = item.querySelector('.checkbox-conductor');
+                
+                // Selección para reporte (click en el item)
+                item.addEventListener('click', function(e) {
+                    if (e.target.type !== 'checkbox') {
+                        toggleDeudor(this);
+                    }
+                });
+                
+                // Marcar checkbox de exclusión si está en la lista
+                if (checkbox && conductoresExcluidos.includes(valor)) {
+                    checkbox.checked = true;
+                    item.classList.add('excluido');
+                    const nombreSpan = item.querySelector('.deudor-nombre');
+                    if (nombreSpan) nombreSpan.classList.add('excluido');
+                }
+                
+                // Marcar selección
                 if (deudoresSeleccionados.includes(valor)) {
                     item.classList.add('selected');
                 }
-                item.addEventListener('click', function() {
-                    toggleDeudor(this);
-                });
             });
         }
 
         function actualizarContador() {
             const items = document.querySelectorAll('.deudor-item');
+            const seleccionados = deudoresSeleccionados.length;
+            const excluidos = conductoresExcluidos.length;
             document.getElementById('contadorDeudores').textContent = 
-                `Seleccionados: ${deudoresSeleccionados.length} de ${items.length} conductores`;
+                `Seleccionados: ${seleccionados} de ${items.length} conductores | Excluidos: ${excluidos}`;
         }
 
         function actualizarCampoExcluidos() {
@@ -2057,6 +2331,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             let prestamosIncluidos = 0;
             
             filasPrestamos.forEach(fila => {
+                // Si el conductor está excluido por SESSION, no contar
+                if (fila.classList.contains('conductor-excluido')) {
+                    return;
+                }
+                
                 const checkbox = fila.querySelector('.checkbox-excluir');
                 if (checkbox && checkbox.checked && !fila.classList.contains('excluido')) {
                     // Obtener valores actualizados (considerando abonos)
@@ -2070,7 +2349,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
                     const comision = parseFloat(comisionCell.textContent.replace(/[^\d]/g, ''));
                     
                     // El capital actual es el monto original menos lo que se ha devuelto
-                    // Pero para simplificar, usamos el valor del span de pendiente
                     const spanPendiente = fila.querySelector('.capital-pendiente');
                     let capitalActual = 0;
                     if (spanPendiente) {
@@ -2109,6 +2387,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
             let totalComisionPersonal = 0;
             
             document.querySelectorAll('.header-deudor').forEach(fila => {
+                // Si el conductor está excluido, no sumar
+                if (fila.classList.contains('conductor-excluido')) {
+                    return;
+                }
+                
                 totalCapital += parseFloat(fila.querySelector('.capital-deudor').textContent.replace(/[^\d]/g, ''));
                 totalGeneral += parseFloat(fila.querySelector('.total-deudor').textContent.replace(/[^\d]/g, ''));
                 totalInteresPrestamista += parseFloat(fila.querySelector('.interes-prestamista-deudor').textContent.replace(/[^\d]/g, ''));
@@ -2141,6 +2424,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config'])) {
         
         function formatNumber(num) {
             return Math.round(num).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+        }
+        
+        // Función simple para simular md5 (ya que no tenemos md5 en JS)
+        function md5(str) {
+            // Implementación simple para IDs - en producción usaríamos una librería real
+            return btoa(str).replace(/=/g, '').substring(0, 10);
         }
     </script>
 </body>
