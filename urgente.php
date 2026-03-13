@@ -10,27 +10,9 @@ if (!isset($_SESSION['conductores_excluidos'])) {
     $_SESSION['conductores_excluidos'] = [];
 }
 
-// Procesar exclusión de conductor por AJAX
-if (isset($_POST['ajax']) && $_POST['ajax'] == 'toggle_conductor') {
-    $conductor = $_POST['conductor'];
-    $excluir = $_POST['excluir'] == 'true';
-    
-    if ($excluir) {
-        // Agregar conductor a excluidos
-        if (!in_array($conductor, $_SESSION['conductores_excluidos'])) {
-            $_SESSION['conductores_excluidos'][] = $conductor;
-        }
-    } else {
-        // Quitar conductor de excluidos
-        $key = array_search($conductor, $_SESSION['conductores_excluidos']);
-        if ($key !== false) {
-            unset($_SESSION['conductores_excluidos'][$key]);
-            $_SESSION['conductores_excluidos'] = array_values($_SESSION['conductores_excluidos']);
-        }
-    }
-    
-    echo json_encode(['success' => true, 'excluidos' => $_SESSION['conductores_excluidos']]);
-    exit;
+// Procesar exclusiones de conductores desde el formulario
+if (isset($_POST['excluir_conductor'])) {
+    $_SESSION['conductores_excluidos'] = $_POST['excluir_conductor'];
 }
 
 // Botón para limpiar todas las exclusiones
@@ -300,7 +282,7 @@ if ($result_prestamistas_lista && $result_prestamistas_lista->num_rows > 0) {
 }
 
 // Si es POST procesamos el reporte
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) && !isset($_POST['ajax']) && !isset($_POST['limpiar_exclusiones'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) && !isset($_POST['limpiar_exclusiones'])) {
     $deudores_seleccionados = isset($_POST['deudores']) ? $_POST['deudores'] : [];
     if (is_string($deudores_seleccionados)) {
         $deudores_seleccionados = $deudores_seleccionados !== '' ? explode(',', $deudores_seleccionados) : [];
@@ -1631,8 +1613,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
                                          data-value="<?php echo htmlspecialchars($conductor); ?>">
                                         <input type="checkbox" 
                                                class="checkbox-conductor" 
+                                               name="excluir_conductor[]"
+                                               value="<?php echo htmlspecialchars($conductor); ?>"
                                                <?php echo $es_excluido ? 'checked' : ''; ?>
-                                               onchange="toggleExcluirConductor('<?php echo htmlspecialchars($conductor); ?>', this)">
+                                               onchange="this.form.submit()">
                                         <span class="deudor-nombre <?php echo $es_excluido ? 'excluido' : ''; ?>">
                                             <?php echo htmlspecialchars($conductor); ?>
                                         </span>
@@ -1916,7 +1900,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
     <script>
         let deudoresSeleccionados = <?php echo json_encode($deudores_seleccionados); ?>;
         let prestamosExcluidos = <?php echo json_encode($prestamos_excluidos); ?>;
-        let conductoresExcluidos = <?php echo json_encode($_SESSION['conductores_excluidos']); ?>;
         let modoPagados = <?php echo $modo_pagados ? 'true' : 'false'; ?>;
         let abonos = {};
         let empresasSeleccionadas = <?php echo json_encode($empresas_seleccionadas_array); ?>;
@@ -1927,7 +1910,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
             actualizarCampoExcluidos();
             inicializarAbonos();
             actualizarListaEmpresas();
-            aplicarExclusionesConductores();
             
             const empresaSelect = document.getElementById('empresa');
             if (empresaSelect) {
@@ -1961,103 +1943,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
             actualizarContador();
         }
 
-        function toggleExcluirConductor(conductor, checkbox) {
-            const excluir = checkbox.checked;
-            
-            // Enviar por AJAX para guardar en SESSION
-            fetch(window.location.href, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: 'ajax=toggle_conductor&conductor=' + encodeURIComponent(conductor) + '&excluir=' + excluir
-            })
-            .then(response => response.json())
-            .then(data => {
-                conductoresExcluidos = data.excluidos;
-                
-                // Actualizar UI
-                actualizarUIExclusiones();
-                
-                // Recargar el reporte si estamos viendo uno
-                if (document.getElementById('formPrincipal')) {
-                    document.getElementById('formPrincipal').submit();
-                }
-            })
-            .catch(error => console.error('Error:', error));
-        }
-
-        function actualizarUIExclusiones() {
-            // Actualizar estilos en la lista de conductores
-            document.querySelectorAll('.deudor-item').forEach(item => {
-                const conductor = item.getAttribute('data-value');
-                const checkbox = item.querySelector('.checkbox-conductor');
-                const nombreSpan = item.querySelector('.deudor-nombre');
-                const pillSpan = item.querySelector('.deudor-pill');
-                
-                if (conductoresExcluidos.includes(conductor)) {
-                    item.classList.add('excluido');
-                    if (checkbox) checkbox.checked = true;
-                    if (nombreSpan) nombreSpan.classList.add('excluido');
-                    if (pillSpan) {
-                        pillSpan.textContent = '🚫 Excluido';
-                        pillSpan.classList.add('excluido-pill');
-                    }
-                } else {
-                    item.classList.remove('excluido');
-                    if (checkbox) checkbox.checked = false;
-                    if (nombreSpan) nombreSpan.classList.remove('excluido');
-                    if (pillSpan) {
-                        pillSpan.textContent = 'Conductor';
-                        pillSpan.classList.remove('excluido-pill');
-                    }
-                }
-            });
-            
-            // Actualizar contador
-            actualizarContador();
-        }
-
-        function aplicarExclusionesConductores() {
-            // Deshabilitar checkboxes de préstamos de conductores excluidos
-            conductoresExcluidos.forEach(conductor => {
-                const conductorId = md5(conductor);
-                document.querySelectorAll('.fila-prestamo[data-deudor="' + conductorId + '"]').forEach(fila => {
-                    fila.classList.add('conductor-excluido');
-                    fila.querySelectorAll('input').forEach(input => {
-                        if (input.type !== 'button') {
-                            input.disabled = true;
-                        }
-                    });
-                });
-                
-                // Marcar fila de deudor
-                const filaDeudor = document.getElementById('fila-' + conductorId);
-                if (filaDeudor) {
-                    filaDeudor.classList.add('conductor-excluido');
-                }
-            });
-        }
-
         function actualizarListaDeudores() {
             document.querySelectorAll('.deudor-item').forEach(item => {
                 const valor = item.getAttribute('data-value');
-                const checkbox = item.querySelector('.checkbox-conductor');
                 
-                // Selección para reporte (click en el item)
+                // Selección para reporte (click en el item, pero no en el checkbox)
                 item.addEventListener('click', function(e) {
                     if (e.target.type !== 'checkbox') {
                         toggleDeudor(this);
                     }
                 });
-                
-                // Marcar checkbox de exclusión si está en la lista
-                if (checkbox && conductoresExcluidos.includes(valor)) {
-                    checkbox.checked = true;
-                    item.classList.add('excluido');
-                    const nombreSpan = item.querySelector('.deudor-nombre');
-                    if (nombreSpan) nombreSpan.classList.add('excluido');
-                }
                 
                 // Marcar selección
                 if (deudoresSeleccionados.includes(valor)) {
@@ -2069,9 +1964,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
         function actualizarContador() {
             const items = document.querySelectorAll('.deudor-item');
             const seleccionados = deudoresSeleccionados.length;
-            const excluidos = conductoresExcluidos.length;
             document.getElementById('contadorDeudores').textContent = 
-                `Seleccionados: ${seleccionados} de ${items.length} conductores | Excluidos: ${excluidos}`;
+                `Seleccionados: ${seleccionados} de ${items.length} conductores`;
         }
 
         function actualizarCampoExcluidos() {
@@ -2331,11 +2225,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
             let prestamosIncluidos = 0;
             
             filasPrestamos.forEach(fila => {
-                // Si el conductor está excluido por SESSION, no contar
-                if (fila.classList.contains('conductor-excluido')) {
-                    return;
-                }
-                
                 const checkbox = fila.querySelector('.checkbox-excluir');
                 if (checkbox && checkbox.checked && !fila.classList.contains('excluido')) {
                     // Obtener valores actualizados (considerando abonos)
@@ -2387,11 +2276,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
             let totalComisionPersonal = 0;
             
             document.querySelectorAll('.header-deudor').forEach(fila => {
-                // Si el conductor está excluido, no sumar
-                if (fila.classList.contains('conductor-excluido')) {
-                    return;
-                }
-                
                 totalCapital += parseFloat(fila.querySelector('.capital-deudor').textContent.replace(/[^\d]/g, ''));
                 totalGeneral += parseFloat(fila.querySelector('.total-deudor').textContent.replace(/[^\d]/g, ''));
                 totalInteresPrestamista += parseFloat(fila.querySelector('.interes-prestamista-deudor').textContent.replace(/[^\d]/g, ''));
@@ -2424,12 +2308,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
         
         function formatNumber(num) {
             return Math.round(num).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-        }
-        
-        // Función simple para simular md5 (ya que no tenemos md5 en JS)
-        function md5(str) {
-            // Implementación simple para IDs - en producción usaríamos una librería real
-            return btoa(str).replace(/=/g, '').substring(0, 10);
         }
     </script>
 </body>
