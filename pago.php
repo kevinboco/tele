@@ -188,7 +188,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     exit;
 }
 
-/* ================= FUNCIÓN DE FUSIÓN ================= */
+/* ================= FUNCIÓN DE FUSIÓN CORREGIDA ================= */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'fusionar_cuentas') {
     header('Content-Type: application/json');
     $ids = isset($_POST['ids']) ? json_decode($_POST['ids'], true) : [];
@@ -220,6 +220,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
         }
     }
     
+    // ===== DATOS BÁSICOS DE LA FUSIÓN =====
     $fusionado = [
         'nombre' => 'Fusión: ' . implode(' + ', array_slice(array_column($cuentas, 'nombre'), 0, 2)) . (count($cuentas) > 2 ? ' +' . (count($cuentas)-2) . ' más' : ''),
         'desde' => min(array_column($cuentas, 'desde')),
@@ -229,19 +230,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
         'pagado' => 0,
         'empresas' => array_values(array_unique(array_merge(...array_column($cuentas, 'empresas')))),
         'datos_json' => [
-            'prestamos' => new stdClass(),
-            'segSocial' => new stdClass(),
-            'cuentasBancarias' => new stdClass(),
-            'estadosPago' => new stdClass(),
-            'filasManuales' => []
+            'prestamos' => new stdClass(),        // OBJETO vacío - el usuario los asignará manualmente
+            'segSocial' => new stdClass(),        // OBJETO vacío - el usuario los asignará manualmente
+            'cuentasBancarias' => new stdClass(), // OBJETO vacío - el usuario los asignará manualmente
+            'estadosPago' => new stdClass(),      // OBJETO vacío - el usuario los asignará manualmente
+            'filasManuales' => []                  // Array vacío - se llenará con conductores fusionados
         ]
     ];
     
+    // ===== SUMAR VALORES BASE DE CONDUCTORES (esto está bien) =====
     $conductores_fusionados = [];
     
     foreach ($cuentas as $cuenta) {
         $datos = $cuenta['datos_json'];
         
+        // Procesar filas manuales (valores base)
         if (isset($datos['filasManuales']) && is_array($datos['filasManuales'])) {
             foreach ($datos['filasManuales'] as $fila) {
                 $conductor = $fila['conductor'];
@@ -254,6 +257,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
             }
         }
         
+        // También considerar conductores de tabla principal
         if (isset($datos['conductoresBase']) && is_array($datos['conductoresBase'])) {
             foreach ($datos['conductoresBase'] as $conductor => $base) {
                 if (!isset($conductores_fusionados[$conductor])) {
@@ -264,14 +268,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
         }
     }
     
+    // ===== CREAR FILAS MANUALES CON VALORES BASE SUMADOS =====
+    // PERO DEJAR VACÍOS: cuenta, segSocial, estado (el usuario los llenará)
     foreach ($conductores_fusionados as $conductor => $base_total) {
         if ($base_total > 0) {
             $fusionado['datos_json']['filasManuales'][] = [
                 'conductor' => $conductor,
                 'base' => $base_total,
-                'cuenta' => '',
-                'segSocial' => 0,
-                'estado' => ''
+                'cuenta' => '',    // Vacío - usuario lo llena
+                'segSocial' => 0,   // Vacío - usuario lo llena
+                'estado' => ''      // Vacío - usuario lo selecciona
             ];
         }
     }
@@ -385,7 +391,7 @@ if (isset($_GET['viajes_conductor'])) {
             $color_class = '';
             switch($cat) {
                 case 'completo': $color_class = 'bg-emerald-100 text-emerald-800 border-emerald-300'; break;
-                case 'medio': $color_class = 'bg-amber-100 text-amber-800 border-amber-200'; break;
+                case 'medio': $color_class = 'bg-amber-100 text-amber-800 border-amber-300'; break;
                 case 'extra': $color_class = 'bg-slate-200 text-slate-800 border-slate-300'; break;
                 case 'siapana': $color_class = 'bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200'; break;
                 case 'carrotanque': $color_class = 'bg-cyan-100 text-cyan-800 border-cyan-200'; break;
@@ -601,58 +607,40 @@ if ($resV) {
     }
 }
 
-/* ================= PRÉSTAMOS - CON INTERÉS VARIABLE ================= */
+/* ================= PRÉSTAMOS - TODAS LAS EMPRESAS ================= */
 $prestamosList = [];
-$prestamistasUnicos = [];
 $i = 0;
 
 $qPrest = "
   SELECT deudor,
-         prestamista,
          empresa,
-         SUM(monto) as monto_total,
-         MIN(fecha) as fecha_min
+         SUM(
+           monto + 
+           monto * 
+           CASE 
+             WHEN fecha >= '2025-10-29' THEN 0.13
+             ELSE 0.10
+           END *
+           CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
+         ) AS total
   FROM prestamos
   WHERE (pagado IS NULL OR pagado = 0)
-  GROUP BY deudor, prestamista, empresa";
+  GROUP BY deudor, empresa";
 
 if ($rP = $conn->query($qPrest)) {
     while($r = $rP->fetch_assoc()){
-        $deudor = $r['deudor'];
-        $prestamista = $r['prestamista'];
-        $key = norm_person($deudor);
-        $monto_base = (int)round($r['monto_total']);
-        $fecha_min = $r['fecha_min'];
-        
-        // Calcular interés base según fecha
-        $interes_base = ($fecha_min >= '2025-10-29') ? 0.13 : 0.10;
-        
-        $prestamosList[] = [
-            'id' => $i++, 
-            'deudor' => $deudor,
-            'prestamista' => $prestamista,
-            'key' => $key, 
-            'monto_base' => $monto_base,
-            'total_con_interes' => $monto_base,
-            'interes_base' => $interes_base,
-            'fecha_min' => $fecha_min,
-            'empresa' => $r['empresa']
-        ];
-        
-        // Guardar prestamistas únicos
-        if (!in_array($prestamista, $prestamistasUnicos) && !empty($prestamista)) {
-            $prestamistasUnicos[] = $prestamista;
-        }
+        $name = $r['deudor'];
+        $key  = norm_person($name);
+        $total = (int)round($r['total']);
+        $empresa = $r['empresa'];
+        $prestamosList[] = ['id'=>$i++, 'name'=>$name, 'key'=>$key, 'total'=>$total, 'empresa'=>$empresa];
     }
 }
-
-// Ordenar prestamistas alfabéticamente
-sort($prestamistasUnicos);
 
 /* ================= Filas base ================= */
 $filas = []; 
 $total_facturado = 0;
-$conductoresBaseMap = [];
+$conductoresBaseMap = []; // Para guardar los valores base originales
 
 foreach ($contadores as $nombre => $v) {
     $total = 0;
@@ -817,6 +805,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         .disponible-positivo { color: #059669; font-weight: 600; }
         .disponible-negativo { color: #dc2626; font-weight: 600; }
         
+        /* Estilos para checkboxes de selección múltiple en cuentas */
         .cuenta-checkbox {
             width: 18px;
             height: 18px;
@@ -826,17 +815,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         .fila-cuenta-seleccionada {
             background-color: #eff6ff !important;
             border-left: 4px solid #3b82f6;
-        }
-        
-        /* Estilos para el menú de intereses */
-        .menu-intereses {
-            transition: all 0.2s ease;
-            transform-origin: top right;
-        }
-        .input-interes:focus {
-            outline: none;
-            ring: 2px solid #a855f7;
-            border-color: #a855f7;
         }
         
         @media (max-width: 640px) {
@@ -878,45 +856,9 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 <span class="bd-badge text-xs px-2 py-1 rounded-full ml-2">Base de Datos</span>
                 <span class="bg-purple-600 text-white text-xs px-2 py-1 rounded-full ml-1">Múltiples Empresas</span>
             </h2>
-            <div class="flex items-center gap-2 relative">
+            <div class="flex items-center gap-2">
                 <button id="btnShowSaveCuenta" class="rounded-lg border border-amber-300 px-3 py-2 text-sm bg-amber-50 hover:bg-amber-100">⭐ Guardar cuenta</button>
                 <button id="btnShowGestorCuentas" class="rounded-lg border border-blue-300 px-3 py-2 text-sm bg-blue-50 hover:bg-blue-100">📚 Cuentas guardadas</button>
-                
-                <!-- NUEVO: Botón para intereses por PRESTAMISTA (CORREGIDO) -->
-                <div class="relative" id="interesMenuContainer">
-                    <button id="btnInteresPrestamistas" class="rounded-lg border border-purple-300 px-3 py-2 text-sm bg-purple-50 hover:bg-purple-100 flex items-center gap-1">
-                        ⚙️ Intereses por prestamista
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                        </svg>
-                    </button>
-                    
-                    <!-- Menú desplegable con PRESTAMISTAS -->
-                    <div id="menuIntereses" class="hidden absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-purple-200 z-50 menu-intereses" style="top: 100%; max-width: 350px;">
-                        <div class="p-3 border-b border-purple-100 bg-purple-50 rounded-t-xl">
-                            <h4 class="font-semibold text-sm flex items-center gap-2">
-                                <span>💰 Intereses por prestamista</span>
-                                <span class="text-xs bg-purple-200 text-purple-800 px-2 py-0.5 rounded-full">Solo sesión actual</span>
-                            </h4>
-                            <p class="text-xs text-purple-600 mt-1">Asigna el % que cobra cada prestamista</p>
-                        </div>
-                        
-                        <div class="p-3 max-h-96 overflow-y-auto" id="listaPrestamistasIntereses">
-                            <div class="text-center text-slate-500 py-4">
-                                <div class="animate-pulse">Cargando prestamistas...</div>
-                            </div>
-                        </div>
-                        
-                        <div class="p-3 border-t border-purple-100 bg-slate-50 rounded-b-xl flex justify-between items-center">
-                            <button id="btnResetIntereses" class="text-xs px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100">
-                                🔄 Restablecer (13%/10%)
-                            </button>
-                            <button id="btnCerrarMenuIntereses" class="text-xs px-3 py-1.5 rounded-lg bg-purple-600 text-white hover:bg-purple-700">
-                                Listo
-                            </button>
-                        </div>
-                    </div>
-                </div>
             </div>
         </div>
 
@@ -998,6 +940,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 </div>
             </div>
             <div class="flex flex-col md:flex-row gap-3 w-full md:w-auto">
+                <!-- NUEVO: Selector de estado -->
                 <select id="filtroEstado" class="rounded-lg border border-slate-300 px-3 py-2 text-sm min-w-[150px] bg-white">
                     <option value="">📊 Todos los estados</option>
                     <option value="pagado">✅ Pagado</option>
@@ -1159,7 +1102,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- ===== MODAL PRÉSTAMOS (MODIFICADO) ===== -->
+<!-- ===== MODAL PRÉSTAMOS ===== -->
 <div id="prestModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-4 md:my-8 prest-modal-content bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden flex flex-col" style="width: 95%; max-width: 1200px; max-height: 98vh;">
@@ -1184,14 +1127,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                     <div class="text-xs text-slate-500 mb-1">📋 Préstamos seleccionados</div>
                     <div id="totalSeleccionado" class="text-lg md:text-xl font-bold text-amber-600 num">$0</div>
                     <div id="diferenciaDisponible" class="text-xs mt-1 font-medium"></div>
-                </div>
-            </div>
-            
-            <!-- Badge que muestra que hay intereses personalizados -->
-            <div id="badgeInteresesActivos" class="mt-2 hidden">
-                <div class="bg-purple-100 text-purple-800 text-xs px-3 py-2 rounded-lg flex items-center gap-2">
-                    <span>⚡</span>
-                    <span>Intereses personalizados activos para algunos prestamistas</span>
                 </div>
             </div>
         </div>
@@ -1346,7 +1281,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- Modal Gestor de Cuentas -->
+<!-- Modal Gestor de Cuentas CON FUNCIÓN DE FUSIÓN CORREGIDA -->
 <div id="gestorCuentasModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-8 w-full max-w-6xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
@@ -1449,19 +1384,13 @@ const PREST_SEL_KEY = 'prestamo_sel_multi:v4:'+COMPANY_SCOPE;
 const ESTADO_PAGO_KEY = 'estado_pago_temp:'+COMPANY_SCOPE;
 const MANUAL_ROWS_KEY = 'filas_manuales_temp:'+COMPANY_SCOPE;
 const SELECTED_CONDUCTORS_KEY = 'conductores_seleccionados_temp:'+COMPANY_SCOPE;
-const INTERESES_KEY = 'intereses_prestamistas_temp:'+COMPANY_SCOPE;
-const PRESTAMOS_LIST = <?= json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
-const PRESTAMISTAS_LIST = <?= json_encode($prestamistasUnicos, JSON_UNESCAPED_UNICODE); ?>;
+const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 const CONDUCTORES_LIST = <?= json_encode(array_map(fn($f)=>$f['nombre'],$filas), JSON_UNESCAPED_UNICODE); ?>;
 
 console.log('✅ Préstamos cargados:', PRESTAMOS_LIST.length);
-console.log('✅ Prestamistas únicos:', PRESTAMISTAS_LIST);
 
 // ===== VARIABLE PARA CONTROLAR MODO HISTÓRICO =====
 let modoHistoricoActivo = false;
-
-// ===== NUEVO: INTERESES POR PRESTAMISTA (CORREGIDO) =====
-let interesesPrestamistas = JSON.parse(localStorage.getItem(INTERESES_KEY) || '{}');
 
 // ===== FUNCIONES UTILITARIAS =====
 function toInt(s) {
@@ -1484,112 +1413,6 @@ function setLS(k, v) {
 
 function normalizarTexto(texto) {
     return texto.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-}
-
-// ===== NUEVO: FUNCIONES PARA INTERESES POR PRESTAMISTA (CORREGIDO) =====
-function obtenerPrestamistasUnicos() {
-    // Usar la lista de prestamistas únicos obtenida de la base de datos
-    const prestamistas = new Set();
-    
-    // Agregar todos los prestamistas de la lista
-    PRESTAMISTAS_LIST.forEach(p => {
-        if (p && p.trim()) {
-            prestamistas.add(p.trim());
-        }
-    });
-    
-    return Array.from(prestamistas).sort((a, b) => a.localeCompare(b));
-}
-
-function renderizarListaPrestamistas() {
-    const container = document.getElementById('listaPrestamistasIntereses');
-    if (!container) return;
-    
-    const prestamistas = obtenerPrestamistasUnicos();
-    
-    if (prestamistas.length === 0) {
-        container.innerHTML = '<div class="text-center text-slate-500 py-4">No hay prestamistas disponibles</div>';
-        return;
-    }
-    
-    let html = '<div class="space-y-2 max-h-[300px] overflow-y-auto">';
-    prestamistas.forEach(nombre => {
-        const porcentajeActual = interesesPrestamistas[nombre] || '';
-        // Limpiar el nombre para usarlo como ID
-        const nombreId = 'prest_' + nombre.replace(/[^a-zA-Z0-9]/g, '_');
-        html += `
-            <div class="flex items-center gap-2 p-2 hover:bg-purple-50 rounded-lg transition">
-                <div class="flex-1 text-sm font-medium truncate" title="${nombre}">${nombre}</div>
-                <div class="flex items-center gap-1">
-                    <input type="number" 
-                           class="input-interes w-20 rounded-lg border border-purple-200 px-2 py-1 text-right text-sm" 
-                           value="${porcentajeActual}"
-                           min="0" 
-                           max="100" 
-                           step="0.1"
-                           placeholder="13"
-                           data-prestamista="${nombre}"
-                           id="${nombreId}">
-                    <span class="text-xs text-slate-500">%</span>
-                </div>
-            </div>
-        `;
-    });
-    html += '</div>';
-    
-    container.innerHTML = html;
-    
-    // Agregar eventos a los inputs
-    document.querySelectorAll('.input-interes').forEach(input => {
-        input.addEventListener('input', function() {
-            const prestamista = this.dataset.prestamista;
-            const valor = this.value ? parseFloat(this.value) : null;
-            
-            if (valor !== null && !isNaN(valor) && valor >= 0) {
-                interesesPrestamistas[prestamista] = valor;
-            } else {
-                delete interesesPrestamistas[prestamista];
-            }
-            
-            localStorage.setItem(INTERESES_KEY, JSON.stringify(interesesPrestamistas));
-            
-            // Actualizar badge si hay intereses personalizados
-            actualizarBadgeIntereses();
-        });
-    });
-}
-
-function actualizarBadgeIntereses() {
-    const badge = document.getElementById('badgeInteresesActivos');
-    if (!badge) return;
-    
-    const tieneIntereses = Object.keys(interesesPrestamistas).length > 0;
-    if (tieneIntereses) {
-        badge.classList.remove('hidden');
-    } else {
-        badge.classList.add('hidden');
-    }
-}
-
-function resetearIntereses() {
-    interesesPrestamistas = {};
-    localStorage.removeItem(INTERESES_KEY);
-    renderizarListaPrestamistas();
-    actualizarBadgeIntereses();
-}
-
-function calcularTotalConInteres(prestamo) {
-    // El interés se aplica por PRESTAMISTA, no por deudor
-    const prestamista = prestamo.prestamista;
-    const interesPersonalizado = interesesPrestamistas[prestamista];
-    
-    if (interesPersonalizado !== undefined && !isNaN(interesPersonalizado)) {
-        // Usar interés personalizado
-        return Math.round(prestamo.monto_base * (1 + (interesPersonalizado / 100)));
-    } else {
-        // Usar interés base según fecha
-        return Math.round(prestamo.monto_base * (1 + prestamo.interes_base));
-    }
 }
 
 // ===== VARIABLES GLOBALES =====
@@ -1635,7 +1458,7 @@ function aplicarEstadoFila(tr, estado) {
     if (estado) tr.classList.add(`estado-${estado}`);
 }
 
-// ===== FUNCIÓN PRINCIPAL PARA ASIGNAR PRÉSTAMOS A FILAS (MODIFICADA) =====
+// ===== FUNCIÓN PRINCIPAL PARA ASIGNAR PRÉSTAMOS A FILAS =====
 function asignarPrestamosAFilas(usarValoresHistoricos = false) {
     modoHistoricoActivo = usarValoresHistoricos;
     
@@ -1667,12 +1490,10 @@ function asignarPrestamosAFilas(usarValoresHistoricos = false) {
                     const primerNombre = nombreCompleto.split(' ')[0];
                     primerosNombres.push(primerNombre);
                 } else {
-                    // Buscar préstamo actual y calcular con interés personalizado por PRESTAMISTA
                     const prestamoActual = PRESTAMOS_LIST.find(p => p.id === prestamoGuardado.id);
                     if (prestamoActual) {
-                        const totalConInteres = calcularTotalConInteres(prestamoActual);
-                        totalMostrar += totalConInteres;
-                        const nombreCompleto = prestamoActual.deudor;
+                        totalMostrar += prestamoActual.total;
+                        const nombreCompleto = prestamoActual.name;
                         const primerNombre = nombreCompleto.split(' ')[0];
                         primerosNombres.push(primerNombre);
                     } else {
@@ -1956,7 +1777,7 @@ function restaurarSeleccionCheckbox(tr) {
     }
 }
 
-// ===== FILTROS =====
+// ===== NUEVA FUNCIÓN PARA FILTRAR POR ESTADO =====
 function filtrarPorEstado() {
     const estadoSeleccionado = filtroEstado.value;
     const textoBusqueda = normalizarTexto(buscadorConductores.value);
@@ -1967,6 +1788,7 @@ function filtrarPorEstado() {
     tbody.querySelectorAll('tr').forEach(tr => {
         let mostrar = true;
         
+        // Filtrar por estado si hay uno seleccionado
         if (estadoSeleccionado) {
             const selectEstado = tr.querySelector('.estado-pago');
             const estadoActual = selectEstado ? selectEstado.value : '';
@@ -1975,6 +1797,7 @@ function filtrarPorEstado() {
             }
         }
         
+        // Filtrar por nombre si hay búsqueda
         if (mostrar && textoBusqueda) {
             const nombre = normalizarTexto(obtenerNombreConductorDeFila(tr));
             if (!nombre.includes(textoBusqueda)) {
@@ -1996,8 +1819,9 @@ function filtrarPorEstado() {
     actualizarPanelFlotante();
 }
 
+// ===== FILTRO DE CONDUCTORES (ACTUALIZADO) =====
 function filtrarConductores() {
-    filtrarPorEstado();
+    filtrarPorEstado(); // Ahora usa la función combinada
 }
 
 // ===== CÁLCULO PRINCIPAL =====
@@ -2084,7 +1908,7 @@ function hacerPanelArrastrable() {
     document.addEventListener('mouseup', () => isDragging = false);
 }
 
-// ===== MODAL PRÉSTAMOS (MODIFICADO) =====
+// ===== MODAL PRÉSTAMOS =====
 let currentRow = null;
 let selectedIds = new Set();
 let conductorActual = '';
@@ -2139,7 +1963,7 @@ function filtrarPrestamosMultiempresa() {
     
     if (textoBusqueda) {
         prestamosFiltrados = prestamosFiltrados.filter(p => 
-            normalizarTexto(p.deudor).includes(textoBusqueda)
+            normalizarTexto(p.name).includes(textoBusqueda)
         );
     }
     
@@ -2163,7 +1987,7 @@ function renderizarListaPrestamos(prestamos) {
     
     prestamos.sort((a, b) => {
         if (a.empresa !== b.empresa) return a.empresa.localeCompare(b.empresa);
-        return a.deudor.localeCompare(b.deudor);
+        return a.name.localeCompare(b.name);
     });
     
     let html = '';
@@ -2180,13 +2004,6 @@ function renderizarListaPrestamos(prestamos) {
         }
         
         const checked = selectedIds.has(item.id) ? 'checked' : '';
-        // Calcular total con interés personalizado por PRESTAMISTA
-        const totalConInteres = calcularTotalConInteres(item);
-        const tieneInteresPersonalizado = interesesPrestamistas[item.prestamista] !== undefined;
-        const badgeInteres = tieneInteresPersonalizado 
-            ? `<span class="ml-2 text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full">${interesesPrestamistas[item.prestamista]}%</span>` 
-            : '';
-        
         html += `
             <div class="prest-item flex justify-between items-center p-3 hover:bg-blue-50 transition group bg-white border-b border-slate-100">
                 <div class="flex items-center gap-3 flex-1">
@@ -2195,18 +2012,12 @@ function renderizarListaPrestamos(prestamos) {
                            data-id="${item.id}" 
                            ${checked}>
                     <div class="flex flex-col">
-                        <div class="flex items-center gap-1">
-                            <span class="text-sm font-medium">${item.deudor}</span>
-                            ${badgeInteres}
-                        </div>
-                        <div class="text-xs text-slate-500">
-                            Prestamista: <span class="font-medium">${item.prestamista}</span> | 
-                            Base: $${fmt(item.monto_base).replace('$', '')}
-                        </div>
+                        <span class="text-sm font-medium">${item.name}</span>
+                        <span class="text-xs text-slate-400">ID: ${item.id}</span>
                     </div>
                 </div>
                 <span class="num text-sm font-bold text-emerald-600">
-                    $${fmt(totalConInteres).replace('$', '')}
+                    $${fmt(item.total).replace('$', '')}
                 </span>
             </div>
         `;
@@ -2231,7 +2042,7 @@ function renderizarListaPrestamos(prestamos) {
 
 function actualizarResumenSeleccion() {
     const seleccionados = PRESTAMOS_LIST.filter(p => selectedIds.has(p.id));
-    const totalSeleccionado = seleccionados.reduce((sum, p) => sum + calcularTotalConInteres(p), 0);
+    const totalSeleccionado = seleccionados.reduce((sum, p) => sum + (p.total || 0), 0);
     
     const valorManual = toInt(document.getElementById('prestValorManual').value);
     const totalConManual = totalSeleccionado + valorManual;
@@ -2243,7 +2054,7 @@ function actualizarResumenSeleccion() {
     const porEmpresa = {};
     seleccionados.forEach(p => {
         if (!porEmpresa[p.empresa]) porEmpresa[p.empresa] = 0;
-        porEmpresa[p.empresa] += calcularTotalConInteres(p);
+        porEmpresa[p.empresa] += p.total;
     });
     
     if (valorManual > 0) {
@@ -2269,6 +2080,7 @@ function actualizarResumenSeleccion() {
     }
 }
 
+// ===== FUNCIÓN MODIFICADA - CORREGIDA =====
 function openPrestModalForRow(tr) {
     currentRow = tr;
     selectedIds = new Set();
@@ -2296,20 +2108,25 @@ function openPrestModalForRow(tr) {
         }
     });
     
+    // 🔥 CORREGIDO: Pre-llenar con primeras 3 letras
     const primerasTresLetras = baseName.substring(0, 3).toLowerCase();
     const searchInput = document.getElementById('prestSearch');
     searchInput.value = primerasTresLetras;
     
+    // Cargar empresas y renderizar
     cargarEmpresasMultiSelect();
     renderizarListaPrestamos(PRESTAMOS_LIST);
+    
+    // 🔥 IMPORTANTE: Ejecutar el filtro con las 3 letras
     filtrarPrestamosMultiempresa();
     
     document.getElementById('prestValorManual').value = '';
     actualizarResumenSeleccion();
-    actualizarBadgeIntereses();
     
+    // Mostrar el modal
     document.getElementById('prestModal').classList.remove('hidden');
     
+    // 🔥 CORREGIDO: Poner cursor al final SIN seleccionar el texto
     searchInput.focus();
     searchInput.setSelectionRange(primerasTresLetras.length, primerasTresLetras.length);
 }
@@ -2340,6 +2157,7 @@ const tbodyCuentasBD = document.getElementById('tbodyCuentasBD');
 const contadorCuentas = document.getElementById('contador-cuentas');
 const totalCuentasInfo = document.getElementById('totalCuentasInfo');
 
+// Elementos para fusión
 const selectAllCuentas = document.getElementById('selectAllCuentas');
 const btnFusionarSeleccionadas = document.getElementById('btnFusionarSeleccionadas');
 const cuentasSeleccionadasCount = document.getElementById('cuentasSeleccionadasCount');
@@ -2469,6 +2287,7 @@ btnDoSaveCuenta.addEventListener('click', async () => {
     }
 });
 
+// Función para actualizar el estado del botón de fusión
 function actualizarBotonFusion() {
     const seleccionadas = Array.from(cuentasSeleccionadas);
     cuentasSeleccionadasCount.textContent = seleccionadas.length;
@@ -2482,6 +2301,7 @@ function actualizarBotonFusion() {
     }
 }
 
+// Función para manejar selección de cuentas
 function manejarSeleccionCuenta(id, checked) {
     if (checked) {
         cuentasSeleccionadas.add(id);
@@ -2489,6 +2309,7 @@ function manejarSeleccionCuenta(id, checked) {
         cuentasSeleccionadas.delete(id);
     }
     
+    // Actualizar clase visual en la fila
     const fila = document.querySelector(`tr[data-cuenta-id="${id}"]`);
     if (fila) {
         if (checked) {
@@ -2594,20 +2415,24 @@ async function renderCuentasBD() {
         
         tbodyCuentasBD.innerHTML = html;
         
+        // Eventos para checkboxes de selección
         document.querySelectorAll('.cuenta-seleccion').forEach(cb => {
             cb.addEventListener('change', function() {
                 manejarSeleccionCuenta(parseInt(this.value), this.checked);
             });
         });
         
+        // Eventos para botones de cargar
         document.querySelectorAll('.btnCargarCuenta').forEach(btn => {
             btn.addEventListener('click', () => cargarCuentaCompletaBD(btn.dataset.id));
         });
         
+        // Eventos para botones de eliminar
         document.querySelectorAll('.btnEliminarCuenta').forEach(btn => {
             btn.addEventListener('click', () => eliminarCuentaBD(btn.dataset.id));
         });
         
+        // Eventos para switches de estado
         document.querySelectorAll('.switch-estado-cuenta').forEach(switchInput => {
             if (switchInput._handler) {
                 switchInput.removeEventListener('change', switchInput._handler);
@@ -2820,6 +2645,7 @@ async function eliminarCuentaBD(id) {
         const resultado = await response.json();
         
         if (resultado.success) {
+            // Remover de seleccionadas si estaba
             cuentasSeleccionadas.delete(parseInt(id));
             await renderCuentasBD();
             Swal.fire('✅ Eliminada', 'Cuenta eliminada correctamente', 'success');
@@ -2831,6 +2657,7 @@ async function eliminarCuentaBD(id) {
     }
 }
 
+// Función para fusionar cuentas seleccionadas - CORREGIDA
 async function fusionarCuentasSeleccionadas() {
     const ids = Array.from(cuentasSeleccionadas);
     
@@ -2878,17 +2705,22 @@ async function fusionarCuentasSeleccionadas() {
         if (resultado.success) {
             const cuentaFusionada = resultado.cuenta_fusionada;
             
+            // Limpiar selecciones
             cuentasSeleccionadas.clear();
             
+            // Cerrar modal de gestor
             closeGestor();
             
+            // Establecer los valores en el formulario principal
             document.getElementById('filtro_desde').value = cuentaFusionada.desde;
             document.getElementById('filtro_hasta').value = cuentaFusionada.hasta;
             
+            // Seleccionar las empresas de la fusión
             document.querySelectorAll('.empresa-checkbox input').forEach(cb => {
                 cb.checked = cuentaFusionada.empresas.includes(cb.value);
             });
             
+            // Limpiar datos actuales (préstamos, seguridad social, etc.) - TODOS VACÍOS
             prestSel = {};
             ssMap = {};
             accMap = {};
@@ -2899,9 +2731,11 @@ async function fusionarCuentasSeleccionadas() {
             setLS(ACC_KEY, accMap);
             setLS(ESTADO_PAGO_KEY, estadoPagoMap);
             
+            // Eliminar filas manuales existentes
             document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => tr.remove());
             manualRows = [];
             
+            // Crear nuevas filas manuales con los valores base SUMADOS
             if (cuentaFusionada.datos_json.filasManuales && cuentaFusionada.datos_json.filasManuales.length > 0) {
                 cuentaFusionada.datos_json.filasManuales.forEach(fila => {
                     agregarFilaManual();
@@ -2912,15 +2746,20 @@ async function fusionarCuentasSeleccionadas() {
                         
                         if (select) select.value = fila.conductor;
                         if (baseInput) baseInput.value = fmt(fila.base).replace('$', '');
+                        
+                        // NO asignamos cuenta, segSocial ni estado - quedan vacíos
                     }
                 });
                 localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
             }
             
+            // Establecer el porcentaje de ajuste (promedio de las cuentas fusionadas)
             document.getElementById('inp_porcentaje_ajuste').value = cuentaFusionada.porcentaje_ajuste;
             
+            // Recalcular todo - esto aplicará todos los cálculos automáticos
             recalcularTodo();
             
+            // Cerrar SweetAlert y mostrar éxito
             Swal.fire({
                 title: '✅ Cuentas fusionadas',
                 html: `
@@ -2943,6 +2782,7 @@ async function fusionarCuentasSeleccionadas() {
 }
 
 function openGestor() {
+    // Limpiar selecciones anteriores
     cuentasSeleccionadas.clear();
     
     fetch('?obtener_cuentas=1')
@@ -2970,6 +2810,7 @@ function closeGestor() {
     cuentasSeleccionadas.clear();
 }
 
+// Event listeners para gestor
 btnShowGestor.addEventListener('click', openGestor);
 btnCloseGestor.addEventListener('click', closeGestor);
 btnRecargarCuentas.addEventListener('click', renderCuentasBD);
@@ -2987,6 +2828,7 @@ btnAddDesdeFiltro.addEventListener('click', () => {
     setTimeout(() => openSaveCuenta(), 300);
 });
 
+// Select all cuentas
 selectAllCuentas?.addEventListener('change', function() {
     document.querySelectorAll('.cuenta-seleccion').forEach(cb => {
         cb.checked = this.checked;
@@ -2994,47 +2836,8 @@ selectAllCuentas?.addEventListener('change', function() {
     });
 });
 
+// Botón de fusión
 btnFusionarSeleccionadas?.addEventListener('click', fusionarCuentasSeleccionadas);
-
-// ===== NUEVO: EVENTOS PARA MENÚ DE INTERESES =====
-const btnInteresPrestamistas = document.getElementById('btnInteresPrestamistas');
-const menuIntereses = document.getElementById('menuIntereses');
-const btnCerrarMenuIntereses = document.getElementById('btnCerrarMenuIntereses');
-const btnResetIntereses = document.getElementById('btnResetIntereses');
-
-btnInteresPrestamistas.addEventListener('click', (e) => {
-    e.stopPropagation();
-    menuIntereses.classList.toggle('hidden');
-    renderizarListaPrestamistas();
-    actualizarBadgeIntereses();
-});
-
-btnCerrarMenuIntereses.addEventListener('click', () => {
-    menuIntereses.classList.add('hidden');
-});
-
-btnResetIntereses.addEventListener('click', () => {
-    resetearIntereses();
-    asignarPrestamosAFilas(modoHistoricoActivo);
-    recalcularTodo();
-    
-    Swal.fire({
-        title: '🔄 Intereses restablecidos',
-        text: 'Todos los prestamistas vuelven al interés por defecto (13% o 10% según fecha)',
-        icon: 'success',
-        timer: 2000,
-        showConfirmButton: false,
-        toast: true,
-        position: 'top-end'
-    });
-});
-
-// Cerrar menú al hacer clic fuera
-document.addEventListener('click', (e) => {
-    if (!menuIntereses.contains(e.target) && !btnInteresPrestamistas.contains(e.target)) {
-        menuIntereses.classList.add('hidden');
-    }
-});
 
 // ===== MODAL PRÉSTAMOS EVENTOS =====
 document.getElementById('btnDeseleccionarTodos').addEventListener('click', () => {
@@ -3061,7 +2864,7 @@ document.getElementById('prestValorManual').addEventListener('input', () => {
     actualizarResumenSeleccion();
 });
 
-// ===== INICIALIZACIÓN =====
+// ===== INICIALIZACIÓ =====
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('btnSeleccionarTodas')?.addEventListener('click', () => {
         document.querySelectorAll('.empresa-checkbox input').forEach(cb => cb.checked = true);
@@ -3083,6 +2886,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     hacerPanelArrastrable();
     
+    // Event listeners para filtros
     filtroEstado.addEventListener('change', filtrarConductores);
     buscadorConductores.addEventListener('input', filtrarConductores);
     
@@ -3141,9 +2945,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const prestamosSeleccionados = PRESTAMOS_LIST.filter(it => selectedIds.has(it.id));
             prestSel[baseName] = prestamosSeleccionados.map(it => ({
                 id: it.id,
-                name: it.deudor,
-                prestamista: it.prestamista,
-                totalActual: calcularTotalConInteres(it),
+                name: it.name,
+                totalActual: it.total,
                 empresa: it.empresa,
                 esManual: false,
                 valorManual: null
@@ -3183,9 +2986,6 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(html => document.getElementById('viajesContent').innerHTML = html)
             .catch(() => document.getElementById('viajesContent').innerHTML = '<p class="text-center text-red-600">Error cargando viajes</p>');
     };
-    
-    // Inicializar badge de intereses
-    actualizarBadgeIntereses();
 });
 </script>
 </body>
