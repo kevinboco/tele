@@ -882,7 +882,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                         </svg>
                     </button>
                     
-                    <!-- Menú desplegable -->
+                    <!-- Menú desplegable (inicialmente oculto) -->
                     <div id="menuIntereses" class="hidden absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-purple-200 z-50 menu-intereses" style="top: 100%;">
                         <div class="p-3 border-b border-purple-100 bg-purple-50 rounded-t-xl">
                             <h4 class="font-semibold text-sm flex items-center gap-2">
@@ -1150,7 +1150,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- ===== MODAL PRÉSTAMOS (CON BOTÓN ASIGNAR RESTAURADO) ===== -->
+<!-- ===== MODAL PRÉSTAMOS (MODIFICADO PARA INTERESES VARIABLES) ===== -->
 <div id="prestModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-4 md:my-8 prest-modal-content bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden flex flex-col" style="width: 95%; max-width: 1200px; max-height: 98vh;">
@@ -1178,7 +1178,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 </div>
             </div>
             
-            <!-- Badge que muestra que hay intereses personalizados -->
+            <!-- NUEVO: Badge que muestra que hay intereses personalizados -->
             <div id="badgeInteresesActivos" class="mt-2 hidden">
                 <div class="bg-purple-100 text-purple-800 text-xs px-3 py-2 rounded-lg flex items-center gap-2">
                     <span>⚡</span>
@@ -1216,7 +1216,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             </div>
         </div>
         
-        <!-- LISTA DE PRÉSTAMOS -->
+        <!-- LISTA DE PRÉSTAMOS (MODIFICADA) -->
         <div id="prestList" class="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-50 prest-list-container" style="min-height: 300px;">
             <div class="p-8 text-center text-slate-500">
                 <div class="text-5xl mb-3">📭</div>
@@ -1224,7 +1224,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             </div>
         </div>
         
-        <!-- FOOTER CON BOTÓN ASIGNAR -->
+        <!-- FOOTER -->
         <div class="flex-none border-t border-slate-200 bg-white p-4 md:p-6">
             <div class="mb-4 text-sm">
                 <div class="flex flex-wrap justify-between items-center gap-2">
@@ -1615,7 +1615,7 @@ function aplicarEstadoFila(tr, estado) {
     if (estado) tr.classList.add(`estado-${estado}`);
 }
 
-// ===== FUNCIÓN PRINCIPAL PARA ASIGNAR PRÉSTAMOS A FILAS =====
+// ===== FUNCIÓN PRINCIPAL PARA ASIGNAR PRÉSTAMOS A FILAS (MODIFICADA) =====
 function asignarPrestamosAFilas(usarValoresHistoricos = false) {
     modoHistoricoActivo = usarValoresHistoricos;
     
@@ -2064,7 +2064,7 @@ function hacerPanelArrastrable() {
     document.addEventListener('mouseup', () => isDragging = false);
 }
 
-// ===== MODAL PRÉSTAMOS (CON BOTÓN ASIGNAR RESTAURADO) =====
+// ===== MODAL PRÉSTAMOS (MODIFICADO) =====
 let currentRow = null;
 let selectedIds = new Set();
 let conductorActual = '';
