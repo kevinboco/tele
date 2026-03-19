@@ -188,7 +188,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     exit;
 }
 
-/* ================= FUNCIÓN DE FUSIÓN CORREGIDA ================= */
+/* ================= FUNCIÓN DE FUSIÓN ================= */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'fusionar_cuentas') {
     header('Content-Type: application/json');
     $ids = isset($_POST['ids']) ? json_decode($_POST['ids'], true) : [];
@@ -220,7 +220,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
         }
     }
     
-    // ===== DATOS BÁSICOS DE LA FUSIÓN =====
     $fusionado = [
         'nombre' => 'Fusión: ' . implode(' + ', array_slice(array_column($cuentas, 'nombre'), 0, 2)) . (count($cuentas) > 2 ? ' +' . (count($cuentas)-2) . ' más' : ''),
         'desde' => min(array_column($cuentas, 'desde')),
@@ -238,7 +237,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
         ]
     ];
     
-    // ===== SUMAR VALORES BASE DE CONDUCTORES =====
     $conductores_fusionados = [];
     
     foreach ($cuentas as $cuenta) {
@@ -266,7 +264,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
         }
     }
     
-    // ===== CREAR FILAS MANUALES CON VALORES BASE SUMADOS =====
     foreach ($conductores_fusionados as $conductor => $base_total) {
         if ($base_total > 0) {
             $fusionado['datos_json']['filasManuales'][] = [
@@ -606,21 +603,24 @@ if ($resV) {
 
 /* ================= PRÉSTAMOS - CON INTERÉS VARIABLE ================= */
 $prestamosList = [];
+$prestamistasUnicos = [];
 $i = 0;
 
 $qPrest = "
   SELECT deudor,
+         prestamista,
          empresa,
          SUM(monto) as monto_total,
          MIN(fecha) as fecha_min
   FROM prestamos
   WHERE (pagado IS NULL OR pagado = 0)
-  GROUP BY deudor, empresa";
+  GROUP BY deudor, prestamista, empresa";
 
 if ($rP = $conn->query($qPrest)) {
     while($r = $rP->fetch_assoc()){
-        $name = $r['deudor'];
-        $key  = norm_person($name);
+        $deudor = $r['deudor'];
+        $prestamista = $r['prestamista'];
+        $key = norm_person($deudor);
         $monto_base = (int)round($r['monto_total']);
         $fecha_min = $r['fecha_min'];
         
@@ -629,7 +629,8 @@ if ($rP = $conn->query($qPrest)) {
         
         $prestamosList[] = [
             'id' => $i++, 
-            'name' => $name, 
+            'deudor' => $deudor,
+            'prestamista' => $prestamista,
             'key' => $key, 
             'monto_base' => $monto_base,
             'total_con_interes' => $monto_base,
@@ -637,8 +638,16 @@ if ($rP = $conn->query($qPrest)) {
             'fecha_min' => $fecha_min,
             'empresa' => $r['empresa']
         ];
+        
+        // Guardar prestamistas únicos
+        if (!in_array($prestamista, $prestamistasUnicos) && !empty($prestamista)) {
+            $prestamistasUnicos[] = $prestamista;
+        }
     }
 }
+
+// Ordenar prestamistas alfabéticamente
+sort($prestamistasUnicos);
 
 /* ================= Filas base ================= */
 $filas = []; 
@@ -873,7 +882,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 <button id="btnShowSaveCuenta" class="rounded-lg border border-amber-300 px-3 py-2 text-sm bg-amber-50 hover:bg-amber-100">⭐ Guardar cuenta</button>
                 <button id="btnShowGestorCuentas" class="rounded-lg border border-blue-300 px-3 py-2 text-sm bg-blue-50 hover:bg-blue-100">📚 Cuentas guardadas</button>
                 
-                <!-- NUEVO: Botón para intereses por prestamista -->
+                <!-- NUEVO: Botón para intereses por PRESTAMISTA (CORREGIDO) -->
                 <div class="relative" id="interesMenuContainer">
                     <button id="btnInteresPrestamistas" class="rounded-lg border border-purple-300 px-3 py-2 text-sm bg-purple-50 hover:bg-purple-100 flex items-center gap-1">
                         ⚙️ Intereses por prestamista
@@ -882,8 +891,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                         </svg>
                     </button>
                     
-                    <!-- Menú desplegable (inicialmente oculto) -->
-                    <div id="menuIntereses" class="hidden absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-purple-200 z-50 menu-intereses" style="top: 100%;">
+                    <!-- Menú desplegable con PRESTAMISTAS -->
+                    <div id="menuIntereses" class="hidden absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-purple-200 z-50 menu-intereses" style="top: 100%; max-width: 350px;">
                         <div class="p-3 border-b border-purple-100 bg-purple-50 rounded-t-xl">
                             <h4 class="font-semibold text-sm flex items-center gap-2">
                                 <span>💰 Intereses por prestamista</span>
@@ -1150,7 +1159,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- ===== MODAL PRÉSTAMOS (MODIFICADO PARA INTERESES VARIABLES) ===== -->
+<!-- ===== MODAL PRÉSTAMOS (MODIFICADO) ===== -->
 <div id="prestModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-4 md:my-8 prest-modal-content bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden flex flex-col" style="width: 95%; max-width: 1200px; max-height: 98vh;">
@@ -1178,7 +1187,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 </div>
             </div>
             
-            <!-- NUEVO: Badge que muestra que hay intereses personalizados -->
+            <!-- Badge que muestra que hay intereses personalizados -->
             <div id="badgeInteresesActivos" class="mt-2 hidden">
                 <div class="bg-purple-100 text-purple-800 text-xs px-3 py-2 rounded-lg flex items-center gap-2">
                     <span>⚡</span>
@@ -1216,7 +1225,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             </div>
         </div>
         
-        <!-- LISTA DE PRÉSTAMOS (MODIFICADA) -->
+        <!-- LISTA DE PRÉSTAMOS -->
         <div id="prestList" class="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-50 prest-list-container" style="min-height: 300px;">
             <div class="p-8 text-center text-slate-500">
                 <div class="text-5xl mb-3">📭</div>
@@ -1441,15 +1450,17 @@ const ESTADO_PAGO_KEY = 'estado_pago_temp:'+COMPANY_SCOPE;
 const MANUAL_ROWS_KEY = 'filas_manuales_temp:'+COMPANY_SCOPE;
 const SELECTED_CONDUCTORS_KEY = 'conductores_seleccionados_temp:'+COMPANY_SCOPE;
 const INTERESES_KEY = 'intereses_prestamistas_temp:'+COMPANY_SCOPE;
-const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
+const PRESTAMOS_LIST = <?= json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
+const PRESTAMISTAS_LIST = <?= json_encode($prestamistasUnicos, JSON_UNESCAPED_UNICODE); ?>;
 const CONDUCTORES_LIST = <?= json_encode(array_map(fn($f)=>$f['nombre'],$filas), JSON_UNESCAPED_UNICODE); ?>;
 
 console.log('✅ Préstamos cargados:', PRESTAMOS_LIST.length);
+console.log('✅ Prestamistas únicos:', PRESTAMISTAS_LIST);
 
 // ===== VARIABLE PARA CONTROLAR MODO HISTÓRICO =====
 let modoHistoricoActivo = false;
 
-// ===== NUEVO: INTERESES POR PRESTAMISTA =====
+// ===== NUEVO: INTERESES POR PRESTAMISTA (CORREGIDO) =====
 let interesesPrestamistas = JSON.parse(localStorage.getItem(INTERESES_KEY) || '{}');
 
 // ===== FUNCIONES UTILITARIAS =====
@@ -1475,14 +1486,18 @@ function normalizarTexto(texto) {
     return texto.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
 }
 
-// ===== NUEVO: FUNCIONES PARA INTERESES POR PRESTAMISTA =====
+// ===== NUEVO: FUNCIONES PARA INTERESES POR PRESTAMISTA (CORREGIDO) =====
 function obtenerPrestamistasUnicos() {
+    // Usar la lista de prestamistas únicos obtenida de la base de datos
     const prestamistas = new Set();
-    PRESTAMOS_LIST.forEach(p => {
-        if (p.name && p.name.trim()) {
-            prestamistas.add(p.name.trim());
+    
+    // Agregar todos los prestamistas de la lista
+    PRESTAMISTAS_LIST.forEach(p => {
+        if (p && p.trim()) {
+            prestamistas.add(p.trim());
         }
     });
+    
     return Array.from(prestamistas).sort((a, b) => a.localeCompare(b));
 }
 
@@ -1497,9 +1512,11 @@ function renderizarListaPrestamistas() {
         return;
     }
     
-    let html = '<div class="space-y-2">';
+    let html = '<div class="space-y-2 max-h-[300px] overflow-y-auto">';
     prestamistas.forEach(nombre => {
         const porcentajeActual = interesesPrestamistas[nombre] || '';
+        // Limpiar el nombre para usarlo como ID
+        const nombreId = 'prest_' + nombre.replace(/[^a-zA-Z0-9]/g, '_');
         html += `
             <div class="flex items-center gap-2 p-2 hover:bg-purple-50 rounded-lg transition">
                 <div class="flex-1 text-sm font-medium truncate" title="${nombre}">${nombre}</div>
@@ -1511,7 +1528,8 @@ function renderizarListaPrestamistas() {
                            max="100" 
                            step="0.1"
                            placeholder="13"
-                           data-prestamista="${nombre}">
+                           data-prestamista="${nombre}"
+                           id="${nombreId}">
                     <span class="text-xs text-slate-500">%</span>
                 </div>
             </div>
@@ -1561,7 +1579,9 @@ function resetearIntereses() {
 }
 
 function calcularTotalConInteres(prestamo) {
-    const interesPersonalizado = interesesPrestamistas[prestamo.name];
+    // El interés se aplica por PRESTAMISTA, no por deudor
+    const prestamista = prestamo.prestamista;
+    const interesPersonalizado = interesesPrestamistas[prestamista];
     
     if (interesPersonalizado !== undefined && !isNaN(interesPersonalizado)) {
         // Usar interés personalizado
@@ -1647,12 +1667,12 @@ function asignarPrestamosAFilas(usarValoresHistoricos = false) {
                     const primerNombre = nombreCompleto.split(' ')[0];
                     primerosNombres.push(primerNombre);
                 } else {
-                    // Buscar préstamo actual y calcular con interés personalizado
+                    // Buscar préstamo actual y calcular con interés personalizado por PRESTAMISTA
                     const prestamoActual = PRESTAMOS_LIST.find(p => p.id === prestamoGuardado.id);
                     if (prestamoActual) {
                         const totalConInteres = calcularTotalConInteres(prestamoActual);
                         totalMostrar += totalConInteres;
-                        const nombreCompleto = prestamoActual.name;
+                        const nombreCompleto = prestamoActual.deudor;
                         const primerNombre = nombreCompleto.split(' ')[0];
                         primerosNombres.push(primerNombre);
                     } else {
@@ -2119,7 +2139,7 @@ function filtrarPrestamosMultiempresa() {
     
     if (textoBusqueda) {
         prestamosFiltrados = prestamosFiltrados.filter(p => 
-            normalizarTexto(p.name).includes(textoBusqueda)
+            normalizarTexto(p.deudor).includes(textoBusqueda)
         );
     }
     
@@ -2143,7 +2163,7 @@ function renderizarListaPrestamos(prestamos) {
     
     prestamos.sort((a, b) => {
         if (a.empresa !== b.empresa) return a.empresa.localeCompare(b.empresa);
-        return a.name.localeCompare(b.name);
+        return a.deudor.localeCompare(b.deudor);
     });
     
     let html = '';
@@ -2160,11 +2180,11 @@ function renderizarListaPrestamos(prestamos) {
         }
         
         const checked = selectedIds.has(item.id) ? 'checked' : '';
-        // Calcular total con interés personalizado
+        // Calcular total con interés personalizado por PRESTAMISTA
         const totalConInteres = calcularTotalConInteres(item);
-        const tieneInteresPersonalizado = interesesPrestamistas[item.name] !== undefined;
+        const tieneInteresPersonalizado = interesesPrestamistas[item.prestamista] !== undefined;
         const badgeInteres = tieneInteresPersonalizado 
-            ? `<span class="ml-2 text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full">${interesesPrestamistas[item.name]}%</span>` 
+            ? `<span class="ml-2 text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full">${interesesPrestamistas[item.prestamista]}%</span>` 
             : '';
         
         html += `
@@ -2176,10 +2196,13 @@ function renderizarListaPrestamos(prestamos) {
                            ${checked}>
                     <div class="flex flex-col">
                         <div class="flex items-center gap-1">
-                            <span class="text-sm font-medium">${item.name}</span>
+                            <span class="text-sm font-medium">${item.deudor}</span>
                             ${badgeInteres}
                         </div>
-                        <span class="text-xs text-slate-400">ID: ${item.id} | Base: $${fmt(item.monto_base).replace('$', '')}</span>
+                        <div class="text-xs text-slate-500">
+                            Prestamista: <span class="font-medium">${item.prestamista}</span> | 
+                            Base: $${fmt(item.monto_base).replace('$', '')}
+                        </div>
                     </div>
                 </div>
                 <span class="num text-sm font-bold text-emerald-600">
@@ -3118,7 +3141,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const prestamosSeleccionados = PRESTAMOS_LIST.filter(it => selectedIds.has(it.id));
             prestSel[baseName] = prestamosSeleccionados.map(it => ({
                 id: it.id,
-                name: it.name,
+                name: it.deudor,
+                prestamista: it.prestamista,
                 totalActual: calcularTotalConInteres(it),
                 empresa: it.empresa,
                 esManual: false,
