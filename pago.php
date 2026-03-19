@@ -3160,7 +3160,7 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(() => document.getElementById('viajesContent').innerHTML = '<p class="text-center text-red-600">Error cargando viajes</p>');
     };
     
-    // Inicializar badge de intereses
+    // Inicializar badge de interese
     actualizarBadgeIntereses();
 });
 </script>
