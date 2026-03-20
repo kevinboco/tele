@@ -607,7 +607,7 @@ if ($resV) {
     }
 }
 
-/* ================= PRÉSTAMOS - TODAS LAS EMPRESAS ================= */
+/* ================= PRÉSTAMOS - CON INTERÉS 0 PARA ASOCIACIÓN ================= */
 $prestamosList = [];
 $i = 0;
 
@@ -628,26 +628,31 @@ if ($rP = $conn->query($qPrest)) {
         $key  = norm_person($name);
         $monto = (int)$r['monto'];
         
-        // Calcular intereses si aplica
-        $fecha_prestamo = new DateTime($r['fecha']);
-        $fecha_actual = new DateTime();
-        $fecha_limite = new DateTime('2025-10-29');
-        
-        $interes = 0.10; // 10% por defecto
-        if ($fecha_prestamo >= $fecha_limite) {
-            $interes = 0.13; // 13% después del 2025-10-29
-        }
-        
-        $meses = 0;
-        if ($fecha_actual > $fecha_prestamo) {
-            $diff = $fecha_prestamo->diff($fecha_actual);
-            $meses = $diff->m + ($diff->y * 12);
-            if ($diff->d > 0) $meses++; // Un mes adicional si hay días restantes
-        }
-        
-        $total = $monto;
-        if ($meses > 0) {
-            $total = $monto + ($monto * $interes * $meses);
+        // SI EL PRESTAMISTA ES "Asociación" O PARECIDO, INTERÉS = 0
+        if (strpos(strtolower($r['prestamista']), 'asociaci') !== false) {
+            $total = $monto; // Sin intereses
+        } else {
+            // Calcular intereses normales para otros prestamistas
+            $fecha_prestamo = new DateTime($r['fecha']);
+            $fecha_actual = new DateTime();
+            $fecha_limite = new DateTime('2025-10-29');
+            
+            $interes = 0.10; // 10% por defecto
+            if ($fecha_prestamo >= $fecha_limite) {
+                $interes = 0.13; // 13% después del 2025-10-29
+            }
+            
+            $meses = 0;
+            if ($fecha_actual > $fecha_prestamo) {
+                $diff = $fecha_prestamo->diff($fecha_actual);
+                $meses = $diff->m + ($diff->y * 12);
+                if ($diff->d > 0) $meses++; // Un mes adicional si hay días restantes
+            }
+            
+            $total = $monto;
+            if ($meses > 0) {
+                $total = $monto + ($monto * $interes * $meses);
+            }
         }
         
         $prestamosList[] = [
