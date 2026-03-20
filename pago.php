@@ -613,27 +613,53 @@ $i = 0;
 
 $qPrest = "
   SELECT deudor,
+         prestamista,
          empresa,
-         SUM(
-           monto + 
-           monto * 
-           CASE 
-             WHEN fecha >= '2025-10-29' THEN 0.13
-             ELSE 0.10
-           END *
-           CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
-         ) AS total
+         monto,
+         fecha,
+         id
   FROM prestamos
   WHERE (pagado IS NULL OR pagado = 0)
-  GROUP BY deudor, empresa";
+  ORDER BY empresa, deudor";
 
 if ($rP = $conn->query($qPrest)) {
     while($r = $rP->fetch_assoc()){
         $name = $r['deudor'];
         $key  = norm_person($name);
-        $total = (int)round($r['total']);
-        $empresa = $r['empresa'];
-        $prestamosList[] = ['id'=>$i++, 'name'=>$name, 'key'=>$key, 'total'=>$total, 'empresa'=>$empresa];
+        $monto = (int)$r['monto'];
+        
+        // Calcular intereses si aplica
+        $fecha_prestamo = new DateTime($r['fecha']);
+        $fecha_actual = new DateTime();
+        $fecha_limite = new DateTime('2025-10-29');
+        
+        $interes = 0.10; // 10% por defecto
+        if ($fecha_prestamo >= $fecha_limite) {
+            $interes = 0.13; // 13% después del 2025-10-29
+        }
+        
+        $meses = 0;
+        if ($fecha_actual > $fecha_prestamo) {
+            $diff = $fecha_prestamo->diff($fecha_actual);
+            $meses = $diff->m + ($diff->y * 12);
+            if ($diff->d > 0) $meses++; // Un mes adicional si hay días restantes
+        }
+        
+        $total = $monto;
+        if ($meses > 0) {
+            $total = $monto + ($monto * $interes * $meses);
+        }
+        
+        $prestamosList[] = [
+            'id' => $r['id'],
+            'name' => $name,
+            'key' => $key,
+            'monto_original' => $monto,
+            'total' => (int)round($total),
+            'empresa' => $r['empresa'],
+            'prestamista' => $r['prestamista'],
+            'fecha' => $r['fecha']
+        ];
     }
 }
 
@@ -815,6 +841,36 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         .fila-cuenta-seleccionada {
             background-color: #eff6ff !important;
             border-left: 4px solid #3b82f6;
+        }
+        
+        /* Nuevos estilos para detalle de prestamistas */
+        .detalle-prestamista {
+            border-top: 1px dashed #e2e8f0;
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+        }
+        .prestamista-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem;
+            background: #f8fafc;
+            border-radius: 0.5rem;
+            margin-bottom: 0.25rem;
+            font-size: 0.85rem;
+        }
+        .prestamista-nombre {
+            font-weight: 500;
+            color: #1e293b;
+        }
+        .prestamista-monto {
+            font-weight: 600;
+            color: #059669;
+        }
+        .prestamista-empresa {
+            font-size: 0.7rem;
+            color: #64748b;
+            margin-left: 0.5rem;
         }
         
         @media (max-width: 640px) {
@@ -1102,7 +1158,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- ===== MODAL PRÉSTAMOS ===== -->
+<!-- ===== MODAL PRÉSTAMOS CON DETALLE DE PRESTAMISTAS ===== -->
 <div id="prestModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-4 md:my-8 prest-modal-content bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden flex flex-col" style="width: 95%; max-width: 1200px; max-height: 98vh;">
@@ -1168,8 +1224,19 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             </div>
         </div>
         
-        <!-- FOOTER -->
+        <!-- FOOTER CON DETALLE DE PRESTAMISTAS -->
         <div class="flex-none border-t border-slate-200 bg-white p-4 md:p-6">
+            <!-- NUEVO: Detalle de prestamistas -->
+            <div id="detallePrestamistas" class="mb-4 detalle-prestamista">
+                <div class="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-2">
+                    <span>👤 Prestamistas seleccionados:</span>
+                    <span id="prestamistasCount" class="bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded-full">0</span>
+                </div>
+                <div id="prestamistasList" class="max-h-32 overflow-y-auto space-y-1">
+                    <!-- Aquí se mostrará la lista de prestamistas -->
+                </div>
+            </div>
+            
             <div class="mb-4 text-sm">
                 <div class="flex flex-wrap justify-between items-center gap-2">
                     <div>
@@ -1385,7 +1452,6 @@ const ESTADO_PAGO_KEY = 'estado_pago_temp:'+COMPANY_SCOPE;
 const MANUAL_ROWS_KEY = 'filas_manuales_temp:'+COMPANY_SCOPE;
 const SELECTED_CONDUCTORS_KEY = 'conductores_seleccionados_temp:'+COMPANY_SCOPE;
 const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
-const CONDUCTORES_LIST = <?= json_encode(array_map(fn($f)=>$f['nombre'],$filas), JSON_UNESCAPED_UNICODE); ?>;
 
 console.log('✅ Préstamos cargados:', PRESTAMOS_LIST.length);
 
@@ -1908,7 +1974,7 @@ function hacerPanelArrastrable() {
     document.addEventListener('mouseup', () => isDragging = false);
 }
 
-// ===== MODAL PRÉSTAMOS =====
+// ===== MODAL PRÉSTAMOS CON DETALLE DE PRESTAMISTAS =====
 let currentRow = null;
 let selectedIds = new Set();
 let conductorActual = '';
@@ -2013,7 +2079,9 @@ function renderizarListaPrestamos(prestamos) {
                            ${checked}>
                     <div class="flex flex-col">
                         <span class="text-sm font-medium">${item.name}</span>
-                        <span class="text-xs text-slate-400">ID: ${item.id}</span>
+                        <span class="text-xs text-slate-400">
+                            Prestamista: ${item.prestamista} | ID: ${item.id}
+                        </span>
                     </div>
                 </div>
                 <span class="num text-sm font-bold text-emerald-600">
@@ -2034,10 +2102,65 @@ function renderizarListaPrestamos(prestamos) {
                 selectedIds.delete(id);
             }
             actualizarResumenSeleccion();
+            actualizarDetallePrestamistas();
         });
     });
     
     actualizarResumenSeleccion();
+    actualizarDetallePrestamistas();
+}
+
+// ===== NUEVA FUNCIÓN: ACTUALIZAR DETALLE DE PRESTAMISTAS =====
+function actualizarDetallePrestamistas() {
+    const seleccionados = PRESTAMOS_LIST.filter(p => selectedIds.has(p.id));
+    const prestamistasContainer = document.getElementById('prestamistasList');
+    const prestamistasCount = document.getElementById('prestamistasCount');
+    
+    if (seleccionados.length === 0) {
+        prestamistasContainer.innerHTML = '<div class="text-sm text-slate-400 italic">Ningún préstamo seleccionado</div>';
+        prestamistasCount.textContent = '0';
+        return;
+    }
+    
+    // Agrupar por prestamista
+    const prestamistasMap = new Map();
+    seleccionados.forEach(p => {
+        const key = p.prestamista;
+        if (!prestamistasMap.has(key)) {
+            prestamistasMap.set(key, {
+                nombre: key,
+                total: 0,
+                cantidad: 0,
+                empresas: new Set()
+            });
+        }
+        const prestamista = prestamistasMap.get(key);
+        prestamista.total += p.total;
+        prestamista.cantidad++;
+        prestamista.empresas.add(p.empresa);
+    });
+    
+    prestamistasCount.textContent = prestamistasMap.size;
+    
+    // Generar HTML
+    let html = '';
+    prestamistasMap.forEach(prestamista => {
+        const empresasLista = Array.from(prestamista.empresas).join(', ');
+        html += `
+            <div class="prestamista-item">
+                <div>
+                    <span class="prestamista-nombre">${prestamista.nombre}</span>
+                    <span class="prestamista-empresa">(${empresasLista})</span>
+                </div>
+                <div>
+                    <span class="prestamista-monto">${fmt(prestamista.total)}</span>
+                    <span class="text-xs text-slate-400 ml-2">${prestamista.cantidad} préstamo(s)</span>
+                </div>
+            </div>
+        `;
+    });
+    
+    prestamistasContainer.innerHTML = html;
 }
 
 function actualizarResumenSeleccion() {
@@ -2108,7 +2231,7 @@ function openPrestModalForRow(tr) {
         }
     });
     
-    // 🔥 CORREGIDO: Pre-llenar con primeras 3 letras
+    // Pre-llenar con primeras 3 letras
     const primerasTresLetras = baseName.substring(0, 3).toLowerCase();
     const searchInput = document.getElementById('prestSearch');
     searchInput.value = primerasTresLetras;
@@ -2117,16 +2240,17 @@ function openPrestModalForRow(tr) {
     cargarEmpresasMultiSelect();
     renderizarListaPrestamos(PRESTAMOS_LIST);
     
-    // 🔥 IMPORTANTE: Ejecutar el filtro con las 3 letras
+    // Ejecutar el filtro con las 3 letras
     filtrarPrestamosMultiempresa();
     
     document.getElementById('prestValorManual').value = '';
     actualizarResumenSeleccion();
+    actualizarDetallePrestamistas();
     
     // Mostrar el modal
     document.getElementById('prestModal').classList.remove('hidden');
     
-    // 🔥 CORREGIDO: Poner cursor al final SIN seleccionar el texto
+    // Poner cursor al final SIN seleccionar el texto
     searchInput.focus();
     searchInput.setSelectionRange(primerasTresLetras.length, primerasTresLetras.length);
 }
@@ -2848,6 +2972,7 @@ document.getElementById('btnDeseleccionarTodos').addEventListener('click', () =>
     });
     
     actualizarResumenSeleccion();
+    actualizarDetallePrestamistas();
     
     Swal.fire({
         title: '✓ Deseleccionados',
@@ -2862,9 +2987,10 @@ document.getElementById('btnDeseleccionarTodos').addEventListener('click', () =>
 
 document.getElementById('prestValorManual').addEventListener('input', () => {
     actualizarResumenSeleccion();
+    actualizarDetallePrestamistas();
 });
 
-// ===== INICIALIZACIÓ =====
+// ===== INICIALIZACIÓN =====
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('btnSeleccionarTodas')?.addEventListener('click', () => {
         document.querySelectorAll('.empresa-checkbox input').forEach(cb => cb.checked = true);
@@ -2948,6 +3074,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 name: it.name,
                 totalActual: it.total,
                 empresa: it.empresa,
+                prestamista: it.prestamista,
                 esManual: false,
                 valorManual: null
             }));
