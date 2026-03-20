@@ -843,34 +843,25 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             border-left: 4px solid #3b82f6;
         }
         
-        /* Nuevos estilos para detalle de prestamistas */
-        .detalle-prestamista {
-            border-top: 1px dashed #e2e8f0;
-            margin-top: 0.75rem;
-            padding-top: 0.75rem;
+        /* Estilos para el desglose de prestamistas en la tarjeta naranja */
+        .desglose-prestamistas {
+            margin-top: 0.5rem;
+            padding-top: 0.5rem;
+            border-top: 1px dashed #fbbf24;
+            font-size: 0.8rem;
         }
-        .prestamista-item {
+        .prestamista-linea {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 0.5rem;
-            background: #f8fafc;
-            border-radius: 0.5rem;
-            margin-bottom: 0.25rem;
-            font-size: 0.85rem;
+            padding: 0.15rem 0;
+            color: #92400e;
         }
         .prestamista-nombre {
             font-weight: 500;
-            color: #1e293b;
         }
         .prestamista-monto {
             font-weight: 600;
-            color: #059669;
-        }
-        .prestamista-empresa {
-            font-size: 0.7rem;
-            color: #64748b;
-            margin-left: 0.5rem;
         }
         
         @media (max-width: 640px) {
@@ -1158,7 +1149,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- ===== MODAL PRÉSTAMOS CON DETALLE DE PRESTAMISTAS ===== -->
+<!-- ===== MODAL PRÉSTAMOS CON DESGLOSE EN TARJETA NARANJA ===== -->
 <div id="prestModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-4 md:my-8 prest-modal-content bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden flex flex-col" style="width: 95%; max-width: 1200px; max-height: 98vh;">
@@ -1179,10 +1170,18 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                     <div id="disponibleConductor" class="text-lg md:text-xl font-bold text-blue-600 num">$0</div>
                     <div class="text-xs text-slate-400 mt-1">Valor a pagar sin préstamos</div>
                 </div>
+                
+                <!-- TARJETA NARANJA CON TOTAL Y DESGLOSE -->
                 <div class="bg-white p-3 rounded-lg border border-amber-200">
                     <div class="text-xs text-slate-500 mb-1">📋 Préstamos seleccionados</div>
                     <div id="totalSeleccionado" class="text-lg md:text-xl font-bold text-amber-600 num">$0</div>
-                    <div id="diferenciaDisponible" class="text-xs mt-1 font-medium"></div>
+                    
+                    <!-- DESGLOSE POR PRESTAMISTA (DENTRO DE LA MISMA TARJETA) -->
+                    <div id="desglosePrestamistas" class="desglose-prestamistas">
+                        <!-- Aquí se insertará dinámicamente el desglose -->
+                    </div>
+                    
+                    <div id="diferenciaDisponible" class="text-xs mt-2 font-medium"></div>
                 </div>
             </div>
         </div>
@@ -1224,19 +1223,8 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             </div>
         </div>
         
-        <!-- FOOTER CON DETALLE DE PRESTAMISTAS -->
+        <!-- FOOTER CON BOTÓN DE ASIGNAR (SE MANTIENE) -->
         <div class="flex-none border-t border-slate-200 bg-white p-4 md:p-6">
-            <!-- NUEVO: Detalle de prestamistas -->
-            <div id="detallePrestamistas" class="mb-4 detalle-prestamista">
-                <div class="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-2">
-                    <span>👤 Prestamistas seleccionados:</span>
-                    <span id="prestamistasCount" class="bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded-full">0</span>
-                </div>
-                <div id="prestamistasList" class="max-h-32 overflow-y-auto space-y-1">
-                    <!-- Aquí se mostrará la lista de prestamistas -->
-                </div>
-            </div>
-            
             <div class="mb-4 text-sm">
                 <div class="flex flex-wrap justify-between items-center gap-2">
                     <div>
@@ -1267,6 +1255,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                             class="flex-1 sm:flex-none rounded-lg border border-slate-300 px-5 py-2.5 bg-white hover:bg-slate-50 font-medium">
                         Cancelar
                     </button>
+                    <!-- BOTÓN DE ASIGNAR - SE MANTIENE IGUAL -->
                     <button id="btnAssign" 
                             class="flex-1 sm:flex-none rounded-lg border border-blue-600 px-6 py-2.5 bg-blue-600 text-white hover:bg-blue-700 font-medium shadow-lg">
                         ✅ Asignar selección
@@ -1974,7 +1963,7 @@ function hacerPanelArrastrable() {
     document.addEventListener('mouseup', () => isDragging = false);
 }
 
-// ===== MODAL PRÉSTAMOS CON DETALLE DE PRESTAMISTAS =====
+// ===== MODAL PRÉSTAMOS CON DESGLOSE EN TARJETA NARANJA =====
 let currentRow = null;
 let selectedIds = new Set();
 let conductorActual = '';
@@ -2102,23 +2091,21 @@ function renderizarListaPrestamos(prestamos) {
                 selectedIds.delete(id);
             }
             actualizarResumenSeleccion();
-            actualizarDetallePrestamistas();
+            actualizarDesglosePrestamistas();
         });
     });
     
     actualizarResumenSeleccion();
-    actualizarDetallePrestamistas();
+    actualizarDesglosePrestamistas();
 }
 
-// ===== NUEVA FUNCIÓN: ACTUALIZAR DETALLE DE PRESTAMISTAS =====
-function actualizarDetallePrestamistas() {
+// ===== NUEVA FUNCIÓN: ACTUALIZAR DESGLOSE DE PRESTAMISTAS EN TARJETA NARANJA =====
+function actualizarDesglosePrestamistas() {
     const seleccionados = PRESTAMOS_LIST.filter(p => selectedIds.has(p.id));
-    const prestamistasContainer = document.getElementById('prestamistasList');
-    const prestamistasCount = document.getElementById('prestamistasCount');
+    const desgloseContainer = document.getElementById('desglosePrestamistas');
     
     if (seleccionados.length === 0) {
-        prestamistasContainer.innerHTML = '<div class="text-sm text-slate-400 italic">Ningún préstamo seleccionado</div>';
-        prestamistasCount.textContent = '0';
+        desgloseContainer.innerHTML = '';
         return;
     }
     
@@ -2130,37 +2117,26 @@ function actualizarDetallePrestamistas() {
             prestamistasMap.set(key, {
                 nombre: key,
                 total: 0,
-                cantidad: 0,
-                empresas: new Set()
+                cantidad: 0
             });
         }
         const prestamista = prestamistasMap.get(key);
         prestamista.total += p.total;
         prestamista.cantidad++;
-        prestamista.empresas.add(p.empresa);
     });
     
-    prestamistasCount.textContent = prestamistasMap.size;
-    
-    // Generar HTML
+    // Generar HTML del desglose
     let html = '';
     prestamistasMap.forEach(prestamista => {
-        const empresasLista = Array.from(prestamista.empresas).join(', ');
         html += `
-            <div class="prestamista-item">
-                <div>
-                    <span class="prestamista-nombre">${prestamista.nombre}</span>
-                    <span class="prestamista-empresa">(${empresasLista})</span>
-                </div>
-                <div>
-                    <span class="prestamista-monto">${fmt(prestamista.total)}</span>
-                    <span class="text-xs text-slate-400 ml-2">${prestamista.cantidad} préstamo(s)</span>
-                </div>
+            <div class="prestamista-linea">
+                <span class="prestamista-nombre">${prestamista.nombre}</span>
+                <span class="prestamista-monto">${fmt(prestamista.total)}</span>
             </div>
         `;
     });
     
-    prestamistasContainer.innerHTML = html;
+    desgloseContainer.innerHTML = html;
 }
 
 function actualizarResumenSeleccion() {
@@ -2245,7 +2221,7 @@ function openPrestModalForRow(tr) {
     
     document.getElementById('prestValorManual').value = '';
     actualizarResumenSeleccion();
-    actualizarDetallePrestamistas();
+    actualizarDesglosePrestamistas();
     
     // Mostrar el modal
     document.getElementById('prestModal').classList.remove('hidden');
@@ -2972,7 +2948,7 @@ document.getElementById('btnDeseleccionarTodos').addEventListener('click', () =>
     });
     
     actualizarResumenSeleccion();
-    actualizarDetallePrestamistas();
+    actualizarDesglosePrestamistas();
     
     Swal.fire({
         title: '✓ Deseleccionados',
@@ -2987,7 +2963,7 @@ document.getElementById('btnDeseleccionarTodos').addEventListener('click', () =>
 
 document.getElementById('prestValorManual').addEventListener('input', () => {
     actualizarResumenSeleccion();
-    actualizarDetallePrestamistas();
+    actualizarDesglosePrestamistas();
 });
 
 // ===== INICIALIZACIÓN =====
