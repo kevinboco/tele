@@ -202,7 +202,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     exit;
 }
 
-/* ================= FUNCIÓN DE FUSIÓN CORREGIDA ================= */
+/* ================= FUNCIÓN DE FUSIÓN ================= */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'fusionar_cuentas') {
     header('Content-Type: application/json');
     $ids = isset($_POST['ids']) ? json_decode($_POST['ids'], true) : [];
@@ -422,7 +422,7 @@ if (isset($_GET['viajes_conductor'])) {
                             ".htmlspecialchars($vehiculo)."
                         </span>
                     </td>
-                   </tr>";
+                </tr>";
         }
     } else {
         $rowsHTML .= "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresas seleccionadas.</td></tr>";
@@ -614,9 +614,8 @@ if ($resV) {
     }
 }
 
-/* ================= PRÉSTAMOS - CON INTERÉS 0 PARA ASOCIACIÓN ================= */
+/* ================= PRÉSTAMOS ================= */
 $prestamosList = [];
-$i = 0;
 
 $qPrest = "
   SELECT deudor,
@@ -720,7 +719,6 @@ foreach ($contadores as $nombre => $v) {
 
 usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
-// Obtener lista de conductores para el select de filas manuales
 $CONDUCTORES_LIST = array_column($filas, 'nombre');
 ?>
 <!DOCTYPE html>
@@ -875,17 +873,10 @@ $CONDUCTORES_LIST = array_column($filas, 'nombre');
             font-weight: 600;
         }
         
-        /* Estilos para comprobantes */
         .comprobante-preview {
             background-size: cover;
             background-position: center;
             background-repeat: no-repeat;
-        }
-        .comprobante-preview img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            border-radius: 0.5rem;
         }
         .modal-comprobante {
             position: fixed;
@@ -1155,7 +1146,7 @@ $CONDUCTORES_LIST = array_column($filas, 'nombre');
     </section>
 </main>
 
-<!-- Panel flotante de selección -->
+<!-- Panel flotante -->
 <div id="floatingPanel" class="hidden fixed z-50 bg-white border border-blue-300 rounded-xl shadow-lg" style="top: 100px; left: 100px; min-width: 300px;">
     <div id="panelDragHandle" class="cursor-move bg-blue-600 text-white px-4 py-3 rounded-t-xl flex items-center justify-between">
         <div class="font-semibold flex items-center gap-2">
@@ -1486,8 +1477,6 @@ const SELECTED_CONDUCTORS_KEY = 'conductores_seleccionados_temp:'+COMPANY_SCOPE;
 const COMPROBANTES_KEY = 'comprobantes_temp:'+COMPANY_SCOPE;
 const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 
-console.log('✅ Préstamos cargados:', PRESTAMOS_LIST.length);
-
 let modoHistoricoActivo = false;
 
 function toInt(s) {
@@ -1555,21 +1544,22 @@ function actualizarPreviewComprobante(conductor, base64) {
     const fila = Array.from(document.querySelectorAll('#tbody tr')).find(tr => {
         return obtenerNombreConductorDeFila(tr) === conductor;
     });
+    
     if (!fila) return;
     
     const previewDiv = fila.querySelector('.comprobante-preview');
     const btnEliminar = fila.querySelector('.btn-eliminar-comprobante');
     
-    if (base64) {
+    if (base64 && base64.startsWith('data:image')) {
         previewDiv.style.backgroundImage = `url(${base64})`;
         previewDiv.style.backgroundSize = 'cover';
         previewDiv.style.backgroundPosition = 'center';
         previewDiv.innerHTML = '';
-        btnEliminar.classList.remove('hidden');
+        if (btnEliminar) btnEliminar.classList.remove('hidden');
     } else {
         previewDiv.style.backgroundImage = '';
         previewDiv.innerHTML = '<span class="text-gray-400 text-xs">📷</span>';
-        btnEliminar.classList.add('hidden');
+        if (btnEliminar) btnEliminar.classList.add('hidden');
     }
 }
 
@@ -1620,6 +1610,7 @@ function verComprobanteGrande(conductor) {
 function configurarEventosComprobante(tr, nombreConductor) {
     const fileInput = tr.querySelector('.comprobante-file');
     const previewDiv = tr.querySelector('.comprobante-preview');
+    const btnEliminar = tr.querySelector('.btn-eliminar-comprobante');
     
     if (comprobantesMap[nombreConductor]) {
         actualizarPreviewComprobante(nombreConductor, comprobantesMap[nombreConductor]);
@@ -1630,7 +1621,7 @@ function configurarEventosComprobante(tr, nombreConductor) {
             const file = e.target.files[0];
             if (file && file.type.startsWith('image/')) {
                 await guardarComprobante(nombreConductor, file);
-            } else {
+            } else if (file) {
                 Swal.fire('Error', 'Por favor selecciona una imagen válida', 'error');
             }
             fileInput.value = '';
@@ -1644,6 +1635,10 @@ function configurarEventosComprobante(tr, nombreConductor) {
                 verComprobanteGrande(nombreConductor);
             }
         });
+    }
+    
+    if (btnEliminar) {
+        btnEliminar.onclick = () => eliminarComprobante(nombreConductor);
     }
 }
 
@@ -1804,9 +1799,6 @@ function configurarEventosFila(tr) {
     const btnPrest = tr.querySelector('.btn-prest');
     const conductorSelect = tr.querySelector('.conductor-select');
     const checkbox = tr.querySelector('.selector-conductor');
-    const fileInput = tr.querySelector('.comprobante-file');
-    const previewDiv = tr.querySelector('.comprobante-preview');
-    const btnEliminarComprobante = tr.querySelector('.btn-eliminar-comprobante');
 
     if (checkbox) {
         checkbox.addEventListener('change', () => {
@@ -1923,41 +1915,6 @@ function configurarEventosFila(tr) {
             }
             configurarEventosComprobante(tr, nombreConductor);
         }
-    }
-    
-    if (fileInput && previewDiv) {
-        const nombreConductor = conductorSelect ? conductorSelect.value : tr.querySelector('.conductor-link')?.textContent.trim();
-        if (nombreConductor && comprobantesMap[nombreConductor]) {
-            actualizarPreviewComprobante(nombreConductor, comprobantesMap[nombreConductor]);
-        }
-        
-        fileInput.addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            let nombre = conductorSelect ? conductorSelect.value : tr.querySelector('.conductor-link')?.textContent.trim();
-            if (nombre && file && file.type.startsWith('image/')) {
-                await guardarComprobante(nombre, file);
-            } else if (!nombre) {
-                Swal.fire('Error', 'Primero selecciona un conductor', 'error');
-            } else if (file && !file.type.startsWith('image/')) {
-                Swal.fire('Error', 'Por favor selecciona una imagen válida', 'error');
-            }
-            fileInput.value = '';
-        });
-        
-        if (btnEliminarComprobante) {
-            btnEliminarComprobante.onclick = () => {
-                let nombre = conductorSelect ? conductorSelect.value : tr.querySelector('.conductor-link')?.textContent.trim();
-                if (nombre) eliminarComprobante(nombre);
-            };
-        }
-        
-        previewDiv.addEventListener('click', (e) => {
-            e.stopPropagation();
-            let nombre = conductorSelect ? conductorSelect.value : tr.querySelector('.conductor-link')?.textContent.trim();
-            if (nombre && comprobantesMap[nombre]) {
-                verComprobanteGrande(nombre);
-            }
-        });
     }
 
     restaurarSeleccionCheckbox(tr);
@@ -2491,6 +2448,7 @@ btnShowSaveCuenta.addEventListener('click', openSaveCuenta);
 btnCloseSaveCuenta.addEventListener('click', closeSaveCuenta);
 btnCancelSaveCuenta.addEventListener('click', closeSaveCuenta);
 
+// ===== FUNCIÓN CORREGIDA PARA GUARDAR CUENTA CON COMPROBANTES =====
 btnDoSaveCuenta.addEventListener('click', async () => {
     const nombre = iNombre.value.trim();
     if (!nombre) {
@@ -2525,10 +2483,24 @@ btnDoSaveCuenta.addEventListener('click', async () => {
         }
     });
     
+    // CAPTURAR TODOS LOS COMPROBANTES DE TODAS LAS FILAS
     const comprobantesParaGuardar = {};
+    
+    document.querySelectorAll('#tbody tr').forEach(tr => {
+        let conductor = obtenerNombreConductorDeFila(tr);
+        if (conductor && comprobantesMap[conductor]) {
+            comprobantesParaGuardar[conductor] = comprobantesMap[conductor];
+        }
+    });
+    
+    // También agregar comprobantes de conductores que puedan estar en comprobantesMap pero no en la tabla
     for (const [conductor, base64] of Object.entries(comprobantesMap)) {
-        comprobantesParaGuardar[conductor] = base64;
+        if (!comprobantesParaGuardar[conductor] && base64) {
+            comprobantesParaGuardar[conductor] = base64;
+        }
     }
+    
+    console.log('Comprobantes a guardar:', Object.keys(comprobantesParaGuardar).length);
     
     const formData = new FormData();
     formData.append('accion', 'guardar_cuenta');
@@ -2549,7 +2521,7 @@ btnDoSaveCuenta.addEventListener('click', async () => {
         if (resultado.success) {
             Swal.fire({
                 title: '✅ Cuenta guardada',
-                text: 'La cuenta se guardó exitosamente en la base de datos',
+                text: `Se guardaron ${Object.keys(comprobantesParaGuardar).length} comprobantes`,
                 icon: 'success',
                 timer: 2000,
                 showConfirmButton: false
@@ -2875,8 +2847,6 @@ async function cargarCuentaCompletaBD(id) {
                     }
                     if (comprobantesMap[nombre]) {
                         actualizarPreviewComprobante(nombre, comprobantesMap[nombre]);
-                    } else {
-                        actualizarPreviewComprobante(nombre, null);
                     }
                 }
             });
@@ -2892,7 +2862,7 @@ async function cargarCuentaCompletaBD(id) {
             
             Swal.fire({
                 title: '✅ Cuenta cargada',
-                text: `"${cuenta.nombre}" cargada exitosamente`,
+                text: `"${cuenta.nombre}" cargada exitosamente con ${Object.keys(comprobantesGuardados).length} comprobantes`,
                 icon: 'success',
                 timer: 3000,
                 showConfirmButton: true,
