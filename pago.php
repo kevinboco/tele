@@ -20,6 +20,12 @@ function norm_person($s){
   return $s;
 }
 
+// Verificar si la columna comprobantes_json existe, si no, crearla
+$result = $conn->query("SHOW COLUMNS FROM cuentas_guardadas LIKE 'comprobantes_json'");
+if ($result->num_rows == 0) {
+    $conn->query("ALTER TABLE cuentas_guardadas ADD COLUMN comprobantes_json LONGTEXT NULL AFTER datos_json");
+}
+
 /* ================= CREAR TABLAS CUENTAS GUARDADAS ================= */
 $conn->query("
 CREATE TABLE IF NOT EXISTS cuentas_guardadas (
@@ -31,6 +37,7 @@ CREATE TABLE IF NOT EXISTS cuentas_guardadas (
     porcentaje_ajuste DECIMAL(5,2) NOT NULL,
     pagado TINYINT(1) NOT NULL DEFAULT 0,
     datos_json LONGTEXT NOT NULL,
+    comprobantes_json LONGTEXT NULL,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     usuario VARCHAR(100),
     INDEX idx_fecha (fecha_creacion),
@@ -85,6 +92,9 @@ if (isset($_GET['obtener_cuentas'])) {
             $datos_json = json_decode($row['datos_json'], true);
             $row['datos_json'] = ($datos_json === null) ? [] : $datos_json;
             
+            $comprobantes_json = json_decode($row['comprobantes_json'], true);
+            $row['comprobantes_json'] = ($comprobantes_json === null) ? [] : $comprobantes_json;
+            
             $row['empresas'] = !empty($row['empresas_list']) 
                 ? explode('||', $row['empresas_list']) 
                 : [];
@@ -108,6 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     $porcentaje_ajuste = floatval($_POST['porcentaje_ajuste'] ?? 0);
     $pagado = intval($_POST['pagado'] ?? 0);
     $datos_json = $conn->real_escape_string($_POST['datos_json'] ?? '{}');
+    $comprobantes_json = $conn->real_escape_string($_POST['comprobantes_json'] ?? '{}');
     $empresas = isset($_POST['empresas']) ? json_decode($_POST['empresas'], true) : [];
     $usuario = $conn->real_escape_string($_SESSION['usuario'] ?? 'Sistema');
     
@@ -119,8 +130,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     $conn->begin_transaction();
     
     try {
-        $sql = "INSERT INTO cuentas_guardadas (nombre, desde, hasta, facturado, porcentaje_ajuste, pagado, datos_json, usuario) 
-                VALUES ('$nombre', '$desde', '$hasta', $facturado, $porcentaje_ajuste, $pagado, '$datos_json', '$usuario')";
+        $sql = "INSERT INTO cuentas_guardadas (nombre, desde, hasta, facturado, porcentaje_ajuste, pagado, datos_json, comprobantes_json, usuario) 
+                VALUES ('$nombre', '$desde', '$hasta', $facturado, $porcentaje_ajuste, $pagado, '$datos_json', '$comprobantes_json', '$usuario')";
         
         if (!$conn->query($sql)) {
             throw new Exception("Error al guardar cuenta: " . $conn->error);
@@ -176,6 +187,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
         $datos_json = json_decode($row['datos_json'], true);
         $row['datos_json'] = ($datos_json === null) ? [] : $datos_json;
         
+        $comprobantes_json = json_decode($row['comprobantes_json'], true);
+        $row['comprobantes_json'] = ($comprobantes_json === null) ? [] : $comprobantes_json;
+        
         $row['empresas'] = !empty($row['empresas_list']) 
             ? explode('||', $row['empresas_list']) 
             : [];
@@ -220,7 +234,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
         }
     }
     
-    // ===== DATOS BÁSICOS DE LA FUSIÓN =====
     $fusionado = [
         'nombre' => 'Fusión: ' . implode(' + ', array_slice(array_column($cuentas, 'nombre'), 0, 2)) . (count($cuentas) > 2 ? ' +' . (count($cuentas)-2) . ' más' : ''),
         'desde' => min(array_column($cuentas, 'desde')),
@@ -230,21 +243,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
         'pagado' => 0,
         'empresas' => array_values(array_unique(array_merge(...array_column($cuentas, 'empresas')))),
         'datos_json' => [
-            'prestamos' => new stdClass(),        // OBJETO vacío - el usuario los asignará manualmente
-            'segSocial' => new stdClass(),        // OBJETO vacío - el usuario los asignará manualmente
-            'cuentasBancarias' => new stdClass(), // OBJETO vacío - el usuario los asignará manualmente
-            'estadosPago' => new stdClass(),      // OBJETO vacío - el usuario los asignará manualmente
-            'filasManuales' => []                  // Array vacío - se llenará con conductores fusionados
-        ]
+            'prestamos' => new stdClass(),
+            'segSocial' => new stdClass(),
+            'cuentasBancarias' => new stdClass(),
+            'estadosPago' => new stdClass(),
+            'filasManuales' => []
+        ],
+        'comprobantes_json' => new stdClass()
     ];
     
-    // ===== SUMAR VALORES BASE DE CONDUCTORES (esto está bien) =====
     $conductores_fusionados = [];
     
     foreach ($cuentas as $cuenta) {
         $datos = $cuenta['datos_json'];
         
-        // Procesar filas manuales (valores base)
         if (isset($datos['filasManuales']) && is_array($datos['filasManuales'])) {
             foreach ($datos['filasManuales'] as $fila) {
                 $conductor = $fila['conductor'];
@@ -257,7 +269,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
             }
         }
         
-        // También considerar conductores de tabla principal
         if (isset($datos['conductoresBase']) && is_array($datos['conductoresBase'])) {
             foreach ($datos['conductoresBase'] as $conductor => $base) {
                 if (!isset($conductores_fusionados[$conductor])) {
@@ -268,16 +279,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
         }
     }
     
-    // ===== CREAR FILAS MANUALES CON VALORES BASE SUMADOS =====
-    // PERO DEJAR VACÍOS: cuenta, segSocial, estado (el usuario los llenará)
     foreach ($conductores_fusionados as $conductor => $base_total) {
         if ($base_total > 0) {
             $fusionado['datos_json']['filasManuales'][] = [
                 'conductor' => $conductor,
                 'base' => $base_total,
-                'cuenta' => '',    // Vacío - usuario lo llena
-                'segSocial' => 0,   // Vacío - usuario lo llena
-                'estado' => ''      // Vacío - usuario lo selecciona
+                'cuenta' => '',
+                'segSocial' => 0,
+                'estado' => ''
             ];
         }
     }
@@ -315,7 +324,6 @@ if ($resColumns) {
     }
 }
 
-/* ================= OBTENER CLASIFICACIONES ================= */
 $todas_clasificaciones = [];
 $resClasifAll = $conn->query("SELECT DISTINCT clasificacion FROM ruta_clasificacion");
 if ($resClasifAll) {
@@ -331,7 +339,6 @@ foreach ($columnas_tarifas as $columna) {
     }
 }
 
-/* ================= Cargar clasificaciones ================= */
 $clasificaciones = [];
 $resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
 if ($resClasif) {
@@ -415,7 +422,7 @@ if (isset($_GET['viajes_conductor'])) {
                             ".htmlspecialchars($vehiculo)."
                         </span>
                     </td>
-                  </tr>";
+                   </tr>";
         }
     } else {
         $rowsHTML .= "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresas seleccionadas.</td></tr>";
@@ -470,12 +477,12 @@ if (isset($_GET['viajes_conductor'])) {
         <div class='overflow-x-auto'>
             <table class='min-w-full text-sm text-left'>
                 <thead class='bg-blue-600 text-white'>
-                <tr>
-                    <th class='px-3 py-2'>Fecha</th>
-                    <th class='px-3 py-2'>Ruta</th>
-                    <th class='px-3 py-2'>Empresa</th>
-                    <th class='px-3 py-2'>Vehículo</th>
-                </tr>
+                    <tr>
+                        <th class='px-3 py-2'>Fecha</th>
+                        <th class='px-3 py-2'>Ruta</th>
+                        <th class='px-3 py-2'>Empresa</th>
+                        <th class='px-3 py-2'>Vehículo</th>
+                    </tr>
                 </thead>
                 <tbody class='divide-y divide-gray-100 bg-white' id="viajesTableBody">
                 <?= $rowsHTML ?>
@@ -628,25 +635,23 @@ if ($rP = $conn->query($qPrest)) {
         $key  = norm_person($name);
         $monto = (int)$r['monto'];
         
-        // SI EL PRESTAMISTA ES "Asociación" O PARECIDO, INTERÉS = 0
         if (strpos(strtolower($r['prestamista']), 'asociaci') !== false) {
-            $total = $monto; // Sin intereses
+            $total = $monto;
         } else {
-            // Calcular intereses normales para otros prestamistas
             $fecha_prestamo = new DateTime($r['fecha']);
             $fecha_actual = new DateTime();
             $fecha_limite = new DateTime('2025-10-29');
             
-            $interes = 0.10; // 10% por defecto
+            $interes = 0.10;
             if ($fecha_prestamo >= $fecha_limite) {
-                $interes = 0.13; // 13% después del 2025-10-29
+                $interes = 0.13;
             }
             
             $meses = 0;
             if ($fecha_actual > $fecha_prestamo) {
                 $diff = $fecha_prestamo->diff($fecha_actual);
                 $meses = $diff->m + ($diff->y * 12);
-                if ($diff->d > 0) $meses++; // Un mes adicional si hay días restantes
+                if ($diff->d > 0) $meses++;
             }
             
             $total = $monto;
@@ -671,7 +676,7 @@ if ($rP = $conn->query($qPrest)) {
 /* ================= Filas base ================= */
 $filas = []; 
 $total_facturado = 0;
-$conductoresBaseMap = []; // Para guardar los valores base originales
+$conductoresBaseMap = [];
 
 foreach ($contadores as $nombre => $v) {
     $total = 0;
@@ -714,6 +719,9 @@ foreach ($contadores as $nombre => $v) {
 }
 
 usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
+
+// Obtener lista de conductores para el select de filas manuales
+$CONDUCTORES_LIST = array_column($filas, 'nombre');
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -836,7 +844,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         .disponible-positivo { color: #059669; font-weight: 600; }
         .disponible-negativo { color: #dc2626; font-weight: 600; }
         
-        /* Estilos para checkboxes de selección múltiple en cuentas */
         .cuenta-checkbox {
             width: 18px;
             height: 18px;
@@ -848,7 +855,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             border-left: 4px solid #3b82f6;
         }
         
-        /* Estilos para el desglose de prestamistas en la tarjeta naranja */
         .desglose-prestamistas {
             margin-top: 0.5rem;
             padding-top: 0.5rem;
@@ -867,6 +873,37 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         }
         .prestamista-monto {
             font-weight: 600;
+        }
+        
+        /* Estilos para comprobantes */
+        .comprobante-preview {
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+        }
+        .comprobante-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 0.5rem;
+        }
+        .modal-comprobante {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.9);
+            z-index: 20000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        .modal-comprobante img {
+            max-width: 90vw;
+            max-height: 90vh;
+            object-fit: contain;
         }
         
         @media (max-width: 640px) {
@@ -950,7 +987,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 </header>
 
 <main class="max-w-[1600px] mx-auto px-3 md:px-4 py-6 space-y-5">
-    <!-- Panel de totales -->
     <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
         <div class="grid grid-cols-1 md:grid-cols-7 gap-4">
             <div>
@@ -982,7 +1018,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         </div>
     </section>
 
-    <!-- Tabla principal -->
     <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
             <div>
@@ -992,7 +1027,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 </div>
             </div>
             <div class="flex flex-col md:flex-row gap-3 w-full md:w-auto">
-                <!-- NUEVO: Selector de estado -->
                 <select id="filtroEstado" class="rounded-lg border border-slate-300 px-3 py-2 text-sm min-w-[150px] bg-white">
                     <option value="">📊 Todos los estados</option>
                     <option value="pagado">✅ Pagado</option>
@@ -1014,25 +1048,26 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         </div>
 
         <div class="overflow-auto max-h-[70vh] rounded-xl border border-slate-200 table-sticky">
-            <table class="min-w-[1200px] w-full text-sm">
+            <table class="min-w-[1400px] w-full text-sm">
                 <thead class="bg-blue-600 text-white">
-                <tr>
-                    <th class="px-3 py-2 text-left">Conductor</th>
-                    <th class="px-3 py-2 text-right">Base</th>
-                    <th class="px-3 py-2 text-right">Ajuste</th>
-                    <th class="px-3 py-2 text-right">Llegó</th>
-                    <th class="px-3 py-2 text-right">Ret 3.5%</th>
-                    <th class="px-3 py-2 text-right">4x1000</th>
-                    <th class="px-3 py-2 text-right">Aporte 10%</th>
-                    <th class="px-3 py-2 text-right">Seg social</th>
-                    <th class="px-3 py-2 text-left">Préstamos</th>
-                    <th class="px-3 py-2 text-left">N° Cuenta</th>
-                    <th class="px-3 py-2 text-right">A pagar</th>
-                    <th class="px-3 py-2 text-center">Estado</th>
-                    <th class="px-3 py-2 text-center">
-                        <input type="checkbox" id="selectAllCheckbox" class="checkbox-conductor" title="Seleccionar todos">
-                    </th>
-                </tr>
+                    <tr>
+                        <th class="px-3 py-2 text-left">Conductor</th>
+                        <th class="px-3 py-2 text-right">Base</th>
+                        <th class="px-3 py-2 text-right">Ajuste</th>
+                        <th class="px-3 py-2 text-right">Llegó</th>
+                        <th class="px-3 py-2 text-right">Ret 3.5%</th>
+                        <th class="px-3 py-2 text-right">4x1000</th>
+                        <th class="px-3 py-2 text-right">Aporte 10%</th>
+                        <th class="px-3 py-2 text-right">Seg social</th>
+                        <th class="px-3 py-2 text-left">Préstamos</th>
+                        <th class="px-3 py-2 text-left">N° Cuenta</th>
+                        <th class="px-3 py-2 text-right">A pagar</th>
+                        <th class="px-3 py-2 text-center">Estado</th>
+                        <th class="px-3 py-2 text-center">Comprobante</th>
+                        <th class="px-3 py-2 text-center">
+                            <input type="checkbox" id="selectAllCheckbox" class="checkbox-conductor" title="Seleccionar todos">
+                        </th>
+                    </tr>
                 </thead>
                 <tbody id="tbody" class="divide-y divide-slate-100 bg-white">
                 <?php 
@@ -1079,24 +1114,41 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                             </select>
                         </td>
                         <td class="px-3 py-2 text-center">
+                            <div class="comprobante-container flex flex-col items-center gap-1">
+                                <input type="file" 
+                                       class="comprobante-file hidden" 
+                                       accept="image/*"
+                                       data-conductor="<?= htmlspecialchars($f['nombre']) ?>">
+                                <div class="comprobante-preview w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center border border-gray-300 hover:border-blue-500 cursor-pointer transition overflow-hidden"
+                                     onclick="this.previousElementSibling.click()">
+                                    <span class="text-gray-400 text-xs">📷</span>
+                                </div>
+                                <button type="button" 
+                                        class="btn-eliminar-comprobante hidden text-xs text-red-500 hover:text-red-700"
+                                        onclick="eliminarComprobante('<?= htmlspecialchars($f['nombre']) ?>')">
+                                    🗑️
+                                </button>
+                            </div>
+                        </td>
+                        <td class="px-3 py-2 text-center">
                             <input type="checkbox" class="checkbox-conductor selector-conductor">
                         </td>
                     </tr>
                 <?php endforeach; ?>
                 </tbody>
                 <tfoot class="bg-slate-50 font-semibold">
-                <tr>
-                    <td class="px-3 py-2" colspan="3">Totales</td>
-                    <td class="px-3 py-2 text-right num" id="tot_llego">0</td>
-                    <td class="px-3 py-2 text-right num" id="tot_ret">0</td>
-                    <td class="px-3 py-2 text-right num" id="tot_mil4">0</td>
-                    <td class="px-3 py-2 text-right num" id="tot_apor">0</td>
-                    <td class="px-3 py-2 text-right num" id="tot_ss">0</td>
-                    <td class="px-3 py-2 text-right num" id="tot_prest">0</td>
-                    <td class="px-3 py-2"></td>
-                    <td class="px-3 py-2 text-right num" id="tot_pagar">0</td>
-                    <td class="px-3 py-2" colspan="2"></td>
-                </tr>
+                    <tr>
+                        <td class="px-3 py-2" colspan="3">Totales</td>
+                        <td class="px-3 py-2 text-right num" id="tot_llego">0</td>
+                        <td class="px-3 py-2 text-right num" id="tot_ret">0</td>
+                        <td class="px-3 py-2 text-right num" id="tot_mil4">0</td>
+                        <td class="px-3 py-2 text-right num" id="tot_apor">0</td>
+                        <td class="px-3 py-2 text-right num" id="tot_ss">0</td>
+                        <td class="px-3 py-2 text-right num" id="tot_prest">0</td>
+                        <td class="px-3 py-2"></td>
+                        <td class="px-3 py-2 text-right num" id="tot_pagar">0</td>
+                        <td class="px-3 py-2" colspan="3"></td>
+                    </tr>
                 </tfoot>
             </table>
         </div>
@@ -1154,12 +1206,11 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- ===== MODAL PRÉSTAMOS CON DESGLOSE EN TARJETA NARANJA ===== -->
+<!-- Modal Préstamos -->
 <div id="prestModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-4 md:my-8 prest-modal-content bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden flex flex-col" style="width: 95%; max-width: 1200px; max-height: 98vh;">
         
-        <!-- HEADER -->
         <div class="px-4 md:px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-indigo-50 flex-none">
             <div class="flex items-center justify-between">
                 <h3 class="text-base md:text-lg font-semibold flex items-center gap-2">
@@ -1176,22 +1227,15 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                     <div class="text-xs text-slate-400 mt-1">Valor a pagar sin préstamos</div>
                 </div>
                 
-                <!-- TARJETA NARANJA CON TOTAL Y DESGLOSE -->
                 <div class="bg-white p-3 rounded-lg border border-amber-200">
                     <div class="text-xs text-slate-500 mb-1">📋 Préstamos seleccionados</div>
                     <div id="totalSeleccionado" class="text-lg md:text-xl font-bold text-amber-600 num">$0</div>
-                    
-                    <!-- DESGLOSE POR PRESTAMISTA (DENTRO DE LA MISMA TARJETA) -->
-                    <div id="desglosePrestamistas" class="desglose-prestamistas">
-                        <!-- Aquí se insertará dinámicamente el desglose -->
-                    </div>
-                    
+                    <div id="desglosePrestamistas" class="desglose-prestamistas"></div>
                     <div id="diferenciaDisponible" class="text-xs mt-2 font-medium"></div>
                 </div>
             </div>
         </div>
         
-        <!-- FILTROS -->
         <div class="px-4 md:px-6 py-3 border-b border-slate-200 bg-slate-50 flex-none">
             <div class="mb-3">
                 <label class="block text-xs font-medium text-slate-700 mb-2">
@@ -1220,7 +1264,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             </div>
         </div>
         
-        <!-- LISTA DE PRÉSTAMOS -->
         <div id="prestList" class="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-50 prest-list-container" style="min-height: 300px;">
             <div class="p-8 text-center text-slate-500">
                 <div class="text-5xl mb-3">📭</div>
@@ -1228,7 +1271,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             </div>
         </div>
         
-        <!-- FOOTER CON BOTÓN DE ASIGNAR (SE MANTIENE) -->
         <div class="flex-none border-t border-slate-200 bg-white p-4 md:p-6">
             <div class="mb-4 text-sm">
                 <div class="flex flex-wrap justify-between items-center gap-2">
@@ -1260,7 +1302,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                             class="flex-1 sm:flex-none rounded-lg border border-slate-300 px-5 py-2.5 bg-white hover:bg-slate-50 font-medium">
                         Cancelar
                     </button>
-                    <!-- BOTÓN DE ASIGNAR - SE MANTIENE IGUAL -->
                     <button id="btnAssign" 
                             class="flex-1 sm:flex-none rounded-lg border border-blue-600 px-6 py-2.5 bg-blue-600 text-white hover:bg-blue-700 font-medium shadow-lg">
                         ✅ Asignar selección
@@ -1332,7 +1373,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
             </div>
             
             <div class="text-xs text-slate-500 mt-2 p-3 bg-blue-50 rounded-xl">
-                <strong>📌 Nota:</strong> Se guardarán todos los datos: conductores, préstamos asignados (con los valores actuales), seguridad social, cuentas bancarias, estados de pago y filas manuales.
+                <strong>📌 Nota:</strong> Se guardarán todos los datos: conductores, préstamos asignados, seguridad social, cuentas bancarias, estados de pago, comprobantes de transferencia y filas manuales.
             </div>
         </div>
         <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
@@ -1342,7 +1383,7 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
     </div>
 </div>
 
-<!-- Modal Gestor de Cuentas CON FUNCIÓN DE FUSIÓN CORREGIDA -->
+<!-- Modal Gestor de Cuentas -->
 <div id="gestorCuentasModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-8 w-full max-w-6xl bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
@@ -1354,7 +1395,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
         </div>
         
         <div class="p-4 space-y-3">
-            <!-- Filtros y controles -->
             <div class="flex flex-col md:flex-row gap-3">
                 <select id="filtroEmpresaCuentas" class="rounded-xl border border-slate-300 px-3 py-2 min-w-[200px]">
                     <option value="">Todas las empresas</option>
@@ -1377,7 +1417,6 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 </button>
             </div>
             
-            <!-- Barra de acciones para fusión -->
             <div class="flex items-center justify-between bg-amber-50 p-3 rounded-xl border border-amber-200">
                 <div class="flex items-center gap-3">
                     <span class="text-sm font-medium text-amber-800">🔀 Acciones con seleccionadas:</span>
@@ -1396,22 +1435,21 @@ usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
                 Cargando cuentas desde Base de Datos...
             </div>
             
-            <!-- Tabla de cuentas con checkboxes -->
             <div class="overflow-auto max-h-[50vh] rounded-xl border border-slate-200">
                 <table class="min-w-full text-sm">
                     <thead class="bg-blue-600 text-white">
-                    <tr>
-                        <th class="px-3 py-2 text-center w-10">
-                            <input type="checkbox" id="selectAllCuentas" class="cuenta-checkbox" title="Seleccionar todas">
-                        </th>
-                        <th class="px-3 py-2 text-left">Nombre / Usuario</th>
-                        <th class="px-3 py-2 text-left">Empresas</th>
-                        <th class="px-3 py-2 text-left">Rango</th>
-                        <th class="px-3 py-2 text-right">Facturado</th>
-                        <th class="px-3 py-2 text-center">Estado</th>
-                        <th class="px-3 py-2 text-center">Fecha</th>
-                        <th class="px-3 py-2 text-right">Acciones</th>
-                    </tr>
+                        <tr>
+                            <th class="px-3 py-2 text-center w-10">
+                                <input type="checkbox" id="selectAllCuentas" class="cuenta-checkbox" title="Seleccionar todas">
+                            </th>
+                            <th class="px-3 py-2 text-left">Nombre / Usuario</th>
+                            <th class="px-3 py-2 text-left">Empresas</th>
+                            <th class="px-3 py-2 text-left">Rango</th>
+                            <th class="px-3 py-2 text-right">Facturado</th>
+                            <th class="px-3 py-2 text-center">Estado</th>
+                            <th class="px-3 py-2 text-center">Fecha</th>
+                            <th class="px-3 py-2 text-right">Acciones</th>
+                        </tr>
                     </thead>
                     <tbody id="tbodyCuentasBD" class="divide-y divide-slate-100 bg-white">
                         <tr>
@@ -1445,14 +1483,13 @@ const PREST_SEL_KEY = 'prestamo_sel_multi:v4:'+COMPANY_SCOPE;
 const ESTADO_PAGO_KEY = 'estado_pago_temp:'+COMPANY_SCOPE;
 const MANUAL_ROWS_KEY = 'filas_manuales_temp:'+COMPANY_SCOPE;
 const SELECTED_CONDUCTORS_KEY = 'conductores_seleccionados_temp:'+COMPANY_SCOPE;
+const COMPROBANTES_KEY = 'comprobantes_temp:'+COMPANY_SCOPE;
 const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 
 console.log('✅ Préstamos cargados:', PRESTAMOS_LIST.length);
 
-// ===== VARIABLE PARA CONTROLAR MODO HISTÓRICO =====
 let modoHistoricoActivo = false;
 
-// ===== FUNCIONES UTILITARIAS =====
 function toInt(s) {
     if (typeof s === 'number') return Math.round(s);
     s = (s || '').toString().replace(/\./g, '').replace(/,/g, '').replace(/[^\d-]/g, '');
@@ -1475,15 +1512,14 @@ function normalizarTexto(texto) {
     return texto.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
 }
 
-// ===== VARIABLES GLOBALES =====
 let accMap = getLS(ACC_KEY);
 let ssMap = getLS(SS_KEY);
 let prestSel = getLS(PREST_SEL_KEY) || {};
 let estadoPagoMap = getLS(ESTADO_PAGO_KEY) || {};
 let manualRows = JSON.parse(localStorage.getItem(MANUAL_ROWS_KEY) || '[]');
 let selectedConductors = JSON.parse(localStorage.getItem(SELECTED_CONDUCTORS_KEY) || '[]');
+let comprobantesMap = getLS(COMPROBANTES_KEY) || {};
 
-// ===== REFERENCIAS DOM =====
 const tbody = document.getElementById('tbody');
 const btnAddManual = document.getElementById('btnAddManual');
 const floatingPanel = document.getElementById('floatingPanel');
@@ -1495,7 +1531,6 @@ const clearBuscar = document.getElementById('clearBuscar');
 const contadorConductores = document.getElementById('contador-conductores');
 const filtroEstado = document.getElementById('filtroEstado');
 
-// ===== FUNCIÓN PARA OBTENER NOMBRE DE CONDUCTOR =====
 function obtenerNombreConductorDeFila(tr) {
     if (tr.classList.contains('fila-manual')) {
         const select = tr.querySelector('.conductor-select');
@@ -1506,19 +1541,112 @@ function obtenerNombreConductorDeFila(tr) {
     }
 }
 
-// ===== FUNCIÓN PARA OBTENER VALOR A PAGAR DE UNA FILA =====
 function obtenerValorAPagarFila(tr) {
     const pagarCell = tr.querySelector('.pagar');
     return pagarCell ? toInt(pagarCell.textContent) : 0;
 }
 
-// ===== FUNCIÓN PARA APLICAR ESTADO DE PAGO =====
 function aplicarEstadoFila(tr, estado) {
     tr.classList.remove('estado-pagado', 'estado-pendiente', 'estado-procesando', 'estado-parcial');
     if (estado) tr.classList.add(`estado-${estado}`);
 }
 
-// ===== FUNCIÓN PRINCIPAL PARA ASIGNAR PRÉSTAMOS A FILAS =====
+function actualizarPreviewComprobante(conductor, base64) {
+    const fila = Array.from(document.querySelectorAll('#tbody tr')).find(tr => {
+        return obtenerNombreConductorDeFila(tr) === conductor;
+    });
+    if (!fila) return;
+    
+    const previewDiv = fila.querySelector('.comprobante-preview');
+    const btnEliminar = fila.querySelector('.btn-eliminar-comprobante');
+    
+    if (base64) {
+        previewDiv.style.backgroundImage = `url(${base64})`;
+        previewDiv.style.backgroundSize = 'cover';
+        previewDiv.style.backgroundPosition = 'center';
+        previewDiv.innerHTML = '';
+        btnEliminar.classList.remove('hidden');
+    } else {
+        previewDiv.style.backgroundImage = '';
+        previewDiv.innerHTML = '<span class="text-gray-400 text-xs">📷</span>';
+        btnEliminar.classList.add('hidden');
+    }
+}
+
+function guardarComprobante(conductor, file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const base64 = e.target.result;
+            comprobantesMap[conductor] = base64;
+            setLS(COMPROBANTES_KEY, comprobantesMap);
+            actualizarPreviewComprobante(conductor, base64);
+            resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+function eliminarComprobante(conductor) {
+    Swal.fire({
+        title: '¿Eliminar comprobante?',
+        text: `¿Deseas eliminar el comprobante de ${conductor}?`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, eliminar',
+        cancelButtonText: 'Cancelar'
+    }).then(result => {
+        if (result.isConfirmed) {
+            delete comprobantesMap[conductor];
+            setLS(COMPROBANTES_KEY, comprobantesMap);
+            actualizarPreviewComprobante(conductor, null);
+            Swal.fire('Eliminado', 'Comprobante eliminado correctamente', 'success');
+        }
+    });
+}
+
+function verComprobanteGrande(conductor) {
+    const base64 = comprobantesMap[conductor];
+    if (!base64) return;
+    
+    const modal = document.createElement('div');
+    modal.className = 'modal-comprobante';
+    modal.onclick = () => modal.remove();
+    modal.innerHTML = `<img src="${base64}" alt="Comprobante de ${conductor}">`;
+    document.body.appendChild(modal);
+}
+
+function configurarEventosComprobante(tr, nombreConductor) {
+    const fileInput = tr.querySelector('.comprobante-file');
+    const previewDiv = tr.querySelector('.comprobante-preview');
+    
+    if (comprobantesMap[nombreConductor]) {
+        actualizarPreviewComprobante(nombreConductor, comprobantesMap[nombreConductor]);
+    }
+    
+    if (fileInput) {
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file && file.type.startsWith('image/')) {
+                await guardarComprobante(nombreConductor, file);
+            } else {
+                Swal.fire('Error', 'Por favor selecciona una imagen válida', 'error');
+            }
+            fileInput.value = '';
+        });
+    }
+    
+    if (previewDiv) {
+        previewDiv.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (comprobantesMap[nombreConductor]) {
+                verComprobanteGrande(nombreConductor);
+            }
+        });
+    }
+}
+
 function asignarPrestamosAFilas(usarValoresHistoricos = false) {
     modoHistoricoActivo = usarValoresHistoricos;
     
@@ -1585,9 +1713,10 @@ function asignarPrestamosAFilas(usarValoresHistoricos = false) {
     });
 }
 
-// ===== FUNCIÓN PARA AGREGAR FILA MANUAL =====
 function agregarFilaManual(manualIdFromLS = null) {
     const manualId = manualIdFromLS || ('manual_' + Date.now());
+    const CONDUCTORES_LIST = <?= json_encode($CONDUCTORES_LIST) ?>;
+    
     const nuevaFila = document.createElement('tr');
     nuevaFila.className = 'fila-manual';
     nuevaFila.dataset.manualId = manualId;
@@ -1634,6 +1763,18 @@ function agregarFilaManual(manualIdFromLS = null) {
             </select>
         </td>
         <td class="px-3 py-2 text-center">
+            <div class="comprobante-container flex flex-col items-center gap-1">
+                <input type="file" class="comprobante-file hidden" accept="image/*">
+                <div class="comprobante-preview w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center border border-gray-300 hover:border-blue-500 cursor-pointer transition overflow-hidden"
+                     onclick="this.previousElementSibling.click()">
+                    <span class="text-gray-400 text-xs">📷</span>
+                </div>
+                <button type="button" class="btn-eliminar-comprobante hidden text-xs text-red-500 hover:text-red-700">
+                    🗑️
+                </button>
+            </div>
+        </td>
+        <td class="px-3 py-2 text-center">
             <div class="flex items-center justify-center gap-2">
                 <input type="checkbox" class="checkbox-conductor selector-conductor">
                 <button type="button" class="btn-eliminar-manual text-xs px-2 py-1 rounded border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700">🗑️</button>
@@ -1654,7 +1795,6 @@ function agregarFilaManual(manualIdFromLS = null) {
     filtrarConductores();
 }
 
-// ===== CONFIGURAR EVENTOS PARA FILA =====
 function configurarEventosFila(tr) {
     const baseInput = tr.querySelector('.base-manual');
     const cta = tr.querySelector('.cta');
@@ -1664,6 +1804,9 @@ function configurarEventosFila(tr) {
     const btnPrest = tr.querySelector('.btn-prest');
     const conductorSelect = tr.querySelector('.conductor-select');
     const checkbox = tr.querySelector('.selector-conductor');
+    const fileInput = tr.querySelector('.comprobante-file');
+    const previewDiv = tr.querySelector('.comprobante-preview');
+    const btnEliminarComprobante = tr.querySelector('.btn-eliminar-comprobante');
 
     if (checkbox) {
         checkbox.addEventListener('change', () => {
@@ -1757,6 +1900,12 @@ function configurarEventosFila(tr) {
                 aplicarEstadoFila(tr, estadoPagoMap[newBaseName]);
             }
             
+            if (comprobantesMap[newBaseName]) {
+                actualizarPreviewComprobante(newBaseName, comprobantesMap[newBaseName]);
+            } else {
+                actualizarPreviewComprobante(newBaseName, null);
+            }
+            
             asignarPrestamosAFilas(modoHistoricoActivo);
             recalcularTodo();
             filtrarConductores();
@@ -1768,13 +1917,52 @@ function configurarEventosFila(tr) {
         if (nombreConductor) {
             if (cta && accMap[nombreConductor]) cta.value = accMap[nombreConductor];
             if (ss && ssMap[nombreConductor]) ss.value = fmt(ssMap[nombreConductor]).replace('$', '');
+            if (estadoPago && estadoPagoMap[nombreConductor]) {
+                estadoPago.value = estadoPagoMap[nombreConductor];
+                aplicarEstadoFila(tr, estadoPagoMap[nombreConductor]);
+            }
+            configurarEventosComprobante(tr, nombreConductor);
         }
+    }
+    
+    if (fileInput && previewDiv) {
+        const nombreConductor = conductorSelect ? conductorSelect.value : tr.querySelector('.conductor-link')?.textContent.trim();
+        if (nombreConductor && comprobantesMap[nombreConductor]) {
+            actualizarPreviewComprobante(nombreConductor, comprobantesMap[nombreConductor]);
+        }
+        
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            let nombre = conductorSelect ? conductorSelect.value : tr.querySelector('.conductor-link')?.textContent.trim();
+            if (nombre && file && file.type.startsWith('image/')) {
+                await guardarComprobante(nombre, file);
+            } else if (!nombre) {
+                Swal.fire('Error', 'Primero selecciona un conductor', 'error');
+            } else if (file && !file.type.startsWith('image/')) {
+                Swal.fire('Error', 'Por favor selecciona una imagen válida', 'error');
+            }
+            fileInput.value = '';
+        });
+        
+        if (btnEliminarComprobante) {
+            btnEliminarComprobante.onclick = () => {
+                let nombre = conductorSelect ? conductorSelect.value : tr.querySelector('.conductor-link')?.textContent.trim();
+                if (nombre) eliminarComprobante(nombre);
+            };
+        }
+        
+        previewDiv.addEventListener('click', (e) => {
+            e.stopPropagation();
+            let nombre = conductorSelect ? conductorSelect.value : tr.querySelector('.conductor-link')?.textContent.trim();
+            if (nombre && comprobantesMap[nombre]) {
+                verComprobanteGrande(nombre);
+            }
+        });
     }
 
     restaurarSeleccionCheckbox(tr);
 }
 
-// ===== PANEL FLOTANTE =====
 function actualizarPanelFlotante() {
     const checkboxes = document.querySelectorAll('#tbody .selector-conductor:checked');
     const count = checkboxes.length;
@@ -1837,7 +2025,6 @@ function restaurarSeleccionCheckbox(tr) {
     }
 }
 
-// ===== NUEVA FUNCIÓN PARA FILTRAR POR ESTADO =====
 function filtrarPorEstado() {
     const estadoSeleccionado = filtroEstado.value;
     const textoBusqueda = normalizarTexto(buscadorConductores.value);
@@ -1848,7 +2035,6 @@ function filtrarPorEstado() {
     tbody.querySelectorAll('tr').forEach(tr => {
         let mostrar = true;
         
-        // Filtrar por estado si hay uno seleccionado
         if (estadoSeleccionado) {
             const selectEstado = tr.querySelector('.estado-pago');
             const estadoActual = selectEstado ? selectEstado.value : '';
@@ -1857,7 +2043,6 @@ function filtrarPorEstado() {
             }
         }
         
-        // Filtrar por nombre si hay búsqueda
         if (mostrar && textoBusqueda) {
             const nombre = normalizarTexto(obtenerNombreConductorDeFila(tr));
             if (!nombre.includes(textoBusqueda)) {
@@ -1879,12 +2064,10 @@ function filtrarPorEstado() {
     actualizarPanelFlotante();
 }
 
-// ===== FILTRO DE CONDUCTORES (ACTUALIZADO) =====
 function filtrarConductores() {
-    filtrarPorEstado(); // Ahora usa la función combinada
+    filtrarPorEstado();
 }
 
-// ===== CÁLCULO PRINCIPAL =====
 function recalcularTodo() {
     const porcentaje = parseFloat(document.getElementById('inp_porcentaje_ajuste').value) || 0;
     const rows = [...tbody.querySelectorAll('tr')];
@@ -1944,7 +2127,6 @@ function recalcularTodo() {
     actualizarPanelFlotante();
 }
 
-// ===== PANEL ARRASTRABLE =====
 function hacerPanelArrastrable() {
     let isDragging = false, currentX, currentY, initialX, initialY, xOffset = 0, yOffset = 0;
     
@@ -1968,7 +2150,6 @@ function hacerPanelArrastrable() {
     document.addEventListener('mouseup', () => isDragging = false);
 }
 
-// ===== MODAL PRÉSTAMOS CON DESGLOSE EN TARJETA NARANJA =====
 let currentRow = null;
 let selectedIds = new Set();
 let conductorActual = '';
@@ -2104,7 +2285,6 @@ function renderizarListaPrestamos(prestamos) {
     actualizarDesglosePrestamistas();
 }
 
-// ===== NUEVA FUNCIÓN: ACTUALIZAR DESGLOSE DE PRESTAMISTAS EN TARJETA NARANJA =====
 function actualizarDesglosePrestamistas() {
     const seleccionados = PRESTAMOS_LIST.filter(p => selectedIds.has(p.id));
     const desgloseContainer = document.getElementById('desglosePrestamistas');
@@ -2114,7 +2294,6 @@ function actualizarDesglosePrestamistas() {
         return;
     }
     
-    // Agrupar por prestamista
     const prestamistasMap = new Map();
     seleccionados.forEach(p => {
         const key = p.prestamista;
@@ -2130,7 +2309,6 @@ function actualizarDesglosePrestamistas() {
         prestamista.cantidad++;
     });
     
-    // Generar HTML del desglose
     let html = '';
     prestamistasMap.forEach(prestamista => {
         html += `
@@ -2184,7 +2362,6 @@ function actualizarResumenSeleccion() {
     }
 }
 
-// ===== FUNCIÓN MODIFICADA - CORREGIDA =====
 function openPrestModalForRow(tr) {
     currentRow = tr;
     selectedIds = new Set();
@@ -2212,26 +2389,20 @@ function openPrestModalForRow(tr) {
         }
     });
     
-    // Pre-llenar con primeras 3 letras
     const primerasTresLetras = baseName.substring(0, 3).toLowerCase();
     const searchInput = document.getElementById('prestSearch');
     searchInput.value = primerasTresLetras;
     
-    // Cargar empresas y renderizar
     cargarEmpresasMultiSelect();
     renderizarListaPrestamos(PRESTAMOS_LIST);
-    
-    // Ejecutar el filtro con las 3 letras
     filtrarPrestamosMultiempresa();
     
     document.getElementById('prestValorManual').value = '';
     actualizarResumenSeleccion();
     actualizarDesglosePrestamistas();
     
-    // Mostrar el modal
     document.getElementById('prestModal').classList.remove('hidden');
     
-    // Poner cursor al final SIN seleccionar el texto
     searchInput.focus();
     searchInput.setSelectionRange(primerasTresLetras.length, primerasTresLetras.length);
 }
@@ -2243,7 +2414,6 @@ function closePrestModal() {
     conductorActual = '';
 }
 
-// ===== GESTIÓN DE CUENTAS GUARDADAS EN BD =====
 const saveCuentaModal = document.getElementById('saveCuentaModal');
 const btnShowSaveCuenta = document.getElementById('btnShowSaveCuenta');
 const btnCloseSaveCuenta = document.getElementById('btnCloseSaveCuenta');
@@ -2262,14 +2432,12 @@ const tbodyCuentasBD = document.getElementById('tbodyCuentasBD');
 const contadorCuentas = document.getElementById('contador-cuentas');
 const totalCuentasInfo = document.getElementById('totalCuentasInfo');
 
-// Elementos para fusión
 const selectAllCuentas = document.getElementById('selectAllCuentas');
 const btnFusionarSeleccionadas = document.getElementById('btnFusionarSeleccionadas');
 const cuentasSeleccionadasCount = document.getElementById('cuentasSeleccionadasCount');
 
 let cuentasSeleccionadas = new Set();
 
-// Modal guardar cuenta
 const iNombre = document.getElementById('cuenta_nombre');
 const iRango = document.getElementById('cuenta_rango');
 const iFacturado = document.getElementById('cuenta_facturado');
@@ -2357,6 +2525,11 @@ btnDoSaveCuenta.addEventListener('click', async () => {
         }
     });
     
+    const comprobantesParaGuardar = {};
+    for (const [conductor, base64] of Object.entries(comprobantesMap)) {
+        comprobantesParaGuardar[conductor] = base64;
+    }
+    
     const formData = new FormData();
     formData.append('accion', 'guardar_cuenta');
     formData.append('nombre', nombre);
@@ -2367,6 +2540,7 @@ btnDoSaveCuenta.addEventListener('click', async () => {
     formData.append('pagado', pagado);
     formData.append('empresas', JSON.stringify(empresas));
     formData.append('datos_json', JSON.stringify(datosParaGuardar));
+    formData.append('comprobantes_json', JSON.stringify(comprobantesParaGuardar));
     
     try {
         const response = await fetch('', { method: 'POST', body: formData });
@@ -2392,7 +2566,6 @@ btnDoSaveCuenta.addEventListener('click', async () => {
     }
 });
 
-// Función para actualizar el estado del botón de fusión
 function actualizarBotonFusion() {
     const seleccionadas = Array.from(cuentasSeleccionadas);
     cuentasSeleccionadasCount.textContent = seleccionadas.length;
@@ -2406,7 +2579,6 @@ function actualizarBotonFusion() {
     }
 }
 
-// Función para manejar selección de cuentas
 function manejarSeleccionCuenta(id, checked) {
     if (checked) {
         cuentasSeleccionadas.add(id);
@@ -2414,7 +2586,6 @@ function manejarSeleccionCuenta(id, checked) {
         cuentasSeleccionadas.delete(id);
     }
     
-    // Actualizar clase visual en la fila
     const fila = document.querySelector(`tr[data-cuenta-id="${id}"]`);
     if (fila) {
         if (checked) {
@@ -2520,24 +2691,20 @@ async function renderCuentasBD() {
         
         tbodyCuentasBD.innerHTML = html;
         
-        // Eventos para checkboxes de selección
         document.querySelectorAll('.cuenta-seleccion').forEach(cb => {
             cb.addEventListener('change', function() {
                 manejarSeleccionCuenta(parseInt(this.value), this.checked);
             });
         });
         
-        // Eventos para botones de cargar
         document.querySelectorAll('.btnCargarCuenta').forEach(btn => {
             btn.addEventListener('click', () => cargarCuentaCompletaBD(btn.dataset.id));
         });
         
-        // Eventos para botones de eliminar
         document.querySelectorAll('.btnEliminarCuenta').forEach(btn => {
             btn.addEventListener('click', () => eliminarCuentaBD(btn.dataset.id));
         });
         
-        // Eventos para switches de estado
         document.querySelectorAll('.switch-estado-cuenta').forEach(switchInput => {
             if (switchInput._handler) {
                 switchInput.removeEventListener('change', switchInput._handler);
@@ -2641,16 +2808,19 @@ async function cargarCuentaCompletaBD(id) {
             });
             
             const datos = cuenta.datos_json || {};
+            const comprobantesGuardados = cuenta.comprobantes_json || {};
             
             prestSel = datos.prestamos || {};
             ssMap = datos.segSocial || {};
             accMap = datos.cuentasBancarias || {};
             estadoPagoMap = datos.estadosPago || {};
+            comprobantesMap = comprobantesGuardados;
             
             setLS(PREST_SEL_KEY, prestSel);
             setLS(SS_KEY, ssMap);
             setLS(ACC_KEY, accMap);
             setLS(ESTADO_PAGO_KEY, estadoPagoMap);
+            setLS(COMPROBANTES_KEY, comprobantesMap);
             
             document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => tr.remove());
             manualRows = [];
@@ -2676,6 +2846,9 @@ async function cargarCuentaCompletaBD(id) {
                             if (fila.cuenta) accMap[fila.conductor] = fila.cuenta;
                             if (fila.segSocial) ssMap[fila.conductor] = fila.segSocial;
                             if (fila.estado) estadoPagoMap[fila.conductor] = fila.estado;
+                            if (comprobantesGuardados[fila.conductor]) {
+                                actualizarPreviewComprobante(fila.conductor, comprobantesGuardados[fila.conductor]);
+                            }
                         }
                     }
                 });
@@ -2699,6 +2872,11 @@ async function cargarCuentaCompletaBD(id) {
                             estado.value = estadoPagoMap[nombre];
                             aplicarEstadoFila(tr, estadoPagoMap[nombre]);
                         }
+                    }
+                    if (comprobantesMap[nombre]) {
+                        actualizarPreviewComprobante(nombre, comprobantesMap[nombre]);
+                    } else {
+                        actualizarPreviewComprobante(nombre, null);
                     }
                 }
             });
@@ -2750,7 +2928,6 @@ async function eliminarCuentaBD(id) {
         const resultado = await response.json();
         
         if (resultado.success) {
-            // Remover de seleccionadas si estaba
             cuentasSeleccionadas.delete(parseInt(id));
             await renderCuentasBD();
             Swal.fire('✅ Eliminada', 'Cuenta eliminada correctamente', 'success');
@@ -2762,7 +2939,6 @@ async function eliminarCuentaBD(id) {
     }
 }
 
-// Función para fusionar cuentas seleccionadas - CORREGIDA
 async function fusionarCuentasSeleccionadas() {
     const ids = Array.from(cuentasSeleccionadas);
     
@@ -2780,8 +2956,7 @@ async function fusionarCuentasSeleccionadas() {
         html: `
             <p>Vas a fusionar <strong>${ids.length} cuentas</strong>.</p>
             <p class="text-sm text-slate-600 mt-2">Los conductores que se repitan tendrán sus valores base <strong>SUMADOS</strong>.</p>
-            <p class="text-xs text-blue-600 mt-3">✅ Los préstamos, seguridad social y cuentas bancarias se dejarán <strong>VACÍOS</strong> para que los asignes manualmente.</p>
-            <p class="text-xs text-amber-600 mt-1">Después de asignarlos, al guardar la cuenta fusionada, TODO se guardará correctamente.</p>
+            <p class="text-xs text-blue-600 mt-3">✅ Los préstamos, seguridad social, cuentas bancarias y comprobantes se dejarán <strong>VACÍOS</strong> para que los asignes manualmente.</p>
         `,
         icon: 'question',
         showCancelButton: true,
@@ -2810,37 +2985,31 @@ async function fusionarCuentasSeleccionadas() {
         if (resultado.success) {
             const cuentaFusionada = resultado.cuenta_fusionada;
             
-            // Limpiar selecciones
             cuentasSeleccionadas.clear();
-            
-            // Cerrar modal de gestor
             closeGestor();
             
-            // Establecer los valores en el formulario principal
             document.getElementById('filtro_desde').value = cuentaFusionada.desde;
             document.getElementById('filtro_hasta').value = cuentaFusionada.hasta;
             
-            // Seleccionar las empresas de la fusión
             document.querySelectorAll('.empresa-checkbox input').forEach(cb => {
                 cb.checked = cuentaFusionada.empresas.includes(cb.value);
             });
             
-            // Limpiar datos actuales (préstamos, seguridad social, etc.) - TODOS VACÍOS
             prestSel = {};
             ssMap = {};
             accMap = {};
             estadoPagoMap = {};
+            comprobantesMap = {};
             
             setLS(PREST_SEL_KEY, prestSel);
             setLS(SS_KEY, ssMap);
             setLS(ACC_KEY, accMap);
             setLS(ESTADO_PAGO_KEY, estadoPagoMap);
+            setLS(COMPROBANTES_KEY, comprobantesMap);
             
-            // Eliminar filas manuales existentes
             document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => tr.remove());
             manualRows = [];
             
-            // Crear nuevas filas manuales con los valores base SUMADOS
             if (cuentaFusionada.datos_json.filasManuales && cuentaFusionada.datos_json.filasManuales.length > 0) {
                 cuentaFusionada.datos_json.filasManuales.forEach(fila => {
                     agregarFilaManual();
@@ -2851,28 +3020,22 @@ async function fusionarCuentasSeleccionadas() {
                         
                         if (select) select.value = fila.conductor;
                         if (baseInput) baseInput.value = fmt(fila.base).replace('$', '');
-                        
-                        // NO asignamos cuenta, segSocial ni estado - quedan vacíos
                     }
                 });
                 localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
             }
             
-            // Establecer el porcentaje de ajuste (promedio de las cuentas fusionadas)
             document.getElementById('inp_porcentaje_ajuste').value = cuentaFusionada.porcentaje_ajuste;
             
-            // Recalcular todo - esto aplicará todos los cálculos automáticos
             recalcularTodo();
             
-            // Cerrar SweetAlert y mostrar éxito
             Swal.fire({
                 title: '✅ Cuentas fusionadas',
                 html: `
                     <p>Se han fusionado <strong>${ids.length} cuentas</strong> exitosamente.</p>
                     <p class="text-sm mt-2">Los valores base de conductores repetidos se han <strong>SUMADO</strong>.</p>
-                    <p class="text-sm text-emerald-600">✓ Los cálculos (ajuste, retención, 4x1000, aporte) se han aplicado automáticamente.</p>
-                    <p class="text-xs text-blue-600 mt-3">⚠️ <strong>IMPORTANTE:</strong> Los préstamos, seguridad social y cuentas bancarias están VACÍOS.</p>
-                    <p class="text-xs text-blue-600">Ahora puedes asignarlos manualmente. Cuando guardes esta cuenta fusionada, TODO se guardará correctamente.</p>
+                    <p class="text-sm text-emerald-600">✓ Los cálculos se han aplicado automáticamente.</p>
+                    <p class="text-xs text-blue-600 mt-3">⚠️ <strong>IMPORTANTE:</strong> Los préstamos, seguridad social, cuentas bancarias y comprobantes están VACÍOS.</p>
                 `,
                 icon: 'success',
                 confirmButtonText: 'Continuar'
@@ -2887,7 +3050,6 @@ async function fusionarCuentasSeleccionadas() {
 }
 
 function openGestor() {
-    // Limpiar selecciones anteriores
     cuentasSeleccionadas.clear();
     
     fetch('?obtener_cuentas=1')
@@ -2915,7 +3077,6 @@ function closeGestor() {
     cuentasSeleccionadas.clear();
 }
 
-// Event listeners para gestor
 btnShowGestor.addEventListener('click', openGestor);
 btnCloseGestor.addEventListener('click', closeGestor);
 btnRecargarCuentas.addEventListener('click', renderCuentasBD);
@@ -2933,7 +3094,6 @@ btnAddDesdeFiltro.addEventListener('click', () => {
     setTimeout(() => openSaveCuenta(), 300);
 });
 
-// Select all cuentas
 selectAllCuentas?.addEventListener('change', function() {
     document.querySelectorAll('.cuenta-seleccion').forEach(cb => {
         cb.checked = this.checked;
@@ -2941,10 +3101,8 @@ selectAllCuentas?.addEventListener('change', function() {
     });
 });
 
-// Botón de fusión
 btnFusionarSeleccionadas?.addEventListener('click', fusionarCuentasSeleccionadas);
 
-// ===== MODAL PRÉSTAMOS EVENTOS =====
 document.getElementById('btnDeseleccionarTodos').addEventListener('click', () => {
     selectedIds.clear();
     
@@ -2971,7 +3129,6 @@ document.getElementById('prestValorManual').addEventListener('input', () => {
     actualizarDesglosePrestamistas();
 });
 
-// ===== INICIALIZACIÓN =====
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('btnSeleccionarTodas')?.addEventListener('click', () => {
         document.querySelectorAll('.empresa-checkbox input').forEach(cb => cb.checked = true);
@@ -2993,7 +3150,6 @@ document.addEventListener('DOMContentLoaded', function() {
     
     hacerPanelArrastrable();
     
-    // Event listeners para filtros
     filtroEstado.addEventListener('change', filtrarConductores);
     buscadorConductores.addEventListener('input', filtrarConductores);
     
