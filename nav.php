@@ -187,7 +187,7 @@ $hasta = date("Y-m-d");
     
     <div class="submenu">
       <!-- Hospital Maicao -->
-      <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresa=Hospital">
+      <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresas%5B%5D=Hospital&empresas%5B%5D=P.campa%C3%B1a-maicao">
         🏥 Hospital Maicao
       </a>
       
