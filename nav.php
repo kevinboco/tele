@@ -66,7 +66,8 @@ $hasta = date("Y-m-d");
 }
 
 /* ===== SUBMENÚ ===== */
-.liquidacion-btn {
+.liquidacion-btn,
+.pago-btn {
   position: relative;
 }
 
@@ -85,12 +86,14 @@ $hasta = date("Y-m-d");
 }
 
 /* Mostrar submenú al hacer hover */
-.liquidacion-btn:hover .submenu {
+.liquidacion-btn:hover .submenu,
+.pago-btn:hover .submenu {
   display: block !important;
 }
 
 /* PUENTE INVISIBLE para poder mover el mouse al submenú */
-.liquidacion-btn::after {
+.liquidacion-btn::after,
+.pago-btn::after {
   content: '';
   position: absolute;
   top: -5px;
@@ -159,7 +162,7 @@ $hasta = date("Y-m-d");
     <span>Informe</span>
   </a>
 
-  <!-- BOTÓN LIQUIDACIÓN CON SUBMENÚ (SE MANTIENE) -->
+  <!-- BOTÓN LIQUIDACIÓN CON SUBMENÚ -->
   <div class="rail-item liquidacion-btn">
     <img src="https://img.icons8.com/color/48/bill.png">
     <span>Liquidación</span>
@@ -177,14 +180,27 @@ $hasta = date("Y-m-d");
     </div>
   </div>
 
+  <!-- BOTÓN PAGO CON SUBMENÚ (NUEVO) -->
+  <div class="rail-item pago-btn">
+    <img src="https://img.icons8.com/color/48/paid.png">
+    <span>Pago</span>
+    
+    <div class="submenu">
+      <!-- Hospital Maicao -->
+      <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresa=Hospital">
+        🏥 Hospital Maicao
+      </a>
+      
+      <!-- Puestos de Salud -->
+      <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresas%5B%5D=P.flor+de+la+guajira&empresas%5B%5D=p.nazareth&empresas%5B%5D=P.paraiso&empresas%5B%5D=P.puerto+estrella&empresas%5B%5D=p.siapana&empresas%5B%5D=P.villa+F%C3%A1tima">
+        💊 Puestos de Salud
+      </a>
+    </div>
+  </div>
+
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/prueba.php?view=graph">
     <img src="https://img.icons8.com/color/48/share-3.png">
     <span>Mapa</span>
-  </a>
-
-  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresa=Hospital">
-    <img src="https://img.icons8.com/color/48/paid.png">
-    <span>Pago</span>
   </a>
 
   <!-- ===== NUEVOS BOTONES AGREGADOS ===== -->
