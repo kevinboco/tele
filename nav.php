@@ -1,5 +1,11 @@
 <?php
-$desde = "2026-01-31";
+// ===== FECHAS PARA HOSPITAL (tú las modificas manualmente) =====
+$desde_hospital = "2026-02-24";
+
+// ===== FECHAS PARA PUESTOS DE SALUD (tú las modificas manualmente) =====
+$desde_puestos = "2026-02-26";
+
+// Fecha hasta (siempre el día actual para ambos)
 $hasta = date("Y-m-d");
 ?>
 
@@ -13,7 +19,7 @@ $hasta = date("Y-m-d");
   height: 56px;
   border-radius: 50%;
   background: #111;
-  border: 1px solid #11f1f1f;
+  border: 1px solid #1f1f1f;
   cursor: pointer;
   z-index: 1002;
   color: white;
@@ -32,7 +38,7 @@ $hasta = date("Y-m-d");
   gap: 12px;
   padding: 10px;
   background: #0a0a0a;
-  border: 1px solid #11f1f1f;
+  border: 1px solid #1f1f1f;
   border-radius: 16px;
   transform: translateX(-120%);
   transition: transform 0.26s ease;
@@ -78,7 +84,7 @@ $hasta = date("Y-m-d");
   margin-left: 10px;
   display: none;
   background: #0a0a0a;
-  border: 1px solid #11f1f1f;
+  border: 1px solid #1f1f1f;
   border-radius: 12px;
   padding: 8px;
   min-width: 200px;
@@ -168,31 +174,31 @@ $hasta = date("Y-m-d");
     <span>Liquidación</span>
     
     <div class="submenu">
-      <!-- Hospital Maicao -->
-      <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresas%5B%5D=Hospital&empresas%5B%5D=P.campa%C3%B1a-maicao">
+      <!-- Hospital Maicao (usa fecha de hospital) -->
+      <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=<?= $desde_hospital ?>&hasta=<?= $hasta ?>&empresas%5B%5D=Hospital&empresas%5B%5D=P.campa%C3%B1a-maicao">
         🏥 Hospital Maicao
       </a>
       
-      <!-- Puestos de Salud -->
-      <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresas%5B%5D=P.flor+de+la+guajira&empresas%5B%5D=p.nazareth&empresas%5B%5D=P.paraiso&empresas%5B%5D=P.puerto+estrella&empresas%5B%5D=p.siapana&empresas%5B%5D=P.villa+F%C3%A1tima">
+      <!-- Puestos de Salud (usa fecha de puestos) -->
+      <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/liquidacion.php?desde=<?= $desde_puestos ?>&hasta=<?= $hasta ?>&empresas%5B%5D=P.flor+de+la+guajira&empresas%5B%5D=p.nazareth&empresas%5B%5D=P.paraiso&empresas%5B%5D=P.puerto+estrella&empresas%5B%5D=p.siapana&empresas%5B%5D=P.villa+F%C3%A1tima">
         💊 Puestos de Salud
       </a>
     </div>
   </div>
 
-  <!-- BOTÓN PAGO CON SUBMENÚ (NUEVO) -->
+  <!-- BOTÓN PAGO CON SUBMENÚ -->
   <div class="rail-item pago-btn">
     <img src="https://img.icons8.com/color/48/paid.png">
     <span>Pago</span>
     
     <div class="submenu">
-      <!-- Hospital Maicao -->
-      <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresas%5B%5D=Hospital&empresas%5B%5D=P.campa%C3%B1a-maicao">
+      <!-- Hospital Maicao (usa fecha de hospital) -->
+      <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago.php?desde=<?= $desde_hospital ?>&hasta=<?= $hasta ?>&empresas%5B%5D=Hospital&empresas%5B%5D=P.campa%C3%B1a-maicao">
         🏥 Hospital Maicao
       </a>
       
-      <!-- Puestos de Salud -->
-      <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago.php?desde=<?= $desde ?>&hasta=<?= $hasta ?>&empresas%5B%5D=P.flor+de+la+guajira&empresas%5B%5D=p.nazareth&empresas%5B%5D=P.paraiso&empresas%5B%5D=P.puerto+estrella&empresas%5B%5D=p.siapana&empresas%5B%5D=P.villa+F%C3%A1tima">
+      <!-- Puestos de Salud (usa fecha de puestos) -->
+      <a class="submenu-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/pago.php?desde=<?= $desde_puestos ?>&hasta=<?= $hasta ?>&empresas%5B%5D=P.flor+de+la+guajira&empresas%5B%5D=p.nazareth&empresas%5B%5D=P.paraiso&empresas%5B%5D=P.puerto+estrella&empresas%5B%5D=p.siapana&empresas%5B%5D=P.villa+F%C3%A1tima">
         💊 Puestos de Salud
       </a>
     </div>
@@ -203,7 +209,6 @@ $hasta = date("Y-m-d");
     <span>Mapa</span>
   </a>
 
-  <!-- ===== NUEVOS BOTONES AGREGADOS ===== -->
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/admin_prestamos.php?view=cards">
     <img src="https://img.icons8.com/color/48/edit-file.png">
     <span>Editar</span>
