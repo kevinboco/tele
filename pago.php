@@ -497,7 +497,7 @@ if (isset($_GET['viajes_conductor'])) {
                             ".htmlspecialchars($vehiculo)."
                         </span>
                     </td>
-                  </tr>";
+                 </tr>";
         }
     } else {
         $rowsHTML .= "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresas seleccionadas.</td></tr>";
@@ -1581,7 +1581,7 @@ let prestSel = getLS(PREST_SEL_KEY) || {};
 let estadoPagoMap = getLS(ESTADO_PAGO_KEY) || {};
 let manualRows = JSON.parse(localStorage.getItem(MANUAL_ROWS_KEY) || '[]');
 let selectedConductors = JSON.parse(localStorage.getItem(SELECTED_CONDUCTORS_KEY) || '[]');
-let comprobantesMap = {};
+let comprobantesMap = {}; // Ya no usamos localStorage, se cargarán desde BD
 
 const tbody = document.getElementById('tbody');
 const btnAddManual = document.getElementById('btnAddManual');
@@ -1594,12 +1594,14 @@ const clearBuscar = document.getElementById('clearBuscar');
 const contadorConductores = document.getElementById('contador-conductores');
 const filtroEstado = document.getElementById('filtroEstado');
 
+// Cargar comprobantes desde la base de datos al iniciar
 async function cargarComprobantesDesdeBD() {
     try {
         const response = await fetch('?obtener_comprobantes=1');
         const data = await response.json();
         comprobantesMap = data;
         
+        // Actualizar todas las previsualizaciones
         document.querySelectorAll('#tbody tr').forEach(tr => {
             let conductor = obtenerNombreConductorDeFila(tr);
             if (conductor && comprobantesMap[conductor]) {
@@ -2620,6 +2622,7 @@ btnDoSaveCuenta.addEventListener('click', async () => {
         }
     });
     
+    // Recoger todos los comprobantes actuales de la sesión
     const comprobantesParaGuardar = {};
     for (const [conductor, base64] of Object.entries(comprobantesMap)) {
         if (base64) {
@@ -2873,11 +2876,10 @@ async function actualizarEstadoCuenta(id, nuevoEstado, switchElement) {
     }
 }
 
-// FUNCIÓN MODIFICADA: CARGA LA CUENTA Y RECARGA LA PÁGINA
 async function cargarCuentaCompletaBD(id) {
     const confirmacion = await Swal.fire({
         title: '¿Cargar esta cuenta?',
-        text: 'Se recargará la página con los datos de la cuenta guardada',
+        text: 'Se restaurarán los valores de la cuenta guardada',
         icon: 'question',
         showCancelButton: true,
         confirmButtonText: 'Sí, cargar',
@@ -2887,13 +2889,6 @@ async function cargarCuentaCompletaBD(id) {
     if (!confirmacion.isConfirmed) return;
     
     try {
-        Swal.fire({
-            title: 'Cargando cuenta...',
-            text: 'Por favor espera',
-            allowOutsideClick: false,
-            didOpen: () => Swal.showLoading()
-        });
-        
         const formData = new FormData();
         formData.append('accion', 'cargar_cuenta');
         formData.append('id', id);
@@ -2904,44 +2899,104 @@ async function cargarCuentaCompletaBD(id) {
         if (resultado.success) {
             const cuenta = resultado.cuenta;
             
-            // Guardar en localStorage los datos de la cuenta cargada
+            document.getElementById('filtro_desde').value = cuenta.desde;
+            document.getElementById('filtro_hasta').value = cuenta.hasta;
+            
+            const empresasGuardadas = cuenta.empresas || [];
+            document.querySelectorAll('.empresa-checkbox input').forEach(cb => {
+                cb.checked = empresasGuardadas.includes(cb.value);
+            });
+            
             const datos = cuenta.datos_json || {};
             const comprobantesGuardados = cuenta.comprobantes_json || {};
             
-            // Guardar en localStorage para que se carguen al recargar la página
-            localStorage.setItem(PREST_SEL_KEY, JSON.stringify(datos.prestamos || {}));
-            localStorage.setItem(SS_KEY, JSON.stringify(datos.segSocial || {}));
-            localStorage.setItem(ACC_KEY, JSON.stringify(datos.cuentasBancarias || {}));
-            localStorage.setItem(ESTADO_PAGO_KEY, JSON.stringify(datos.estadosPago || {}));
+            prestSel = datos.prestamos || {};
+            ssMap = datos.segSocial || {};
+            accMap = datos.cuentasBancarias || {};
+            estadoPagoMap = datos.estadosPago || {};
+            comprobantesMap = comprobantesGuardados;
             
-            // Guardar filas manuales
+            setLS(PREST_SEL_KEY, prestSel);
+            setLS(SS_KEY, ssMap);
+            setLS(ACC_KEY, accMap);
+            setLS(ESTADO_PAGO_KEY, estadoPagoMap);
+            
+            document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => tr.remove());
+            manualRows = [];
+            
             if (datos.filasManuales && datos.filasManuales.length > 0) {
-                localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(datos.filasManuales.map((_, idx) => 'manual_' + Date.now() + '_' + idx)));
-            } else {
-                localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify([]));
+                datos.filasManuales.forEach(fila => {
+                    agregarFilaManual();
+                    const ultimaFila = tbody.querySelector('tr.fila-manual:last-child');
+                    if (ultimaFila) {
+                        const select = ultimaFila.querySelector('.conductor-select');
+                        const baseInput = ultimaFila.querySelector('.base-manual');
+                        const ctaInput = ultimaFila.querySelector('.cta');
+                        const ssInput = ultimaFila.querySelector('.ss');
+                        const estadoSelect = ultimaFila.querySelector('.estado-pago');
+                        
+                        if (select) select.value = fila.conductor;
+                        if (baseInput) baseInput.value = fmt(fila.base).replace('$', '');
+                        if (ctaInput) ctaInput.value = fila.cuenta;
+                        if (ssInput) ssInput.value = fmt(fila.segSocial).replace('$', '');
+                        if (estadoSelect) estadoSelect.value = fila.estado;
+                        
+                        if (fila.conductor) {
+                            if (fila.cuenta) accMap[fila.conductor] = fila.cuenta;
+                            if (fila.segSocial) ssMap[fila.conductor] = fila.segSocial;
+                            if (fila.estado) estadoPagoMap[fila.conductor] = fila.estado;
+                            if (comprobantesGuardados[fila.conductor]) {
+                                actualizarPreviewComprobante(fila.conductor, comprobantesGuardados[fila.conductor]);
+                            }
+                        }
+                    }
+                });
+                localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
             }
             
-            // Guardar comprobantes en la tabla temporal para la nueva sesión
-            for (const [conductor, base64] of Object.entries(comprobantesGuardados)) {
-                if (base64) {
-                    const subirForm = new FormData();
-                    subirForm.append('accion', 'subir_comprobante');
-                    subirForm.append('conductor', conductor);
-                    subirForm.append('imagen', base64);
-                    await fetch('', { method: 'POST', body: subirForm });
+            document.querySelectorAll('#tbody tr').forEach(tr => {
+                const nombre = obtenerNombreConductorDeFila(tr);
+                if (nombre) {
+                    if (accMap[nombre]) {
+                        const cta = tr.querySelector('.cta');
+                        if (cta) cta.value = accMap[nombre];
+                    }
+                    if (ssMap[nombre]) {
+                        const ss = tr.querySelector('.ss');
+                        if (ss) ss.value = fmt(ssMap[nombre]).replace('$', '');
+                    }
+                    if (estadoPagoMap[nombre]) {
+                        const estado = tr.querySelector('.estado-pago');
+                        if (estado) {
+                            estado.value = estadoPagoMap[nombre];
+                            aplicarEstadoFila(tr, estadoPagoMap[nombre]);
+                        }
+                    }
+                    if (comprobantesMap[nombre]) {
+                        actualizarPreviewComprobante(nombre, comprobantesMap[nombre]);
+                    } else {
+                        configurarEventosComprobante(tr, nombre);
+                    }
                 }
+            });
+            
+            asignarPrestamosAFilas(true);
+            
+            if (cuenta.porcentaje_ajuste) {
+                document.getElementById('inp_porcentaje_ajuste').value = cuenta.porcentaje_ajuste;
             }
             
-            // Construir URL con los parámetros de la cuenta guardada
-            const params = new URLSearchParams();
-            params.append('desde', cuenta.desde);
-            params.append('hasta', cuenta.hasta);
-            (cuenta.empresas || []).forEach(emp => params.append('empresas[]', emp));
+            recalcularTodo();
+            closeGestor();
             
-            Swal.close();
-            
-            // Recargar la página con los nuevos parámetros
-            window.location.href = '?' + params.toString();
+            Swal.fire({
+                title: '✅ Cuenta cargada',
+                text: `"${cuenta.nombre}" cargada exitosamente con ${Object.keys(comprobantesGuardados).length} comprobantes`,
+                icon: 'success',
+                timer: 3000,
+                showConfirmButton: true,
+                confirmButtonText: 'Continuar'
+            });
             
         } else {
             throw new Error(resultado.message);
