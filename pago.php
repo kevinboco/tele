@@ -20,6 +20,19 @@ function norm_person($s){
   return $s;
 }
 
+// Crear tabla de comprobantes temporales si no existe
+$conn->query("
+CREATE TABLE IF NOT EXISTS comprobantes_temporales (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    conductor VARCHAR(255) NOT NULL,
+    imagen_base64 LONGTEXT NOT NULL,
+    session_id VARCHAR(255) NOT NULL,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_conductor (conductor),
+    INDEX idx_session (session_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+");
+
 // Verificar si la columna comprobantes_json existe, si no, crearla
 $result = $conn->query("SHOW COLUMNS FROM cuentas_guardadas LIKE 'comprobantes_json'");
 if ($result->num_rows == 0) {
@@ -56,6 +69,64 @@ CREATE TABLE IF NOT EXISTS cuentas_guardadas_empresas (
 ");
 
 /* ================= AJAX HANDLERS ================= */
+
+// Endpoint para subir comprobante temporal
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'subir_comprobante') {
+    header('Content-Type: application/json');
+    
+    $conductor = $conn->real_escape_string($_POST['conductor'] ?? '');
+    $imagen_base64 = $_POST['imagen'] ?? '';
+    $session_id = session_id();
+    
+    if (empty($conductor) || empty($imagen_base64)) {
+        echo json_encode(['success' => false, 'message' => 'Datos incompletos']);
+        exit;
+    }
+    
+    // Eliminar comprobante anterior del mismo conductor en esta sesión
+    $conn->query("DELETE FROM comprobantes_temporales WHERE conductor = '$conductor' AND session_id = '$session_id'");
+    
+    // Guardar nuevo comprobante
+    $sql = "INSERT INTO comprobantes_temporales (conductor, imagen_base64, session_id) 
+            VALUES ('$conductor', '$imagen_base64', '$session_id')";
+    
+    if ($conn->query($sql)) {
+        echo json_encode(['success' => true, 'message' => 'Comprobante guardado']);
+    } else {
+        echo json_encode(['success' => false, 'message' => $conn->error]);
+    }
+    exit;
+}
+
+// Endpoint para eliminar comprobante temporal
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'eliminar_comprobante') {
+    header('Content-Type: application/json');
+    
+    $conductor = $conn->real_escape_string($_POST['conductor'] ?? '');
+    $session_id = session_id();
+    
+    $conn->query("DELETE FROM comprobantes_temporales WHERE conductor = '$conductor' AND session_id = '$session_id'");
+    
+    echo json_encode(['success' => true]);
+    exit;
+}
+
+// Endpoint para obtener comprobantes de la sesión actual
+if (isset($_GET['obtener_comprobantes'])) {
+    header('Content-Type: application/json');
+    
+    $session_id = session_id();
+    $result = $conn->query("SELECT conductor, imagen_base64 FROM comprobantes_temporales WHERE session_id = '$session_id'");
+    
+    $comprobantes = [];
+    while ($row = $result->fetch_assoc()) {
+        $comprobantes[$row['conductor']] = $row['imagen_base64'];
+    }
+    
+    echo json_encode($comprobantes);
+    exit;
+}
+
 if (isset($_GET['obtener_cuentas'])) {
     header('Content-Type: application/json');
     
@@ -146,6 +217,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
                 throw new Exception("Error al guardar empresa: " . $conn->error);
             }
         }
+        
+        // Limpiar comprobantes temporales después de guardar
+        $session_id = session_id();
+        $conn->query("DELETE FROM comprobantes_temporales WHERE session_id = '$session_id'");
         
         $conn->commit();
         echo json_encode(['success' => true, 'id' => $cuenta_id, 'message' => 'Cuenta guardada exitosamente']);
@@ -422,7 +497,7 @@ if (isset($_GET['viajes_conductor'])) {
                             ".htmlspecialchars($vehiculo)."
                         </span>
                     </td>
-                </tr>";
+                 </tr>";
         }
     } else {
         $rowsHTML .= "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresas seleccionadas.</td></tr>";
@@ -1474,7 +1549,6 @@ const PREST_SEL_KEY = 'prestamo_sel_multi:v4:'+COMPANY_SCOPE;
 const ESTADO_PAGO_KEY = 'estado_pago_temp:'+COMPANY_SCOPE;
 const MANUAL_ROWS_KEY = 'filas_manuales_temp:'+COMPANY_SCOPE;
 const SELECTED_CONDUCTORS_KEY = 'conductores_seleccionados_temp:'+COMPANY_SCOPE;
-const COMPROBANTES_KEY = 'comprobantes_temp:'+COMPANY_SCOPE;
 const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 
 let modoHistoricoActivo = false;
@@ -1507,7 +1581,7 @@ let prestSel = getLS(PREST_SEL_KEY) || {};
 let estadoPagoMap = getLS(ESTADO_PAGO_KEY) || {};
 let manualRows = JSON.parse(localStorage.getItem(MANUAL_ROWS_KEY) || '[]');
 let selectedConductors = JSON.parse(localStorage.getItem(SELECTED_CONDUCTORS_KEY) || '[]');
-let comprobantesMap = getLS(COMPROBANTES_KEY) || {};
+let comprobantesMap = {}; // Ya no usamos localStorage, se cargarán desde BD
 
 const tbody = document.getElementById('tbody');
 const btnAddManual = document.getElementById('btnAddManual');
@@ -1520,24 +1594,84 @@ const clearBuscar = document.getElementById('clearBuscar');
 const contadorConductores = document.getElementById('contador-conductores');
 const filtroEstado = document.getElementById('filtroEstado');
 
-function obtenerNombreConductorDeFila(tr) {
-    if (tr.classList.contains('fila-manual')) {
-        const select = tr.querySelector('.conductor-select');
-        return select ? select.value.trim() : '';
-    } else {
-        const link = tr.querySelector('.conductor-link');
-        return link ? link.textContent.trim() : '';
+// Cargar comprobantes desde la base de datos al iniciar
+async function cargarComprobantesDesdeBD() {
+    try {
+        const response = await fetch('?obtener_comprobantes=1');
+        const data = await response.json();
+        comprobantesMap = data;
+        
+        // Actualizar todas las previsualizaciones
+        document.querySelectorAll('#tbody tr').forEach(tr => {
+            let conductor = obtenerNombreConductorDeFila(tr);
+            if (conductor && comprobantesMap[conductor]) {
+                actualizarPreviewComprobante(conductor, comprobantesMap[conductor]);
+            }
+        });
+    } catch (error) {
+        console.error('Error cargando comprobantes:', error);
     }
 }
 
-function obtenerValorAPagarFila(tr) {
-    const pagarCell = tr.querySelector('.pagar');
-    return pagarCell ? toInt(pagarCell.textContent) : 0;
+async function subirComprobante(conductor, file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = async function(e) {
+            const base64 = e.target.result;
+            
+            try {
+                const formData = new FormData();
+                formData.append('accion', 'subir_comprobante');
+                formData.append('conductor', conductor);
+                formData.append('imagen', base64);
+                
+                const response = await fetch('', { method: 'POST', body: formData });
+                const resultado = await response.json();
+                
+                if (resultado.success) {
+                    comprobantesMap[conductor] = base64;
+                    actualizarPreviewComprobante(conductor, base64);
+                    resolve(base64);
+                } else {
+                    reject(new Error(resultado.message));
+                }
+            } catch (error) {
+                reject(error);
+            }
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
 }
 
-function aplicarEstadoFila(tr, estado) {
-    tr.classList.remove('estado-pagado', 'estado-pendiente', 'estado-procesando', 'estado-parcial');
-    if (estado) tr.classList.add(`estado-${estado}`);
+async function eliminarComprobante(conductor) {
+    const result = await Swal.fire({
+        title: '¿Eliminar comprobante?',
+        text: `¿Deseas eliminar el comprobante de ${conductor}?`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, eliminar',
+        cancelButtonText: 'Cancelar'
+    });
+    
+    if (result.isConfirmed) {
+        try {
+            const formData = new FormData();
+            formData.append('accion', 'eliminar_comprobante');
+            formData.append('conductor', conductor);
+            
+            const response = await fetch('', { method: 'POST', body: formData });
+            const resultado = await response.json();
+            
+            if (resultado.success) {
+                delete comprobantesMap[conductor];
+                actualizarPreviewComprobante(conductor, null);
+                Swal.fire('Eliminado', 'Comprobante eliminado correctamente', 'success');
+            }
+        } catch (error) {
+            Swal.fire('Error', 'No se pudo eliminar el comprobante', 'error');
+        }
+    }
 }
 
 function actualizarPreviewComprobante(conductor, base64) {
@@ -1563,39 +1697,6 @@ function actualizarPreviewComprobante(conductor, base64) {
     }
 }
 
-function guardarComprobante(conductor, file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const base64 = e.target.result;
-            comprobantesMap[conductor] = base64;
-            setLS(COMPROBANTES_KEY, comprobantesMap);
-            actualizarPreviewComprobante(conductor, base64);
-            resolve(base64);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-    });
-}
-
-function eliminarComprobante(conductor) {
-    Swal.fire({
-        title: '¿Eliminar comprobante?',
-        text: `¿Deseas eliminar el comprobante de ${conductor}?`,
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonText: 'Sí, eliminar',
-        cancelButtonText: 'Cancelar'
-    }).then(result => {
-        if (result.isConfirmed) {
-            delete comprobantesMap[conductor];
-            setLS(COMPROBANTES_KEY, comprobantesMap);
-            actualizarPreviewComprobante(conductor, null);
-            Swal.fire('Eliminado', 'Comprobante eliminado correctamente', 'success');
-        }
-    });
-}
-
 function verComprobanteGrande(conductor) {
     const base64 = comprobantesMap[conductor];
     if (!base64) return;
@@ -1617,19 +1718,38 @@ function configurarEventosComprobante(tr, nombreConductor) {
     }
     
     if (fileInput) {
-        fileInput.addEventListener('change', async (e) => {
+        const newFileInput = fileInput.cloneNode(true);
+        fileInput.parentNode.replaceChild(newFileInput, fileInput);
+        
+        newFileInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (file && file.type.startsWith('image/')) {
-                await guardarComprobante(nombreConductor, file);
+                Swal.fire({
+                    title: 'Subiendo...',
+                    text: 'Guardando comprobante en la base de datos',
+                    allowOutsideClick: false,
+                    didOpen: () => Swal.showLoading()
+                });
+                
+                try {
+                    await subirComprobante(nombreConductor, file);
+                    Swal.close();
+                    Swal.fire('Éxito', 'Comprobante guardado correctamente', 'success');
+                } catch (error) {
+                    Swal.close();
+                    Swal.fire('Error', 'No se pudo guardar el comprobante', 'error');
+                }
             } else if (file) {
                 Swal.fire('Error', 'Por favor selecciona una imagen válida', 'error');
             }
-            fileInput.value = '';
+            newFileInput.value = '';
         });
     }
     
     if (previewDiv) {
-        previewDiv.addEventListener('click', (e) => {
+        const oldPreview = previewDiv.cloneNode(true);
+        previewDiv.parentNode.replaceChild(oldPreview, previewDiv);
+        oldPreview.addEventListener('click', (e) => {
             e.stopPropagation();
             if (comprobantesMap[nombreConductor]) {
                 verComprobanteGrande(nombreConductor);
@@ -1640,6 +1760,26 @@ function configurarEventosComprobante(tr, nombreConductor) {
     if (btnEliminar) {
         btnEliminar.onclick = () => eliminarComprobante(nombreConductor);
     }
+}
+
+function obtenerNombreConductorDeFila(tr) {
+    if (tr.classList.contains('fila-manual')) {
+        const select = tr.querySelector('.conductor-select');
+        return select ? select.value.trim() : '';
+    } else {
+        const link = tr.querySelector('.conductor-link');
+        return link ? link.textContent.trim() : '';
+    }
+}
+
+function obtenerValorAPagarFila(tr) {
+    const pagarCell = tr.querySelector('.pagar');
+    return pagarCell ? toInt(pagarCell.textContent) : 0;
+}
+
+function aplicarEstadoFila(tr, estado) {
+    tr.classList.remove('estado-pagado', 'estado-pendiente', 'estado-procesando', 'estado-parcial');
+    if (estado) tr.classList.add(`estado-${estado}`);
 }
 
 function asignarPrestamosAFilas(usarValoresHistoricos = false) {
@@ -2448,7 +2588,6 @@ btnShowSaveCuenta.addEventListener('click', openSaveCuenta);
 btnCloseSaveCuenta.addEventListener('click', closeSaveCuenta);
 btnCancelSaveCuenta.addEventListener('click', closeSaveCuenta);
 
-// ===== FUNCIÓN CORREGIDA PARA GUARDAR CUENTA CON COMPROBANTES =====
 btnDoSaveCuenta.addEventListener('click', async () => {
     const nombre = iNombre.value.trim();
     if (!nombre) {
@@ -2483,24 +2622,13 @@ btnDoSaveCuenta.addEventListener('click', async () => {
         }
     });
     
-    // CAPTURAR TODOS LOS COMPROBANTES DE TODAS LAS FILAS
+    // Recoger todos los comprobantes actuales de la sesión
     const comprobantesParaGuardar = {};
-    
-    document.querySelectorAll('#tbody tr').forEach(tr => {
-        let conductor = obtenerNombreConductorDeFila(tr);
-        if (conductor && comprobantesMap[conductor]) {
-            comprobantesParaGuardar[conductor] = comprobantesMap[conductor];
-        }
-    });
-    
-    // También agregar comprobantes de conductores que puedan estar en comprobantesMap pero no en la tabla
     for (const [conductor, base64] of Object.entries(comprobantesMap)) {
-        if (!comprobantesParaGuardar[conductor] && base64) {
+        if (base64) {
             comprobantesParaGuardar[conductor] = base64;
         }
     }
-    
-    console.log('Comprobantes a guardar:', Object.keys(comprobantesParaGuardar).length);
     
     const formData = new FormData();
     formData.append('accion', 'guardar_cuenta');
@@ -2792,7 +2920,6 @@ async function cargarCuentaCompletaBD(id) {
             setLS(SS_KEY, ssMap);
             setLS(ACC_KEY, accMap);
             setLS(ESTADO_PAGO_KEY, estadoPagoMap);
-            setLS(COMPROBANTES_KEY, comprobantesMap);
             
             document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => tr.remove());
             manualRows = [];
@@ -2847,6 +2974,8 @@ async function cargarCuentaCompletaBD(id) {
                     }
                     if (comprobantesMap[nombre]) {
                         actualizarPreviewComprobante(nombre, comprobantesMap[nombre]);
+                    } else {
+                        configurarEventosComprobante(tr, nombre);
                     }
                 }
             });
@@ -2975,7 +3104,6 @@ async function fusionarCuentasSeleccionadas() {
             setLS(SS_KEY, ssMap);
             setLS(ACC_KEY, accMap);
             setLS(ESTADO_PAGO_KEY, estadoPagoMap);
-            setLS(COMPROBANTES_KEY, comprobantesMap);
             
             document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => tr.remove());
             manualRows = [];
@@ -3203,6 +3331,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     setTimeout(recalcularTodo, 100);
+    cargarComprobantesDesdeBD();
     
     window.abrirModalViajes = function(nombre) {
         document.getElementById('viajesTitle').textContent = nombre;
