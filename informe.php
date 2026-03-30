@@ -266,7 +266,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                 // Buscar coincidencia en nombre o cédula
                 const coincide = busqueda === '' || 
                                 nombre.startsWith(busqueda) || 
-                                cedula.includes(busqueda);
+                                cedula.startsWith(busqueda);
                 
                 if (coincide) {
                     item.style.display = '';
