@@ -24,6 +24,9 @@ function obtenerTipoVehiculo($tipo) {
     if (stripos($tipo, 'burbuja') !== false) {
         return 'Camioneta Burbuja 4x4 Doble Cabina';
     }
+    if (stripos($tipo, 'carrotanque') !== false) {
+        return 'Carrotanque';
+    }
     return $tipo ?: '-';
 }
 
@@ -54,7 +57,7 @@ function formatearMoneda($valor) {
 
 // Función para asignar conductores evitando repeticiones consecutivas (máximo 2 veces seguidas)
 function asignarConductorConRegla($conductoresLista, $ultimoConductor, $consecutivos) {
-    // Si no hay último conductor o todos tienen ya 2 consecutivos, permitir cualquiera
+    // Si no hay último conductor, elegir aleatorio
     if ($ultimoConductor === null) {
         return $conductoresLista[array_rand($conductoresLista)];
     }
@@ -79,6 +82,18 @@ function asignarConductorConRegla($conductoresLista, $ultimoConductor, $consecut
     }
     
     return $opciones[array_rand($opciones)];
+}
+
+// Función para verificar si un conductor es de carrotanque
+function esConductorCarrotanque($conn, $nombreConductor) {
+    $nombreEscapado = $conn->real_escape_string($nombreConductor);
+    $sql = "SELECT tipo_vehiculo FROM viajes WHERE nombre = '$nombreEscapado' AND tipo_vehiculo IS NOT NULL ORDER BY fecha DESC LIMIT 1";
+    $result = $conn->query($sql);
+    if ($result && $row = $result->fetch_assoc()) {
+        $tipo = strtolower(trim($row['tipo_vehiculo']));
+        return strpos($tipo, 'carrotanque') !== false;
+    }
+    return false;
 }
 
 // Si no se han enviado parámetros, mostramos formulario
@@ -154,6 +169,14 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                 color: #6c757d;
                 margin-top: 5px;
             }
+            .badge-carrotanque {
+                background-color: #ffc107;
+                color: #000;
+                font-size: 0.7em;
+                padding: 2px 6px;
+                border-radius: 10px;
+                margin-left: 8px;
+            }
         </style>
     </head>
     <body class="bg-light p-4">
@@ -206,7 +229,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                         <div class="card-header">
                             <div class="row">
                                 <div class="col-md-8">
-                                    <input type="text" id="buscadorConductores" class="form-control buscar-input" placeholder="🔍 Buscar conductor por nombre o cédula...">
+                                    <input type="text" id="buscadorConductores" class="form-control buscar-input" placeholder="🔍 Buscar conductor por nombre...">
                                     <div class="resultado-busqueda" id="resultadoBusqueda"></div>
                                 </div>
                                 <div class="col-md-4 text-end">
@@ -217,19 +240,23 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                         </div>
                         <div class="card-body" style="max-height: 400px; overflow-y: auto;">
                             <div id="listaConductores">
-                                <?php foreach($todosConductores as $index => $cond): ?>
-                                <div class="conductor-item" data-nombre="<?= strtolower(htmlspecialchars($cond['nombre'])) ?>" data-cedula="<?= strtolower(htmlspecialchars($cond['cedula'] ?? '')) ?>" data-nombre-original="<?= htmlspecialchars($cond['nombre']) ?>">
+                                <?php foreach($todosConductores as $index => $cond): 
+                                    $esCarrotanque = strpos(strtolower($cond['tipo_vehiculo'] ?? ''), 'carrotanque') !== false;
+                                ?>
+                                <div class="conductor-item" data-nombre="<?= strtolower(htmlspecialchars($cond['nombre'])) ?>" data-nombre-original="<?= htmlspecialchars($cond['nombre']) ?>">
                                     <div class="form-check">
                                         <input class="form-check-input conductor-checkbox" type="checkbox" 
                                                name="conductores_seleccionados[]" value="<?= htmlspecialchars($cond['nombre']) ?>" 
                                                id="conductor_<?= $index ?>"
                                                data-nombre="<?= htmlspecialchars($cond['nombre']) ?>"
-                                               data-cedula="<?= htmlspecialchars($cond['cedula'] ?? '') ?>"
                                                data-vehiculo="<?= htmlspecialchars($cond['tipo_vehiculo']) ?>">
                                         <label class="form-check-label" for="conductor_<?= $index ?>">
                                             <strong><?= htmlspecialchars($cond['nombre']) ?></strong>
                                             <?php if(!empty($cond['cedula'])): ?>
                                                 <span class="text-muted">(Cédula: <?= htmlspecialchars($cond['cedula']) ?>)</span>
+                                            <?php endif; ?>
+                                            <?php if($esCarrotanque): ?>
+                                                <span class="badge-carrotanque">🚛 Carrotanque (Único - Respetar conductor real)</span>
                                             <?php endif; ?>
                                             <br><small class="text-secondary">Vehículo: <?= htmlspecialchars(obtenerTipoVehiculo($cond['tipo_vehiculo'])) ?></small>
                                         </label>
@@ -239,7 +266,10 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                             </div>
                         </div>
                     </div>
-                    <small class="text-muted">Seleccione los conductores que deben aparecer en el informe. Los viajes se distribuirán aleatoriamente entre los seleccionados, evitando que un mismo conductor aparezca más de 2 veces seguidas.</small>
+                    <small class="text-muted">
+                        ⚠️ <strong>Importante:</strong> Los conductores de carrotanque (solo hay uno) mantendrán su nombre real en los viajes que realizaron. 
+                        Los demás conductores se distribuirán aleatoriamente entre los viajes, evitando que un mismo conductor aparezca más de 2 veces seguidas.
+                    </small>
                 </div>
             </div>
             <div class="mt-3">
@@ -250,7 +280,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
     </div>
     
     <script>
-        // Buscador de conductores mejorado
+        // Buscador de conductores - FILTRO DESDE EL INICIO (startsWith)
         const buscador = document.getElementById('buscadorConductores');
         const conductoresItems = document.querySelectorAll('.conductor-item');
         const resultadoBusqueda = document.getElementById('resultadoBusqueda');
@@ -261,12 +291,10 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
             
             conductoresItems.forEach(item => {
                 const nombre = item.getAttribute('data-nombre') || '';
-                const cedula = item.getAttribute('data-cedula') || '';
                 
-                // Buscar coincidencia en nombre o cédu
-                const coincide = busqueda === '' || 
-                                nombre.startsWith(busqueda) || 
-                                cedula.startsWith(busqueda);
+                // FILTRO: Busca desde el inicio del nombre (startsWith)
+                // Ejemplo: si escribo "Ju" muestra "Juan", "Julio" pero no "Mario" ni "Jose" si no empieza con "Ju"
+                const coincide = busqueda === '' || nombre.startsWith(busqueda);
                 
                 if (coincide) {
                     item.style.display = '';
@@ -278,9 +306,9 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
             
             // Actualizar contador de resultados
             if (busqueda === '') {
-                resultadoBusqueda.innerHTML = `Mostrando ${contadorVisibles} conductores`;
+                resultadoBusqueda.innerHTML = `📋 Mostrando ${contadorVisibles} conductores`;
             } else {
-                resultadoBusqueda.innerHTML = `🔍 Se encontraron ${contadorVisibles} conductores que coinciden con "${buscador.value}"`;
+                resultadoBusqueda.innerHTML = `🔍 Se encontraron ${contadorVisibles} conductores que empiezan con "${buscador.value}"`;
             }
         }
         
@@ -387,6 +415,14 @@ if (!empty($empresasSeleccionadas)) {
     $condicionEmpresa = " AND v.empresa IN (" . implode(",", $empresasEscapadas) . ")";
 }
 
+// ========== IDENTIFICAR CONDUCTORES DE CARROTANQUE ==========
+$conductoresCarrotanque = [];
+foreach ($conductoresSeleccionados as $conductor) {
+    if (esConductorCarrotanque($conn, $conductor)) {
+        $conductoresCarrotanque[] = $conductor;
+    }
+}
+
 // ========== OBTENER DATOS DE LOS CONDUCTORES SELECCIONADOS ==========
 $conductoresInfo = [];
 foreach ($conductoresSeleccionados as $conductorNombre) {
@@ -401,15 +437,15 @@ foreach ($conductoresSeleccionados as $conductorNombre) {
     if ($resInfo && $row = $resInfo->fetch_assoc()) {
         $conductoresInfo[] = $row;
     } else {
-        // Si no se encuentra información, agregar solo el nombre
         $conductoresInfo[] = ['nombre' => $conductorNombre, 'cedula' => 'N/A', 'tipo_vehiculo' => ''];
     }
 }
 
-// ========== CONSULTA PRINCIPAL - OBTENER TODOS LOS VIAJES SIN FILTRAR POR CONDUCTOR ==========
+// ========== CONSULTA PRINCIPAL - OBTENER TODOS LOS VIAJES ==========
 $sqlViajes = "
     SELECT 
         v.fecha,
+        v.nombre as conductor_real,
         v.ruta,
         v.tipo_vehiculo,
         v.empresa,
@@ -445,83 +481,78 @@ if (!$resViajes) {
     die("Error en consulta viajes: " . $conn->error . "<br>SQL: " . $sqlViajes);
 }
 
-// ========== ASIGNAR ALEATORIAMENTE LOS VIAJES A LOS CONDUCTORES SELECCIONADOS ==========
-// Con regla: máximo 2 veces seguidas el mismo conductor
+// ========== ASIGNAR CONDUCTORES CON REGLAS ESPECIALES ==========
+// Regla 1: Viajes de carrotanque → conservan conductor real
+// Regla 2: Otros viajes → asignación aleatoria entre conductores seleccionados (excluyendo carrotanques si no aplica)
+// Regla 3: Máximo 2 veces seguidas el mismo conductor
+
 $viajesAsignados = [];
 $totalValores = 0;
 $ultimoConductor = null;
 $consecutivos = 0;
 
+// Lista de conductores NO carrotanque para asignación aleatoria
+$conductoresNoCarrotanque = array_diff($conductoresSeleccionados, $conductoresCarrotanque);
+
 if ($resViajes && $resViajes->num_rows > 0) {
-    // Crear un array con los nombres de los conductores seleccionados
-    $listaConductores = $conductoresSeleccionados;
-    
-    // Si solo hay un conductor, no hay problema, aparecerá siempre
-    if (count($listaConductores) == 1) {
-        $conductorUnico = $listaConductores[0];
-        while ($row = $resViajes->fetch_assoc()) {
-            $valor = $row['valor_viaje'];
-            if ($valor !== null && $valor > 0) {
-                $totalValores += floatval($valor);
-            }
-            
-            // Obtener información del conductor
-            $conductorInfo = null;
-            foreach ($conductoresInfo as $info) {
-                if ($info['nombre'] == $conductorUnico) {
-                    $conductorInfo = $info;
-                    break;
-                }
-            }
-            
-            $viajesAsignados[] = [
-                'fecha' => $row['fecha'],
-                'conductor' => $conductorUnico,
-                'cedula' => $conductorInfo ? $conductorInfo['cedula'] : 'N/A',
-                'tipo_vehiculo' => $row['tipo_vehiculo'],
-                'ruta' => $row['ruta'],
-                'valor' => $valor,
-                'clasificacion' => $row['clasificacion']
-            ];
-        }
-    } else {
-        // Múltiples conductores - aplicar regla de máximo 2 veces seguidas
-        while ($row = $resViajes->fetch_assoc()) {
-            // Asignar conductor con la regla de no más de 2 veces seguidas
-            $nuevoConductor = asignarConductorConRegla($listaConductores, $ultimoConductor, $consecutivos);
-            
-            // Actualizar contador de consecutivos
-            if ($nuevoConductor == $ultimoConductor) {
-                $consecutivos++;
+    while ($row = $resViajes->fetch_assoc()) {
+        $tipoVehiculo = strtolower(trim($row['tipo_vehiculo'] ?? ''));
+        $esViajeCarrotanque = strpos($tipoVehiculo, 'carrotanque') !== false;
+        
+        $conductorAsignado = '';
+        
+        if ($esViajeCarrotanque) {
+            // VIAJE DE CARROTANQUE: conservar el conductor real
+            $conductorAsignado = $row['conductor_real'];
+        } else {
+            // VIAJE DE OTRO TIPO: asignación aleatoria
+            if (empty($conductoresNoCarrotanque)) {
+                // Si no hay conductores no carrotanque seleccionados, usar todos
+                $conductoresParaAsignar = $conductoresSeleccionados;
             } else {
-                $consecutivos = 1;
+                $conductoresParaAsignar = $conductoresNoCarrotanque;
             }
-            $ultimoConductor = $nuevoConductor;
             
-            // Obtener información del conductor asignado
-            $conductorInfo = null;
-            foreach ($conductoresInfo as $info) {
-                if ($info['nombre'] == $nuevoConductor) {
-                    $conductorInfo = $info;
-                    break;
+            if (count($conductoresParaAsignar) == 1) {
+                $conductorAsignado = $conductoresParaAsignar[0];
+            } else {
+                // Aplicar regla de máximo 2 veces seguidas
+                $conductorAsignado = asignarConductorConRegla($conductoresParaAsignar, $ultimoConductor, $consecutivos);
+                
+                // Actualizar contador de consecutivos
+                if ($conductorAsignado == $ultimoConductor) {
+                    $consecutivos++;
+                } else {
+                    $consecutivos = 1;
                 }
+                $ultimoConductor = $conductorAsignado;
             }
-            
-            $valor = $row['valor_viaje'];
-            if ($valor !== null && $valor > 0) {
-                $totalValores += floatval($valor);
-            }
-            
-            $viajesAsignados[] = [
-                'fecha' => $row['fecha'],
-                'conductor' => $nuevoConductor,
-                'cedula' => $conductorInfo ? $conductorInfo['cedula'] : 'N/A',
-                'tipo_vehiculo' => $row['tipo_vehiculo'],
-                'ruta' => $row['ruta'],
-                'valor' => $valor,
-                'clasificacion' => $row['clasificacion']
-            ];
         }
+        
+        // Obtener información del conductor asignado
+        $conductorInfo = null;
+        foreach ($conductoresInfo as $info) {
+            if ($info['nombre'] == $conductorAsignado) {
+                $conductorInfo = $info;
+                break;
+            }
+        }
+        
+        $valor = $row['valor_viaje'];
+        if ($valor !== null && $valor > 0) {
+            $totalValores += floatval($valor);
+        }
+        
+        $viajesAsignados[] = [
+            'fecha' => $row['fecha'],
+            'conductor' => $conductorAsignado,
+            'cedula' => $conductorInfo ? $conductorInfo['cedula'] : 'N/A',
+            'tipo_vehiculo' => $row['tipo_vehiculo'],
+            'ruta' => $row['ruta'],
+            'valor' => $valor,
+            'clasificacion' => $row['clasificacion'],
+            'es_carrotanque' => $esViajeCarrotanque
+        ];
     }
 }
 
@@ -542,6 +573,9 @@ if (!empty($empresasSeleccionadas)) {
     $section->addText("Empresas: TODAS", ['italic' => true]);
 }
 $section->addText("Conductores en informe: " . implode(", ", $conductoresSeleccionados), ['italic' => true]);
+if (!empty($conductoresCarrotanque)) {
+    $section->addText("⚠️ Conductores de Carrotanque (respetan su nombre real): " . implode(", ", $conductoresCarrotanque), ['italic' => true, 'color' => 'FF0000']);
+}
 $section->addTextBreak(2);
 
 // ========== TABLA 1: LISTA DE CONDUCTORES SELECCIONADOS ==========
@@ -561,9 +595,11 @@ $tableConductores->addCell(3000)->addText("CONDUCTOR", ['bold' => true]);
 $tableConductores->addCell(2500)->addText("CÉDULA", ['bold' => true]);
 $tableConductores->addCell(2500)->addText("TIPO DE VEHÍCULO", ['bold' => true]);
 $tableConductores->addCell(2000)->addText("ÁREA DE COBERTURA", ['bold' => true]);
+$tableConductores->addCell(1500)->addText("TIPO", ['bold' => true]);
 
 if (!empty($conductoresInfo)) {
     foreach ($conductoresInfo as $conductor) {
+        $esCarrotanque = in_array($conductor['nombre'], $conductoresCarrotanque);
         $tableConductores->addRow();
         $tableConductores->addCell(3000)->addText($conductor['nombre'] ?: '-');
         $tableConductores->addCell(2500)->addText($conductor['cedula'] ?: 'N/A');
@@ -573,18 +609,22 @@ if (!empty($conductoresInfo)) {
         
         $areaCobertura = obtenerAreaCobertura($conductor['tipo_vehiculo']);
         $tableConductores->addCell(2000)->addText($areaCobertura);
+        
+        $tipoTexto = $esCarrotanque ? "🚛 Carrotanque (Fijo)" : "📋 Distribución Aleatoria";
+        $tableConductores->addCell(1500)->addText($tipoTexto);
     }
 } else {
     $tableConductores->addRow();
-    $cell = $tableConductores->addCell(10000, ['gridSpan' => 4]);
+    $cell = $tableConductores->addCell(11500, ['gridSpan' => 5]);
     $cell->addText("📭 No hay conductores seleccionados.");
 }
 
 $section->addTextBreak(3);
 
-// ========== TABLA 2: DETALLE DE VIAJES CON CONDUCTORES ASIGNADOS ALEATORIAMENTE ==========
+// ========== TABLA 2: DETALLE DE VIAJES ==========
 $section->addText("DETALLE DE VIAJES POR FECHA", ['bold' => true, 'size' => 12]);
-$section->addText("(Los conductores han sido asignados aleatoriamente, evitando repeticiones consecutivas)", ['italic' => true, 'size' => 10]);
+$section->addTextBreak(1);
+$section->addText("Nota: Los viajes de carrotanque conservan el conductor real. Los demás viajes se distribuyen aleatoriamente.", ['italic' => true, 'size' => 10]);
 $section->addTextBreak(1);
 
 $tableViajes = $section->addTable([
@@ -597,7 +637,7 @@ $tableViajes = $section->addTable([
 // Encabezado tabla viajes
 $tableViajes->addRow();
 $tableViajes->addCell(1500)->addText("FECHA", ['bold' => true]);
-$tableViajes->addCell(3000)->addText("CONDUCTOR (ASIGNADO)", ['bold' => true]);
+$tableViajes->addCell(3000)->addText("CONDUCTOR", ['bold' => true]);
 $tableViajes->addCell(2500)->addText("VEHÍCULO", ['bold' => true]);
 $tableViajes->addCell(3000)->addText("RUTA", ['bold' => true]);
 $tableViajes->addCell(2000)->addText("VALOR", ['bold' => true]);
@@ -606,7 +646,12 @@ if (!empty($viajesAsignados)) {
     foreach ($viajesAsignados as $viaje) {
         $tableViajes->addRow();
         $tableViajes->addCell(1500)->addText(substr($viaje['fecha'], 0, 10));
-        $tableViajes->addCell(3000)->addText($viaje['conductor'] ?: '-');
+        
+        $textoConductor = $viaje['conductor'] ?: '-';
+        if ($viaje['es_carrotanque']) {
+            $textoConductor .= " 🚛";
+        }
+        $tableViajes->addCell(3000)->addText($textoConductor);
         
         $tipoVehiculo = obtenerTipoVehiculo($viaje['tipo_vehiculo']);
         $tableViajes->addCell(2500)->addText($tipoVehiculo);
