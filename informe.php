@@ -52,6 +52,35 @@ function formatearMoneda($valor) {
     return '$ ' . number_format(floatval($valor), 0, ',', '.');
 }
 
+// Función para asignar conductores evitando repeticiones consecutivas (máximo 2 veces seguidas)
+function asignarConductorConRegla($conductoresLista, $ultimoConductor, $consecutivos) {
+    // Si no hay último conductor o todos tienen ya 2 consecutivos, permitir cualquiera
+    if ($ultimoConductor === null) {
+        return $conductoresLista[array_rand($conductoresLista)];
+    }
+    
+    // Filtrar conductores que no sean el último o que si son el último pero tienen menos de 2 consecutivos
+    $opciones = [];
+    foreach ($conductoresLista as $conductor) {
+        if ($conductor !== $ultimoConductor) {
+            $opciones[] = $conductor;
+        } else {
+            // Si es el mismo conductor, solo permitirlo si ha aparecido menos de 2 veces seguidas
+            if ($consecutivos < 2) {
+                $opciones[] = $conductor;
+            }
+        }
+    }
+    
+    // Si no hay opciones disponibles (todos los conductores son el mismo y ya tiene 2 consecutivos)
+    if (empty($opciones)) {
+        // Permitir cualquier conductor (reiniciar la regla)
+        return $conductoresLista[array_rand($conductoresLista)];
+    }
+    
+    return $opciones[array_rand($opciones)];
+}
+
 // Si no se han enviado parámetros, mostramos formulario
 if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductores_seleccionados'])) {
     
@@ -76,7 +105,6 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
         <meta charset="utf-8">
         <title>Generar Informe</title>
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-        <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
         <style>
             .empresas-container {
                 max-height: 300px;
@@ -106,19 +134,32 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                 border-bottom: 1px solid #dee2e6;
                 font-weight: bold;
             }
-            .select2-container--default .select2-selection--multiple {
-                border-color: #dee2e6;
-            }
             .card-header {
                 background-color: #f8f9fa;
                 font-weight: bold;
+            }
+            .conductor-item {
+                padding: 8px;
+                border-bottom: 1px solid #eee;
+                transition: background-color 0.2s;
+            }
+            .conductor-item:hover {
+                background-color: #f5f5f5;
+            }
+            .buscar-input {
+                margin-bottom: 15px;
+            }
+            .resultado-busqueda {
+                font-size: 0.85em;
+                color: #6c757d;
+                margin-top: 5px;
             }
         </style>
     </head>
     <body class="bg-light p-4">
     <div class="container">
         <h3 class="mb-3">📅 Generar Informe de Viajes</h3>
-        <form method="post" class="card p-4 shadow-sm">
+        <form method="post" class="card p-4 shadow-sm" id="formInforme">
             <div class="row g-3">
                 <div class="col-md-6">
                     <label class="form-label">Desde</label>
@@ -165,9 +206,10 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                         <div class="card-header">
                             <div class="row">
                                 <div class="col-md-8">
-                                    <input type="text" id="buscadorConductores" class="form-control" placeholder="🔍 Buscar conductor por nombre o cédula...">
+                                    <input type="text" id="buscadorConductores" class="form-control buscar-input" placeholder="🔍 Buscar conductor por nombre o cédula...">
+                                    <div class="resultado-busqueda" id="resultadoBusqueda"></div>
                                 </div>
-                                <div class="col-md-4">
+                                <div class="col-md-4 text-end">
                                     <button type="button" id="btnSeleccionarTodosCond" class="btn btn-sm btn-outline-primary">Seleccionar todos</button>
                                     <button type="button" id="btnLimpiarTodosCond" class="btn btn-sm btn-outline-secondary">Limpiar todos</button>
                                 </div>
@@ -176,26 +218,28 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                         <div class="card-body" style="max-height: 400px; overflow-y: auto;">
                             <div id="listaConductores">
                                 <?php foreach($todosConductores as $index => $cond): ?>
-                                <div class="conductor-item form-check mb-2" data-nombre="<?= strtolower(htmlspecialchars($cond['nombre'])) ?>" data-cedula="<?= htmlspecialchars($cond['cedula']) ?>">
-                                    <input class="form-check-input conductor-checkbox" type="checkbox" 
-                                           name="conductores_seleccionados[]" value="<?= htmlspecialchars($cond['nombre']) ?>" 
-                                           id="conductor_<?= $index ?>"
-                                           data-nombre="<?= htmlspecialchars($cond['nombre']) ?>"
-                                           data-cedula="<?= htmlspecialchars($cond['cedula']) ?>"
-                                           data-vehiculo="<?= htmlspecialchars($cond['tipo_vehiculo']) ?>">
-                                    <label class="form-check-label" for="conductor_<?= $index ?>">
-                                        <strong><?= htmlspecialchars($cond['nombre']) ?></strong>
-                                        <?php if(!empty($cond['cedula'])): ?>
-                                            <span class="text-muted">(Cédula: <?= htmlspecialchars($cond['cedula']) ?>)</span>
-                                        <?php endif; ?>
-                                        <br><small class="text-secondary">Vehículo: <?= htmlspecialchars(obtenerTipoVehiculo($cond['tipo_vehiculo'])) ?></small>
-                                    </label>
+                                <div class="conductor-item" data-nombre="<?= strtolower(htmlspecialchars($cond['nombre'])) ?>" data-cedula="<?= strtolower(htmlspecialchars($cond['cedula'] ?? '')) ?>" data-nombre-original="<?= htmlspecialchars($cond['nombre']) ?>">
+                                    <div class="form-check">
+                                        <input class="form-check-input conductor-checkbox" type="checkbox" 
+                                               name="conductores_seleccionados[]" value="<?= htmlspecialchars($cond['nombre']) ?>" 
+                                               id="conductor_<?= $index ?>"
+                                               data-nombre="<?= htmlspecialchars($cond['nombre']) ?>"
+                                               data-cedula="<?= htmlspecialchars($cond['cedula'] ?? '') ?>"
+                                               data-vehiculo="<?= htmlspecialchars($cond['tipo_vehiculo']) ?>">
+                                        <label class="form-check-label" for="conductor_<?= $index ?>">
+                                            <strong><?= htmlspecialchars($cond['nombre']) ?></strong>
+                                            <?php if(!empty($cond['cedula'])): ?>
+                                                <span class="text-muted">(Cédula: <?= htmlspecialchars($cond['cedula']) ?>)</span>
+                                            <?php endif; ?>
+                                            <br><small class="text-secondary">Vehículo: <?= htmlspecialchars(obtenerTipoVehiculo($cond['tipo_vehiculo'])) ?></small>
+                                        </label>
+                                    </div>
                                 </div>
                                 <?php endforeach; ?>
                             </div>
                         </div>
                     </div>
-                    <small class="text-muted">Seleccione los conductores que deben aparecer en el informe. Los viajes se distribuirán aleatoriamente entre los seleccionados.</small>
+                    <small class="text-muted">Seleccione los conductores que deben aparecer en el informe. Los viajes se distribuirán aleatoriamente entre los seleccionados, evitando que un mismo conductor aparezca más de 2 veces seguidas.</small>
                 </div>
             </div>
             <div class="mt-3">
@@ -205,31 +249,62 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
         </form>
     </div>
     
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // Buscador de conductores
-        $('#buscadorConductores').on('keyup', function() {
-            var busqueda = $(this).val().toLowerCase();
-            $('.conductor-item').each(function() {
-                var nombre = $(this).data('nombre');
-                var cedula = $(this).data('cedula').toLowerCase();
-                if (nombre.indexOf(busqueda) > -1 || cedula.indexOf(busqueda) > -1) {
-                    $(this).show();
+        // Buscador de conductores mejorado
+        const buscador = document.getElementById('buscadorConductores');
+        const conductoresItems = document.querySelectorAll('.conductor-item');
+        const resultadoBusqueda = document.getElementById('resultadoBusqueda');
+        
+        function filtrarConductores() {
+            const busqueda = buscador.value.toLowerCase().trim();
+            let contadorVisibles = 0;
+            
+            conductoresItems.forEach(item => {
+                const nombre = item.getAttribute('data-nombre') || '';
+                const cedula = item.getAttribute('data-cedula') || '';
+                
+                // Buscar coincidencia en nombre o cédula
+                const coincide = busqueda === '' || 
+                                nombre.includes(busqueda) || 
+                                cedula.includes(busqueda);
+                
+                if (coincide) {
+                    item.style.display = '';
+                    contadorVisibles++;
                 } else {
-                    $(this).hide();
+                    item.style.display = 'none';
                 }
+            });
+            
+            // Actualizar contador de resultados
+            if (busqueda === '') {
+                resultadoBusqueda.innerHTML = `Mostrando ${contadorVisibles} conductores`;
+            } else {
+                resultadoBusqueda.innerHTML = `🔍 Se encontraron ${contadorVisibles} conductores que coinciden con "${buscador.value}"`;
+            }
+        }
+        
+        // Evento de búsqueda
+        buscador.addEventListener('keyup', filtrarConductores);
+        buscador.addEventListener('change', filtrarConductores);
+        
+        // Inicializar contador
+        filtrarConductores();
+        
+        // Seleccionar todos los conductores visibles
+        document.getElementById('btnSeleccionarTodosCond').addEventListener('click', function() {
+            const itemsVisibles = document.querySelectorAll('.conductor-item[style=""]');
+            itemsVisibles.forEach(item => {
+                const checkbox = item.querySelector('.conductor-checkbox');
+                if (checkbox) checkbox.checked = true;
             });
         });
         
-        // Seleccionar todos los conductores visibles
-        $('#btnSeleccionarTodosCond').click(function() {
-            $('.conductor-item:visible .conductor-checkbox').prop('checked', true);
-        });
-        
         // Limpiar todos los conductores
-        $('#btnLimpiarTodosCond').click(function() {
-            $('.conductor-checkbox').prop('checked', false);
+        document.getElementById('btnLimpiarTodosCond').addEventListener('click', function() {
+            document.querySelectorAll('.conductor-checkbox').forEach(checkbox => {
+                checkbox.checked = false;
+            });
         });
         
         // Seleccionar todas las empresas
@@ -266,8 +341,9 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
         }
         
         // Validar que se haya seleccionado al menos un conductor antes de enviar
-        $('form').on('submit', function(e) {
-            if ($('.conductor-checkbox:checked').length === 0) {
+        document.getElementById('formInforme').addEventListener('submit', function(e) {
+            const seleccionados = document.querySelectorAll('.conductor-checkbox:checked');
+            if (seleccionados.length === 0) {
                 e.preventDefault();
                 alert('⚠️ Por favor, seleccione al menos un conductor para generar el informe.');
                 return false;
@@ -316,18 +392,12 @@ $conductoresInfo = [];
 foreach ($conductoresSeleccionados as $conductorNombre) {
     $nombreEscapado = $conn->real_escape_string($conductorNombre);
     $sqlConductorInfo = "
-        SELECT 
-            nombre,
-            (SELECT cedula FROM viajes WHERE nombre = '$nombreEscapado' AND cedula IS NOT NULL AND cedula != '' ORDER BY fecha DESC LIMIT 1) as cedula,
-            (SELECT tipo_vehiculo FROM viajes WHERE nombre = '$nombreEscapado' AND tipo_vehiculo IS NOT NULL ORDER BY fecha DESC LIMIT 1) as tipo_vehiculo
-        LIMIT 1
-    ";
-    $resInfo = $conn->query("
         SELECT DISTINCT nombre, cedula, tipo_vehiculo 
         FROM viajes 
         WHERE nombre = '$nombreEscapado' 
         LIMIT 1
-    ");
+    ";
+    $resInfo = $conn->query($sqlConductorInfo);
     if ($resInfo && $row = $resInfo->fetch_assoc()) {
         $conductoresInfo[] = $row;
     } else {
@@ -376,39 +446,82 @@ if (!$resViajes) {
 }
 
 // ========== ASIGNAR ALEATORIAMENTE LOS VIAJES A LOS CONDUCTORES SELECCIONADOS ==========
+// Con regla: máximo 2 veces seguidas el mismo conductor
 $viajesAsignados = [];
 $totalValores = 0;
+$ultimoConductor = null;
+$consecutivos = 0;
 
 if ($resViajes && $resViajes->num_rows > 0) {
-    $numConductores = count($conductoresSeleccionados);
+    // Crear un array con los nombres de los conductores seleccionados
+    $listaConductores = $conductoresSeleccionados;
     
-    while ($row = $resViajes->fetch_assoc()) {
-        // Seleccionar un conductor aleatorio de la lista
-        $conductorAleatorio = $conductoresSeleccionados[array_rand($conductoresSeleccionados)];
-        
-        // Obtener información del conductor asignado
-        $conductorInfo = null;
-        foreach ($conductoresInfo as $info) {
-            if ($info['nombre'] == $conductorAleatorio) {
-                $conductorInfo = $info;
-                break;
+    // Si solo hay un conductor, no hay problema, aparecerá siempre
+    if (count($listaConductores) == 1) {
+        $conductorUnico = $listaConductores[0];
+        while ($row = $resViajes->fetch_assoc()) {
+            $valor = $row['valor_viaje'];
+            if ($valor !== null && $valor > 0) {
+                $totalValores += floatval($valor);
             }
+            
+            // Obtener información del conductor
+            $conductorInfo = null;
+            foreach ($conductoresInfo as $info) {
+                if ($info['nombre'] == $conductorUnico) {
+                    $conductorInfo = $info;
+                    break;
+                }
+            }
+            
+            $viajesAsignados[] = [
+                'fecha' => $row['fecha'],
+                'conductor' => $conductorUnico,
+                'cedula' => $conductorInfo ? $conductorInfo['cedula'] : 'N/A',
+                'tipo_vehiculo' => $row['tipo_vehiculo'],
+                'ruta' => $row['ruta'],
+                'valor' => $valor,
+                'clasificacion' => $row['clasificacion']
+            ];
         }
-        
-        $valor = $row['valor_viaje'];
-        if ($valor !== null && $valor > 0) {
-            $totalValores += floatval($valor);
+    } else {
+        // Múltiples conductores - aplicar regla de máximo 2 veces seguidas
+        while ($row = $resViajes->fetch_assoc()) {
+            // Asignar conductor con la regla de no más de 2 veces seguidas
+            $nuevoConductor = asignarConductorConRegla($listaConductores, $ultimoConductor, $consecutivos);
+            
+            // Actualizar contador de consecutivos
+            if ($nuevoConductor == $ultimoConductor) {
+                $consecutivos++;
+            } else {
+                $consecutivos = 1;
+            }
+            $ultimoConductor = $nuevoConductor;
+            
+            // Obtener información del conductor asignado
+            $conductorInfo = null;
+            foreach ($conductoresInfo as $info) {
+                if ($info['nombre'] == $nuevoConductor) {
+                    $conductorInfo = $info;
+                    break;
+                }
+            }
+            
+            $valor = $row['valor_viaje'];
+            if ($valor !== null && $valor > 0) {
+                $totalValores += floatval($valor);
+            }
+            
+            $viajesAsignados[] = [
+                'fecha' => $row['fecha'],
+                'conductor' => $nuevoConductor,
+                'cedula' => $conductorInfo ? $conductorInfo['cedula'] : 'N/A',
+                'tipo_vehiculo' => $row['tipo_vehiculo'],
+                'ruta' => $row['ruta'],
+                'valor' => $valor,
+                'clasificacion' => $row['clasificacion']
+            ];
         }
-        
-        $viajesAsignados[] = [
-            'fecha' => $row['fecha'],
-            'conductor' => $conductorAleatorio,
-            'cedula' => $conductorInfo ? $conductorInfo['cedula'] : 'N/A',
-            'tipo_vehiculo' => $row['tipo_vehiculo'],
-            'ruta' => $row['ruta'],
-            'valor' => $valor,
-            'clasificacion' => $row['clasificacion']
-        ];
     }
 }
 
@@ -471,6 +584,7 @@ $section->addTextBreak(3);
 
 // ========== TABLA 2: DETALLE DE VIAJES CON CONDUCTORES ASIGNADOS ALEATORIAMENTE ==========
 $section->addText("DETALLE DE VIAJES POR FECHA", ['bold' => true, 'size' => 12]);
+$section->addText("(Los conductores han sido asignados aleatoriamente, evitando repeticiones consecutivas)", ['italic' => true, 'size' => 10]);
 $section->addTextBreak(1);
 
 $tableViajes = $section->addTable([
