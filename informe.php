@@ -263,7 +263,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                 const nombre = item.getAttribute('data-nombre') || '';
                 const cedula = item.getAttribute('data-cedula') || '';
                 
-                // Buscar coincidencia en nombre o cédula
+                // Buscar coincidencia en nombre o cédu
                 const coincide = busqueda === '' || 
                                 nombre.startsWith(busqueda) || 
                                 cedula.startsWith(busqueda);
