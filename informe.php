@@ -383,7 +383,7 @@ if ($resViajes && $resViajes->num_rows > 0) {
         }
     }
     
-    // Agregar fila de TOTAL
+    // Agregar fila de TOT
     $tableViajes->addRow();
     $cellTotal = $tableViajes->addCell(10000, ['gridSpan' => 4]);
     $cellTotal->addText("TOTAL", ['bold' => true]);
