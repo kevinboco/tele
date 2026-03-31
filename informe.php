@@ -92,7 +92,7 @@ function esConductorCarrotanque($conn, $nombreConductor) {
 }
 
 // Si no se han enviado parámetros, mostramos formulario
-if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductores_seleccionados'])) {
+if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_informe'])) {
     
     // Obtener lista de empresas
     $empresas = [];
@@ -588,6 +588,15 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
             .form-check-label {
                 font-size: 0.8rem;
             }
+            
+            .info-banner {
+                background: #e7f3ff;
+                border-left: 4px solid var(--primary-color);
+                padding: 0.6rem;
+                border-radius: 8px;
+                margin-bottom: 1rem;
+                font-size: 0.75rem;
+            }
         </style>
     </head>
     <body>
@@ -600,6 +609,14 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                 </div>
                 
                 <div class="card-body-custom">
+                    <div class="info-banner">
+                        <i class="fas fa-info-circle"></i> 
+                        <strong>Informe Real:</strong> Muestra los conductores tal como están en la base de datos. No requiere seleccionar conductores.
+                        <br>
+                        <i class="fas fa-random"></i> 
+                        <strong>Informe Aleatorio:</strong> Distribuye los viajes entre los conductores seleccionados (máx 2 veces seguidas). Requiere seleccionar al menos un conductor.
+                    </div>
+                    
                     <form method="post" id="formInforme">
                         <div class="top-bar">
                             <div class="date-group">
@@ -615,10 +632,10 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                                 </div>
                             </div>
                             <div class="btn-group-actions">
-                                <button type="submit" name="tipo_informe" value="aleatorio" class="btn-generate-top">
+                                <button type="submit" name="tipo_informe" value="aleatorio" class="btn-generate-top" id="btnAleatorio">
                                     <i class="fas fa-random"></i> Generar Informe Aleatorio
                                 </button>
-                                <button type="submit" name="tipo_informe" value="real" class="btn-generate-real">
+                                <button type="submit" name="tipo_informe" value="real" class="btn-generate-real" id="btnReal">
                                     <i class="fas fa-database"></i> Generar Informe Real (Sin Asignación)
                                 </button>
                                 <a class="btn btn-secondary" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/index2.php" style="background: #6c757d; padding: 0.5rem 1rem; border-radius: 8px; color: white; text-decoration: none; white-space: nowrap; font-size: 0.85rem;">
@@ -628,7 +645,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                         </div>
                         
                         <div class="three-columns">
-                            <!-- COLUMNA 1: CONDUCTORES -->
+                            <!-- COLUMNA 1: CONDUCTORES (SOLO NECESARIO PARA INFORME ALEATORIO) -->
                             <div class="col-conductores">
                                 <div class="section-card">
                                     <div class="section-header">
@@ -776,6 +793,9 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
             const resumenLista = document.getElementById('resumenLista');
             const resumenTotal = document.getElementById('resumenTotal');
             const totalSeleccionadosSpan = document.getElementById('totalSeleccionados');
+            const btnAleatorio = document.getElementById('btnAleatorio');
+            const btnReal = document.getElementById('btnReal');
+            const formInforme = document.getElementById('formInforme');
             
             function escapeHtml(text) {
                 if (!text) return '';
@@ -897,13 +917,23 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                 actualizarSeleccionarTodosEmpresas();
             }
             
-            document.getElementById('formInforme').addEventListener('submit', function(e) {
-                const seleccionados = document.querySelectorAll('.conductor-checkbox:checked');
-                if (seleccionados.length === 0) {
-                    e.preventDefault();
-                    alert('⚠️ Por favor, seleccione al menos un conductor para generar el informe.');
-                    return false;
+            // Validación según el tipo de informe
+            formInforme.addEventListener('submit', function(e) {
+                const tipoInforme = document.activeElement.getAttribute('name') === 'tipo_informe' ? 
+                                    document.activeElement.value : null;
+                
+                // Si es informe aleatorio, validar que haya conductores seleccionados
+                if (tipoInforme === 'aleatorio') {
+                    const seleccionados = document.querySelectorAll('.conductor-checkbox:checked');
+                    if (seleccionados.length === 0) {
+                        e.preventDefault();
+                        alert('⚠️ Para el INFORME ALEATORIO debe seleccionar al menos un conductor.');
+                        return false;
+                    }
                 }
+                
+                // Para informe REAL, no hay validación de conductores
+                // Solo se validan fechas (ya están con required en HTML)
             });
             
             setTimeout(() => {
@@ -938,14 +968,10 @@ $desde = $_POST['desde'];
 $hasta = $_POST['hasta'];
 $tipoInforme = $_POST['tipo_informe'] ?? 'aleatorio'; // 'aleatorio' o 'real'
 $empresasSeleccionadas = $_POST['empresas'] ?? [];
-$conductoresSeleccionados = $_POST['conductores_seleccionados'] ?? [];
 
-// Validaciones
+// Validaciones básicas
 if (empty($desde) || empty($hasta)) {
     die("Error: Fechas no válidas");
-}
-if (empty($conductoresSeleccionados)) {
-    die("Error: Debe seleccionar al menos un conductor para generar el informe.");
 }
 
 // Normalizar fechas
@@ -1008,6 +1034,8 @@ $totalValores = 0;
 
 if ($tipoInforme === 'real') {
     // INFORME REAL: Mostrar los conductores tal como están en la base de datos
+    // NO requiere conductores seleccionados
+    
     while ($row = $resViajes->fetch_assoc()) {
         $valor = $row['valor_viaje'];
         if ($valor !== null && $valor > 0) {
@@ -1051,6 +1079,13 @@ if ($tipoInforme === 'real') {
     
 } else {
     // INFORME ALEATORIO: Lógica original de asignación
+    // REQUIERE conductores seleccionados
+    $conductoresSeleccionados = $_POST['conductores_seleccionados'] ?? [];
+    
+    if (empty($conductoresSeleccionados)) {
+        die("Error: Para el INFORME ALEATORIO debe seleccionar al menos un conductor.");
+    }
+    
     // Identificar conductores carrotanque
     $conductoresCarrotanque = [];
     foreach ($conductoresSeleccionados as $conductor) {
@@ -1139,8 +1174,11 @@ $phpWord = new PhpWord();
 $section = $phpWord->addSection();
 
 // Título según tipo de informe
-$tituloInforme = ($tipoInforme === 'real') ? "INFORME REAL DE VIAJES" : "INFORME DE FICHAS TÉCNICAS DE CONDUCTOR - VEHÍCULOS";
-$section->addText($tituloInforme, ['bold' => true, 'size' => 14], ['align' => 'center']);
+if ($tipoInforme === 'real') {
+    $section->addText("INFORME REAL DE VIAJES", ['bold' => true, 'size' => 14], ['align' => 'center']);
+} else {
+    $section->addText("INFORME DE FICHAS TÉCNICAS DE CONDUCTOR - VEHÍCULOS", ['bold' => true, 'size' => 14], ['align' => 'center']);
+}
 $section->addTextBreak(1);
 $section->addText("SEGÚN ACTA DE INICIO AL CONTRATO DE PRESTACIÓN DE SERVICIOS NO. 1313-2025 SUSCRITO POR LA E.S.E. HOSPITAL SAN JOSÉ DE MAICAO Y LA ASOCIACIÓN DE TRANSPORTISTAS ZONA NORTE EXTREMA WUINPUMUIN.");
 $section->addText("OBJETO: TRASLADO DE PERSONAL ASISTENCIAL – SEDE NAZARETH.");
@@ -1165,7 +1203,7 @@ if ($tipoInforme === 'aleatorio') {
 
 $section->addTextBreak(2);
 
-// Tabla de conductores (solo para informe aleatorio, en real se muestran los conductores que aparecen en los viajes)
+// Tabla de conductores (solo para informe aleatorio)
 if ($tipoInforme === 'aleatorio') {
     $section->addText("LISTA DE CONDUCTORES (INCLUIDOS EN INFORME)", ['bold' => true, 'size' => 12]);
     $section->addTextBreak(1);
