@@ -232,6 +232,12 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                 outline: none;
             }
             
+            .btn-group-actions {
+                display: flex;
+                gap: 0.8rem;
+                flex-wrap: wrap;
+            }
+            
             .btn-generate-top {
                 background: linear-gradient(135deg, var(--success-color) 0%, #0f6848 100%);
                 color: white;
@@ -246,6 +252,22 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
             .btn-generate-top:hover {
                 transform: translateY(-2px);
                 box-shadow: 0 5px 15px rgba(25,135,84,0.3);
+            }
+            
+            .btn-generate-real {
+                background: linear-gradient(135deg, #0d6efd 0%, #0b5ed7 100%);
+                color: white;
+                padding: 0.5rem 1.5rem;
+                border-radius: 8px;
+                font-weight: 600;
+                border: none;
+                transition: all 0.3s;
+                white-space: nowrap;
+            }
+            
+            .btn-generate-real:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 5px 15px rgba(13,110,253,0.3);
             }
             
             .three-columns {
@@ -543,7 +565,11 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                     align-items: stretch;
                 }
                 
-                .btn-generate-top {
+                .btn-group-actions {
+                    flex-direction: column;
+                }
+                
+                .btn-generate-top, .btn-generate-real {
                     width: 100%;
                     text-align: center;
                 }
@@ -588,12 +614,17 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                                     <input type="date" name="hasta" required id="fecha_hasta">
                                 </div>
                             </div>
-                            <button type="submit" class="btn-generate-top">
-                                <i class="fas fa-file-alt"></i> Generar Informe
-                            </button>
-                            <a class="btn btn-secondary" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/index2.php" style="background: #6c757d; padding: 0.5rem 1rem; border-radius: 8px; color: white; text-decoration: none; white-space: nowrap; font-size: 0.85rem;">
-                                <i class="fas fa-home"></i> Inicio
-                            </a>
+                            <div class="btn-group-actions">
+                                <button type="submit" name="tipo_informe" value="aleatorio" class="btn-generate-top">
+                                    <i class="fas fa-random"></i> Generar Informe Aleatorio
+                                </button>
+                                <button type="submit" name="tipo_informe" value="real" class="btn-generate-real">
+                                    <i class="fas fa-database"></i> Generar Informe Real (Sin Asignación)
+                                </button>
+                                <a class="btn btn-secondary" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/index2.php" style="background: #6c757d; padding: 0.5rem 1rem; border-radius: 8px; color: white; text-decoration: none; white-space: nowrap; font-size: 0.85rem;">
+                                    <i class="fas fa-home"></i> Inicio
+                                </a>
+                            </div>
                         </div>
                         
                         <div class="three-columns">
@@ -905,6 +936,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
 // Parámetros
 $desde = $_POST['desde'];
 $hasta = $_POST['hasta'];
+$tipoInforme = $_POST['tipo_informe'] ?? 'aleatorio'; // 'aleatorio' o 'real'
 $empresasSeleccionadas = $_POST['empresas'] ?? [];
 $conductoresSeleccionados = $_POST['conductores_seleccionados'] ?? [];
 
@@ -929,28 +961,7 @@ if (!empty($empresasSeleccionadas)) {
     $condicionEmpresa = " AND v.empresa IN (" . implode(",", $empresasEscapadas) . ")";
 }
 
-// Identificar conductores carrotanque
-$conductoresCarrotanque = [];
-foreach ($conductoresSeleccionados as $conductor) {
-    if (esConductorCarrotanque($conn, $conductor)) {
-        $conductoresCarrotanque[] = $conductor;
-    }
-}
-
-// Obtener información de conductores
-$conductoresInfo = [];
-foreach ($conductoresSeleccionados as $conductorNombre) {
-    $nombreEscapado = $conn->real_escape_string($conductorNombre);
-    $sqlConductorInfo = "SELECT DISTINCT nombre, cedula, tipo_vehiculo FROM viajes WHERE nombre = '$nombreEscapado' LIMIT 1";
-    $resInfo = $conn->query($sqlConductorInfo);
-    if ($resInfo && $row = $resInfo->fetch_assoc()) {
-        $conductoresInfo[] = $row;
-    } else {
-        $conductoresInfo[] = ['nombre' => $conductorNombre, 'cedula' => 'N/A', 'tipo_vehiculo' => ''];
-    }
-}
-
-// Consulta de viajes
+// Consulta de viajes (la misma para ambos tipos de informe)
 $sqlViajes = "
     SELECT 
         v.fecha,
@@ -990,14 +1001,81 @@ if (!$resViajes) {
     die("Error en consulta viajes: " . $conn->error);
 }
 
-// Asignar conductores
+// ========== PROCESAR SEGÚN TIPO DE INFORME ==========
+
 $viajesAsignados = [];
 $totalValores = 0;
-$ultimoConductor = null;
-$consecutivos = 0;
-$conductoresNoCarrotanque = array_diff($conductoresSeleccionados, $conductoresCarrotanque);
 
-if ($resViajes && $resViajes->num_rows > 0) {
+if ($tipoInforme === 'real') {
+    // INFORME REAL: Mostrar los conductores tal como están en la base de datos
+    while ($row = $resViajes->fetch_assoc()) {
+        $valor = $row['valor_viaje'];
+        if ($valor !== null && $valor > 0) {
+            $totalValores += floatval($valor);
+        }
+        
+        $viajesAsignados[] = [
+            'fecha' => $row['fecha'],
+            'conductor' => $row['conductor_real'], // CONDUCTOR REAL DE BD
+            'cedula' => '', // Se consultará después si es necesario
+            'tipo_vehiculo' => $row['tipo_vehiculo'],
+            'ruta' => $row['ruta'],
+            'valor' => $valor,
+            'clasificacion' => $row['clasificacion'],
+            'es_carrotanque' => stripos($row['tipo_vehiculo'], 'carrotanque') !== false
+        ];
+    }
+    
+    // Obtener cédulas para los conductores reales (para mostrarlas en la tabla)
+    $conductoresReales = array_unique(array_column($viajesAsignados, 'conductor'));
+    $conductoresInfoReal = [];
+    foreach ($conductoresReales as $conductorNombre) {
+        $nombreEscapado = $conn->real_escape_string($conductorNombre);
+        $sqlInfo = "SELECT DISTINCT nombre, cedula, tipo_vehiculo FROM viajes WHERE nombre = '$nombreEscapado' LIMIT 1";
+        $resInfo = $conn->query($sqlInfo);
+        if ($resInfo && $row = $resInfo->fetch_assoc()) {
+            $conductoresInfoReal[$conductorNombre] = $row;
+        } else {
+            $conductoresInfoReal[$conductorNombre] = ['nombre' => $conductorNombre, 'cedula' => 'N/A', 'tipo_vehiculo' => ''];
+        }
+    }
+    
+    // Asignar cédulas a los viajes
+    foreach ($viajesAsignados as &$viaje) {
+        if (isset($conductoresInfoReal[$viaje['conductor']])) {
+            $viaje['cedula'] = $conductoresInfoReal[$viaje['conductor']]['cedula'] ?? 'N/A';
+        } else {
+            $viaje['cedula'] = 'N/A';
+        }
+    }
+    
+} else {
+    // INFORME ALEATORIO: Lógica original de asignación
+    // Identificar conductores carrotanque
+    $conductoresCarrotanque = [];
+    foreach ($conductoresSeleccionados as $conductor) {
+        if (esConductorCarrotanque($conn, $conductor)) {
+            $conductoresCarrotanque[] = $conductor;
+        }
+    }
+    
+    // Obtener información de conductores
+    $conductoresInfo = [];
+    foreach ($conductoresSeleccionados as $conductorNombre) {
+        $nombreEscapado = $conn->real_escape_string($conductorNombre);
+        $sqlConductorInfo = "SELECT DISTINCT nombre, cedula, tipo_vehiculo FROM viajes WHERE nombre = '$nombreEscapado' LIMIT 1";
+        $resInfo = $conn->query($sqlConductorInfo);
+        if ($resInfo && $row = $resInfo->fetch_assoc()) {
+            $conductoresInfo[] = $row;
+        } else {
+            $conductoresInfo[] = ['nombre' => $conductorNombre, 'cedula' => 'N/A', 'tipo_vehiculo' => ''];
+        }
+    }
+    
+    $ultimoConductor = null;
+    $consecutivos = 0;
+    $conductoresNoCarrotanque = array_diff($conductoresSeleccionados, $conductoresCarrotanque);
+    
     while ($row = $resViajes->fetch_assoc()) {
         $tipoVehiculo = strtolower(trim($row['tipo_vehiculo'] ?? ''));
         $esViajeCarrotanque = strpos($tipoVehiculo, 'carrotanque') !== false;
@@ -1051,13 +1129,18 @@ if ($resViajes && $resViajes->num_rows > 0) {
             'es_carrotanque' => $esViajeCarrotanque
         ];
     }
+    
+    // Para la tabla de conductores en informe aleatorio
+    $conductoresInfoMostrar = $conductoresInfo;
 }
 
 // Generar documento Word
 $phpWord = new PhpWord();
 $section = $phpWord->addSection();
 
-$section->addText("INFORME DE FICHAS TÉCNICAS DE CONDUCTOR - VEHÍCULOS", ['bold' => true, 'size' => 14], ['align' => 'center']);
+// Título según tipo de informe
+$tituloInforme = ($tipoInforme === 'real') ? "INFORME REAL DE VIAJES" : "INFORME DE FICHAS TÉCNICAS DE CONDUCTOR - VEHÍCULOS";
+$section->addText($tituloInforme, ['bold' => true, 'size' => 14], ['align' => 'center']);
 $section->addTextBreak(1);
 $section->addText("SEGÚN ACTA DE INICIO AL CONTRATO DE PRESTACIÓN DE SERVICIOS NO. 1313-2025 SUSCRITO POR LA E.S.E. HOSPITAL SAN JOSÉ DE MAICAO Y LA ASOCIACIÓN DE TRANSPORTISTAS ZONA NORTE EXTREMA WUINPUMUIN.");
 $section->addText("OBJETO: TRASLADO DE PERSONAL ASISTENCIAL – SEDE NAZARETH.");
@@ -1068,41 +1151,55 @@ if (!empty($empresasSeleccionadas)) {
 } else {
     $section->addText("Empresas: TODAS", ['italic' => true]);
 }
-$section->addText("Conductores en informe: " . implode(", ", $conductoresSeleccionados), ['italic' => true]);
-if (!empty($conductoresCarrotanque)) {
-    $section->addText("⚠️ Conductores de Carrotanque (respetan su nombre real): " . implode(", ", $conductoresCarrotanque), ['italic' => true, 'color' => 'FF0000']);
+
+if ($tipoInforme === 'aleatorio') {
+    $section->addText("Conductores en informe: " . implode(", ", $conductoresSeleccionados), ['italic' => true]);
+    if (!empty($conductoresCarrotanque)) {
+        $section->addText("⚠️ Conductores de Carrotanque (respetan su nombre real): " . implode(", ", $conductoresCarrotanque), ['italic' => true, 'color' => 'FF0000']);
+    }
+    $section->addText("Tipo de informe: DISTRIBUCIÓN ALEATORIA (máx 2 veces seguidas)", ['italic' => true, 'bold' => true]);
+} else {
+    $section->addText("Tipo de informe: DATOS REALES (sin asignación)", ['italic' => true, 'bold' => true, 'color' => '0000FF']);
+    $section->addText("Los conductores mostrados son los que realmente realizaron cada viaje según la base de datos.", ['italic' => true]);
 }
+
 $section->addTextBreak(2);
 
-// Tabla de conductores
-$section->addText("LISTA DE CONDUCTORES (INCLUIDOS EN INFORME)", ['bold' => true, 'size' => 12]);
-$section->addTextBreak(1);
-
-$tableConductores = $section->addTable(['borderSize' => 6, 'borderColor' => '000000', 'cellMargin' => 80]);
-$tableConductores->addRow();
-$tableConductores->addCell(3000)->addText("CONDUCTOR", ['bold' => true]);
-$tableConductores->addCell(2500)->addText("CÉDULA", ['bold' => true]);
-$tableConductores->addCell(2500)->addText("TIPO DE VEHÍCULO", ['bold' => true]);
-$tableConductores->addCell(2000)->addText("ÁREA DE COBERTURA", ['bold' => true]);
-$tableConductores->addCell(1500)->addText("TIPO", ['bold' => true]);
-
-foreach ($conductoresInfo as $conductor) {
-    $esCarrotanque = in_array($conductor['nombre'], $conductoresCarrotanque);
+// Tabla de conductores (solo para informe aleatorio, en real se muestran los conductores que aparecen en los viajes)
+if ($tipoInforme === 'aleatorio') {
+    $section->addText("LISTA DE CONDUCTORES (INCLUIDOS EN INFORME)", ['bold' => true, 'size' => 12]);
+    $section->addTextBreak(1);
+    
+    $tableConductores = $section->addTable(['borderSize' => 6, 'borderColor' => '000000', 'cellMargin' => 80]);
     $tableConductores->addRow();
-    $tableConductores->addCell(3000)->addText($conductor['nombre'] ?: '-');
-    $tableConductores->addCell(2500)->addText($conductor['cedula'] ?: 'N/A');
-    $tableConductores->addCell(2500)->addText(obtenerTipoVehiculo($conductor['tipo_vehiculo']));
-    $tableConductores->addCell(2000)->addText(obtenerAreaCobertura($conductor['tipo_vehiculo']));
-    $tipoTexto = $esCarrotanque ? "🚛 Carrotanque (Fijo)" : "📋 Distribución Aleatoria";
-    $tableConductores->addCell(1500)->addText($tipoTexto);
+    $tableConductores->addCell(3000)->addText("CONDUCTOR", ['bold' => true]);
+    $tableConductores->addCell(2500)->addText("CÉDULA", ['bold' => true]);
+    $tableConductores->addCell(2500)->addText("TIPO DE VEHÍCULO", ['bold' => true]);
+    $tableConductores->addCell(2000)->addText("ÁREA DE COBERTURA", ['bold' => true]);
+    $tableConductores->addCell(1500)->addText("TIPO", ['bold' => true]);
+    
+    foreach ($conductoresInfoMostrar as $conductor) {
+        $esCarrotanque = in_array($conductor['nombre'], $conductoresCarrotanque);
+        $tableConductores->addRow();
+        $tableConductores->addCell(3000)->addText($conductor['nombre'] ?: '-');
+        $tableConductores->addCell(2500)->addText($conductor['cedula'] ?: 'N/A');
+        $tableConductores->addCell(2500)->addText(obtenerTipoVehiculo($conductor['tipo_vehiculo']));
+        $tableConductores->addCell(2000)->addText(obtenerAreaCobertura($conductor['tipo_vehiculo']));
+        $tipoTexto = $esCarrotanque ? "🚛 Carrotanque (Fijo)" : "📋 Distribución Aleatoria";
+        $tableConductores->addCell(1500)->addText($tipoTexto);
+    }
+    
+    $section->addTextBreak(3);
 }
-
-$section->addTextBreak(3);
 
 // Tabla de viajes
 $section->addText("DETALLE DE VIAJES POR FECHA", ['bold' => true, 'size' => 12]);
 $section->addTextBreak(1);
-$section->addText("Nota: Los viajes de carrotanque conservan el conductor real. Los demás viajes se distribuyen aleatoriamente.", ['italic' => true, 'size' => 10]);
+if ($tipoInforme === 'aleatorio') {
+    $section->addText("Nota: Los viajes de carrotanque conservan el conductor real. Los demás viajes se distribuyen aleatoriamente.", ['italic' => true, 'size' => 10]);
+} else {
+    $section->addText("Nota: Este informe muestra los conductores REALES que realizaron cada viaje según la base de datos.", ['italic' => true, 'size' => 10]);
+}
 $section->addTextBreak(1);
 
 $tableViajes = $section->addTable(['borderSize' => 6, 'borderColor' => '000000', 'cellMargin' => 80]);
@@ -1148,7 +1245,8 @@ $section->addText("NUMAS JOSÉ IGUARÁN IGUARÁN", ['bold' => true]);
 $section->addText("Representante Legal");
 
 // Enviar archivo
-$filename = "informe_viajes_{$desde}_a_{$hasta}.docx";
+$sufijo = ($tipoInforme === 'real') ? 'real' : 'aleatorio';
+$filename = "informe_viajes_{$sufijo}_{$desde}_a_{$hasta}.docx";
 header("Content-Description: File Transfer");
 header("Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document");
 header("Content-Disposition: attachment; filename=\"$filename\"");
