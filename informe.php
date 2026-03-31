@@ -123,7 +123,6 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                 --secondary-color: #6c757d;
                 --success-color: #198754;
                 --warning-color: #ffc107;
-                --danger-color: #dc3545;
                 --info-color: #0dcaf0;
                 --dark-color: #212529;
                 --light-color: #f8f9fa;
@@ -139,7 +138,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
                 min-height: 100vh;
-                padding: 1.5rem;
+                padding: 1rem;
             }
             
             .container-custom {
@@ -169,12 +168,12 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
             .card-header-custom {
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                 color: white;
-                padding: 1.5rem;
+                padding: 1.2rem;
                 text-align: center;
             }
             
             .card-header-custom h1 {
-                font-size: 1.8rem;
+                font-size: 1.6rem;
                 margin-bottom: 0.25rem;
                 font-weight: 600;
             }
@@ -182,33 +181,33 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
             .card-header-custom p {
                 margin-bottom: 0;
                 opacity: 0.9;
-                font-size: 0.9rem;
+                font-size: 0.85rem;
             }
             
             .card-body-custom {
-                padding: 1.5rem;
+                padding: 1.2rem;
             }
             
             .top-bar {
                 background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-                border-radius: 15px;
-                padding: 1rem;
-                margin-bottom: 1.5rem;
+                border-radius: 12px;
+                padding: 0.8rem;
+                margin-bottom: 1.2rem;
                 display: flex;
-                gap: 1rem;
+                gap: 0.8rem;
                 align-items: flex-end;
                 flex-wrap: wrap;
             }
             
             .date-group {
                 flex: 1;
-                min-width: 180px;
+                min-width: 160px;
             }
             
             .date-input {
                 background: white;
-                border-radius: 10px;
-                padding: 0.5rem 1rem;
+                border-radius: 8px;
+                padding: 0.4rem 0.8rem;
                 border: 2px solid #e0e0e0;
                 transition: all 0.3s;
             }
@@ -219,7 +218,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
             }
             
             .date-input label {
-                font-size: 0.75rem;
+                font-size: 0.7rem;
                 color: var(--secondary-color);
                 margin-bottom: 0;
                 display: block;
@@ -228,7 +227,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
             .date-input input {
                 border: none;
                 padding: 0;
-                font-size: 0.95rem;
+                font-size: 0.9rem;
                 width: 100%;
                 outline: none;
             }
@@ -236,8 +235,8 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
             .btn-generate-top {
                 background: linear-gradient(135deg, var(--success-color) 0%, #0f6848 100%);
                 color: white;
-                padding: 0.6rem 1.8rem;
-                border-radius: 10px;
+                padding: 0.5rem 1.5rem;
+                border-radius: 8px;
                 font-weight: 600;
                 border: none;
                 transition: all 0.3s;
@@ -251,29 +250,29 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
             
             .three-columns {
                 display: flex;
-                gap: 1.2rem;
+                gap: 1rem;
                 flex-wrap: wrap;
             }
             
             .col-conductores {
-                flex: 3;
-                min-width: 280px;
+                flex: 2.2;
+                min-width: 260px;
             }
             
             .col-resumen {
-                flex: 0.75;
-                min-width: 180px;
+                flex: 1.2;
+                min-width: 220px;
             }
             
             .col-empresas {
-                flex: 1.25;
-                min-width: 220px;
+                flex: 1.2;
+                min-width: 200px;
             }
             
             .section-card {
                 background: white;
-                border-radius: 15px;
-                box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+                border-radius: 12px;
+                box-shadow: 0 3px 12px rgba(0,0,0,0.08);
                 overflow: hidden;
                 height: 100%;
                 display: flex;
@@ -283,47 +282,48 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
             .section-header {
                 background: linear-gradient(135deg, var(--primary-color) 0%, #0b5ed7 100%);
                 color: white;
-                padding: 0.8rem 1rem;
+                padding: 0.6rem 0.8rem;
             }
             
             .section-header h3 {
                 margin: 0;
-                font-size: 1rem;
+                font-size: 0.9rem;
                 font-weight: 600;
             }
             
             .section-header h3 i {
-                margin-right: 0.5rem;
+                margin-right: 0.4rem;
+                font-size: 0.85rem;
             }
             
             .section-content {
-                padding: 1rem;
+                padding: 0.8rem;
                 flex: 1;
                 overflow-y: auto;
-                max-height: calc(100vh - 280px);
-                min-height: 450px;
+                max-height: calc(100vh - 250px);
+                min-height: 400px;
             }
             
             .search-box {
                 position: relative;
-                margin-bottom: 1rem;
+                margin-bottom: 0.8rem;
             }
             
             .search-box i {
                 position: absolute;
-                left: 0.8rem;
+                left: 0.7rem;
                 top: 50%;
                 transform: translateY(-50%);
                 color: var(--secondary-color);
-                font-size: 0.9rem;
+                font-size: 0.8rem;
             }
             
             .search-box input {
                 width: 100%;
-                padding: 0.5rem 0.8rem 0.5rem 2rem;
-                border: 2px solid #e0e0e0;
-                border-radius: 8px;
-                font-size: 0.85rem;
+                padding: 0.4rem 0.6rem 0.4rem 1.8rem;
+                border: 1px solid #e0e0e0;
+                border-radius: 6px;
+                font-size: 0.8rem;
                 transition: all 0.3s;
             }
             
@@ -333,32 +333,32 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
             }
             
             .result-counter {
-                font-size: 0.7rem;
+                font-size: 0.65rem;
                 color: var(--secondary-color);
-                margin-top: 0.3rem;
+                margin-top: 0.2rem;
             }
             
             .btn-group-custom {
                 display: flex;
-                gap: 0.5rem;
-                margin-bottom: 1rem;
+                gap: 0.4rem;
+                margin-bottom: 0.8rem;
             }
             
             .btn-group-custom .btn-sm {
-                padding: 0.25rem 0.6rem;
-                font-size: 0.75rem;
+                padding: 0.2rem 0.5rem;
+                font-size: 0.7rem;
             }
             
             .conductor-list {
-                max-height: 350px;
+                max-height: 320px;
                 overflow-y: auto;
             }
             
             .conductor-item {
-                padding: 0.5rem;
+                padding: 0.4rem;
                 border: 1px solid #e0e0e0;
-                border-radius: 8px;
-                margin-bottom: 0.5rem;
+                border-radius: 6px;
+                margin-bottom: 0.4rem;
                 transition: all 0.2s;
                 cursor: pointer;
             }
@@ -374,22 +374,22 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
             
             .conductor-name {
                 font-weight: 600;
-                font-size: 0.85rem;
+                font-size: 0.8rem;
                 color: var(--dark-color);
             }
             
             .conductor-cedula {
-                font-size: 0.7rem;
+                font-size: 0.65rem;
                 color: var(--secondary-color);
             }
             
             .vehicle-badge {
                 display: inline-block;
-                padding: 0.15rem 0.5rem;
-                border-radius: 20px;
-                font-size: 0.65rem;
+                padding: 0.1rem 0.4rem;
+                border-radius: 12px;
+                font-size: 0.6rem;
                 font-weight: 600;
-                margin-top: 0.2rem;
+                margin-top: 0.15rem;
             }
             
             .badge-carrotanque {
@@ -404,54 +404,63 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                 border-left: 2px solid var(--info-color);
             }
             
-            .resumen-stats {
-                text-align: center;
+            .resumen-lista {
+                max-height: 380px;
+                overflow-y: auto;
             }
             
-            .resumen-number {
-                font-size: 2.5rem;
-                font-weight: bold;
-                color: var(--primary-color);
-                line-height: 1;
-            }
-            
-            .resumen-label {
+            .conductor-seleccionado-item {
+                padding: 0.4rem;
+                border-bottom: 1px solid #e0e0e0;
                 font-size: 0.75rem;
-                color: var(--secondary-color);
-                margin-bottom: 1rem;
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
             }
             
-            .progress-custom {
-                height: 8px;
-                border-radius: 10px;
-                margin: 1rem 0;
-            }
-            
-            .info-resumen {
-                background: var(--light-color);
-                border-radius: 10px;
-                padding: 0.8rem;
-                margin-top: 1rem;
-            }
-            
-            .info-resumen p {
+            .conductor-seleccionado-item i {
                 font-size: 0.7rem;
-                margin-bottom: 0.5rem;
+                color: var(--success-color);
             }
             
-            .info-resumen i {
-                margin-right: 0.3rem;
+            .conductor-seleccionado-item .nombre {
+                flex: 1;
+                font-weight: 500;
+            }
+            
+            .conductor-seleccionado-item .tipo-badge {
+                font-size: 0.6rem;
+                padding: 0.1rem 0.3rem;
+                border-radius: 10px;
+                background: #e9ecef;
+            }
+            
+            .resumen-vacio {
+                text-align: center;
+                color: var(--secondary-color);
+                font-size: 0.75rem;
+                padding: 1rem;
+            }
+            
+            .resumen-total {
+                background: var(--light-color);
+                padding: 0.5rem;
+                border-radius: 6px;
+                margin-top: 0.5rem;
+                text-align: center;
+                font-size: 0.75rem;
+                font-weight: bold;
             }
             
             .empresas-list {
                 display: flex;
                 flex-direction: column;
-                gap: 0.4rem;
+                gap: 0.3rem;
             }
             
             .empresa-item {
-                padding: 0.4rem;
-                border-radius: 6px;
+                padding: 0.3rem;
+                border-radius: 4px;
                 transition: background 0.2s;
             }
             
@@ -460,50 +469,54 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
             }
             
             .empresa-item input[type="checkbox"] {
-                margin-right: 0.5rem;
-                transform: scale(0.9);
+                margin-right: 0.4rem;
+                transform: scale(0.85);
             }
             
             .empresa-item label {
-                font-size: 0.85rem;
+                font-size: 0.75rem;
                 cursor: pointer;
             }
             
             .select-all-container {
-                padding-bottom: 0.5rem;
+                padding-bottom: 0.4rem;
                 border-bottom: 1px solid #e0e0e0;
-                margin-bottom: 0.8rem;
+                margin-bottom: 0.6rem;
             }
             
             .select-all-container .form-check-label {
                 font-weight: 600;
-                font-size: 0.85rem;
+                font-size: 0.75rem;
+            }
+            
+            .select-all-container .form-check-input {
+                transform: scale(0.85);
             }
             
             .legend {
                 background: var(--light-color);
-                border-radius: 10px;
-                padding: 0.8rem;
-                margin-top: 1rem;
+                border-radius: 8px;
+                padding: 0.6rem;
+                margin-top: 0.8rem;
             }
             
             .legend-item {
                 display: flex;
                 align-items: center;
-                margin-bottom: 0.5rem;
-                font-size: 0.7rem;
+                margin-bottom: 0.4rem;
+                font-size: 0.65rem;
             }
             
             .legend-color {
-                width: 16px;
-                height: 16px;
-                border-radius: 3px;
-                margin-right: 0.5rem;
+                width: 12px;
+                height: 12px;
+                border-radius: 2px;
+                margin-right: 0.4rem;
             }
             
             ::-webkit-scrollbar {
-                width: 6px;
-                height: 6px;
+                width: 5px;
+                height: 5px;
             }
             
             ::-webkit-scrollbar-track {
@@ -516,7 +529,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                 border-radius: 10px;
             }
             
-            @media (max-width: 992px) {
+            @media (max-width: 1000px) {
                 .three-columns {
                     flex-direction: column;
                 }
@@ -536,18 +549,18 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                 }
             }
             
-            @keyframes pulse {
-                0%, 100% { transform: scale(1); }
-                50% { transform: scale(1.05); }
-            }
-            
-            .selected-count-animation {
-                animation: pulse 0.3s ease;
-            }
-            
             .badge-unic {
-                font-size: 0.6rem;
-                padding: 0.2rem 0.4rem;
+                font-size: 0.55rem;
+                padding: 0.15rem 0.3rem;
+            }
+            
+            .form-check-input {
+                transform: scale(0.85);
+                margin-top: 0.2rem;
+            }
+            
+            .form-check-label {
+                font-size: 0.8rem;
             }
         </style>
     </head>
@@ -555,7 +568,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
         <div class="container-custom">
             <div class="main-card">
                 <div class="card-header-custom">
-                    <i class="fas fa-truck fa-2x mb-2"></i>
+                    <i class="fas fa-truck fa-2x mb-1"></i>
                     <h1>📊 Generar Informe de Viajes</h1>
                     <p>Asociación de Transportistas Zona Norte Extrema Wuinpumuín</p>
                 </div>
@@ -578,13 +591,13 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                             <button type="submit" class="btn-generate-top">
                                 <i class="fas fa-file-alt"></i> Generar Informe
                             </button>
-                            <a class="btn btn-secondary" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/index2.php" style="background: #6c757d; padding: 0.6rem 1.2rem; border-radius: 10px; color: white; text-decoration: none; white-space: nowrap;">
+                            <a class="btn btn-secondary" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/index2.php" style="background: #6c757d; padding: 0.5rem 1rem; border-radius: 8px; color: white; text-decoration: none; white-space: nowrap; font-size: 0.85rem;">
                                 <i class="fas fa-home"></i> Inicio
                             </a>
                         </div>
                         
                         <div class="three-columns">
-                            <!-- COLUMNA CONDUCTORES -->
+                            <!-- COLUMNA 1: CONDUCTORES -->
                             <div class="col-conductores">
                                 <div class="section-card">
                                     <div class="section-header">
@@ -613,11 +626,13 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                                                 $badgeClass = $esCarrotanque ? 'badge-carrotanque' : 'badge-burbuja';
                                                 $badgeIcon = $esCarrotanque ? 'fa-truck' : 'fa-car';
                                             ?>
-                                            <div class="conductor-item" data-nombre="<?= strtolower(htmlspecialchars($cond['nombre'])) ?>">
+                                            <div class="conductor-item" data-nombre="<?= strtolower(htmlspecialchars($cond['nombre'])) ?>" data-nombre-original="<?= htmlspecialchars($cond['nombre']) ?>" data-es-carrotanque="<?= $esCarrotanque ? 'true' : 'false' ?>">
                                                 <div class="form-check">
                                                     <input class="form-check-input conductor-checkbox" type="checkbox" 
                                                            name="conductores_seleccionados[]" value="<?= htmlspecialchars($cond['nombre']) ?>" 
-                                                           id="conductor_<?= $index ?>">
+                                                           id="conductor_<?= $index ?>"
+                                                           data-nombre="<?= htmlspecialchars($cond['nombre']) ?>"
+                                                           data-es-carrotanque="<?= $esCarrotanque ? 'true' : 'false' ?>">
                                                     <label class="form-check-label" for="conductor_<?= $index ?>" style="width: 100%;">
                                                         <div class="d-flex justify-content-between align-items-start">
                                                             <div style="flex: 1;">
@@ -646,31 +661,26 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                                 </div>
                             </div>
                             
-                            <!-- COLUMNA RESUMEN -->
+                            <!-- COLUMNA 2: RESUMEN CON LISTA DE NOMBRES -->
                             <div class="col-resumen">
                                 <div class="section-card">
                                     <div class="section-header">
-                                        <h3><i class="fas fa-chart-bar"></i> 📊 Resumen</h3>
+                                        <h3><i class="fas fa-list"></i> 📋 Conductores Seleccionados</h3>
                                     </div>
                                     <div class="section-content">
-                                        <div class="resumen-stats">
-                                            <div class="resumen-number" id="selectedCount">0</div>
-                                            <div class="resumen-label">conductores seleccionados</div>
-                                            <div class="progress progress-custom">
-                                                <div id="progressBar" class="progress-bar bg-primary" role="progressbar" style="width: 0%"></div>
+                                        <div id="resumenLista" class="resumen-lista">
+                                            <div class="resumen-vacio">
+                                                <i class="fas fa-info-circle"></i> No hay conductores seleccionados
                                             </div>
-                                            <div class="info-resumen">
-                                                <p><i class="fas fa-truck text-warning"></i> <strong>Carrotanque:</strong> <span id="carrotanqueCount">0</span></p>
-                                                <p><i class="fas fa-car text-info"></i> <strong>Otros:</strong> <span id="otrosCount">0</span></p>
-                                                <hr class="my-2">
-                                                <p><i class="fas fa-info-circle text-primary"></i> <strong>Total:</strong> <span id="totalConductores"><?= count($todosConductores) ?></span></p>
-                                            </div>
+                                        </div>
+                                        <div id="resumenTotal" class="resumen-total" style="display: none;">
+                                            Total: <span id="totalSeleccionados">0</span> conductores
                                         </div>
                                     </div>
                                 </div>
                             </div>
                             
-                            <!-- COLUMNA EMPRESAS -->
+                            <!-- COLUMNA 3: EMPRESAS -->
                             <div class="col-empresas">
                                 <div class="section-card">
                                     <div class="section-header">
@@ -701,7 +711,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                                                 <?php endforeach; ?>
                                             <?php endif; ?>
                                         </div>
-                                        <small class="text-muted mt-2 d-block">
+                                        <small class="text-muted mt-2 d-block" style="font-size: 0.65rem;">
                                             <i class="fas fa-info-circle"></i> Si no selecciona ninguna, se incluirán todas
                                         </small>
                                         
@@ -732,88 +742,157 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
             const buscador = document.getElementById('buscadorConductores');
             const conductoresItems = document.querySelectorAll('.conductor-item');
             const resultadoBusqueda = document.getElementById('resultadoBusqueda');
-            const selectedCountSpan = document.getElementById('selectedCount');
-            const progressBar = document.getElementById('progressBar');
-            const carrotanqueCountSpan = document.getElementById('carrotanqueCount');
-            const otrosCountSpan = document.getElementById('otrosCount');
+            const resumenLista = document.getElementById('resumenLista');
+            const resumenTotal = document.getElementById('resumenTotal');
+            const totalSeleccionadosSpan = document.getElementById('totalSeleccionados');
             
-            function contarPorTipo() {
-                let carrotanque = 0, otros = 0;
-                document.querySelectorAll('.conductor-checkbox:checked').forEach(checkbox => {
-                    const item = checkbox.closest('.conductor-item');
-                    const badge = item.querySelector('.badge.bg-warning');
-                    badge ? carrotanque++ : otros++;
+            function escapeHtml(text) {
+                if (!text) return '';
+                return text.replace(/[&<>]/g, function(m) {
+                    if (m === '&') return '&amp;';
+                    if (m === '<') return '&lt;';
+                    if (m === '>') return '&gt;';
+                    return m;
                 });
-                if(carrotanqueCountSpan) carrotanqueCountSpan.textContent = carrotanque;
-                if(otrosCountSpan) otrosCountSpan.textContent = otros;
             }
             
-            function actualizarContadorSeleccionados() {
-                const checkboxes = document.querySelectorAll('.conductor-checkbox');
-                const total = checkboxes.length;
-                const seleccionados = Array.from(checkboxes).filter(cb => cb.checked).length;
-                if(selectedCountSpan) {
-                    selectedCountSpan.textContent = seleccionados;
-                    const porcentaje = total > 0 ? (seleccionados / total) * 100 : 0;
-                    if(progressBar) progressBar.style.width = porcentaje + '%';
-                    selectedCountSpan.classList.add('selected-count-animation');
-                    setTimeout(() => selectedCountSpan.classList.remove('selected-count-animation'), 300);
+            function actualizarResumen() {
+                const checkboxesSeleccionados = document.querySelectorAll('.conductor-checkbox:checked');
+                const total = checkboxesSeleccionados.length;
+                
+                if (total === 0) {
+                    resumenLista.innerHTML = `
+                        <div class="resumen-vacio">
+                            <i class="fas fa-info-circle"></i> No hay conductores seleccionados
+                        </div>
+                    `;
+                    resumenTotal.style.display = 'none';
+                    return;
                 }
-                contarPorTipo();
+                
+                let html = '';
+                checkboxesSeleccionados.forEach(checkbox => {
+                    const nombre = checkbox.getAttribute('data-nombre');
+                    const esCarrotanque = checkbox.getAttribute('data-es-carrotanque') === 'true';
+                    const tipoBadge = esCarrotanque ? 
+                        '<span class="tipo-badge" style="background:#fff3cd; color:#856404;"><i class="fas fa-truck"></i> Carrotanque</span>' : 
+                        '<span class="tipo-badge" style="background:#d1ecf1; color:#0c5460;"><i class="fas fa-car"></i> Otros</span>';
+                    
+                    html += `
+                        <div class="conductor-seleccionado-item">
+                            <i class="fas fa-check-circle" style="color: #198754;"></i>
+                            <span class="nombre">${escapeHtml(nombre)}</span>
+                            ${tipoBadge}
+                        </div>
+                    `;
+                });
+                
+                resumenLista.innerHTML = html;
+                totalSeleccionadosSpan.textContent = total;
+                resumenTotal.style.display = 'block';
             }
             
             function filtrarConductores() {
                 const busqueda = buscador.value.toLowerCase().trim();
-                let visibles = 0;
+                let contadorVisibles = 0;
+                
                 conductoresItems.forEach(item => {
                     const nombre = item.getAttribute('data-nombre') || '';
                     const coincide = busqueda === '' || nombre.startsWith(busqueda);
-                    item.style.display = coincide ? '' : 'none';
-                    if(coincide) visibles++;
+                    
+                    if (coincide) {
+                        item.style.display = '';
+                        contadorVisibles++;
+                    } else {
+                        item.style.display = 'none';
+                    }
                 });
-                resultadoBusqueda.innerHTML = busqueda === '' ? 
-                    `<i class="fas fa-users"></i> Mostrando ${visibles} de ${conductoresItems.length} conductores` :
-                    `<i class="fas fa-search"></i> ${visibles} conductores que empiezan con "${buscador.value}"`;
+                
+                const total = conductoresItems.length;
+                if (busqueda === '') {
+                    resultadoBusqueda.innerHTML = `<i class="fas fa-users"></i> Mostrando ${contadorVisibles} de ${total} conductores`;
+                } else {
+                    resultadoBusqueda.innerHTML = `<i class="fas fa-search"></i> ${contadorVisibles} conductores que empiezan con "${buscador.value}"`;
+                }
             }
             
             buscador.addEventListener('keyup', filtrarConductores);
-            document.getElementById('btnSeleccionarTodosCond').addEventListener('click', () => {
-                document.querySelectorAll('.conductor-item[style=""] .conductor-checkbox').forEach(cb => cb.checked = true);
-                actualizarContadorSeleccionados();
-            });
-            document.getElementById('btnLimpiarTodosCond').addEventListener('click', () => {
-                document.querySelectorAll('.conductor-checkbox').forEach(cb => cb.checked = false);
-                actualizarContadorSeleccionados();
-            });
-            document.querySelectorAll('.conductor-checkbox').forEach(cb => cb.addEventListener('change', actualizarContadorSeleccionados));
+            buscador.addEventListener('change', filtrarConductores);
             
-            const selectAllEmpresas = document.getElementById('seleccionarTodos');
-            const empresaCheckboxes = document.querySelectorAll('.empresa-item-checkbox');
-            if(selectAllEmpresas) {
-                selectAllEmpresas.addEventListener('change', () => empresaCheckboxes.forEach(cb => cb.checked = selectAllEmpresas.checked));
-                empresaCheckboxes.forEach(cb => cb.addEventListener('change', () => {
-                    const total = empresaCheckboxes.length;
-                    const checked = document.querySelectorAll('.empresa-item-checkbox:checked').length;
-                    selectAllEmpresas.checked = checked === total;
-                    selectAllEmpresas.indeterminate = checked > 0 && checked < total;
-                }));
+            document.getElementById('btnSeleccionarTodosCond').addEventListener('click', function() {
+                const itemsVisibles = document.querySelectorAll('.conductor-item[style=""]');
+                itemsVisibles.forEach(item => {
+                    const checkbox = item.querySelector('.conductor-checkbox');
+                    if (checkbox) checkbox.checked = true;
+                });
+                actualizarResumen();
+            });
+            
+            document.getElementById('btnLimpiarTodosCond').addEventListener('click', function() {
+                document.querySelectorAll('.conductor-checkbox').forEach(checkbox => {
+                    checkbox.checked = false;
+                });
+                actualizarResumen();
+            });
+            
+            document.querySelectorAll('.conductor-checkbox').forEach(checkbox => {
+                checkbox.addEventListener('change', actualizarResumen);
+            });
+            
+            const seleccionarTodosEmpresas = document.getElementById('seleccionarTodos');
+            const checkboxesEmpresa = document.querySelectorAll('.empresa-item-checkbox');
+            
+            function actualizarSeleccionarTodosEmpresas() {
+                if (!seleccionarTodosEmpresas) return;
+                const total = checkboxesEmpresa.length;
+                const seleccionados = document.querySelectorAll('.empresa-item-checkbox:checked').length;
+                
+                if (seleccionados === 0) {
+                    seleccionarTodosEmpresas.checked = false;
+                    seleccionarTodosEmpresas.indeterminate = false;
+                } else if (seleccionados === total) {
+                    seleccionarTodosEmpresas.checked = true;
+                    seleccionarTodosEmpresas.indeterminate = false;
+                } else {
+                    seleccionarTodosEmpresas.indeterminate = true;
+                }
             }
             
-            document.getElementById('formInforme').addEventListener('submit', (e) => {
-                if(document.querySelectorAll('.conductor-checkbox:checked').length === 0) {
+            if (seleccionarTodosEmpresas) {
+                seleccionarTodosEmpresas.addEventListener('change', function() {
+                    checkboxesEmpresa.forEach(cb => cb.checked = seleccionarTodosEmpresas.checked);
+                });
+                checkboxesEmpresa.forEach(cb => cb.addEventListener('change', actualizarSeleccionarTodosEmpresas));
+                actualizarSeleccionarTodosEmpresas();
+            }
+            
+            document.getElementById('formInforme').addEventListener('submit', function(e) {
+                const seleccionados = document.querySelectorAll('.conductor-checkbox:checked');
+                if (seleccionados.length === 0) {
                     e.preventDefault();
                     alert('⚠️ Por favor, seleccione al menos un conductor para generar el informe.');
+                    return false;
                 }
             });
             
-            setTimeout(() => { filtrarConductores(); actualizarContadorSeleccionados(); }, 100);
+            setTimeout(() => {
+                filtrarConductores();
+                actualizarResumen();
+            }, 100);
             
             const hoy = new Date();
-            const hace30Dias = new Date(); hace30Dias.setDate(hoy.getDate() - 30);
+            const hace30Dias = new Date();
+            hace30Dias.setDate(hoy.getDate() - 30);
+            
             const fechaDesde = document.getElementById('fecha_desde');
             const fechaHasta = document.getElementById('fecha_hasta');
-            if(fechaDesde && !fechaDesde.value) fechaDesde.value = hace30Dias.toISOString().split('T')[0];
-            if(fechaHasta && !fechaHasta.value) fechaHasta.value = hoy.toISOString().split('T')[0];
+            
+            if (fechaDesde && !fechaDesde.value) {
+                fechaDesde.value = hace30Dias.toISOString().split('T')[0];
+            }
+            if (fechaHasta && !fechaHasta.value) {
+                fechaHasta.value = hoy.toISOString().split('T')[0];
+            }
         </script>
     </body>
     </html>
