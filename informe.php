@@ -139,7 +139,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
                 min-height: 100vh;
-                padding: 2rem;
+                padding: 1.5rem;
             }
             
             .container-custom {
@@ -147,7 +147,6 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                 margin: 0 auto;
             }
             
-            /* Tarjeta principal */
             .main-card {
                 background: white;
                 border-radius: 20px;
@@ -167,42 +166,49 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                 }
             }
             
-            /* Encabezado */
             .card-header-custom {
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                 color: white;
-                padding: 2rem;
+                padding: 1.5rem;
                 text-align: center;
             }
             
             .card-header-custom h1 {
-                font-size: 2rem;
-                margin-bottom: 0.5rem;
+                font-size: 1.8rem;
+                margin-bottom: 0.25rem;
                 font-weight: 600;
             }
             
             .card-header-custom p {
                 margin-bottom: 0;
                 opacity: 0.9;
+                font-size: 0.9rem;
             }
             
-            /* Cuerpo */
             .card-body-custom {
-                padding: 2rem;
+                padding: 1.5rem;
             }
             
-            /* Sección de fechas */
-            .date-section {
+            .top-bar {
                 background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
                 border-radius: 15px;
-                padding: 1.5rem;
-                margin-bottom: 2rem;
+                padding: 1rem;
+                margin-bottom: 1.5rem;
+                display: flex;
+                gap: 1rem;
+                align-items: flex-end;
+                flex-wrap: wrap;
+            }
+            
+            .date-group {
+                flex: 1;
+                min-width: 180px;
             }
             
             .date-input {
                 background: white;
                 border-radius: 10px;
-                padding: 0.5rem;
+                padding: 0.5rem 1rem;
                 border: 2px solid #e0e0e0;
                 transition: all 0.3s;
             }
@@ -213,127 +219,239 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
             }
             
             .date-input label {
-                font-size: 0.85rem;
+                font-size: 0.75rem;
                 color: var(--secondary-color);
-                margin-bottom: 0.25rem;
+                margin-bottom: 0;
+                display: block;
             }
             
             .date-input input {
                 border: none;
                 padding: 0;
-                font-size: 1rem;
+                font-size: 0.95rem;
                 width: 100%;
                 outline: none;
             }
             
-            /* Tarjetas de sección */
+            .btn-generate-top {
+                background: linear-gradient(135deg, var(--success-color) 0%, #0f6848 100%);
+                color: white;
+                padding: 0.6rem 1.8rem;
+                border-radius: 10px;
+                font-weight: 600;
+                border: none;
+                transition: all 0.3s;
+                white-space: nowrap;
+            }
+            
+            .btn-generate-top:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 5px 15px rgba(25,135,84,0.3);
+            }
+            
+            .three-columns {
+                display: flex;
+                gap: 1.2rem;
+                flex-wrap: wrap;
+            }
+            
+            .col-conductores {
+                flex: 3;
+                min-width: 280px;
+            }
+            
+            .col-resumen {
+                flex: 0.75;
+                min-width: 180px;
+            }
+            
+            .col-empresas {
+                flex: 1.25;
+                min-width: 220px;
+            }
+            
             .section-card {
                 background: white;
                 border-radius: 15px;
                 box-shadow: 0 5px 20px rgba(0,0,0,0.08);
                 overflow: hidden;
-                margin-bottom: 2rem;
-                transition: transform 0.3s, box-shadow 0.3s;
-            }
-            
-            .section-card:hover {
-                transform: translateY(-5px);
-                box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+                height: 100%;
+                display: flex;
+                flex-direction: column;
             }
             
             .section-header {
                 background: linear-gradient(135deg, var(--primary-color) 0%, #0b5ed7 100%);
                 color: white;
-                padding: 1rem 1.5rem;
+                padding: 0.8rem 1rem;
             }
             
             .section-header h3 {
                 margin: 0;
-                font-size: 1.2rem;
+                font-size: 1rem;
                 font-weight: 600;
             }
             
-            .section-header i {
-                font-size: 1.3rem;
+            .section-header h3 i {
+                margin-right: 0.5rem;
             }
             
             .section-content {
-                padding: 1.5rem;
-                max-height: 500px;
+                padding: 1rem;
+                flex: 1;
                 overflow-y: auto;
+                max-height: calc(100vh - 280px);
+                min-height: 450px;
             }
             
-            /* Estilo para el resumen de selección */
-            .summary-content {
-                max-height: none;
-                overflow-y: visible;
+            .search-box {
+                position: relative;
+                margin-bottom: 1rem;
             }
             
-            .selected-drivers-list {
+            .search-box i {
+                position: absolute;
+                left: 0.8rem;
+                top: 50%;
+                transform: translateY(-50%);
+                color: var(--secondary-color);
+                font-size: 0.9rem;
+            }
+            
+            .search-box input {
+                width: 100%;
+                padding: 0.5rem 0.8rem 0.5rem 2rem;
+                border: 2px solid #e0e0e0;
+                border-radius: 8px;
+                font-size: 0.85rem;
+                transition: all 0.3s;
+            }
+            
+            .search-box input:focus {
+                border-color: var(--primary-color);
+                outline: none;
+            }
+            
+            .result-counter {
+                font-size: 0.7rem;
+                color: var(--secondary-color);
+                margin-top: 0.3rem;
+            }
+            
+            .btn-group-custom {
+                display: flex;
+                gap: 0.5rem;
+                margin-bottom: 1rem;
+            }
+            
+            .btn-group-custom .btn-sm {
+                padding: 0.25rem 0.6rem;
+                font-size: 0.75rem;
+            }
+            
+            .conductor-list {
                 max-height: 350px;
                 overflow-y: auto;
             }
             
-            .selected-driver-item {
-                padding: 0.75rem;
-                margin-bottom: 0.75rem;
-                background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-                border-radius: 10px;
-                border-left: 4px solid var(--success-color);
-                transition: all 0.3s;
-                animation: slideIn 0.3s ease;
+            .conductor-item {
+                padding: 0.5rem;
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                margin-bottom: 0.5rem;
+                transition: all 0.2s;
+                cursor: pointer;
             }
             
-            .selected-driver-item:hover {
-                transform: translateX(5px);
-                background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%);
-                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            .conductor-item:hover {
+                background: var(--light-color);
+                border-color: var(--primary-color);
             }
             
-            .selected-driver-name {
+            .conductor-item .form-check {
+                margin: 0;
+            }
+            
+            .conductor-name {
                 font-weight: 600;
+                font-size: 0.85rem;
                 color: var(--dark-color);
-                font-size: 1rem;
             }
             
-            .selected-driver-badge {
+            .conductor-cedula {
                 font-size: 0.7rem;
-                padding: 0.2rem 0.6rem;
-                border-radius: 20px;
-                margin-left: 0.5rem;
-                display: inline-block;
+                color: var(--secondary-color);
             }
             
-            .badge-carrotanque-selected {
+            .vehicle-badge {
+                display: inline-block;
+                padding: 0.15rem 0.5rem;
+                border-radius: 20px;
+                font-size: 0.65rem;
+                font-weight: 600;
+                margin-top: 0.2rem;
+            }
+            
+            .badge-carrotanque {
                 background: #fff3cd;
                 color: #856404;
-                border: 1px solid #ffc107;
+                border-left: 2px solid var(--warning-color);
             }
             
-            .badge-regular-selected {
+            .badge-burbuja {
                 background: #d1ecf1;
                 color: #0c5460;
-                border: 1px solid #0dcaf0;
+                border-left: 2px solid var(--info-color);
             }
             
-            .empty-selection {
+            .resumen-stats {
                 text-align: center;
-                padding: 2rem;
+            }
+            
+            .resumen-number {
+                font-size: 2.5rem;
+                font-weight: bold;
+                color: var(--primary-color);
+                line-height: 1;
+            }
+            
+            .resumen-label {
+                font-size: 0.75rem;
                 color: var(--secondary-color);
+                margin-bottom: 1rem;
+            }
+            
+            .progress-custom {
+                height: 8px;
+                border-radius: 10px;
+                margin: 1rem 0;
+            }
+            
+            .info-resumen {
                 background: var(--light-color);
                 border-radius: 10px;
+                padding: 0.8rem;
+                margin-top: 1rem;
             }
             
-            /* Lista de empresas */
+            .info-resumen p {
+                font-size: 0.7rem;
+                margin-bottom: 0.5rem;
+            }
+            
+            .info-resumen i {
+                margin-right: 0.3rem;
+            }
+            
             .empresas-list {
-                display: grid;
-                grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-                gap: 0.5rem;
+                display: flex;
+                flex-direction: column;
+                gap: 0.4rem;
             }
             
             .empresa-item {
-                padding: 0.5rem;
-                border-radius: 8px;
+                padding: 0.4rem;
+                border-radius: 6px;
                 transition: background 0.2s;
             }
             
@@ -343,170 +461,49 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
             
             .empresa-item input[type="checkbox"] {
                 margin-right: 0.5rem;
+                transform: scale(0.9);
             }
             
-            /* Lista de conductores */
-            .search-box {
-                position: relative;
-                margin-bottom: 1.5rem;
-            }
-            
-            .search-box i {
-                position: absolute;
-                left: 1rem;
-                top: 50%;
-                transform: translateY(-50%);
-                color: var(--secondary-color);
-            }
-            
-            .search-box input {
-                width: 100%;
-                padding: 0.75rem 1rem 0.75rem 2.5rem;
-                border: 2px solid #e0e0e0;
-                border-radius: 10px;
-                font-size: 0.95rem;
-                transition: all 0.3s;
-            }
-            
-            .search-box input:focus {
-                border-color: var(--primary-color);
-                outline: none;
-                box-shadow: 0 0 0 3px rgba(13,110,253,0.1);
-            }
-            
-            .result-counter {
+            .empresa-item label {
                 font-size: 0.85rem;
-                color: var(--secondary-color);
-                margin-top: 0.5rem;
-            }
-            
-            .btn-group-custom {
-                display: flex;
-                gap: 0.5rem;
-                margin-bottom: 1rem;
-            }
-            
-            .conductor-list {
-                max-height: 400px;
-                overflow-y: auto;
-            }
-            
-            .conductor-item {
-                padding: 0.75rem;
-                border: 1px solid #e0e0e0;
-                border-radius: 10px;
-                margin-bottom: 0.5rem;
-                transition: all 0.2s;
                 cursor: pointer;
             }
             
-            .conductor-item:hover {
-                background: var(--light-color);
-                border-color: var(--primary-color);
-                transform: translateX(5px);
+            .select-all-container {
+                padding-bottom: 0.5rem;
+                border-bottom: 1px solid #e0e0e0;
+                margin-bottom: 0.8rem;
             }
             
-            .conductor-item .form-check {
-                margin: 0;
-            }
-            
-            .conductor-name {
+            .select-all-container .form-check-label {
                 font-weight: 600;
-                color: var(--dark-color);
+                font-size: 0.85rem;
             }
             
-            .conductor-cedula {
-                font-size: 0.8rem;
-                color: var(--secondary-color);
-            }
-            
-            .vehicle-badge {
-                display: inline-block;
-                padding: 0.2rem 0.6rem;
-                border-radius: 20px;
-                font-size: 0.7rem;
-                font-weight: 600;
-                margin-top: 0.25rem;
-            }
-            
-            .badge-carrotanque {
-                background: #fff3cd;
-                color: #856404;
-                border-left: 3px solid var(--warning-color);
-            }
-            
-            .badge-burbuja {
-                background: #d1ecf1;
-                color: #0c5460;
-                border-left: 3px solid var(--info-color);
-            }
-            
-            /* Leyenda */
             .legend {
                 background: var(--light-color);
                 border-radius: 10px;
-                padding: 1rem;
+                padding: 0.8rem;
+                margin-top: 1rem;
             }
             
             .legend-item {
                 display: flex;
                 align-items: center;
-                margin-bottom: 0.75rem;
+                margin-bottom: 0.5rem;
+                font-size: 0.7rem;
             }
             
             .legend-color {
-                width: 24px;
-                height: 24px;
-                border-radius: 4px;
-                margin-right: 0.75rem;
+                width: 16px;
+                height: 16px;
+                border-radius: 3px;
+                margin-right: 0.5rem;
             }
             
-            /* Botones de acción */
-            .action-buttons {
-                display: flex;
-                gap: 1rem;
-                justify-content: center;
-                margin-top: 2rem;
-                padding-top: 1.5rem;
-                border-top: 2px solid #e0e0e0;
-            }
-            
-            .btn-generate {
-                background: linear-gradient(135deg, var(--success-color) 0%, #0f6848 100%);
-                color: white;
-                padding: 0.75rem 2rem;
-                border-radius: 10px;
-                font-weight: 600;
-                border: none;
-                transition: all 0.3s;
-            }
-            
-            .btn-generate:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 5px 15px rgba(25,135,84,0.3);
-                color: white;
-            }
-            
-            .btn-home {
-                background: linear-gradient(135deg, var(--secondary-color) 0%, #495057 100%);
-                color: white;
-                padding: 0.75rem 2rem;
-                border-radius: 10px;
-                font-weight: 600;
-                text-decoration: none;
-                transition: all 0.3s;
-            }
-            
-            .btn-home:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 5px 15px rgba(108,117,125,0.3);
-                color: white;
-            }
-            
-            /* Scroll personalizado */
             ::-webkit-scrollbar {
-                width: 8px;
-                height: 8px;
+                width: 6px;
+                height: 6px;
             }
             
             ::-webkit-scrollbar-track {
@@ -519,133 +516,87 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                 border-radius: 10px;
             }
             
-            ::-webkit-scrollbar-thumb:hover {
-                background: #0b5ed7;
-            }
-            
-            /* Responsive */
             @media (max-width: 992px) {
-                body {
-                    padding: 1rem;
-                }
-                
-                .card-header-custom h1 {
-                    font-size: 1.5rem;
-                }
-                
-                .action-buttons {
+                .three-columns {
                     flex-direction: column;
                 }
                 
-                .btn-generate, .btn-home {
+                .col-conductores, .col-resumen, .col-empresas {
+                    flex: auto;
+                }
+                
+                .top-bar {
+                    flex-direction: column;
+                    align-items: stretch;
+                }
+                
+                .btn-generate-top {
                     width: 100%;
                     text-align: center;
                 }
             }
             
-            /* Animaciones */
             @keyframes pulse {
-                0%, 100% {
-                    transform: scale(1);
-                }
-                50% {
-                    transform: scale(1.05);
-                }
+                0%, 100% { transform: scale(1); }
+                50% { transform: scale(1.05); }
             }
             
-            .selected-count {
+            .selected-count-animation {
                 animation: pulse 0.3s ease;
             }
             
-            @keyframes slideIn {
-                from {
-                    opacity: 0;
-                    transform: translateX(-20px);
-                }
-                to {
-                    opacity: 1;
-                    transform: translateX(0);
-                }
-            }
-            
-            /* Mejoras adicionales */
-            .progress {
-                height: 10px;
-                border-radius: 10px;
-                background-color: #e9ecef;
-            }
-            
-            .progress-bar {
-                background: linear-gradient(90deg, var(--primary-color), #0b5ed7);
-                border-radius: 10px;
-                transition: width 0.3s ease;
-            }
-            
-            .badge {
-                font-weight: 500;
-            }
-            
-            .alert-info {
-                background: linear-gradient(135deg, #cff4fc 0%, #b6effb 100%);
-                border: none;
-                border-left: 4px solid var(--info-color);
-            }
-            
-            .form-check-input:checked {
-                background-color: var(--primary-color);
-                border-color: var(--primary-color);
+            .badge-unic {
+                font-size: 0.6rem;
+                padding: 0.2rem 0.4rem;
             }
         </style>
     </head>
     <body>
         <div class="container-custom">
             <div class="main-card">
-                <!-- Encabezado -->
                 <div class="card-header-custom">
-                    <i class="fas fa-truck fa-3x mb-3"></i>
+                    <i class="fas fa-truck fa-2x mb-2"></i>
                     <h1>📊 Generar Informe de Viajes</h1>
-                    <p>Sistema de gestión de transporte - Asociación de Transportistas Zona Norte</p>
+                    <p>Asociación de Transportistas Zona Norte Extrema Wuinpumuín</p>
                 </div>
                 
-                <!-- Cuerpo -->
                 <div class="card-body-custom">
                     <form method="post" id="formInforme">
-                        <!-- Sección de fechas -->
-                        <div class="date-section">
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <div class="date-input">
-                                        <label><i class="far fa-calendar-alt"></i> Desde</label>
-                                        <input type="date" name="desde" required id="fecha_desde">
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="date-input">
-                                        <label><i class="far fa-calendar-alt"></i> Hasta</label>
-                                        <input type="date" name="hasta" required id="fecha_hasta">
-                                    </div>
+                        <div class="top-bar">
+                            <div class="date-group">
+                                <div class="date-input">
+                                    <label><i class="far fa-calendar-alt"></i> Desde</label>
+                                    <input type="date" name="desde" required id="fecha_desde">
                                 </div>
                             </div>
+                            <div class="date-group">
+                                <div class="date-input">
+                                    <label><i class="far fa-calendar-alt"></i> Hasta</label>
+                                    <input type="date" name="hasta" required id="fecha_hasta">
+                                </div>
+                            </div>
+                            <button type="submit" class="btn-generate-top">
+                                <i class="fas fa-file-alt"></i> Generar Informe
+                            </button>
+                            <a class="btn btn-secondary" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/index2.php" style="background: #6c757d; padding: 0.6rem 1.2rem; border-radius: 10px; color: white; text-decoration: none; white-space: nowrap;">
+                                <i class="fas fa-home"></i> Inicio
+                            </a>
                         </div>
                         
-                        <div class="row g-4">
-                            <!-- Columna izquierda: Selección de conductores -->
-                            <div class="col-lg-8">
+                        <div class="three-columns">
+                            <!-- COLUMNA CONDUCTORES -->
+                            <div class="col-conductores">
                                 <div class="section-card">
                                     <div class="section-header">
                                         <h3><i class="fas fa-users"></i> 👥 Seleccionar Conductores</h3>
                                     </div>
                                     <div class="section-content">
-                                        <!-- Buscador -->
                                         <div class="search-box">
                                             <i class="fas fa-search"></i>
                                             <input type="text" id="buscadorConductores" placeholder="Buscar conductor por nombre...">
-                                            <div class="result-counter" id="resultadoBusqueda">
-                                                <i class="fas fa-chart-line"></i> Cargando conductores...
-                                            </div>
+                                            <div class="result-counter" id="resultadoBusqueda"></div>
                                         </div>
                                         
-                                        <!-- Botones de selección -->
                                         <div class="btn-group-custom">
                                             <button type="button" id="btnSeleccionarTodosCond" class="btn btn-outline-primary btn-sm">
                                                 <i class="fas fa-check-double"></i> Seleccionar todos
@@ -655,7 +606,6 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                                             </button>
                                         </div>
                                         
-                                        <!-- Lista de conductores -->
                                         <div class="conductor-list" id="listaConductores">
                                             <?php foreach($todosConductores as $index => $cond): 
                                                 $esCarrotanque = strpos(strtolower($cond['tipo_vehiculo'] ?? ''), 'carrotanque') !== false;
@@ -663,18 +613,14 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                                                 $badgeClass = $esCarrotanque ? 'badge-carrotanque' : 'badge-burbuja';
                                                 $badgeIcon = $esCarrotanque ? 'fa-truck' : 'fa-car';
                                             ?>
-                                            <div class="conductor-item" data-nombre="<?= strtolower(htmlspecialchars($cond['nombre'])) ?>" data-nombre-original="<?= htmlspecialchars($cond['nombre']) ?>">
+                                            <div class="conductor-item" data-nombre="<?= strtolower(htmlspecialchars($cond['nombre'])) ?>">
                                                 <div class="form-check">
                                                     <input class="form-check-input conductor-checkbox" type="checkbox" 
                                                            name="conductores_seleccionados[]" value="<?= htmlspecialchars($cond['nombre']) ?>" 
-                                                           id="conductor_<?= $index ?>"
-                                                           data-nombre="<?= htmlspecialchars($cond['nombre']) ?>"
-                                                           data-cedula="<?= htmlspecialchars($cond['cedula'] ?? '') ?>"
-                                                           data-vehiculo="<?= htmlspecialchars($cond['tipo_vehiculo'] ?? '') ?>"
-                                                           data-es-carrotanque="<?= $esCarrotanque ? 'true' : 'false' ?>">
-                                                    <label class="form-check-label" for="conductor_<?= $index ?>" style="width: 100%; cursor: pointer;">
+                                                           id="conductor_<?= $index ?>">
+                                                    <label class="form-check-label" for="conductor_<?= $index ?>" style="width: 100%;">
                                                         <div class="d-flex justify-content-between align-items-start">
-                                                            <div>
+                                                            <div style="flex: 1;">
                                                                 <span class="conductor-name"><?= htmlspecialchars($cond['nombre']) ?></span>
                                                                 <?php if(!empty($cond['cedula'])): ?>
                                                                     <span class="conductor-cedula">(Cédula: <?= htmlspecialchars($cond['cedula']) ?>)</span>
@@ -686,7 +632,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                                                                 </div>
                                                             </div>
                                                             <?php if($esCarrotanque): ?>
-                                                                <span class="badge bg-warning text-dark">
+                                                                <span class="badge bg-warning text-dark badge-unic">
                                                                     <i class="fas fa-exclamation-triangle"></i> Único
                                                                 </span>
                                                             <?php endif; ?>
@@ -700,54 +646,48 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                                 </div>
                             </div>
                             
-                            <!-- Columna derecha: Resumen de selección y Empresas -->
-                            <div class="col-lg-4">
-                                <!-- Resumen de selección - CON LISTA DE NOMBRES -->
-                                <div class="section-card" id="summaryCard">
+                            <!-- COLUMNA RESUMEN -->
+                            <div class="col-resumen">
+                                <div class="section-card">
                                     <div class="section-header">
-                                        <h3><i class="fas fa-chart-bar"></i> 📋 Resumen de selección</h3>
+                                        <h3><i class="fas fa-chart-bar"></i> 📊 Resumen</h3>
                                     </div>
-                                    <div class="section-content summary-content">
-                                        <div class="text-center mb-3">
-                                            <h2 id="selectedCount" class="display-4 text-primary">0</h2>
-                                            <p class="text-muted">conductores seleccionados</p>
-                                            <div class="progress mb-3">
-                                                <div id="progressBar" class="progress-bar" role="progressbar" style="width: 0%"></div>
+                                    <div class="section-content">
+                                        <div class="resumen-stats">
+                                            <div class="resumen-number" id="selectedCount">0</div>
+                                            <div class="resumen-label">conductores seleccionados</div>
+                                            <div class="progress progress-custom">
+                                                <div id="progressBar" class="progress-bar bg-primary" role="progressbar" style="width: 0%"></div>
                                             </div>
-                                        </div>
-                                        
-                                        <div class="mt-3">
-                                            <h6 class="fw-bold mb-3">
-                                                <i class="fas fa-list"></i> Conductores seleccionados:
-                                            </h6>
-                                            <div id="selectedDriversList" class="selected-drivers-list">
-                                                <div class="empty-selection">
-                                                    <i class="fas fa-info-circle fa-2x mb-2"></i>
-                                                    <p>No hay conductores seleccionados</p>
-                                                    <small>Seleccione uno o más conductores de la lista</small>
-                                                </div>
+                                            <div class="info-resumen">
+                                                <p><i class="fas fa-truck text-warning"></i> <strong>Carrotanque:</strong> <span id="carrotanqueCount">0</span></p>
+                                                <p><i class="fas fa-car text-info"></i> <strong>Otros:</strong> <span id="otrosCount">0</span></p>
+                                                <hr class="my-2">
+                                                <p><i class="fas fa-info-circle text-primary"></i> <strong>Total:</strong> <span id="totalConductores"><?= count($todosConductores) ?></span></p>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
-                                
-                                <!-- Selección de empresas -->
+                            </div>
+                            
+                            <!-- COLUMNA EMPRESAS -->
+                            <div class="col-empresas">
                                 <div class="section-card">
                                     <div class="section-header">
-                                        <h3><i class="fas fa-building"></i> 🏢 Seleccionar Empresas</h3>
+                                        <h3><i class="fas fa-building"></i> 🏢 Empresas</h3>
                                     </div>
                                     <div class="section-content">
-                                        <div class="select-all-container mb-3">
+                                        <div class="select-all-container">
                                             <div class="form-check">
                                                 <input class="form-check-input" type="checkbox" id="seleccionarTodos">
                                                 <label class="form-check-label" for="seleccionarTodos">
-                                                    <strong><i class="fas fa-check-circle"></i> Seleccionar todas las empresas</strong>
+                                                    <strong><i class="fas fa-check-circle"></i> Seleccionar todas</strong>
                                                 </label>
                                             </div>
                                         </div>
                                         <div class="empresas-list">
                                             <?php if (empty($empresas)): ?>
-                                                <p class="text-muted mb-0"><i class="fas fa-info-circle"></i> No hay empresas disponibles</p>
+                                                <p class="text-muted mb-0"><i class="fas fa-info-circle"></i> No hay empresas</p>
                                             <?php else: ?>
                                                 <?php foreach($empresas as $index => $e): ?>
                                                 <div class="empresa-item">
@@ -762,50 +702,26 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
                                             <?php endif; ?>
                                         </div>
                                         <small class="text-muted mt-2 d-block">
-                                            <i class="fas fa-info-circle"></i> Si no selecciona ninguna, se incluirán todas las empresas
+                                            <i class="fas fa-info-circle"></i> Si no selecciona ninguna, se incluirán todas
                                         </small>
-                                    </div>
-                                </div>
-                                
-                                <!-- Leyenda informativa -->
-                                <div class="section-card">
-                                    <div class="section-header">
-                                        <h3><i class="fas fa-info-circle"></i> ℹ️ Información importante</h3>
-                                    </div>
-                                    <div class="section-content">
+                                        
                                         <div class="legend">
                                             <div class="legend-item">
-                                                <div class="legend-color" style="background: #fff3cd; border-left: 3px solid #ffc107;"></div>
-                                                <span><i class="fas fa-truck"></i> <strong>Carrotanque:</strong> Mantiene su nombre real</span>
+                                                <div class="legend-color" style="background: #fff3cd; border-left: 2px solid #ffc107;"></div>
+                                                <span><i class="fas fa-truck"></i> Carrotanque: nombre real</span>
                                             </div>
                                             <div class="legend-item">
-                                                <div class="legend-color" style="background: #d1ecf1; border-left: 3px solid #0dcaf0;"></div>
-                                                <span><i class="fas fa-car"></i> <strong>Demás vehículos:</strong> Distribución aleatoria</span>
+                                                <div class="legend-color" style="background: #d1ecf1; border-left: 2px solid #0dcaf0;"></div>
+                                                <span><i class="fas fa-car"></i> Otros: distribución aleatoria</span>
                                             </div>
                                             <div class="legend-item">
-                                                <div class="legend-color" style="background: #f8f9fa; border-left: 3px solid #198754;"></div>
-                                                <span><i class="fas fa-random"></i> <strong>Regla especial:</strong> Máximo 2 veces seguidas mismo conductor</span>
+                                                <div class="legend-color" style="background: #f8f9fa; border-left: 2px solid #198754;"></div>
+                                                <span><i class="fas fa-random"></i> Máx 2 veces seguidas</span>
                                             </div>
-                                        </div>
-                                        <div class="alert alert-info mt-3 mb-0">
-                                            <i class="fas fa-lightbulb"></i>
-                                            <strong>¿Cómo funciona?</strong><br>
-                                            Los conductores de carrotanque conservan su nombre real en los viajes que realizaron. 
-                                            Los demás conductores se distribuyen aleatoriamente entre los viajes, evitando que un mismo conductor aparezca más de 2 veces seguidas.
                                         </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                        
-                        <!-- Botones de acción -->
-                        <div class="action-buttons">
-                            <button type="submit" class="btn-generate">
-                                <i class="fas fa-file-alt"></i> Generar Informe
-                            </button>
-                            <a class="btn-home" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/index2.php">
-                                <i class="fas fa-home"></i> Ir a Inicio
-                            </a>
                         </div>
                     </form>
                 </div>
@@ -813,244 +729,91 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
         </div>
         
         <script>
-            // Variables globales
             const buscador = document.getElementById('buscadorConductores');
             const conductoresItems = document.querySelectorAll('.conductor-item');
             const resultadoBusqueda = document.getElementById('resultadoBusqueda');
             const selectedCountSpan = document.getElementById('selectedCount');
             const progressBar = document.getElementById('progressBar');
-            const selectedDriversList = document.getElementById('selectedDriversList');
+            const carrotanqueCountSpan = document.getElementById('carrotanqueCount');
+            const otrosCountSpan = document.getElementById('otrosCount');
             
-            // Función para escapar HTML
-            function escapeHtml(text) {
-                if (!text) return '';
-                const div = document.createElement('div');
-                div.textContent = text;
-                return div.innerHTML;
-            }
-            
-            // Función para obtener el tipo de vehículo formateado
-            function getTipoVehiculoFormateado(vehiculo, esCarrotanque) {
-                if (esCarrotanque) return 'Carrotanque';
-                if (vehiculo && vehiculo.toLowerCase().includes('burbuja')) return 'Camioneta Burbuja';
-                return 'Vehículo estándar';
-            }
-            
-            // Función para actualizar la lista de conductores seleccionados
-            function actualizarListaSeleccionados() {
-                const checkboxes = document.querySelectorAll('.conductor-checkbox:checked');
-                const total = checkboxes.length;
-                
-                if (total === 0) {
-                    selectedDriversList.innerHTML = `
-                        <div class="empty-selection">
-                            <i class="fas fa-user-slash fa-2x mb-2"></i>
-                            <p>No hay conductores seleccionados</p>
-                            <small>Seleccione uno o más conductores de la lista para continuar</small>
-                        </div>
-                    `;
-                    return;
-                }
-                
-                let html = '';
-                checkboxes.forEach((checkbox, index) => {
-                    const nombre = checkbox.getAttribute('data-nombre');
-                    const cedula = checkbox.getAttribute('data-cedula');
-                    const vehiculo = checkbox.getAttribute('data-vehiculo') || '';
-                    const esCarrotanque = checkbox.getAttribute('data-es-carrotanque') === 'true';
-                    const tipoVehiculo = getTipoVehiculoFormateado(vehiculo, esCarrotanque);
-                    
-                    html += `
-                        <div class="selected-driver-item">
-                            <div class="d-flex justify-content-between align-items-start">
-                                <div style="flex: 1;">
-                                    <div>
-                                        <span class="selected-driver-name">${escapeHtml(nombre)}</span>
-                                        ${cedula ? `<small class="text-muted ms-2">(Cédula: ${escapeHtml(cedula)})</small>` : ''}
-                                    </div>
-                                    <div class="mt-1">
-                                        <span class="badge ${esCarrotanque ? 'badge-carrotanque-selected' : 'badge-regular-selected'}">
-                                            <i class="fas ${esCarrotanque ? 'fa-truck' : 'fa-car'}"></i> ${escapeHtml(tipoVehiculo)}
-                                        </span>
-                                    </div>
-                                </div>
-                                <i class="fas fa-check-circle text-success" style="font-size: 1.2rem;"></i>
-                            </div>
-                        </div>
-                    `;
+            function contarPorTipo() {
+                let carrotanque = 0, otros = 0;
+                document.querySelectorAll('.conductor-checkbox:checked').forEach(checkbox => {
+                    const item = checkbox.closest('.conductor-item');
+                    const badge = item.querySelector('.badge.bg-warning');
+                    badge ? carrotanque++ : otros++;
                 });
-                
-                selectedDriversList.innerHTML = html;
+                if(carrotanqueCountSpan) carrotanqueCountSpan.textContent = carrotanque;
+                if(otrosCountSpan) otrosCountSpan.textContent = otros;
             }
             
-            // Función para actualizar contador de seleccionados
             function actualizarContadorSeleccionados() {
                 const checkboxes = document.querySelectorAll('.conductor-checkbox');
                 const total = checkboxes.length;
                 const seleccionados = Array.from(checkboxes).filter(cb => cb.checked).length;
-                
-                if (selectedCountSpan) {
+                if(selectedCountSpan) {
                     selectedCountSpan.textContent = seleccionados;
                     const porcentaje = total > 0 ? (seleccionados / total) * 100 : 0;
-                    if (progressBar) {
-                        progressBar.style.width = porcentaje + '%';
-                        progressBar.setAttribute('aria-valuenow', porcentaje);
-                    }
-                    
-                    if (seleccionados > 0) {
-                        selectedCountSpan.classList.add('selected-count');
-                        setTimeout(() => selectedCountSpan.classList.remove('selected-count'), 300);
-                    }
+                    if(progressBar) progressBar.style.width = porcentaje + '%';
+                    selectedCountSpan.classList.add('selected-count-animation');
+                    setTimeout(() => selectedCountSpan.classList.remove('selected-count-animation'), 300);
                 }
-                
-                // Actualizar la lista de nombres
-                actualizarListaSeleccionados();
+                contarPorTipo();
             }
             
-            // Buscador de conductores - FILTRO DESDE EL INICIO (startsWith)
             function filtrarConductores() {
                 const busqueda = buscador.value.toLowerCase().trim();
-                let contadorVisibles = 0;
-                
+                let visibles = 0;
                 conductoresItems.forEach(item => {
                     const nombre = item.getAttribute('data-nombre') || '';
                     const coincide = busqueda === '' || nombre.startsWith(busqueda);
-                    
-                    if (coincide) {
-                        item.style.display = '';
-                        contadorVisibles++;
-                    } else {
-                        item.style.display = 'none';
-                    }
+                    item.style.display = coincide ? '' : 'none';
+                    if(coincide) visibles++;
                 });
-                
-                // Actualizar contador de resultados
-                if (busqueda === '') {
-                    resultadoBusqueda.innerHTML = `<i class="fas fa-users"></i> Mostrando ${contadorVisibles} conductores de ${conductoresItems.length}`;
-                } else {
-                    resultadoBusqueda.innerHTML = `<i class="fas fa-search"></i> Se encontraron ${contadorVisibles} conductores que empiezan con "${escapeHtml(busqueda)}"`;
-                }
-                
+                resultadoBusqueda.innerHTML = busqueda === '' ? 
+                    `<i class="fas fa-users"></i> Mostrando ${visibles} de ${conductoresItems.length} conductores` :
+                    `<i class="fas fa-search"></i> ${visibles} conductores que empiezan con "${buscador.value}"`;
+            }
+            
+            buscador.addEventListener('keyup', filtrarConductores);
+            document.getElementById('btnSeleccionarTodosCond').addEventListener('click', () => {
+                document.querySelectorAll('.conductor-item[style=""] .conductor-checkbox').forEach(cb => cb.checked = true);
                 actualizarContadorSeleccionados();
+            });
+            document.getElementById('btnLimpiarTodosCond').addEventListener('click', () => {
+                document.querySelectorAll('.conductor-checkbox').forEach(cb => cb.checked = false);
+                actualizarContadorSeleccionados();
+            });
+            document.querySelectorAll('.conductor-checkbox').forEach(cb => cb.addEventListener('change', actualizarContadorSeleccionados));
+            
+            const selectAllEmpresas = document.getElementById('seleccionarTodos');
+            const empresaCheckboxes = document.querySelectorAll('.empresa-item-checkbox');
+            if(selectAllEmpresas) {
+                selectAllEmpresas.addEventListener('change', () => empresaCheckboxes.forEach(cb => cb.checked = selectAllEmpresas.checked));
+                empresaCheckboxes.forEach(cb => cb.addEventListener('change', () => {
+                    const total = empresaCheckboxes.length;
+                    const checked = document.querySelectorAll('.empresa-item-checkbox:checked').length;
+                    selectAllEmpresas.checked = checked === total;
+                    selectAllEmpresas.indeterminate = checked > 0 && checked < total;
+                }));
             }
             
-            // Evento de búsqueda
-            if (buscador) {
-                buscador.addEventListener('keyup', filtrarConductores);
-                buscador.addEventListener('change', filtrarConductores);
-            }
-            
-            // Seleccionar todos los conductores visibles
-            const btnSeleccionarTodos = document.getElementById('btnSeleccionarTodosCond');
-            if (btnSeleccionarTodos) {
-                btnSeleccionarTodos.addEventListener('click', function() {
-                    const itemsVisibles = document.querySelectorAll('.conductor-item[style=""]');
-                    itemsVisibles.forEach(item => {
-                        const checkbox = item.querySelector('.conductor-checkbox');
-                        if (checkbox) checkbox.checked = true;
-                    });
-                    actualizarContadorSeleccionados();
-                });
-            }
-            
-            // Limpiar todos los conductores
-            const btnLimpiarTodos = document.getElementById('btnLimpiarTodosCond');
-            if (btnLimpiarTodos) {
-                btnLimpiarTodos.addEventListener('click', function() {
-                    document.querySelectorAll('.conductor-checkbox').forEach(checkbox => {
-                        checkbox.checked = false;
-                    });
-                    actualizarContadorSeleccionados();
-                });
-            }
-            
-            // Actualizar contador cuando se marcan/desmarcan checkboxes
-            document.querySelectorAll('.conductor-checkbox').forEach(checkbox => {
-                checkbox.addEventListener('change', actualizarContadorSeleccionados);
+            document.getElementById('formInforme').addEventListener('submit', (e) => {
+                if(document.querySelectorAll('.conductor-checkbox:checked').length === 0) {
+                    e.preventDefault();
+                    alert('⚠️ Por favor, seleccione al menos un conductor para generar el informe.');
+                }
             });
             
-            // Seleccionar todas las empresas
-            const seleccionarTodos = document.getElementById('seleccionarTodos');
-            const checkboxesEmpresa = document.querySelectorAll('.empresa-item-checkbox');
+            setTimeout(() => { filtrarConductores(); actualizarContadorSeleccionados(); }, 100);
             
-            function actualizarSeleccionarTodos() {
-                const totalCheckboxes = checkboxesEmpresa.length;
-                const checkboxesSeleccionados = document.querySelectorAll('.empresa-item-checkbox:checked').length;
-                
-                if (seleccionarTodos) {
-                    if (checkboxesSeleccionados === 0) {
-                        seleccionarTodos.checked = false;
-                        seleccionarTodos.indeterminate = false;
-                    } else if (checkboxesSeleccionados === totalCheckboxes) {
-                        seleccionarTodos.checked = true;
-                        seleccionarTodos.indeterminate = false;
-                    } else {
-                        seleccionarTodos.indeterminate = true;
-                    }
-                }
-            }
-            
-            if (seleccionarTodos) {
-                seleccionarTodos.addEventListener('change', function() {
-                    checkboxesEmpresa.forEach(checkbox => {
-                        checkbox.checked = seleccionarTodos.checked;
-                    });
-                });
-                
-                checkboxesEmpresa.forEach(checkbox => {
-                    checkbox.addEventListener('change', actualizarSeleccionarTodos);
-                });
-                
-                actualizarSeleccionarTodos();
-            }
-            
-            // Validar que se haya seleccionado al menos un conductor antes de enviar
-            const formInforme = document.getElementById('formInforme');
-            if (formInforme) {
-                formInforme.addEventListener('submit', function(e) {
-                    const seleccionados = document.querySelectorAll('.conductor-checkbox:checked');
-                    if (seleccionados.length === 0) {
-                        e.preventDefault();
-                        alert('⚠️ Por favor, seleccione al menos un conductor para generar el informe.');
-                        return false;
-                    }
-                });
-            }
-            
-            // Inicializar contador
-            setTimeout(() => {
-                filtrarConductores();
-                actualizarContadorSeleccionados();
-            }, 100);
-            
-            // Establecer fechas por defecto (últimos 30 días)
             const hoy = new Date();
-            const hace30Dias = new Date();
-            hace30Dias.setDate(hoy.getDate() - 30);
-            
+            const hace30Dias = new Date(); hace30Dias.setDate(hoy.getDate() - 30);
             const fechaDesde = document.getElementById('fecha_desde');
             const fechaHasta = document.getElementById('fecha_hasta');
-            
-            if (fechaDesde && !fechaDesde.value) {
-                fechaDesde.value = hace30Dias.toISOString().split('T')[0];
-            }
-            if (fechaHasta && !fechaHasta.value) {
-                fechaHasta.value = hoy.toISOString().split('T')[0];
-            }
-            
-            // Hacer click en los items de conductores para seleccionar
-            document.querySelectorAll('.conductor-item').forEach(item => {
-                item.addEventListener('click', function(e) {
-                    // Evitar que el click en el checkbox se duplique
-                    if (e.target.type !== 'checkbox') {
-                        const checkbox = this.querySelector('.conductor-checkbox');
-                        if (checkbox) {
-                            checkbox.checked = !checkbox.checked;
-                            actualizarContadorSeleccionados();
-                        }
-                    }
-                });
-            });
+            if(fechaDesde && !fechaDesde.value) fechaDesde.value = hace30Dias.toISOString().split('T')[0];
+            if(fechaHasta && !fechaHasta.value) fechaHasta.value = hoy.toISOString().split('T')[0];
         </script>
     </body>
     </html>
@@ -1058,7 +821,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['conductor
     exit;
 }
 
-// ========== PROCESAMIENTO DEL INFORME ==========
+// ========== PROCESAMIENTO DEL INFORME (CUANDO SE ENVÍA EL FORMULARIO) ==========
 
 // Parámetros
 $desde = $_POST['desde'];
@@ -1066,21 +829,19 @@ $hasta = $_POST['hasta'];
 $empresasSeleccionadas = $_POST['empresas'] ?? [];
 $conductoresSeleccionados = $_POST['conductores_seleccionados'] ?? [];
 
-// Validar que las fechas no estén vacías
+// Validaciones
 if (empty($desde) || empty($hasta)) {
     die("Error: Fechas no válidas");
 }
-
-// Validar que se hayan seleccionado conductores
 if (empty($conductoresSeleccionados)) {
     die("Error: Debe seleccionar al menos un conductor para generar el informe.");
 }
 
-// Normaliza a todo el día
+// Normalizar fechas
 $desdeIni = $conn->real_escape_string($desde . " 00:00:00");
 $hastaFin = $conn->real_escape_string($hasta . " 23:59:59");
 
-// Construir condición para múltiples empresas
+// Condición empresas
 $condicionEmpresa = "";
 if (!empty($empresasSeleccionadas)) {
     $empresasEscapadas = array_map(function($emp) use ($conn) {
@@ -1089,7 +850,7 @@ if (!empty($empresasSeleccionadas)) {
     $condicionEmpresa = " AND v.empresa IN (" . implode(",", $empresasEscapadas) . ")";
 }
 
-// ========== IDENTIFICAR CONDUCTORES DE CARROTANQUE ==========
+// Identificar conductores carrotanque
 $conductoresCarrotanque = [];
 foreach ($conductoresSeleccionados as $conductor) {
     if (esConductorCarrotanque($conn, $conductor)) {
@@ -1097,16 +858,11 @@ foreach ($conductoresSeleccionados as $conductor) {
     }
 }
 
-// ========== OBTENER DATOS DE LOS CONDUCTORES SELECCIONADOS ==========
+// Obtener información de conductores
 $conductoresInfo = [];
 foreach ($conductoresSeleccionados as $conductorNombre) {
     $nombreEscapado = $conn->real_escape_string($conductorNombre);
-    $sqlConductorInfo = "
-        SELECT DISTINCT nombre, cedula, tipo_vehiculo 
-        FROM viajes 
-        WHERE nombre = '$nombreEscapado' 
-        LIMIT 1
-    ";
+    $sqlConductorInfo = "SELECT DISTINCT nombre, cedula, tipo_vehiculo FROM viajes WHERE nombre = '$nombreEscapado' LIMIT 1";
     $resInfo = $conn->query($sqlConductorInfo);
     if ($resInfo && $row = $resInfo->fetch_assoc()) {
         $conductoresInfo[] = $row;
@@ -1115,7 +871,7 @@ foreach ($conductoresSeleccionados as $conductorNombre) {
     }
 }
 
-// ========== CONSULTA PRINCIPAL - OBTENER TODOS LOS VIAJES ==========
+// Consulta de viajes
 $sqlViajes = "
     SELECT 
         v.fecha,
@@ -1152,16 +908,14 @@ $sqlViajes = "
 
 $resViajes = $conn->query($sqlViajes);
 if (!$resViajes) {
-    die("Error en consulta viajes: " . $conn->error . "<br>SQL: " . $sqlViajes);
+    die("Error en consulta viajes: " . $conn->error);
 }
 
-// ========== ASIGNAR CONDUCTORES CON REGLAS ESPECIALES ==========
+// Asignar conductores
 $viajesAsignados = [];
 $totalValores = 0;
 $ultimoConductor = null;
 $consecutivos = 0;
-
-// Lista de conductores NO carrotanque para asignación aleatoria
 $conductoresNoCarrotanque = array_diff($conductoresSeleccionados, $conductoresCarrotanque);
 
 if ($resViajes && $resViajes->num_rows > 0) {
@@ -1172,10 +926,8 @@ if ($resViajes && $resViajes->num_rows > 0) {
         $conductorAsignado = '';
         
         if ($esViajeCarrotanque) {
-            // VIAJE DE CARROTANQUE: conservar el conductor real
             $conductorAsignado = $row['conductor_real'];
         } else {
-            // VIAJE DE OTRO TIPO: asignación aleatoria
             if (empty($conductoresNoCarrotanque)) {
                 $conductoresParaAsignar = $conductoresSeleccionados;
             } else {
@@ -1196,7 +948,6 @@ if ($resViajes && $resViajes->num_rows > 0) {
             }
         }
         
-        // Obtener información del conductor asignado
         $conductorInfo = null;
         foreach ($conductoresInfo as $info) {
             if ($info['nombre'] == $conductorAsignado) {
@@ -1223,11 +974,10 @@ if ($resViajes && $resViajes->num_rows > 0) {
     }
 }
 
-// ========== GENERAR DOCUMENTO WORD ==========
+// Generar documento Word
 $phpWord = new PhpWord();
 $section = $phpWord->addSection();
 
-// Encabezado
 $section->addText("INFORME DE FICHAS TÉCNICAS DE CONDUCTOR - VEHÍCULOS", ['bold' => true, 'size' => 14], ['align' => 'center']);
 $section->addTextBreak(1);
 $section->addText("SEGÚN ACTA DE INICIO AL CONTRATO DE PRESTACIÓN DE SERVICIOS NO. 1313-2025 SUSCRITO POR LA E.S.E. HOSPITAL SAN JOSÉ DE MAICAO Y LA ASOCIACIÓN DE TRANSPORTISTAS ZONA NORTE EXTREMA WUINPUMUIN.");
@@ -1245,18 +995,11 @@ if (!empty($conductoresCarrotanque)) {
 }
 $section->addTextBreak(2);
 
-// ========== TABLA 1: LISTA DE CONDUCTORES SELECCIONADOS ==========
+// Tabla de conductores
 $section->addText("LISTA DE CONDUCTORES (INCLUIDOS EN INFORME)", ['bold' => true, 'size' => 12]);
 $section->addTextBreak(1);
 
-$tableConductores = $section->addTable([
-    'borderSize' => 6, 
-    'borderColor' => '000000', 
-    'cellMargin' => 80,
-    'alignment' => \PhpOffice\PhpWord\SimpleType\JcTable::CENTER
-]);
-
-// Encabezado tabla conductores
+$tableConductores = $section->addTable(['borderSize' => 6, 'borderColor' => '000000', 'cellMargin' => 80]);
 $tableConductores->addRow();
 $tableConductores->addCell(3000)->addText("CONDUCTOR", ['bold' => true]);
 $tableConductores->addCell(2500)->addText("CÉDULA", ['bold' => true]);
@@ -1264,44 +1007,26 @@ $tableConductores->addCell(2500)->addText("TIPO DE VEHÍCULO", ['bold' => true])
 $tableConductores->addCell(2000)->addText("ÁREA DE COBERTURA", ['bold' => true]);
 $tableConductores->addCell(1500)->addText("TIPO", ['bold' => true]);
 
-if (!empty($conductoresInfo)) {
-    foreach ($conductoresInfo as $conductor) {
-        $esCarrotanque = in_array($conductor['nombre'], $conductoresCarrotanque);
-        $tableConductores->addRow();
-        $tableConductores->addCell(3000)->addText($conductor['nombre'] ?: '-');
-        $tableConductores->addCell(2500)->addText($conductor['cedula'] ?: 'N/A');
-        
-        $tipoVehiculo = obtenerTipoVehiculo($conductor['tipo_vehiculo']);
-        $tableConductores->addCell(2500)->addText($tipoVehiculo);
-        
-        $areaCobertura = obtenerAreaCobertura($conductor['tipo_vehiculo']);
-        $tableConductores->addCell(2000)->addText($areaCobertura);
-        
-        $tipoTexto = $esCarrotanque ? "🚛 Carrotanque (Fijo)" : "📋 Distribución Aleatoria";
-        $tableConductores->addCell(1500)->addText($tipoTexto);
-    }
-} else {
+foreach ($conductoresInfo as $conductor) {
+    $esCarrotanque = in_array($conductor['nombre'], $conductoresCarrotanque);
     $tableConductores->addRow();
-    $cell = $tableConductores->addCell(11500, ['gridSpan' => 5]);
-    $cell->addText("📭 No hay conductores seleccionados.");
+    $tableConductores->addCell(3000)->addText($conductor['nombre'] ?: '-');
+    $tableConductores->addCell(2500)->addText($conductor['cedula'] ?: 'N/A');
+    $tableConductores->addCell(2500)->addText(obtenerTipoVehiculo($conductor['tipo_vehiculo']));
+    $tableConductores->addCell(2000)->addText(obtenerAreaCobertura($conductor['tipo_vehiculo']));
+    $tipoTexto = $esCarrotanque ? "🚛 Carrotanque (Fijo)" : "📋 Distribución Aleatoria";
+    $tableConductores->addCell(1500)->addText($tipoTexto);
 }
 
 $section->addTextBreak(3);
 
-// ========== TABLA 2: DETALLE DE VIAJES ==========
+// Tabla de viajes
 $section->addText("DETALLE DE VIAJES POR FECHA", ['bold' => true, 'size' => 12]);
 $section->addTextBreak(1);
 $section->addText("Nota: Los viajes de carrotanque conservan el conductor real. Los demás viajes se distribuyen aleatoriamente.", ['italic' => true, 'size' => 10]);
 $section->addTextBreak(1);
 
-$tableViajes = $section->addTable([
-    'borderSize' => 6, 
-    'borderColor' => '000000', 
-    'cellMargin' => 80,
-    'alignment' => \PhpOffice\PhpWord\SimpleType\JcTable::CENTER
-]);
-
-// Encabezado tabla viajes
+$tableViajes = $section->addTable(['borderSize' => 6, 'borderColor' => '000000', 'cellMargin' => 80]);
 $tableViajes->addRow();
 $tableViajes->addCell(1500)->addText("FECHA", ['bold' => true]);
 $tableViajes->addCell(3000)->addText("CONDUCTOR", ['bold' => true]);
@@ -1309,49 +1034,32 @@ $tableViajes->addCell(2500)->addText("VEHÍCULO", ['bold' => true]);
 $tableViajes->addCell(3000)->addText("RUTA", ['bold' => true]);
 $tableViajes->addCell(2000)->addText("VALOR", ['bold' => true]);
 
-if (!empty($viajesAsignados)) {
-    foreach ($viajesAsignados as $viaje) {
-        $tableViajes->addRow();
-        $tableViajes->addCell(1500)->addText(substr($viaje['fecha'], 0, 10));
-        
-        $textoConductor = $viaje['conductor'] ?: '-';
-        if ($viaje['es_carrotanque']) {
-            $textoConductor .= " 🚛";
+foreach ($viajesAsignados as $viaje) {
+    $tableViajes->addRow();
+    $tableViajes->addCell(1500)->addText(substr($viaje['fecha'], 0, 10));
+    $textoConductor = $viaje['conductor'] ?: '-';
+    if ($viaje['es_carrotanque']) $textoConductor .= " 🚛";
+    $tableViajes->addCell(3000)->addText($textoConductor);
+    $tableViajes->addCell(2500)->addText(obtenerTipoVehiculo($viaje['tipo_vehiculo']));
+    $tableViajes->addCell(3000)->addText($viaje['ruta'] ?: '-');
+    
+    $valor = $viaje['valor'];
+    if ($valor !== null && $valor > 0) {
+        $tableViajes->addCell(2000)->addText(formatearMoneda($valor));
+    } else {
+        $textoValor = "N/A";
+        if (!empty($viaje['clasificacion'])) {
+            $textoValor = "Sin tarifa (" . $viaje['clasificacion'] . ")";
         }
-        $tableViajes->addCell(3000)->addText($textoConductor);
-        
-        $tipoVehiculo = obtenerTipoVehiculo($viaje['tipo_vehiculo']);
-        $tableViajes->addCell(2500)->addText($tipoVehiculo);
-        
-        $tableViajes->addCell(3000)->addText($viaje['ruta'] ?: '-');
-        
-        $valor = $viaje['valor'];
-        if ($valor !== null && $valor > 0) {
-            $tableViajes->addCell(2000)->addText(formatearMoneda($valor));
-        } else {
-            $textoValor = "N/A";
-            if (!empty($viaje['clasificacion'])) {
-                $textoValor = "Sin tarifa (" . $viaje['clasificacion'] . ")";
-            } else {
-                $textoValor = "Sin clasificar";
-            }
-            $tableViajes->addCell(2000)->addText($textoValor);
-        }
+        $tableViajes->addCell(2000)->addText($textoValor);
     }
-    
-    // Agregar fila de TOTAL
-    $tableViajes->addRow();
-    $cellTotal = $tableViajes->addCell(10000, ['gridSpan' => 4]);
-    $cellTotal->addText("TOTAL", ['bold' => true]);
-    $tableViajes->addCell(2000)->addText(formatearMoneda($totalValores), ['bold' => true]);
-    
-} else {
-    $tableViajes->addRow();
-    $cell = $tableViajes->addCell(12000, ['gridSpan' => 5]);
-    $cell->addText("📭 No hay viajes en este rango de fechas.");
 }
 
-// Pie
+$tableViajes->addRow();
+$cellTotal = $tableViajes->addCell(10000, ['gridSpan' => 4]);
+$cellTotal->addText("TOTAL", ['bold' => true]);
+$tableViajes->addCell(2000)->addText(formatearMoneda($totalValores), ['bold' => true]);
+
 $section->addTextBreak(2);
 date_default_timezone_set('America/Bogota');
 $section->addText("Maicao, " . date('d/m/Y'), [], ['align' => 'right']);
@@ -1360,7 +1068,7 @@ $section->addTextBreak(2);
 $section->addText("NUMAS JOSÉ IGUARÁN IGUARÁN", ['bold' => true]);
 $section->addText("Representante Legal");
 
-// Envío directo al navegador
+// Enviar archivo
 $filename = "informe_viajes_{$desde}_a_{$hasta}.docx";
 header("Content-Description: File Transfer");
 header("Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document");
