@@ -91,23 +91,6 @@ function esConductorCarrotanque($conn, $nombreConductor) {
     return false;
 }
 
-// Función para obtener la clasificación base del viaje
-function obtenerClasificacionBase($clasificacion) {
-    $clasificacion = strtolower(trim($clasificacion ?: ''));
-    
-    if (strpos($clasificacion, 'completo') !== false) {
-        return 'completo';
-    } elseif (strpos($clasificacion, 'medio') !== false) {
-        return 'medio';
-    } elseif (strpos($clasificacion, 'extra') !== false) {
-        return 'extra';
-    } elseif (strpos($clasificacion, 'carrotanque') !== false) {
-        return 'carrotanque';
-    } else {
-        return 'otros';
-    }
-}
-
 // Si no se han enviado parámetros, mostramos formulario
 if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_informe'])) {
     
@@ -287,14 +270,14 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                 box-shadow: 0 5px 15px rgba(13,110,253,0.3);
             }
             
-            .four-columns {
+            .three-columns {
                 display: flex;
                 gap: 1rem;
                 flex-wrap: wrap;
             }
             
             .col-conductores {
-                flex: 2;
+                flex: 2.2;
                 min-width: 260px;
             }
             
@@ -306,11 +289,6 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
             .col-empresas {
                 flex: 1.2;
                 min-width: 200px;
-            }
-            
-            .col-presupuesto {
-                flex: 1;
-                min-width: 220px;
             }
             
             .section-card {
@@ -537,30 +515,6 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                 transform: scale(0.85);
             }
             
-            .presupuesto-item {
-                margin-bottom: 1rem;
-                padding: 0.5rem;
-                background: var(--light-color);
-                border-radius: 8px;
-            }
-            
-            .presupuesto-item label {
-                font-size: 0.7rem;
-                font-weight: 600;
-                margin-bottom: 0.25rem;
-                display: block;
-            }
-            
-            .presupuesto-input {
-                font-size: 0.75rem;
-                padding: 0.25rem 0.5rem;
-            }
-            
-            .input-group-text {
-                font-size: 0.7rem;
-                padding: 0.25rem 0.5rem;
-            }
-            
             .legend {
                 background: var(--light-color);
                 border-radius: 8px;
@@ -598,11 +552,11 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
             }
             
             @media (max-width: 1000px) {
-                .four-columns {
+                .three-columns {
                     flex-direction: column;
                 }
                 
-                .col-conductores, .col-resumen, .col-empresas, .col-presupuesto {
+                .col-conductores, .col-resumen, .col-empresas {
                     flex: auto;
                 }
                 
@@ -643,13 +597,6 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                 margin-bottom: 1rem;
                 font-size: 0.75rem;
             }
-            
-            .presupuesto-note {
-                font-size: 0.65rem;
-                color: var(--secondary-color);
-                margin-top: 0.5rem;
-                text-align: center;
-            }
         </style>
     </head>
     <body>
@@ -664,13 +611,10 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                 <div class="card-body-custom">
                     <div class="info-banner">
                         <i class="fas fa-info-circle"></i> 
-                        <strong>Informe Real:</strong> Muestra los conductores tal como están en la base de datos.
+                        <strong>Informe Real:</strong> Muestra los conductores tal como están en la base de datos. No requiere seleccionar conductores.
                         <br>
                         <i class="fas fa-random"></i> 
-                        <strong>Informe Aleatorio:</strong> Distribuye los viajes entre los conductores seleccionados (máx 2 veces seguidas).
-                        <br>
-                        <i class="fas fa-chart-line"></i>
-                        <strong>Presupuesto:</strong> Si ingresas un presupuesto para HOSPITAL o VE CAMPA, se generarán tablas separadas hasta alcanzar el valor.
+                        <strong>Informe Aleatorio:</strong> Distribuye los viajes entre los conductores seleccionados (máx 2 veces seguidas). Requiere seleccionar al menos un conductor.
                     </div>
                     
                     <form method="post" id="formInforme">
@@ -700,8 +644,8 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                             </div>
                         </div>
                         
-                        <div class="four-columns">
-                            <!-- COLUMNA 1: CONDUCTORES -->
+                        <div class="three-columns">
+                            <!-- COLUMNA 1: CONDUCTORES (SOLO NECESARIO PARA INFORME ALEATORIO) -->
                             <div class="col-conductores">
                                 <div class="section-card">
                                     <div class="section-header">
@@ -765,7 +709,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                                 </div>
                             </div>
                             
-                            <!-- COLUMNA 2: RESUMEN CONDUCTORES -->
+                            <!-- COLUMNA 2: RESUMEN CON LISTA DE NOMBRES -->
                             <div class="col-resumen">
                                 <div class="section-card">
                                     <div class="section-header">
@@ -818,40 +762,20 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                                         <small class="text-muted mt-2 d-block" style="font-size: 0.65rem;">
                                             <i class="fas fa-info-circle"></i> Si no selecciona ninguna, se incluirán todas
                                         </small>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <!-- COLUMNA 4: PRESUPUESTO POR EMPRESA -->
-                            <div class="col-presupuesto">
-                                <div class="section-card">
-                                    <div class="section-header">
-                                        <h3><i class="fas fa-chart-line"></i> 💰 Presupuesto por Empresa</h3>
-                                    </div>
-                                    <div class="section-content">
-                                        <div class="presupuesto-item" data-empresa="hospital">
-                                            <label><i class="fas fa-hospital"></i> HOSPITAL SAN JOSÉ DE MAICAO E.S.E</label>
-                                            <div class="input-group">
-                                                <span class="input-group-text">$</span>
-                                                <input type="number" class="form-control presupuesto-input" 
-                                                       name="presupuesto_hospital" id="presupuesto_hospital"
-                                                       placeholder="Ingrese presupuesto" step="1000" value="0">
+                                        
+                                        <div class="legend">
+                                            <div class="legend-item">
+                                                <div class="legend-color" style="background: #fff3cd; border-left: 2px solid #ffc107;"></div>
+                                                <span><i class="fas fa-truck"></i> Carrotanque: nombre real</span>
                                             </div>
-                                        </div>
-                                        <div class="presupuesto-item" data-empresa="ve_campa">
-                                            <label><i class="fas fa-tractor"></i> VE CAMPA MYCOW S.A.S</label>
-                                            <div class="input-group">
-                                                <span class="input-group-text">$</span>
-                                                <input type="number" class="form-control presupuesto-input" 
-                                                       name="presupuesto_ve_campa" id="presupuesto_ve_campa"
-                                                       placeholder="Ingrese presupuesto" step="1000" value="0">
+                                            <div class="legend-item">
+                                                <div class="legend-color" style="background: #d1ecf1; border-left: 2px solid #0dcaf0;"></div>
+                                                <span><i class="fas fa-car"></i> Otros: distribución aleatoria</span>
                                             </div>
-                                        </div>
-                                        <div class="presupuesto-note">
-                                            <i class="fas fa-info-circle"></i> 
-                                            Si ingresa un presupuesto, los viajes se ordenarán por fecha y se generarán tablas hasta alcanzar el valor.
-                                            <br>
-                                            <strong>Los viajes que excedan el presupuesto irán a una tabla de "Sobrantes".</strong>
+                                            <div class="legend-item">
+                                                <div class="legend-color" style="background: #f8f9fa; border-left: 2px solid #198754;"></div>
+                                                <span><i class="fas fa-random"></i> Máx 2 veces seguidas</span>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -1007,6 +931,9 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                         return false;
                     }
                 }
+                
+                // Para informe REAL, no hay validación de conductores
+                // Solo se validan fechas (ya están con required en HTML)
             });
             
             setTimeout(() => {
@@ -1039,18 +966,8 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
 // Parámetros
 $desde = $_POST['desde'];
 $hasta = $_POST['hasta'];
-$tipoInforme = $_POST['tipo_informe'] ?? 'aleatorio';
+$tipoInforme = $_POST['tipo_informe'] ?? 'aleatorio'; // 'aleatorio' o 'real'
 $empresasSeleccionadas = $_POST['empresas'] ?? [];
-
-// Obtener presupuestos
-$presupuestoHospital = isset($_POST['presupuesto_hospital']) ? floatval($_POST['presupuesto_hospital']) : 0;
-$presupuestoVeCampa = isset($_POST['presupuesto_ve_campa']) ? floatval($_POST['presupuesto_ve_campa']) : 0;
-
-// Mapeo de empresas a sus presupuestos
-$presupuestosPorEmpresa = [
-    'HOSPITAL SAN JOSÉ DE MAICAO E.S.E' => $presupuestoHospital,
-    'VE CAMPA MYCOW S.A.S' => $presupuestoVeCampa
-];
 
 // Validaciones básicas
 if (empty($desde) || empty($hasta)) {
@@ -1070,7 +987,7 @@ if (!empty($empresasSeleccionadas)) {
     $condicionEmpresa = " AND v.empresa IN (" . implode(",", $empresasEscapadas) . ")";
 }
 
-// Consulta de viajes
+// Consulta de viajes (la misma para ambos tipos de informe)
 $sqlViajes = "
     SELECT 
         v.fecha,
@@ -1110,89 +1027,34 @@ if (!$resViajes) {
     die("Error en consulta viajes: " . $conn->error);
 }
 
-// Función para procesar viajes por empresa con presupuesto
-function procesarViajesPorEmpresa($viajes, $presupuesto, $conn) {
-    $resultado = [
-        'dentro_presupuesto' => [], // Viajes que entran dentro del presupuesto
-        'sobrantes' => [], // Viajes que exceden el presupuesto
-        'total_dentro' => 0,
-        'total_sobrantes' => 0,
-        'presupuesto_original' => $presupuesto
-    ];
-    
-    $acumulado = 0;
-    $presupuestoRestante = $presupuesto;
-    
-    foreach ($viajes as $viaje) {
-        $valor = $viaje['valor_viaje'] ? floatval($viaje['valor_viaje']) : 0;
-        
-        if ($presupuestoRestante > 0 && $valor > 0) {
-            if ($acumulado + $valor <= $presupuesto) {
-                // Viaje cabe completo dentro del presupuesto
-                $viaje['acumulado_parcial'] = $acumulado + $valor;
-                $resultado['dentro_presupuesto'][] = $viaje;
-                $acumulado += $valor;
-                $presupuestoRestante -= $valor;
-                $resultado['total_dentro'] += $valor;
-            } else {
-                // Este viaje excede el presupuesto - no se incluye ninguno más
-                $resultado['sobrantes'][] = $viaje;
-                $resultado['total_sobrantes'] += $valor;
-                $presupuestoRestante = 0;
-            }
-        } else {
-            // No hay presupuesto o valor cero
-            if ($presupuestoRestante <= 0 && $valor > 0) {
-                $resultado['sobrantes'][] = $viaje;
-                $resultado['total_sobrantes'] += $valor;
-            }
-        }
-    }
-    
-    return $resultado;
-}
-
-// Obtener todos los viajes
-$todosViajes = [];
-while ($row = $resViajes->fetch_assoc()) {
-    $todosViajes[] = $row;
-}
-
-// Agrupar viajes por empresa
-$viajesPorEmpresa = [];
-foreach ($todosViajes as $viaje) {
-    $empresa = $viaje['empresa'];
-    if (!isset($viajesPorEmpresa[$empresa])) {
-        $viajesPorEmpresa[$empresa] = [];
-    }
-    $viajesPorEmpresa[$empresa][] = $viaje;
-}
-
 // ========== PROCESAR SEGÚN TIPO DE INFORME ==========
 
 $viajesAsignados = [];
+$totalValores = 0;
 
 if ($tipoInforme === 'real') {
     // INFORME REAL: Mostrar los conductores tal como están en la base de datos
+    // NO requiere conductores seleccionados
     
-    foreach ($todosViajes as $row) {
+    while ($row = $resViajes->fetch_assoc()) {
         $valor = $row['valor_viaje'];
+        if ($valor !== null && $valor > 0) {
+            $totalValores += floatval($valor);
+        }
         
         $viajesAsignados[] = [
             'fecha' => $row['fecha'],
-            'conductor' => $row['conductor_real'],
-            'cedula' => '',
+            'conductor' => $row['conductor_real'], // CONDUCTOR REAL DE BD
+            'cedula' => '', // Se consultará después si es necesario
             'tipo_vehiculo' => $row['tipo_vehiculo'],
             'ruta' => $row['ruta'],
             'valor' => $valor,
             'clasificacion' => $row['clasificacion'],
-            'clasificacion_base' => obtenerClasificacionBase($row['clasificacion']),
-            'es_carrotanque' => stripos($row['tipo_vehiculo'], 'carrotanque') !== false,
-            'empresa' => $row['empresa']
+            'es_carrotanque' => stripos($row['tipo_vehiculo'], 'carrotanque') !== false
         ];
     }
     
-    // Obtener cédulas para los conductores reales
+    // Obtener cédulas para los conductores reales (para mostrarlas en la tabla)
     $conductoresReales = array_unique(array_column($viajesAsignados, 'conductor'));
     $conductoresInfoReal = [];
     foreach ($conductoresReales as $conductorNombre) {
@@ -1206,6 +1068,7 @@ if ($tipoInforme === 'real') {
         }
     }
     
+    // Asignar cédulas a los viajes
     foreach ($viajesAsignados as &$viaje) {
         if (isset($conductoresInfoReal[$viaje['conductor']])) {
             $viaje['cedula'] = $conductoresInfoReal[$viaje['conductor']]['cedula'] ?? 'N/A';
@@ -1215,7 +1078,8 @@ if ($tipoInforme === 'real') {
     }
     
 } else {
-    // INFORME ALEATORIO: Lógica de asignación
+    // INFORME ALEATORIO: Lógica original de asignación
+    // REQUIERE conductores seleccionados
     $conductoresSeleccionados = $_POST['conductores_seleccionados'] ?? [];
     
     if (empty($conductoresSeleccionados)) {
@@ -1247,7 +1111,7 @@ if ($tipoInforme === 'real') {
     $consecutivos = 0;
     $conductoresNoCarrotanque = array_diff($conductoresSeleccionados, $conductoresCarrotanque);
     
-    foreach ($todosViajes as $row) {
+    while ($row = $resViajes->fetch_assoc()) {
         $tipoVehiculo = strtolower(trim($row['tipo_vehiculo'] ?? ''));
         $esViajeCarrotanque = strpos($tipoVehiculo, 'carrotanque') !== false;
         
@@ -1285,6 +1149,9 @@ if ($tipoInforme === 'real') {
         }
         
         $valor = $row['valor_viaje'];
+        if ($valor !== null && $valor > 0) {
+            $totalValores += floatval($valor);
+        }
         
         $viajesAsignados[] = [
             'fecha' => $row['fecha'],
@@ -1294,22 +1161,24 @@ if ($tipoInforme === 'real') {
             'ruta' => $row['ruta'],
             'valor' => $valor,
             'clasificacion' => $row['clasificacion'],
-            'clasificacion_base' => obtenerClasificacionBase($row['clasificacion']),
-            'es_carrotanque' => $esViajeCarrotanque,
-            'empresa' => $row['empresa']
+            'es_carrotanque' => $esViajeCarrotanque
         ];
     }
     
+    // Para la tabla de conductores en informe aleatorio
     $conductoresInfoMostrar = $conductoresInfo;
 }
 
-// ========== GENERAR DOCUMENTO WORD CON PRESUPUESTO ==========
-
+// Generar documento Word
 $phpWord = new PhpWord();
 $section = $phpWord->addSection();
 
-// Título
-$section->addText("INFORME DE VIAJES CON PRESUPUESTO", ['bold' => true, 'size' => 14], ['align' => 'center']);
+// Título según tipo de informe
+if ($tipoInforme === 'real') {
+    $section->addText("INFORME REAL DE VIAJES", ['bold' => true, 'size' => 14], ['align' => 'center']);
+} else {
+    $section->addText("INFORME DE FICHAS TÉCNICAS DE CONDUCTOR - VEHÍCULOS", ['bold' => true, 'size' => 14], ['align' => 'center']);
+}
 $section->addTextBreak(1);
 $section->addText("SEGÚN ACTA DE INICIO AL CONTRATO DE PRESTACIÓN DE SERVICIOS NO. 1313-2025 SUSCRITO POR LA E.S.E. HOSPITAL SAN JOSÉ DE MAICAO Y LA ASOCIACIÓN DE TRANSPORTISTAS ZONA NORTE EXTREMA WUINPUMUIN.");
 $section->addText("OBJETO: TRASLADO DE PERSONAL ASISTENCIAL – SEDE NAZARETH.");
@@ -1329,11 +1198,13 @@ if ($tipoInforme === 'aleatorio') {
     $section->addText("Tipo de informe: DISTRIBUCIÓN ALEATORIA (máx 2 veces seguidas)", ['italic' => true, 'bold' => true]);
 } else {
     $section->addText("Tipo de informe: DATOS REALES (sin asignación)", ['italic' => true, 'bold' => true, 'color' => '0000FF']);
+    $section->addText("Los conductores mostrados son los que realmente realizaron cada viaje según la base de datos.", ['italic' => true]);
 }
+
 $section->addTextBreak(2);
 
 // Tabla de conductores (solo para informe aleatorio)
-if ($tipoInforme === 'aleatorio' && isset($conductoresInfoMostrar)) {
+if ($tipoInforme === 'aleatorio') {
     $section->addText("LISTA DE CONDUCTORES (INCLUIDOS EN INFORME)", ['bold' => true, 'size' => 12]);
     $section->addTextBreak(1);
     
@@ -1359,161 +1230,51 @@ if ($tipoInforme === 'aleatorio' && isset($conductoresInfoMostrar)) {
     $section->addTextBreak(3);
 }
 
-// ========== FUNCIÓN PARA GENERAR TABLAS POR CLASIFICACIÓN ==========
-
-function generarTablasPorClasificacion($section, $viajes, $titulo, $mostrarTotal = true) {
-    if (empty($viajes)) {
-        return 0;
-    }
-    
-    // Agrupar por clasificación base
-    $agrupados = [
-        'completo' => [],
-        'medio' => [],
-        'extra' => [],
-        'carrotanque' => [],
-        'otros' => []
-    ];
-    
-    foreach ($viajes as $viaje) {
-        $clasificacion = $viaje['clasificacion_base'];
-        if (isset($agrupados[$clasificacion])) {
-            $agrupados[$clasificacion][] = $viaje;
-        } else {
-            $agrupados['otros'][] = $viaje;
-        }
-    }
-    
-    $nombresClasificacion = [
-        'completo' => 'VIAJES COMPLETOS',
-        'medio' => 'VIAJES MEDIOS',
-        'extra' => 'VIAJES EXTRA',
-        'carrotanque' => 'VIAJES CARROTANQUE',
-        'otros' => 'OTROS VIAJES'
-    ];
-    
-    $totalGeneral = 0;
-    
-    foreach ($agrupados as $clave => $viajesGrupo) {
-        if (empty($viajesGrupo)) continue;
-        
-        $section->addText("{$titulo} - {$nombresClasificacion[$clave]}", ['bold' => true, 'size' => 11]);
-        $section->addTextBreak(1);
-        
-        $tabla = $section->addTable(['borderSize' => 6, 'borderColor' => '000000', 'cellMargin' => 80]);
-        $tabla->addRow();
-        $tabla->addCell(1500)->addText("FECHA", ['bold' => true]);
-        $tabla->addCell(3000)->addText("CONDUCTOR", ['bold' => true]);
-        $tabla->addCell(2500)->addText("VEHÍCULO", ['bold' => true]);
-        $tabla->addCell(3000)->addText("RUTA", ['bold' => true]);
-        $tabla->addCell(2000)->addText("VALOR", ['bold' => true]);
-        
-        $totalGrupo = 0;
-        foreach ($viajesGrupo as $viaje) {
-            $tabla->addRow();
-            $tabla->addCell(1500)->addText(substr($viaje['fecha'], 0, 10));
-            $textoConductor = $viaje['conductor'] ?: '-';
-            if ($viaje['es_carrotanque']) $textoConductor .= " 🚛";
-            $tabla->addCell(3000)->addText($textoConductor);
-            $tabla->addCell(2500)->addText(obtenerTipoVehiculo($viaje['tipo_vehiculo']));
-            $tabla->addCell(3000)->addText($viaje['ruta'] ?: '-');
-            
-            $valor = $viaje['valor'];
-            if ($valor !== null && $valor > 0) {
-                $tabla->addCell(2000)->addText(formatearMoneda($valor));
-                $totalGrupo += floatval($valor);
-            } else {
-                $tabla->addCell(2000)->addText("N/A");
-            }
-        }
-        
-        $tabla->addRow();
-        $cellTotal = $tabla->addCell(10000, ['gridSpan' => 4]);
-        $cellTotal->addText("SUBTOTAL {$nombresClasificacion[$clave]}", ['bold' => true]);
-        $tabla->addCell(2000)->addText(formatearMoneda($totalGrupo), ['bold' => true]);
-        
-        $totalGeneral += $totalGrupo;
-        $section->addTextBreak(1);
-    }
-    
-    if ($mostrarTotal) {
-        $section->addText("TOTAL {$titulo}: " . formatearMoneda($totalGeneral), ['bold' => true, 'size' => 12]);
-        $section->addTextBreak(2);
-    }
-    
-    return $totalGeneral;
+// Tabla de viajes
+$section->addText("DETALLE DE VIAJES POR FECHA", ['bold' => true, 'size' => 12]);
+$section->addTextBreak(1);
+if ($tipoInforme === 'aleatorio') {
+    $section->addText("Nota: Los viajes de carrotanque conservan el conductor real. Los demás viajes se distribuyen aleatoriamente.", ['italic' => true, 'size' => 10]);
+} else {
+    $section->addText("Nota: Este informe muestra los conductores REALES que realizaron cada viaje según la base de datos.", ['italic' => true, 'size' => 10]);
 }
+$section->addTextBreak(1);
 
-// ========== PROCESAR POR EMPRESA CON PRESUPUESTO ==========
+$tableViajes = $section->addTable(['borderSize' => 6, 'borderColor' => '000000', 'cellMargin' => 80]);
+$tableViajes->addRow();
+$tableViajes->addCell(1500)->addText("FECHA", ['bold' => true]);
+$tableViajes->addCell(3000)->addText("CONDUCTOR", ['bold' => true]);
+$tableViajes->addCell(2500)->addText("VEHÍCULO", ['bold' => true]);
+$tableViajes->addCell(3000)->addText("RUTA", ['bold' => true]);
+$tableViajes->addCell(2000)->addText("VALOR", ['bold' => true]);
 
-// Primero, agrupar viajes asignados por empresa
-$viajesPorEmpresaAsignados = [];
 foreach ($viajesAsignados as $viaje) {
-    $empresa = $viaje['empresa'];
-    if (!isset($viajesPorEmpresaAsignados[$empresa])) {
-        $viajesPorEmpresaAsignados[$empresa] = [];
-    }
-    $viajesPorEmpresaAsignados[$empresa][] = $viaje;
-}
-
-// Procesar cada empresa que tiene presupuesto
-foreach ($presupuestosPorEmpresa as $empresa => $presupuesto) {
-    if ($presupuesto > 0 && isset($viajesPorEmpresaAsignados[$empresa])) {
-        $viajesEmpresa = $viajesPorEmpresaAsignados[$empresa];
-        $resultado = procesarViajesPorEmpresa($viajesEmpresa, $presupuesto, $conn);
-        
-        $section->addText("========================================", ['bold' => true]);
-        $section->addText("EMPRESA: {$empresa}", ['bold' => true, 'size' => 13]);
-        $section->addText("PRESUPUESTO CONTRATO: " . formatearMoneda($presupuesto), ['bold' => true, 'size' => 12]);
-        $section->addTextBreak(1);
-        
-        // Tablas dentro del presupuesto
-        if (!empty($resultado['dentro_presupuesto'])) {
-            $section->addText("✅ VIAJES DENTRO DEL PRESUPUESTO (Hasta: " . formatearMoneda($resultado['total_dentro']) . ")", ['bold' => true, 'color' => '008000']);
-            $section->addTextBreak(1);
-            generarTablasPorClasificacion($section, $resultado['dentro_presupuesto'], "VIAJES CONTRATO", false);
-            $section->addText("TOTAL ACUMULADO: " . formatearMoneda($resultado['total_dentro']), ['bold' => true]);
-        } else {
-            $section->addText("⚠️ No hay viajes dentro del presupuesto", ['italic' => true]);
+    $tableViajes->addRow();
+    $tableViajes->addCell(1500)->addText(substr($viaje['fecha'], 0, 10));
+    $textoConductor = $viaje['conductor'] ?: '-';
+    if ($viaje['es_carrotanque']) $textoConductor .= " 🚛";
+    $tableViajes->addCell(3000)->addText($textoConductor);
+    $tableViajes->addCell(2500)->addText(obtenerTipoVehiculo($viaje['tipo_vehiculo']));
+    $tableViajes->addCell(3000)->addText($viaje['ruta'] ?: '-');
+    
+    $valor = $viaje['valor'];
+    if ($valor !== null && $valor > 0) {
+        $tableViajes->addCell(2000)->addText(formatearMoneda($valor));
+    } else {
+        $textoValor = "N/A";
+        if (!empty($viaje['clasificacion'])) {
+            $textoValor = "Sin tarifa (" . $viaje['clasificacion'] . ")";
         }
-        
-        $section->addTextBreak(2);
-        
-        // Tablas sobrantes
-        if (!empty($resultado['sobrantes'])) {
-            $section->addText("⚠️ VIAJES SOBRANTES (Exceden el presupuesto)", ['bold' => true, 'color' => 'FF0000']);
-            $section->addText("Valor de viajes sobrantes: " . formatearMoneda($resultado['total_sobrantes']), ['italic' => true]);
-            $section->addTextBreak(1);
-            generarTablasPorClasificacion($section, $resultado['sobrantes'], "VIAJES SOBRANTES", true);
-        }
-        
-        $section->addTextBreak(2);
-        
-        // Eliminar esta empresa del array para no procesarla nuevamente
-        unset($viajesPorEmpresaAsignados[$empresa]);
+        $tableViajes->addCell(2000)->addText($textoValor);
     }
 }
 
-// Empresas sin presupuesto (mostrar todos los viajes)
-foreach ($viajesPorEmpresaAsignados as $empresa => $viajesEmpresa) {
-    if (!empty($viajesEmpresa)) {
-        $section->addText("========================================", ['bold' => true]);
-        $section->addText("EMPRESA: {$empresa}", ['bold' => true, 'size' => 13]);
-        $section->addText("(Sin presupuesto definido - Todos los viajes)", ['italic' => true]);
-        $section->addTextBreak(1);
-        generarTablasPorClasificacion($section, $viajesEmpresa, "VIAJES COMPLETOS", true);
-        $section->addTextBreak(2);
-    }
-}
+$tableViajes->addRow();
+$cellTotal = $tableViajes->addCell(10000, ['gridSpan' => 4]);
+$cellTotal->addText("TOTAL", ['bold' => true]);
+$tableViajes->addCell(2000)->addText(formatearMoneda($totalValores), ['bold' => true]);
 
-// Total general de todos los viajes (opcional)
-$totalGeneralTodos = array_sum(array_column($viajesAsignados, 'valor'));
-$section->addText("========================================", ['bold' => true]);
-$section->addText("RESUMEN GENERAL", ['bold' => true, 'size' => 13]);
-$section->addText("Total de todos los viajes en el período: " . formatearMoneda($totalGeneralTodos), ['bold' => true]);
 $section->addTextBreak(2);
-
-// Firma
 date_default_timezone_set('America/Bogota');
 $section->addText("Maicao, " . date('d/m/Y'), [], ['align' => 'right']);
 $section->addText("Cordialmente,");
@@ -1523,7 +1284,7 @@ $section->addText("Representante Legal");
 
 // Enviar archivo
 $sufijo = ($tipoInforme === 'real') ? 'real' : 'aleatorio';
-$filename = "informe_viajes_presupuesto_{$sufijo}_{$desde}_a_{$hasta}.docx";
+$filename = "informe_viajes_{$sufijo}_{$desde}_a_{$hasta}.docx";
 header("Content-Description: File Transfer");
 header("Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document");
 header("Content-Disposition: attachment; filename=\"$filename\"");
