@@ -27,7 +27,32 @@ function obtenerTipoVehiculo($tipo) {
     if (stripos($tipo, 'carrotanque') !== false) {
         return 'Carrotanque';
     }
+    if (stripos($tipo, '350') !== false) {
+        return 'Camión 350';
+    }
+    if (stripos($tipo, 'copetrana') !== false) {
+        return 'Copetrana';
+    }
     return $tipo ?: '-';
+}
+
+// Función para obtener la categoría del vehículo (para agrupar tablas)
+function obtenerCategoriaVehiculo($tipo) {
+    $tipoLower = strtolower(trim($tipo ?: ''));
+    
+    if (stripos($tipoLower, 'carrotanque') !== false) {
+        return 'carrotanque';
+    }
+    if (stripos($tipoLower, '350') !== false) {
+        return 'camion_350';
+    }
+    if (stripos($tipoLower, 'burbuja') !== false) {
+        return 'burbuja';
+    }
+    if (stripos($tipoLower, 'copetrana') !== false) {
+        return 'copetrana';
+    }
+    return 'otros';
 }
 
 // Función para obtener el área de cobertura según tipo de vehículo
@@ -225,6 +250,39 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
             }
             
             .date-input input {
+                border: none;
+                padding: 0;
+                font-size: 0.9rem;
+                width: 100%;
+                outline: none;
+            }
+            
+            .presupuesto-group {
+                flex: 1;
+                min-width: 180px;
+            }
+            
+            .presupuesto-input {
+                background: white;
+                border-radius: 8px;
+                padding: 0.4rem 0.8rem;
+                border: 2px solid #e0e0e0;
+                transition: all 0.3s;
+            }
+            
+            .presupuesto-input:focus-within {
+                border-color: var(--success-color);
+                box-shadow: 0 0 0 3px rgba(25,135,84,0.1);
+            }
+            
+            .presupuesto-input label {
+                font-size: 0.7rem;
+                color: var(--secondary-color);
+                margin-bottom: 0;
+                display: block;
+            }
+            
+            .presupuesto-input input {
                 border: none;
                 padding: 0;
                 font-size: 0.9rem;
@@ -597,6 +655,15 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                 margin-bottom: 1rem;
                 font-size: 0.75rem;
             }
+            
+            .presupuesto-banner {
+                background: #fff3cd;
+                border-left: 4px solid var(--warning-color);
+                padding: 0.6rem;
+                border-radius: 8px;
+                margin-top: 0.5rem;
+                font-size: 0.7rem;
+            }
         </style>
     </head>
     <body>
@@ -615,6 +682,9 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                         <br>
                         <i class="fas fa-random"></i> 
                         <strong>Informe Aleatorio:</strong> Distribuye los viajes entre los conductores seleccionados (máx 2 veces seguidas). Requiere seleccionar al menos un conductor.
+                        <br>
+                        <i class="fas fa-chart-line"></i>
+                        <strong>Presupuesto:</strong> Solo aplica para informe aleatorio. Los viajes MEDIOS se acumulan hasta alcanzar el valor ingresado. Los demás vehículos (Carrotanque, 350, Burbuja, Copetrana) se muestran completos sin afectar el presupuesto.
                     </div>
                     
                     <form method="post" id="formInforme">
@@ -629,6 +699,12 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                                 <div class="date-input">
                                     <label><i class="far fa-calendar-alt"></i> Hasta</label>
                                     <input type="date" name="hasta" required id="fecha_hasta">
+                                </div>
+                            </div>
+                            <div class="presupuesto-group">
+                                <div class="presupuesto-input">
+                                    <label><i class="fas fa-dollar-sign"></i> Presupuesto (solo para viajes MEDIOS)</label>
+                                    <input type="number" name="presupuesto" id="presupuesto" step="1000" placeholder="Ej: 60000000">
                                 </div>
                             </div>
                             <div class="btn-group-actions">
@@ -968,6 +1044,7 @@ $desde = $_POST['desde'];
 $hasta = $_POST['hasta'];
 $tipoInforme = $_POST['tipo_informe'] ?? 'aleatorio'; // 'aleatorio' o 'real'
 $empresasSeleccionadas = $_POST['empresas'] ?? [];
+$presupuesto = isset($_POST['presupuesto']) && $_POST['presupuesto'] !== '' ? floatval($_POST['presupuesto']) : null;
 
 // Validaciones básicas
 if (empty($desde) || empty($hasta)) {
@@ -987,7 +1064,7 @@ if (!empty($empresasSeleccionadas)) {
     $condicionEmpresa = " AND v.empresa IN (" . implode(",", $empresasEscapadas) . ")";
 }
 
-// Consulta de viajes (la misma para ambos tipos de informe)
+// Consulta de viajes
 $sqlViajes = "
     SELECT 
         v.fecha,
@@ -1019,7 +1096,7 @@ $sqlViajes = "
     WHERE v.fecha >= '$desdeIni' 
       AND v.fecha <= '$hastaFin'
       $condicionEmpresa
-    ORDER BY v.empresa ASC, v.fecha ASC, v.id ASC
+    ORDER BY v.fecha ASC, v.id ASC
 ";
 
 $resViajes = $conn->query($sqlViajes);
@@ -1029,29 +1106,32 @@ if (!$resViajes) {
 
 // ========== PROCESAR SEGÚN TIPO DE INFORME ==========
 
-$viajesAsignados = [];
-$totalValores = 0;
-
 if ($tipoInforme === 'real') {
     // INFORME REAL: Mostrar los conductores tal como están en la base de datos
-    // Agrupar por empresa para el informe
-    
-    $viajesPorEmpresa = [];
-    $totalesPorEmpresa = [];
+    $viajesPorCategoria = [
+        'carrotanque' => [],
+        'camion_350' => [],
+        'burbuja' => [],
+        'copetrana' => [],
+        'otros' => []
+    ];
+    $totalesPorCategoria = [
+        'carrotanque' => 0,
+        'camion_350' => 0,
+        'burbuja' => 0,
+        'copetrana' => 0,
+        'otros' => 0
+    ];
     
     while ($row = $resViajes->fetch_assoc()) {
-        $empresa = $row['empresa'] ?: 'SIN EMPRESA';
+        $categoria = obtenerCategoriaVehiculo($row['tipo_vehiculo']);
         $valor = $row['valor_viaje'];
         
         if ($valor !== null && $valor > 0) {
-            $totalValores += floatval($valor);
-            if (!isset($totalesPorEmpresa[$empresa])) {
-                $totalesPorEmpresa[$empresa] = 0;
-            }
-            $totalesPorEmpresa[$empresa] += floatval($valor);
+            $totalesPorCategoria[$categoria] += floatval($valor);
         }
         
-        $viajesPorEmpresa[$empresa][] = [
+        $viajesPorCategoria[$categoria][] = [
             'fecha' => $row['fecha'],
             'conductor' => $row['conductor_real'],
             'tipo_vehiculo' => $row['tipo_vehiculo'],
@@ -1063,16 +1143,16 @@ if ($tipoInforme === 'real') {
     }
     
     // Obtener cédulas para los conductores reales
-    $conductoresReales = [];
-    foreach ($viajesPorEmpresa as $empresa => $viajes) {
+    $conductoresInfoReal = [];
+    $todosConductoresReales = [];
+    foreach ($viajesPorCategoria as $categoria => $viajes) {
         foreach ($viajes as $viaje) {
-            $conductoresReales[] = $viaje['conductor'];
+            $todosConductoresReales[] = $viaje['conductor'];
         }
     }
-    $conductoresReales = array_unique($conductoresReales);
+    $todosConductoresReales = array_unique($todosConductoresReales);
     
-    $conductoresInfoReal = [];
-    foreach ($conductoresReales as $conductorNombre) {
+    foreach ($todosConductoresReales as $conductorNombre) {
         $nombreEscapado = $conn->real_escape_string($conductorNombre);
         $sqlInfo = "SELECT DISTINCT nombre, cedula, tipo_vehiculo FROM viajes WHERE nombre = '$nombreEscapado' LIMIT 1";
         $resInfo = $conn->query($sqlInfo);
@@ -1084,7 +1164,7 @@ if ($tipoInforme === 'real') {
     }
     
 } else {
-    // INFORME ALEATORIO: Lógica original de asignación
+    // INFORME ALEATORIO: Lógica de asignación con presupuesto SOLO PARA VIAJES MEDIOS
     $conductoresSeleccionados = $_POST['conductores_seleccionados'] ?? [];
     
     if (empty($conductoresSeleccionados)) {
@@ -1112,265 +1192,505 @@ if ($tipoInforme === 'real') {
         }
     }
     
+    // Recolectar todos los viajes
+    $todosLosViajes = [];
+    while ($row = $resViajes->fetch_assoc()) {
+        $todosLosViajes[] = $row;
+    }
+    
+    // Clasificar viajes por tipo de vehículo
+    $viajesCarrotanque = [];
+    $viajesCamion350 = [];
+    $viajesBurbuja = [];
+    $viajesCopetrana = [];
+    $viajesOtrosVehiculos = [];
+    
+    // Separar viajes MEDIOS para el presupuesto
+    $viajesMedios = [];
+    
+    foreach ($todosLosViajes as $viaje) {
+        $categoriaVehiculo = obtenerCategoriaVehiculo($viaje['tipo_vehiculo']);
+        $clasificacion = strtolower(trim($viaje['clasificacion'] ?? ''));
+        
+        // Agrupar por tipo de vehículo (TODOS los viajes, sin importar clasificación)
+        switch ($categoriaVehiculo) {
+            case 'carrotanque':
+                $viajesCarrotanque[] = $viaje;
+                break;
+            case 'camion_350':
+                $viajesCamion350[] = $viaje;
+                break;
+            case 'burbuja':
+                $viajesBurbuja[] = $viaje;
+                break;
+            case 'copetrana':
+                $viajesCopetrana[] = $viaje;
+                break;
+            default:
+                $viajesOtrosVehiculos[] = $viaje;
+                break;
+        }
+        
+        // Separar SOLO los viajes con clasificación MEDIO para el presupuesto
+        if ($clasificacion === 'medio') {
+            $viajesMedios[] = $viaje;
+        }
+    }
+    
+    // ========== PROCESAR VIAJES MEDIOS CON PRESUPUESTO ==========
+    // Los viajes medios se acumulan en orden cronológico hasta alcanzar el presupuesto
+    $viajesMediosCubiertos = [];   // Viajes medios que entran en el presupuesto
+    $viajesMediosRestantes = [];    // Viajes medios que quedan por fuera (se superó el presupuesto)
+    $acumuladoMedios = 0;
+    $presupuestoUsado = 0;
+    $presupuestoIngresado = $presupuesto ?? 0;
+    $sobrantePresupuesto = 0;
+    $faltaPresupuesto = 0;
+    
+    if ($presupuestoIngresado > 0 && !empty($viajesMedios)) {
+        foreach ($viajesMedios as $viaje) {
+            $valorViaje = floatval($viaje['valor_viaje'] ?? 0);
+            
+            if ($acumuladoMedios < $presupuestoIngresado) {
+                // Este viaje entra en el presupuesto
+                $viajesMediosCubiertos[] = $viaje;
+                $acumuladoMedios += $valorViaje;
+                $presupuestoUsado += $valorViaje;
+            } else {
+                // Ya se alcanzó o superó el presupuesto, los siguientes van a restantes
+                $viajesMediosRestantes[] = $viaje;
+            }
+        }
+        
+        // Calcular sobrante o faltante
+        if ($acumuladoMedios > $presupuestoIngresado) {
+            $sobrantePresupuesto = $acumuladoMedios - $presupuestoIngresado;
+        } elseif ($acumuladoMedios < $presupuestoIngresado) {
+            $faltaPresupuesto = $presupuestoIngresado - $acumuladoMedios;
+        }
+    } else {
+        // Si no hay presupuesto, todos los medios van a restantes (no se filtran)
+        $viajesMediosRestantes = $viajesMedios;
+    }
+    
+    // ========== ASIGNAR CONDUCTORES ==========
     $ultimoConductor = null;
     $consecutivos = 0;
     $conductoresNoCarrotanque = array_diff($conductoresSeleccionados, $conductoresCarrotanque);
     
-    while ($row = $resViajes->fetch_assoc()) {
-        $tipoVehiculo = strtolower(trim($row['tipo_vehiculo'] ?? ''));
+    // Función para asignar conductor a un viaje
+    function asignarConductorParaViaje($viaje, $conductoresNoCarrotanque, $conductoresCarrotanque, &$ultimoConductor, &$consecutivos, $conductoresSeleccionados) {
+        $tipoVehiculo = strtolower(trim($viaje['tipo_vehiculo'] ?? ''));
         $esViajeCarrotanque = strpos($tipoVehiculo, 'carrotanque') !== false;
         
-        $conductorAsignado = '';
-        
+        // Si el viaje es de carrotanque, conserva su conductor real
         if ($esViajeCarrotanque) {
-            $conductorAsignado = $row['conductor_real'];
+            return $viaje['conductor_real'];
+        }
+        
+        // Para los demás tipos de vehículo, asignación aleatoria
+        if (empty($conductoresNoCarrotanque)) {
+            $conductoresParaAsignar = $conductoresSeleccionados;
         } else {
-            if (empty($conductoresNoCarrotanque)) {
-                $conductoresParaAsignar = $conductoresSeleccionados;
-            } else {
-                $conductoresParaAsignar = $conductoresNoCarrotanque;
-            }
-            
-            if (count($conductoresParaAsignar) == 1) {
-                $conductorAsignado = $conductoresParaAsignar[0];
-            } else {
-                $conductorAsignado = asignarConductorConRegla($conductoresParaAsignar, $ultimoConductor, $consecutivos);
-                
-                if ($conductorAsignado == $ultimoConductor) {
-                    $consecutivos++;
-                } else {
-                    $consecutivos = 1;
-                }
-                $ultimoConductor = $conductorAsignado;
-            }
+            $conductoresParaAsignar = $conductoresNoCarrotanque;
         }
         
-        $conductorInfo = null;
-        foreach ($conductoresInfo as $info) {
-            if ($info['nombre'] == $conductorAsignado) {
-                $conductorInfo = $info;
-                break;
-            }
+        if (count($conductoresParaAsignar) == 1) {
+            return $conductoresParaAsignar[0];
         }
         
-        $valor = $row['valor_viaje'];
-        if ($valor !== null && $valor > 0) {
-            $totalValores += floatval($valor);
-        }
+        $conductorAsignado = asignarConductorConRegla($conductoresParaAsignar, $ultimoConductor, $consecutivos);
         
-        $viajesAsignados[] = [
-            'fecha' => $row['fecha'],
-            'conductor' => $conductorAsignado,
-            'cedula' => $conductorInfo ? $conductorInfo['cedula'] : 'N/A',
-            'tipo_vehiculo' => $row['tipo_vehiculo'],
-            'ruta' => $row['ruta'],
-            'valor' => $valor,
-            'clasificacion' => $row['clasificacion'],
-            'es_carrotanque' => $esViajeCarrotanque,
-            'empresa' => $row['empresa']
-        ];
+        if ($conductorAsignado == $ultimoConductor) {
+            $consecutivos++;
+        } else {
+            $consecutivos = 1;
+        }
+        $ultimoConductor = $conductorAsignado;
+        
+        return $conductorAsignado;
     }
     
-    // Para la tabla de conductores en informe aleatorio
-    $conductoresInfoMostrar = $conductoresInfo;
+    // Procesar cada grupo de viajes con asignación de conductores
+    function procesarViajesConConductores($viajes, $conductoresNoCarrotanque, $conductoresCarrotanque, &$ultimoConductor, &$consecutivos, $conductoresSeleccionados, $conductoresInfo) {
+        $resultado = [];
+        foreach ($viajes as $viaje) {
+            $conductorAsignado = asignarConductorParaViaje($viaje, $conductoresNoCarrotanque, $conductoresCarrotanque, $ultimoConductor, $consecutivos, $conductoresSeleccionados);
+            
+            $conductorInfo = null;
+            foreach ($conductoresInfo as $info) {
+                if ($info['nombre'] == $conductorAsignado) {
+                    $conductorInfo = $info;
+                    break;
+                }
+            }
+            
+            $resultado[] = [
+                'fecha' => $viaje['fecha'],
+                'conductor' => $conductorAsignado,
+                'cedula' => $conductorInfo ? $conductorInfo['cedula'] : 'N/A',
+                'tipo_vehiculo' => $viaje['tipo_vehiculo'],
+                'ruta' => $viaje['ruta'],
+                'valor' => $viaje['valor_viaje'],
+                'clasificacion' => $viaje['clasificacion'],
+                'es_carrotanque' => stripos($viaje['tipo_vehiculo'], 'carrotanque') !== false,
+                'empresa' => $viaje['empresa']
+            ];
+        }
+        return $resultado;
+    }
+    
+    // Reiniciar contadores para cada grupo
+    $ultimoConductor = null;
+    $consecutivos = 0;
+    
+    // Procesar cada grupo
+    $viajesMediosCubiertosAsignados = procesarViajesConConductores($viajesMediosCubiertos, $conductoresNoCarrotanque, $conductoresCarrotanque, $ultimoConductor, $consecutivos, $conductoresSeleccionados, $conductoresInfo);
+    
+    $ultimoConductor = null;
+    $consecutivos = 0;
+    $viajesMediosRestantesAsignados = procesarViajesConConductores($viajesMediosRestantes, $conductoresNoCarrotanque, $conductoresCarrotanque, $ultimoConductor, $consecutivos, $conductoresSeleccionados, $conductoresInfo);
+    
+    $ultimoConductor = null;
+    $consecutivos = 0;
+    $viajesCarrotanqueAsignados = procesarViajesConConductores($viajesCarrotanque, $conductoresNoCarrotanque, $conductoresCarrotanque, $ultimoConductor, $consecutivos, $conductoresSeleccionados, $conductoresInfo);
+    
+    $ultimoConductor = null;
+    $consecutivos = 0;
+    $viajesCamion350Asignados = procesarViajesConConductores($viajesCamion350, $conductoresNoCarrotanque, $conductoresCarrotanque, $ultimoConductor, $consecutivos, $conductoresSeleccionados, $conductoresInfo);
+    
+    $ultimoConductor = null;
+    $consecutivos = 0;
+    $viajesBurbujaAsignados = procesarViajesConConductores($viajesBurbuja, $conductoresNoCarrotanque, $conductoresCarrotanque, $ultimoConductor, $consecutivos, $conductoresSeleccionados, $conductoresInfo);
+    
+    $ultimoConductor = null;
+    $consecutivos = 0;
+    $viajesCopetranaAsignados = procesarViajesConConductores($viajesCopetrana, $conductoresNoCarrotanque, $conductoresCarrotanque, $ultimoConductor, $consecutivos, $conductoresSeleccionados, $conductoresInfo);
+    
+    $ultimoConductor = null;
+    $consecutivos = 0;
+    $viajesOtrosAsignados = procesarViajesConConductores($viajesOtrosVehiculos, $conductoresNoCarrotanque, $conductoresCarrotanque, $ultimoConductor, $consecutivos, $conductoresSeleccionados, $conductoresInfo);
+    
+    // Calcular totales
+    $totalCarrotanque = array_sum(array_column($viajesCarrotanqueAsignados, 'valor'));
+    $totalCamion350 = array_sum(array_column($viajesCamion350Asignados, 'valor'));
+    $totalBurbuja = array_sum(array_column($viajesBurbujaAsignados, 'valor'));
+    $totalCopetrana = array_sum(array_column($viajesCopetranaAsignados, 'valor'));
+    $totalOtros = array_sum(array_column($viajesOtrosAsignados, 'valor'));
+    $totalMediosCubiertos = array_sum(array_column($viajesMediosCubiertosAsignados, 'valor'));
+    $totalMediosRestantes = array_sum(array_column($viajesMediosRestantesAsignados, 'valor'));
+    $totalGeneral = $totalCarrotanque + $totalCamion350 + $totalBurbuja + $totalCopetrana + $totalOtros + $totalMediosCubiertos + $totalMediosRestantes;
 }
 
-// Generar documento Word
+// ========== GENERAR DOCUMENTO WORD ==========
 $phpWord = new PhpWord();
 $section = $phpWord->addSection();
 
-// Título según tipo de informe
-if ($tipoInforme === 'real') {
-    $section->addText("INFORME REAL DE VIAJES POR EMPRESA", ['bold' => true, 'size' => 14], ['align' => 'center']);
-} else {
-    $section->addText("INFORME DE FICHAS TÉCNICAS DE CONDUCTOR - VEHÍCULOS", ['bold' => true, 'size' => 14], ['align' => 'center']);
-}
+// Configurar márgenes
+$section->getStyle()->setMarginTop(720);
+$section->getStyle()->setMarginBottom(720);
+$section->getStyle()->setMarginLeft(720);
+$section->getStyle()->setMarginRight(720);
+
+// Título principal
+$section->addText("INFORME DE VIAJES POR TIPO DE VEHÍCULO", ['bold' => true, 'size' => 16, 'color' => '1F4E78'], ['align' => 'center']);
+$section->addTextBreak(0.5);
+
+// Subtítulo
+$section->addText("SEGÚN ACTA DE INICIO AL CONTRATO DE PRESTACIÓN DE SERVICIOS NO. 1313-2025 SUSCRITO POR LA E.S.E. HOSPITAL SAN JOSÉ DE MAICAO Y LA ASOCIACIÓN DE TRANSPORTISTAS ZONA NORTE EXTREMA WUINPUMUÍN.", 
+    ['italic' => true, 'size' => 9, 'color' => '666666'], ['align' => 'center']);
+$section->addText("OBJETO: TRASLADO DE PERSONAL ASISTENCIAL – SEDE NAZARETH.", 
+    ['italic' => true, 'size' => 9, 'color' => '666666'], ['align' => 'center']);
 $section->addTextBreak(1);
-$section->addText("SEGÚN ACTA DE INICIO AL CONTRATO DE PRESTACIÓN DE SERVICIOS NO. 1313-2025 SUSCRITO POR LA E.S.E. HOSPITAL SAN JOSÉ DE MAICAO Y LA ASOCIACIÓN DE TRANSPORTISTAS ZONA NORTE EXTREMA WUINPUMUIN.");
-$section->addText("OBJETO: TRASLADO DE PERSONAL ASISTENCIAL – SEDE NAZARETH.");
-$section->addTextBreak(1);
-$section->addText("Periodo: desde $desde hasta $hasta", ['italic' => true]);
+
+// Información del periodo
+$section->addText("Período: " . date('d/m/Y', strtotime($desde)) . " al " . date('d/m/Y', strtotime($hasta)), ['bold' => true, 'size' => 10]);
 if (!empty($empresasSeleccionadas)) {
-    $section->addText("Empresas seleccionadas: " . implode(", ", $empresasSeleccionadas), ['italic' => true]);
+    $section->addText("Empresas seleccionadas: " . implode(", ", $empresasSeleccionadas), ['size' => 10]);
 } else {
-    $section->addText("Empresas: TODAS", ['italic' => true]);
+    $section->addText("Empresas: TODAS", ['size' => 10]);
 }
 
 if ($tipoInforme === 'aleatorio') {
-    $section->addText("Conductores en informe: " . implode(", ", $conductoresSeleccionados), ['italic' => true]);
+    $section->addText("Conductores en informe: " . implode(", ", $conductoresSeleccionados), ['size' => 10]);
     if (!empty($conductoresCarrotanque)) {
-        $section->addText("⚠️ Conductores de Carrotanque (respetan su nombre real): " . implode(", ", $conductoresCarrotanque), ['italic' => true, 'color' => 'FF0000']);
+        $section->addText("⚠️ Conductores de Carrotanque (respetan su nombre real): " . implode(", ", $conductoresCarrotanque), ['italic' => true, 'size' => 9, 'color' => 'CC6600']);
     }
-    $section->addText("Tipo de informe: DISTRIBUCIÓN ALEATORIA (máx 2 veces seguidas)", ['italic' => true, 'bold' => true]);
+    $section->addText("Tipo de informe: DISTRIBUCIÓN ALEATORIA (máx 2 veces seguidas)", ['bold' => true, 'size' => 10, 'color' => '008000']);
+    
+    if ($presupuestoIngresado > 0) {
+        $section->addText("PRESUPUESTO ASIGNADO EXCLUSIVAMENTE PARA VIAJES MEDIOS: " . formatearMoneda($presupuestoIngresado), ['bold' => true, 'size' => 10, 'color' => 'CC6600']);
+        $section->addText("Total acumulado en viajes MEDIOS que entran en presupuesto: " . formatearMoneda($presupuestoUsado), ['size' => 10]);
+        if ($sobrantePresupuesto > 0) {
+            $section->addText("⚠️ Sobrante después del último viaje MEDIO incluido: " . formatearMoneda($sobrantePresupuesto), ['italic' => true, 'size' => 9, 'color' => '0066CC']);
+        } elseif ($faltaPresupuesto > 0) {
+            $section->addText("⚠️ Faltante para alcanzar el presupuesto con viajes MEDIOS: " . formatearMoneda($faltaPresupuesto), ['italic' => true, 'size' => 9, 'color' => 'CC0000']);
+        }
+        $section->addText("NOTA: Los demás vehículos (Carrotanque, Camión 350, Burbuja, Copetrana, Otros) se muestran COMPLETOS sin afectar el presupuesto.", ['italic' => true, 'size' => 9, 'color' => '666666']);
+    }
 } else {
-    $section->addText("Tipo de informe: DATOS REALES (sin asignación)", ['italic' => true, 'bold' => true, 'color' => '0000FF']);
-    $section->addText("Los conductores mostrados son los que realmente realizaron cada viaje según la base de datos.", ['italic' => true]);
-    $section->addText("Los viajes están agrupados por empresa con sus respectivos subtotales.", ['italic' => true]);
+    $section->addText("Tipo de informe: DATOS REALES (sin asignación)", ['bold' => true, 'size' => 10, 'color' => '0000FF']);
+    $section->addText("Los conductores mostrados son los que realmente realizaron cada viaje según la base de datos.", ['italic' => true, 'size' => 9]);
 }
-
-$section->addTextBreak(2);
-
-// Tabla de conductores (solo para informe aleatorio)
-if ($tipoInforme === 'aleatorio') {
-    $section->addText("LISTA DE CONDUCTORES (INCLUIDOS EN INFORME)", ['bold' => true, 'size' => 12]);
-    $section->addTextBreak(1);
-    
-    $tableConductores = $section->addTable(['borderSize' => 6, 'borderColor' => '000000', 'cellMargin' => 80]);
-    $tableConductores->addRow();
-    $tableConductores->addCell(3000)->addText("CONDUCTOR", ['bold' => true]);
-    $tableConductores->addCell(2500)->addText("CÉDULA", ['bold' => true]);
-    $tableConductores->addCell(2500)->addText("TIPO DE VEHÍCULO", ['bold' => true]);
-    $tableConductores->addCell(2000)->addText("ÁREA DE COBERTURA", ['bold' => true]);
-    $tableConductores->addCell(1500)->addText("TIPO", ['bold' => true]);
-    
-    foreach ($conductoresInfoMostrar as $conductor) {
-        $esCarrotanque = in_array($conductor['nombre'], $conductoresCarrotanque);
-        $tableConductores->addRow();
-        $tableConductores->addCell(3000)->addText($conductor['nombre'] ?: '-');
-        $tableConductores->addCell(2500)->addText($conductor['cedula'] ?: 'N/A');
-        $tableConductores->addCell(2500)->addText(obtenerTipoVehiculo($conductor['tipo_vehiculo']));
-        $tableConductores->addCell(2000)->addText(obtenerAreaCobertura($conductor['tipo_vehiculo']));
-        $tipoTexto = $esCarrotanque ? "🚛 Carrotanque (Fijo)" : "📋 Distribución Aleatoria";
-        $tableConductores->addCell(1500)->addText($tipoTexto);
-    }
-    
-    $section->addTextBreak(3);
-}
-
-// Tabla de viajes
-$section->addText("DETALLE DE VIAJES POR FECHA", ['bold' => true, 'size' => 12]);
 $section->addTextBreak(1);
 
-if ($tipoInforme === 'aleatorio') {
-    $section->addText("Nota: Los viajes de carrotanque conservan el conductor real. Los demás viajes se distribuyen aleatoriamente.", ['italic' => true, 'size' => 10]);
-    $section->addTextBreak(1);
+// ========== FUNCIÓN PARA CREAR TABLA DE VIAJES ==========
+function crearTablaViajes($section, $titulo, $viajes, $subtotal, $mostrarConductor = true, $mostrarCedula = false) {
+    if (empty($viajes)) {
+        return;
+    }
     
-    $tableViajes = $section->addTable(['borderSize' => 6, 'borderColor' => '000000', 'cellMargin' => 80]);
-    $tableViajes->addRow();
-    $tableViajes->addCell(1500)->addText("FECHA", ['bold' => true]);
-    $tableViajes->addCell(3000)->addText("CONDUCTOR", ['bold' => true]);
-    $tableViajes->addCell(2500)->addText("VEHÍCULO", ['bold' => true]);
-    $tableViajes->addCell(3000)->addText("RUTA", ['bold' => true]);
-    $tableViajes->addCell(2000)->addText("VALOR", ['bold' => true]);
+    $section->addText($titulo, ['bold' => true, 'size' => 12, 'color' => '1F4E78']);
+    $section->addTextBreak(0.5);
     
-    foreach ($viajesAsignados as $viaje) {
-        $tableViajes->addRow();
-        $tableViajes->addCell(1500)->addText(substr($viaje['fecha'], 0, 10));
-        $textoConductor = $viaje['conductor'] ?: '-';
-        if ($viaje['es_carrotanque']) $textoConductor .= " 🚛";
-        $tableViajes->addCell(3000)->addText($textoConductor);
-        $tableViajes->addCell(2500)->addText(obtenerTipoVehiculo($viaje['tipo_vehiculo']));
-        $tableViajes->addCell(3000)->addText($viaje['ruta'] ?: '-');
+    $table = $section->addTable(['borderSize' => 1, 'borderColor' => 'AAAAAA', 'cellMargin' => 60, 'width' => 100 * 50]);
+    
+    // Encabezados
+    $table->addRow();
+    $table->addCell(1200)->addText("FECHA", ['bold' => true, 'size' => 9, 'align' => 'center']);
+    if ($mostrarConductor) {
+        $table->addCell(2500)->addText("CONDUCTOR", ['bold' => true, 'size' => 9, 'align' => 'center']);
+    }
+    if ($mostrarCedula) {
+        $table->addCell(2000)->addText("CÉDULA", ['bold' => true, 'size' => 9, 'align' => 'center']);
+    }
+    $table->addCell(2500)->addText("VEHÍCULO", ['bold' => true, 'size' => 9, 'align' => 'center']);
+    $table->addCell(3000)->addText("RUTA", ['bold' => true, 'size' => 9, 'align' => 'center']);
+    $table->addCell(2000)->addText("VALOR", ['bold' => true, 'size' => 9, 'align' => 'center']);
+    
+    foreach ($viajes as $viaje) {
+        $valor = floatval($viaje['valor'] ?? 0);
         
-        $valor = $viaje['valor'];
-        if ($valor !== null && $valor > 0) {
-            $tableViajes->addCell(2000)->addText(formatearMoneda($valor));
+        $table->addRow();
+        $table->addCell(1200)->addText(date('d/m/Y', strtotime($viaje['fecha'])), ['size' => 9]);
+        if ($mostrarConductor) {
+            $textoConductor = $viaje['conductor'] ?: '-';
+            if (!empty($viaje['es_carrotanque'])) {
+                $textoConductor .= " 🚛";
+            }
+            $table->addCell(2500)->addText($textoConductor, ['size' => 9]);
+        }
+        if ($mostrarCedula) {
+            $table->addCell(2000)->addText($viaje['cedula'] ?? 'N/A', ['size' => 9]);
+        }
+        $table->addCell(2500)->addText(obtenerTipoVehiculo($viaje['tipo_vehiculo']), ['size' => 9]);
+        $table->addCell(3000)->addText($viaje['ruta'] ?: '-', ['size' => 9]);
+        
+        if ($valor > 0) {
+            $table->addCell(2000)->addText(formatearMoneda($valor), ['size' => 9, 'align' => 'right']);
         } else {
             $textoValor = "N/A";
             if (!empty($viaje['clasificacion'])) {
                 $textoValor = "Sin tarifa (" . $viaje['clasificacion'] . ")";
             }
-            $tableViajes->addCell(2000)->addText($textoValor);
+            $table->addCell(2000)->addText($textoValor, ['size' => 9, 'align' => 'right']);
         }
     }
     
-    $tableViajes->addRow();
-    $cellTotal = $tableViajes->addCell(10000, ['gridSpan' => 4]);
-    $cellTotal->addText("TOTAL", ['bold' => true]);
-    $tableViajes->addCell(2000)->addText(formatearMoneda($totalValores), ['bold' => true]);
+    // Fila de subtotal
+    $table->addRow();
+    $colspan = 3 + ($mostrarConductor ? 1 : 0) + ($mostrarCedula ? 1 : 0);
+    $cellSubtotal = $table->addCell(($colspan * 1000), ['gridSpan' => $colspan]);
+    $cellSubtotal->addText("SUBTOTAL", ['bold' => true, 'size' => 9, 'align' => 'right']);
+    $table->addCell(2000)->addText(formatearMoneda($subtotal), ['bold' => true, 'size' => 9, 'align' => 'right']);
     
-} else {
-    // INFORME REAL: Mostrar viajes agrupados por empresa con subtotales
-    $primerGrupo = true;
+    $section->addTextBreak(1);
+}
+
+// ========== GENERAR TABLAS SEGÚN TIPO DE INFORME ==========
+
+if ($tipoInforme === 'real') {
+    // INFORME REAL: Mostrar tablas por categoría de vehículo
     
-    foreach ($viajesPorEmpresa as $empresa => $viajes) {
-        if (!$primerGrupo) {
-            $section->addTextBreak(2);
-        }
-        $primerGrupo = false;
-        
-        // Título de la empresa
-        $section->addText("EMPRESA: " . strtoupper($empresa), ['bold' => true, 'size' => 12, 'color' => '0000FF']);
-        $section->addTextBreak(1);
-        
-        // Tabla de viajes para esta empresa
-        $tableViajes = $section->addTable(['borderSize' => 6, 'borderColor' => '000000', 'cellMargin' => 80]);
-        $tableViajes->addRow();
-        $tableViajes->addCell(1500)->addText("FECHA", ['bold' => true]);
-        $tableViajes->addCell(3000)->addText("CONDUCTOR", ['bold' => true]);
-        $tableViajes->addCell(2500)->addText("CÉDULA", ['bold' => true]);
-        $tableViajes->addCell(2500)->addText("VEHÍCULO", ['bold' => true]);
-        $tableViajes->addCell(3000)->addText("RUTA", ['bold' => true]);
-        $tableViajes->addCell(2000)->addText("VALOR", ['bold' => true]);
-        
-        $subtotalEmpresa = 0;
-        
-        foreach ($viajes as $viaje) {
-            $valor = $viaje['valor'];
-            if ($valor !== null && $valor > 0) {
-                $subtotalEmpresa += floatval($valor);
+    $categorias = [
+        'carrotanque' => ['titulo' => '🚛 VEHÍCULOS TIPO CARROTANQUE', 'icono' => '🚛'],
+        'camion_350' => ['titulo' => '🚚 VEHÍCULOS TIPO CAMIÓN 350', 'icono' => '🚚'],
+        'burbuja' => ['titulo' => '🚙 VEHÍCULOS TIPO BURBUJA', 'icono' => '🚙'],
+        'copetrana' => ['titulo' => '🚐 VEHÍCULOS TIPO COPETRANA', 'icono' => '🚐'],
+        'otros' => ['titulo' => '🔧 OTROS VEHÍCULOS', 'icono' => '🔧']
+    ];
+    
+    foreach ($categorias as $categoria => $info) {
+        if (!empty($viajesPorCategoria[$categoria])) {
+            $viajesConCedula = [];
+            foreach ($viajesPorCategoria[$categoria] as $viaje) {
+                $cedula = isset($conductoresInfoReal[$viaje['conductor']]) ? $conductoresInfoReal[$viaje['conductor']]['cedula'] : 'N/A';
+                $viajesConCedula[] = [
+                    'fecha' => $viaje['fecha'],
+                    'conductor' => $viaje['conductor'],
+                    'cedula' => $cedula,
+                    'tipo_vehiculo' => $viaje['tipo_vehiculo'],
+                    'ruta' => $viaje['ruta'],
+                    'valor' => $viaje['valor'],
+                    'clasificacion' => $viaje['clasificacion'],
+                    'es_carrotanque' => $viaje['es_carrotanque']
+                ];
             }
-            
-            $tableViajes->addRow();
-            $tableViajes->addCell(1500)->addText(substr($viaje['fecha'], 0, 10));
-            
-            $textoConductor = $viaje['conductor'] ?: '-';
-            if ($viaje['es_carrotanque']) $textoConductor .= " 🚛";
-            $tableViajes->addCell(3000)->addText($textoConductor);
-            
-            $cedula = isset($conductoresInfoReal[$viaje['conductor']]) ? $conductoresInfoReal[$viaje['conductor']]['cedula'] : 'N/A';
-            $tableViajes->addCell(2500)->addText($cedula);
-            
-            $tableViajes->addCell(2500)->addText(obtenerTipoVehiculo($viaje['tipo_vehiculo']));
-            $tableViajes->addCell(3000)->addText($viaje['ruta'] ?: '-');
-            
-            if ($valor !== null && $valor > 0) {
-                $tableViajes->addCell(2000)->addText(formatearMoneda($valor));
-            } else {
-                $textoValor = "N/A";
-                if (!empty($viaje['clasificacion'])) {
-                    $textoValor = "Sin tarifa (" . $viaje['clasificacion'] . ")";
-                }
-                $tableViajes->addCell(2000)->addText($textoValor);
-            }
+            crearTablaViajes($section, $info['titulo'], $viajesConCedula, $totalesPorCategoria[$categoria], true, true);
         }
-        
-        // Subtotal de la empresa
-        $tableViajes->addRow();
-        $cellSubtotal = $tableViajes->addCell(15000, ['gridSpan' => 5]);
-        $cellSubtotal->addText("SUBTOTAL " . strtoupper($empresa), ['bold' => true]);
-        $tableViajes->addCell(2000)->addText(formatearMoneda($subtotalEmpresa), ['bold' => true]);
     }
     
     // Total general
-    $section->addTextBreak(2);
-    $section->addText("RESUMEN GENERAL", ['bold' => true, 'size' => 12]);
-    $section->addTextBreak(1);
+    $section->addTextBreak(0.5);
+    $section->addText("RESUMEN GENERAL POR TIPO DE VEHÍCULO", ['bold' => true, 'size' => 12, 'color' => '1F4E78']);
+    $section->addTextBreak(0.5);
     
-    $tableTotal = $section->addTable(['borderSize' => 6, 'borderColor' => '000000', 'cellMargin' => 80]);
+    $tableTotal = $section->addTable(['borderSize' => 1, 'borderColor' => 'AAAAAA', 'cellMargin' => 60]);
     $tableTotal->addRow();
-    $tableTotal->addCell(5000)->addText("EMPRESA", ['bold' => true]);
-    $tableTotal->addCell(3000)->addText("SUBTOTAL", ['bold' => true]);
+    $tableTotal->addCell(4000)->addText("TIPO DE VEHÍCULO", ['bold' => true]);
+    $tableTotal->addCell(2500)->addText("TOTAL", ['bold' => true, 'align' => 'right']);
     
-    foreach ($totalesPorEmpresa as $empresa => $subtotal) {
-        $tableTotal->addRow();
-        $tableTotal->addCell(5000)->addText($empresa);
-        $tableTotal->addCell(3000)->addText(formatearMoneda($subtotal));
+    $totalGeneral = 0;
+    foreach ($categorias as $categoria => $info) {
+        if ($totalesPorCategoria[$categoria] > 0) {
+            $tableTotal->addRow();
+            $tableTotal->addCell(4000)->addText($info['titulo']);
+            $tableTotal->addCell(2500)->addText(formatearMoneda($totalesPorCategoria[$categoria]), ['align' => 'right']);
+            $totalGeneral += $totalesPorCategoria[$categoria];
+        }
     }
     
     $tableTotal->addRow();
-    $cellTotalGeneral = $tableTotal->addCell(5000, ['gridSpan' => 1]);
-    $cellTotalGeneral->addText("TOTAL GENERAL", ['bold' => true]);
-    $tableTotal->addCell(3000)->addText(formatearMoneda($totalValores), ['bold' => true, 'color' => 'FF0000']);
+    $cellTotal = $tableTotal->addCell(4000);
+    $cellTotal->addText("TOTAL GENERAL", ['bold' => true]);
+    $tableTotal->addCell(2500)->addText(formatearMoneda($totalGeneral), ['bold' => true, 'align' => 'right', 'color' => 'CC0000']);
+    
+} else {
+    // INFORME ALEATORIO: Mostrar todas las tablas
+    
+    // Tabla 1: Viajes medios que cubren el presupuesto
+    if (!empty($viajesMediosCubiertosAsignados)) {
+        $titulo = "📊 VIAJES MEDIOS QUE ENTRAN EN EL PRESUPUESTO";
+        if ($presupuestoIngresado > 0) {
+            $titulo .= " (Acumulado: " . formatearMoneda($acumuladoMedios) . ")";
+            if ($sobrantePresupuesto > 0) {
+                $titulo .= " - Sobrante: " . formatearMoneda($sobrantePresupuesto);
+            }
+        }
+        crearTablaViajes($section, $titulo, $viajesMediosCubiertosAsignados, $totalMediosCubiertos, true, true);
+    } elseif ($presupuestoIngresado > 0 && empty($viajesMediosCubiertosAsignados) && !empty($viajesMedios)) {
+        // Si hay presupuesto pero ningún viaje medio alcanzó (todos son menores al primer viaje)
+        $section->addText("📊 VIAJES MEDIOS", ['bold' => true, 'size' => 12, 'color' => '1F4E78']);
+        $section->addText("No hay viajes medios disponibles en el rango de fechas seleccionado.", ['italic' => true, 'size' => 10, 'color' => 'CC0000']);
+        $section->addTextBreak(1);
+    }
+    
+    // Tabla 2: Viajes medios restantes (los que quedaron por fuera del presupuesto)
+    if (!empty($viajesMediosRestantesAsignados)) {
+        $titulo = "📋 VIAJES MEDIOS RESTANTES (No entran en el presupuesto)";
+        if ($faltaPresupuesto > 0) {
+            $titulo .= " - Faltante para alcanzar presupuesto: " . formatearMoneda($faltaPresupuesto);
+        }
+        crearTablaViajes($section, $titulo, $viajesMediosRestantesAsignados, $totalMediosRestantes, true, true);
+    }
+    
+    // Tabla 3: Carrotanque - TODOS sus viajes (completos, medios, extras, etc.)
+    if (!empty($viajesCarrotanqueAsignados)) {
+        crearTablaViajes($section, "🚛 VEHÍCULOS TIPO CARROTANQUE (TODOS LOS VIAJES)", $viajesCarrotanqueAsignados, $totalCarrotanque, true, true);
+    }
+    
+    // Tabla 4: Camión 350 - TODOS sus viajes
+    if (!empty($viajesCamion350Asignados)) {
+        crearTablaViajes($section, "🚚 VEHÍCULOS TIPO CAMIÓN 350 (TODOS LOS VIAJES)", $viajesCamion350Asignados, $totalCamion350, true, true);
+    }
+    
+    // Tabla 5: Burbuja - TODOS sus viajes
+    if (!empty($viajesBurbujaAsignados)) {
+        crearTablaViajes($section, "🚙 VEHÍCULOS TIPO BURBUJA (TODOS LOS VIAJES)", $viajesBurbujaAsignados, $totalBurbuja, true, true);
+    }
+    
+    // Tabla 6: Copetrana - TODOS sus viajes
+    if (!empty($viajesCopetranaAsignados)) {
+        crearTablaViajes($section, "🚐 VEHÍCULOS TIPO COPETRANA (TODOS LOS VIAJES)", $viajesCopetranaAsignados, $totalCopetrana, true, true);
+    }
+    
+    // Tabla 7: Otros vehículos - TODOS sus viajes
+    if (!empty($viajesOtrosAsignados)) {
+        crearTablaViajes($section, "🔧 OTROS VEHÍCULOS (TODOS LOS VIAJES)", $viajesOtrosAsignados, $totalOtros, true, true);
+    }
+    
+    // Resumen General con Totales
+    $section->addTextBreak(0.5);
+    $section->addText("RESUMEN GENERAL DE TOTALES", ['bold' => true, 'size' => 12, 'color' => '1F4E78']);
+    $section->addTextBreak(0.5);
+    
+    $tableResumen = $section->addTable(['borderSize' => 1, 'borderColor' => 'AAAAAA', 'cellMargin' => 60]);
+    $tableResumen->addRow();
+    $tableResumen->addCell(5000)->addText("CONCEPTO", ['bold' => true]);
+    $tableResumen->addCell(2500)->addText("TOTAL", ['bold' => true, 'align' => 'right']);
+    
+    if ($totalMediosCubiertos > 0) {
+        $tableResumen->addRow();
+        $tableResumen->addCell(5000)->addText("Viajes Medios (Entran en Presupuesto)");
+        $tableResumen->addCell(2500)->addText(formatearMoneda($totalMediosCubiertos), ['align' => 'right']);
+    }
+    
+    if ($totalMediosRestantes > 0) {
+        $tableResumen->addRow();
+        $tableResumen->addCell(5000)->addText("Viajes Medios (Restantes - No entran)");
+        $tableResumen->addCell(2500)->addText(formatearMoneda($totalMediosRestantes), ['align' => 'right']);
+    }
+    
+    if ($totalCarrotanque > 0) {
+        $tableResumen->addRow();
+        $tableResumen->addCell(5000)->addText("Carrotanque (Todos los viajes)");
+        $tableResumen->addCell(2500)->addText(formatearMoneda($totalCarrotanque), ['align' => 'right']);
+    }
+    
+    if ($totalCamion350 > 0) {
+        $tableResumen->addRow();
+        $tableResumen->addCell(5000)->addText("Camión 350 (Todos los viajes)");
+        $tableResumen->addCell(2500)->addText(formatearMoneda($totalCamion350), ['align' => 'right']);
+    }
+    
+    if ($totalBurbuja > 0) {
+        $tableResumen->addRow();
+        $tableResumen->addCell(5000)->addText("Burbuja (Todos los viajes)");
+        $tableResumen->addCell(2500)->addText(formatearMoneda($totalBurbuja), ['align' => 'right']);
+    }
+    
+    if ($totalCopetrana > 0) {
+        $tableResumen->addRow();
+        $tableResumen->addCell(5000)->addText("Copetrana (Todos los viajes)");
+        $tableResumen->addCell(2500)->addText(formatearMoneda($totalCopetrana), ['align' => 'right']);
+    }
+    
+    if ($totalOtros > 0) {
+        $tableResumen->addRow();
+        $tableResumen->addCell(5000)->addText("Otros Vehículos (Todos los viajes)");
+        $tableResumen->addCell(2500)->addText(formatearMoneda($totalOtros), ['align' => 'right']);
+    }
+    
+    $tableResumen->addRow();
+    $cellTotal = $tableResumen->addCell(5000);
+    $cellTotal->addText("TOTAL GENERAL", ['bold' => true]);
+    $tableResumen->addCell(2500)->addText(formatearMoneda($totalGeneral), ['bold' => true, 'align' => 'right', 'color' => 'CC0000']);
+    
+    if ($presupuestoIngresado > 0) {
+        $section->addTextBreak(0.5);
+        $section->addText("NOTA DE PRESUPUESTO (SOLO PARA VIAJES MEDIOS):", ['bold' => true, 'size' => 10, 'color' => 'CC6600']);
+        $section->addText("• Presupuesto ingresado para viajes MEDIOS: " . formatearMoneda($presupuestoIngresado), ['size' => 9]);
+        $section->addText("• Total utilizado en viajes MEDIOS que entran: " . formatearMoneda($presupuestoUsado), ['size' => 9]);
+        if ($sobrantePresupuesto > 0) {
+            $section->addText("• Sobrante después del último viaje MEDIO incluido: " . formatearMoneda($sobrantePresupuesto), ['size' => 9, 'color' => '0066CC']);
+            $section->addText("• NOTA: El presupuesto se superó con el último viaje MEDIO incluido.", ['italic' => true, 'size' => 9, 'color' => '0066CC']);
+        } elseif ($faltaPresupuesto > 0) {
+            $section->addText("• Faltante para alcanzar el presupuesto: " . formatearMoneda($faltaPresupuesto), ['size' => 9, 'color' => 'CC0000']);
+            $section->addText("• NOTA: Los viajes MEDIOS disponibles NO alcanzaron para cubrir el presupuesto.", ['italic' => true, 'size' => 9, 'color' => 'CC0000']);
+        }
+        $section->addText("• Los demás vehículos (Carrotanque, Camión 350, Burbuja, Copetrana, Otros) se muestran COMPLETOS y se cobran en su totalidad, independientemente del presupuesto.", ['italic' => true, 'size' => 9, 'color' => '666666']);
+    }
 }
 
+// Firma
 $section->addTextBreak(2);
 date_default_timezone_set('America/Bogota');
-$section->addText("Maicao, " . date('d/m/Y'), [], ['align' => 'right']);
-$section->addText("Cordialmente,");
+$section->addText("Maicao, " . date('d/m/Y'), ['align' => 'right']);
+$section->addTextBreak(1);
+$section->addText("Cordialmente,", ['align' => 'right']);
 $section->addTextBreak(2);
-$section->addText("NUMAS JOSÉ IGUARÁN IGUARÁN", ['bold' => true]);
-$section->addText("Representante Legal");
+$section->addText("NUMAS JOSÉ IGUARÁN IGUARÁN", ['bold' => true, 'align' => 'right']);
+$section->addText("Representante Legal", ['align' => 'right']);
 
 // Enviar archivo
 $sufijo = ($tipoInforme === 'real') ? 'real' : 'aleatorio';
