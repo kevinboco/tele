@@ -36,7 +36,7 @@ function obtenerTipoVehiculo($tipo) {
     return $tipo ?: '-';
 }
 
-// Función para obtener la categoría del vehículo
+// Función para obtener la categoría del vehículo (para agrupar tablas)
 function obtenerCategoriaVehiculo($tipo) {
     $tipoLower = strtolower(trim($tipo ?: ''));
     
@@ -55,7 +55,7 @@ function obtenerCategoriaVehiculo($tipo) {
     return 'otros';
 }
 
-// Función para obtener el área de cobertura
+// Función para obtener el área de cobertura según tipo de vehículo
 function obtenerAreaCobertura($tipo) {
     $tipo = strtolower(trim($tipo ?: ''));
     
@@ -80,7 +80,7 @@ function formatearMoneda($valor) {
     return '$ ' . number_format(floatval($valor), 0, ',', '.');
 }
 
-// Función para asignar conductores
+// Función para asignar conductores evitando repeticiones consecutivas (máximo 2 veces seguidas)
 function asignarConductorConRegla($conductoresLista, $ultimoConductor, $consecutivos) {
     if ($ultimoConductor === null) {
         return $conductoresLista[array_rand($conductoresLista)];
@@ -124,7 +124,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
     $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
     if ($resEmp) while ($r = $resEmp->fetch_assoc()) { $empresas[] = $r['empresa']; }
     
-    // Obtener lista de todos los conductores
+    // Obtener lista de todos los conductores para el buscador
     $todosConductores = [];
     $resCond = $conn->query("SELECT DISTINCT nombre, cedula, tipo_vehiculo FROM viajes WHERE nombre IS NOT NULL AND nombre <> '' ORDER BY nombre ASC");
     if ($resCond) {
@@ -153,7 +153,11 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                 --light-color: #f8f9fa;
             }
             
-            * { margin: 0; padding: 0; box-sizing: border-box; }
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
             
             body {
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -162,7 +166,10 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                 padding: 1rem;
             }
             
-            .container-custom { max-width: 1600px; margin: 0 auto; }
+            .container-custom {
+                max-width: 1600px;
+                margin: 0 auto;
+            }
             
             .main-card {
                 background: white;
@@ -173,8 +180,14 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
             }
             
             @keyframes fadeInUp {
-                from { opacity: 0; transform: translateY(30px); }
-                to { opacity: 1; transform: translateY(0); }
+                from {
+                    opacity: 0;
+                    transform: translateY(30px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
             }
             
             .card-header-custom {
@@ -184,10 +197,21 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                 text-align: center;
             }
             
-            .card-header-custom h1 { font-size: 1.6rem; margin-bottom: 0.25rem; font-weight: 600; }
-            .card-header-custom p { margin-bottom: 0; opacity: 0.9; font-size: 0.85rem; }
+            .card-header-custom h1 {
+                font-size: 1.6rem;
+                margin-bottom: 0.25rem;
+                font-weight: 600;
+            }
             
-            .card-body-custom { padding: 1.2rem; }
+            .card-header-custom p {
+                margin-bottom: 0;
+                opacity: 0.9;
+                font-size: 0.85rem;
+            }
+            
+            .card-body-custom {
+                padding: 1.2rem;
+            }
             
             .top-bar {
                 background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
@@ -200,9 +224,12 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                 flex-wrap: wrap;
             }
             
-            .date-group, .presupuesto-group { flex: 1; min-width: 160px; }
+            .date-group {
+                flex: 1;
+                min-width: 160px;
+            }
             
-            .date-input, .presupuesto-input {
+            .date-input {
                 background: white;
                 border-radius: 8px;
                 padding: 0.4rem 0.8rem;
@@ -210,19 +237,19 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                 transition: all 0.3s;
             }
             
-            .date-input:focus-within, .presupuesto-input:focus-within {
+            .date-input:focus-within {
                 border-color: var(--primary-color);
                 box-shadow: 0 0 0 3px rgba(13,110,253,0.1);
             }
             
-            .date-input label, .presupuesto-input label {
+            .date-input label {
                 font-size: 0.7rem;
                 color: var(--secondary-color);
                 margin-bottom: 0;
                 display: block;
             }
             
-            .date-input input, .presupuesto-input input {
+            .date-input input {
                 border: none;
                 padding: 0;
                 font-size: 0.9rem;
@@ -230,7 +257,44 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                 outline: none;
             }
             
-            .btn-group-actions { display: flex; gap: 0.8rem; flex-wrap: wrap; }
+            .presupuesto-group {
+                flex: 1;
+                min-width: 180px;
+            }
+            
+            .presupuesto-input {
+                background: white;
+                border-radius: 8px;
+                padding: 0.4rem 0.8rem;
+                border: 2px solid #e0e0e0;
+                transition: all 0.3s;
+            }
+            
+            .presupuesto-input:focus-within {
+                border-color: var(--success-color);
+                box-shadow: 0 0 0 3px rgba(25,135,84,0.1);
+            }
+            
+            .presupuesto-input label {
+                font-size: 0.7rem;
+                color: var(--secondary-color);
+                margin-bottom: 0;
+                display: block;
+            }
+            
+            .presupuesto-input input {
+                border: none;
+                padding: 0;
+                font-size: 0.9rem;
+                width: 100%;
+                outline: none;
+            }
+            
+            .btn-group-actions {
+                display: flex;
+                gap: 0.8rem;
+                flex-wrap: wrap;
+            }
             
             .btn-generate-top {
                 background: linear-gradient(135deg, var(--success-color) 0%, #0f6848 100%);
@@ -264,11 +328,26 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                 box-shadow: 0 5px 15px rgba(13,110,253,0.3);
             }
             
-            .three-columns { display: flex; gap: 1rem; flex-wrap: wrap; }
+            .three-columns {
+                display: flex;
+                gap: 1rem;
+                flex-wrap: wrap;
+            }
             
-            .col-conductores { flex: 2.2; min-width: 260px; }
-            .col-resumen { flex: 1.2; min-width: 220px; }
-            .col-empresas { flex: 1.2; min-width: 200px; }
+            .col-conductores {
+                flex: 2.2;
+                min-width: 260px;
+            }
+            
+            .col-resumen {
+                flex: 1.2;
+                min-width: 220px;
+            }
+            
+            .col-empresas {
+                flex: 1.2;
+                min-width: 200px;
+            }
             
             .section-card {
                 background: white;
@@ -286,8 +365,16 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                 padding: 0.6rem 0.8rem;
             }
             
-            .section-header h3 { margin: 0; font-size: 0.9rem; font-weight: 600; }
-            .section-header h3 i { margin-right: 0.4rem; font-size: 0.85rem; }
+            .section-header h3 {
+                margin: 0;
+                font-size: 0.9rem;
+                font-weight: 600;
+            }
+            
+            .section-header h3 i {
+                margin-right: 0.4rem;
+                font-size: 0.85rem;
+            }
             
             .section-content {
                 padding: 0.8rem;
@@ -325,12 +412,27 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                 outline: none;
             }
             
-            .result-counter { font-size: 0.65rem; color: var(--secondary-color); margin-top: 0.2rem; }
+            .result-counter {
+                font-size: 0.65rem;
+                color: var(--secondary-color);
+                margin-top: 0.2rem;
+            }
             
-            .btn-group-custom { display: flex; gap: 0.4rem; margin-bottom: 0.8rem; }
-            .btn-group-custom .btn-sm { padding: 0.2rem 0.5rem; font-size: 0.7rem; }
+            .btn-group-custom {
+                display: flex;
+                gap: 0.4rem;
+                margin-bottom: 0.8rem;
+            }
             
-            .conductor-list { max-height: 320px; overflow-y: auto; }
+            .btn-group-custom .btn-sm {
+                padding: 0.2rem 0.5rem;
+                font-size: 0.7rem;
+            }
+            
+            .conductor-list {
+                max-height: 320px;
+                overflow-y: auto;
+            }
             
             .conductor-item {
                 padding: 0.4rem;
@@ -341,11 +443,25 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                 cursor: pointer;
             }
             
-            .conductor-item:hover { background: var(--light-color); border-color: var(--primary-color); }
-            .conductor-item .form-check { margin: 0; }
+            .conductor-item:hover {
+                background: var(--light-color);
+                border-color: var(--primary-color);
+            }
             
-            .conductor-name { font-weight: 600; font-size: 0.8rem; color: var(--dark-color); }
-            .conductor-cedula { font-size: 0.65rem; color: var(--secondary-color); }
+            .conductor-item .form-check {
+                margin: 0;
+            }
+            
+            .conductor-name {
+                font-weight: 600;
+                font-size: 0.8rem;
+                color: var(--dark-color);
+            }
+            
+            .conductor-cedula {
+                font-size: 0.65rem;
+                color: var(--secondary-color);
+            }
             
             .vehicle-badge {
                 display: inline-block;
@@ -356,10 +472,22 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                 margin-top: 0.15rem;
             }
             
-            .badge-carrotanque { background: #fff3cd; color: #856404; border-left: 2px solid var(--warning-color); }
-            .badge-burbuja { background: #d1ecf1; color: #0c5460; border-left: 2px solid var(--info-color); }
+            .badge-carrotanque {
+                background: #fff3cd;
+                color: #856404;
+                border-left: 2px solid var(--warning-color);
+            }
             
-            .resumen-lista { max-height: 380px; overflow-y: auto; }
+            .badge-burbuja {
+                background: #d1ecf1;
+                color: #0c5460;
+                border-left: 2px solid var(--info-color);
+            }
+            
+            .resumen-lista {
+                max-height: 380px;
+                overflow-y: auto;
+            }
             
             .conductor-seleccionado-item {
                 padding: 0.4rem;
@@ -370,19 +498,65 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                 gap: 0.4rem;
             }
             
-            .conductor-seleccionado-item i { font-size: 0.7rem; color: var(--success-color); }
-            .conductor-seleccionado-item .nombre { flex: 1; font-weight: 500; }
-            .conductor-seleccionado-item .tipo-badge { font-size: 0.6rem; padding: 0.1rem 0.3rem; border-radius: 10px; background: #e9ecef; }
+            .conductor-seleccionado-item i {
+                font-size: 0.7rem;
+                color: var(--success-color);
+            }
             
-            .resumen-vacio { text-align: center; color: var(--secondary-color); font-size: 0.75rem; padding: 1rem; }
-            .resumen-total { background: var(--light-color); padding: 0.5rem; border-radius: 6px; margin-top: 0.5rem; text-align: center; font-size: 0.75rem; font-weight: bold; }
+            .conductor-seleccionado-item .nombre {
+                flex: 1;
+                font-weight: 500;
+            }
             
-            .empresas-list { display: flex; flex-direction: column; gap: 0.3rem; }
+            .conductor-seleccionado-item .tipo-badge {
+                font-size: 0.6rem;
+                padding: 0.1rem 0.3rem;
+                border-radius: 10px;
+                background: #e9ecef;
+            }
             
-            .empresa-item { padding: 0.3rem; border-radius: 4px; transition: background 0.2s; }
-            .empresa-item:hover { background: var(--light-color); }
-            .empresa-item input[type="checkbox"] { margin-right: 0.4rem; transform: scale(0.85); }
-            .empresa-item label { font-size: 0.75rem; cursor: pointer; }
+            .resumen-vacio {
+                text-align: center;
+                color: var(--secondary-color);
+                font-size: 0.75rem;
+                padding: 1rem;
+            }
+            
+            .resumen-total {
+                background: var(--light-color);
+                padding: 0.5rem;
+                border-radius: 6px;
+                margin-top: 0.5rem;
+                text-align: center;
+                font-size: 0.75rem;
+                font-weight: bold;
+            }
+            
+            .empresas-list {
+                display: flex;
+                flex-direction: column;
+                gap: 0.3rem;
+            }
+            
+            .empresa-item {
+                padding: 0.3rem;
+                border-radius: 4px;
+                transition: background 0.2s;
+            }
+            
+            .empresa-item:hover {
+                background: var(--light-color);
+            }
+            
+            .empresa-item input[type="checkbox"] {
+                margin-right: 0.4rem;
+                transform: scale(0.85);
+            }
+            
+            .empresa-item label {
+                font-size: 0.75rem;
+                cursor: pointer;
+            }
             
             .select-all-container {
                 padding-bottom: 0.4rem;
@@ -390,8 +564,14 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                 margin-bottom: 0.6rem;
             }
             
-            .select-all-container .form-check-label { font-weight: 600; font-size: 0.75rem; }
-            .select-all-container .form-check-input { transform: scale(0.85); }
+            .select-all-container .form-check-label {
+                font-weight: 600;
+                font-size: 0.75rem;
+            }
+            
+            .select-all-container .form-check-input {
+                transform: scale(0.85);
+            }
             
             .legend {
                 background: var(--light-color);
@@ -400,24 +580,72 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                 margin-top: 0.8rem;
             }
             
-            .legend-item { display: flex; align-items: center; margin-bottom: 0.4rem; font-size: 0.65rem; }
-            .legend-color { width: 12px; height: 12px; border-radius: 2px; margin-right: 0.4rem; }
-            
-            ::-webkit-scrollbar { width: 5px; height: 5px; }
-            ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
-            ::-webkit-scrollbar-thumb { background: var(--primary-color); border-radius: 10px; }
-            
-            @media (max-width: 1000px) {
-                .three-columns { flex-direction: column; }
-                .col-conductores, .col-resumen, .col-empresas { flex: auto; }
-                .top-bar { flex-direction: column; align-items: stretch; }
-                .btn-group-actions { flex-direction: column; }
-                .btn-generate-top, .btn-generate-real { width: 100%; text-align: center; }
+            .legend-item {
+                display: flex;
+                align-items: center;
+                margin-bottom: 0.4rem;
+                font-size: 0.65rem;
             }
             
-            .badge-unic { font-size: 0.55rem; padding: 0.15rem 0.3rem; }
-            .form-check-input { transform: scale(0.85); margin-top: 0.2rem; }
-            .form-check-label { font-size: 0.8rem; }
+            .legend-color {
+                width: 12px;
+                height: 12px;
+                border-radius: 2px;
+                margin-right: 0.4rem;
+            }
+            
+            ::-webkit-scrollbar {
+                width: 5px;
+                height: 5px;
+            }
+            
+            ::-webkit-scrollbar-track {
+                background: #f1f1f1;
+                border-radius: 10px;
+            }
+            
+            ::-webkit-scrollbar-thumb {
+                background: var(--primary-color);
+                border-radius: 10px;
+            }
+            
+            @media (max-width: 1000px) {
+                .three-columns {
+                    flex-direction: column;
+                }
+                
+                .col-conductores, .col-resumen, .col-empresas {
+                    flex: auto;
+                }
+                
+                .top-bar {
+                    flex-direction: column;
+                    align-items: stretch;
+                }
+                
+                .btn-group-actions {
+                    flex-direction: column;
+                }
+                
+                .btn-generate-top, .btn-generate-real {
+                    width: 100%;
+                    text-align: center;
+                }
+            }
+            
+            .badge-unic {
+                font-size: 0.55rem;
+                padding: 0.15rem 0.3rem;
+            }
+            
+            .form-check-input {
+                transform: scale(0.85);
+                margin-top: 0.2rem;
+            }
+            
+            .form-check-label {
+                font-size: 0.8rem;
+            }
             
             .info-banner {
                 background: #e7f3ff;
@@ -426,6 +654,15 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                 border-radius: 8px;
                 margin-bottom: 1rem;
                 font-size: 0.75rem;
+            }
+            
+            .presupuesto-banner {
+                background: #fff3cd;
+                border-left: 4px solid var(--warning-color);
+                padding: 0.6rem;
+                border-radius: 8px;
+                margin-top: 0.5rem;
+                font-size: 0.7rem;
             }
         </style>
     </head>
@@ -447,7 +684,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                         <strong>Informe Aleatorio:</strong> Distribuye los viajes entre los conductores seleccionados (máx 2 veces seguidas). Requiere seleccionar al menos un conductor.
                         <br>
                         <i class="fas fa-chart-line"></i>
-                        <strong>Presupuesto:</strong> Solo aplica para informe aleatorio. Los viajes MEDIOS de VEHÍCULOS BURBUJA se acumulan hasta alcanzar el valor ingresado. Los demás vehículos se muestran completos.
+                        <strong>Presupuesto:</strong> Solo aplica para informe aleatorio. Los viajes MEDIOS de VEHÍCULOS BURBUJA se acumulan hasta alcanzar el valor ingresado. Los demás vehículos (Carrotanque, Camión 350, Copetrana, Otros) se muestran completos sin afectar el presupuesto.
                     </div>
                     
                     <form method="post" id="formInforme">
@@ -484,6 +721,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                         </div>
                         
                         <div class="three-columns">
+                            <!-- COLUMNA 1: CONDUCTORES (SOLO NECESARIO PARA INFORME ALEATORIO) -->
                             <div class="col-conductores">
                                 <div class="section-card">
                                     <div class="section-header">
@@ -547,6 +785,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                                 </div>
                             </div>
                             
+                            <!-- COLUMNA 2: RESUMEN CON LISTA DE NOMBRES -->
                             <div class="col-resumen">
                                 <div class="section-card">
                                     <div class="section-header">
@@ -565,6 +804,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                                 </div>
                             </div>
                             
+                            <!-- COLUMNA 3: EMPRESAS -->
                             <div class="col-empresas">
                                 <div class="section-card">
                                     <div class="section-header">
@@ -629,6 +869,8 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
             const resumenLista = document.getElementById('resumenLista');
             const resumenTotal = document.getElementById('resumenTotal');
             const totalSeleccionadosSpan = document.getElementById('totalSeleccionados');
+            const btnAleatorio = document.getElementById('btnAleatorio');
+            const btnReal = document.getElementById('btnReal');
             const formInforme = document.getElementById('formInforme');
             
             function escapeHtml(text) {
@@ -646,7 +888,11 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                 const total = checkboxesSeleccionados.length;
                 
                 if (total === 0) {
-                    resumenLista.innerHTML = `<div class="resumen-vacio"><i class="fas fa-info-circle"></i> No hay conductores seleccionados</div>`;
+                    resumenLista.innerHTML = `
+                        <div class="resumen-vacio">
+                            <i class="fas fa-info-circle"></i> No hay conductores seleccionados
+                        </div>
+                    `;
                     resumenTotal.style.display = 'none';
                     return;
                 }
@@ -659,11 +905,13 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                         '<span class="tipo-badge" style="background:#fff3cd; color:#856404;"><i class="fas fa-truck"></i> Carrotanque</span>' : 
                         '<span class="tipo-badge" style="background:#d1ecf1; color:#0c5460;"><i class="fas fa-car"></i> Otros</span>';
                     
-                    html += `<div class="conductor-seleccionado-item">
-                                <i class="fas fa-check-circle" style="color: #198754;"></i>
-                                <span class="nombre">${escapeHtml(nombre)}</span>
-                                ${tipoBadge}
-                            </div>`;
+                    html += `
+                        <div class="conductor-seleccionado-item">
+                            <i class="fas fa-check-circle" style="color: #198754;"></i>
+                            <span class="nombre">${escapeHtml(nombre)}</span>
+                            ${tipoBadge}
+                        </div>
+                    `;
                 });
                 
                 resumenLista.innerHTML = html;
@@ -745,10 +993,12 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                 actualizarSeleccionarTodosEmpresas();
             }
             
+            // Validación según el tipo de informe
             formInforme.addEventListener('submit', function(e) {
                 const tipoInforme = document.activeElement.getAttribute('name') === 'tipo_informe' ? 
                                     document.activeElement.value : null;
                 
+                // Si es informe aleatorio, validar que haya conductores seleccionados
                 if (tipoInforme === 'aleatorio') {
                     const seleccionados = document.querySelectorAll('.conductor-checkbox:checked');
                     if (seleccionados.length === 0) {
@@ -784,7 +1034,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
     exit;
 }
 
-// ========== PROCESAMIENTO DEL INFORME ==========
+// ========== PROCESAMIENTO DEL INFORME (CUANDO SE ENVÍA EL FORMULARIO) ==========
 
 // Parámetros
 $desde = $_POST['desde'];
@@ -811,10 +1061,9 @@ if (!empty($empresasSeleccionadas)) {
     $condicionEmpresa = " AND v.empresa IN (" . implode(",", $empresasEscapadas) . ")";
 }
 
-// Consulta de viajes - INCLUIMOS EL ID PARA TENER UN IDENTIFICADOR ÚNICO
+// Consulta de viajes
 $sqlViajes = "
     SELECT 
-        v.id,
         v.fecha,
         v.nombre as conductor_real,
         v.ruta,
@@ -855,7 +1104,7 @@ if (!$resViajes) {
 // ========== PROCESAR SEGÚN TIPO DE INFORME ==========
 
 if ($tipoInforme === 'real') {
-    // INFORME REAL
+    // INFORME REAL: Mostrar los conductores tal como están en la base de datos
     $viajesPorCategoria = [
         'carrotanque' => [],
         'camion_350' => [],
@@ -880,7 +1129,6 @@ if ($tipoInforme === 'real') {
         }
         
         $viajesPorCategoria[$categoria][] = [
-            'id' => $row['id'],
             'fecha' => $row['fecha'],
             'conductor' => $row['conductor_real'],
             'tipo_vehiculo' => $row['tipo_vehiculo'],
@@ -891,7 +1139,7 @@ if ($tipoInforme === 'real') {
         ];
     }
     
-    // Obtener cédulas
+    // Obtener cédulas para los conductores reales
     $conductoresInfoReal = [];
     $todosConductoresReales = [];
     foreach ($viajesPorCategoria as $categoria => $viajes) {
@@ -941,7 +1189,7 @@ if ($tipoInforme === 'real') {
         }
     }
     
-    // Recolectar todos los viajes con su ID
+    // Recolectar todos los viajes
     $todosLosViajes = [];
     while ($row = $resViajes->fetch_assoc()) {
         $todosLosViajes[] = $row;
@@ -956,11 +1204,15 @@ if ($tipoInforme === 'real') {
     
     // Separar viajes MEDIOS de BURBUJA para el presupuesto
     $viajesMediosBurbuja = [];
+    $todosLosViajesParaClasificar = [];
     
     foreach ($todosLosViajes as $viaje) {
         $categoriaVehiculo = obtenerCategoriaVehiculo($viaje['tipo_vehiculo']);
         $clasificacion = strtolower(trim($viaje['clasificacion'] ?? ''));
         $esBurbuja = ($categoriaVehiculo === 'burbuja');
+        
+        // Guardar el viaje original para referencia
+        $todosLosViajesParaClasificar[] = $viaje;
         
         // Agrupar por tipo de vehículo (todos los viajes)
         switch ($categoriaVehiculo) {
@@ -988,8 +1240,8 @@ if ($tipoInforme === 'real') {
     }
     
     // ========== PROCESAR VIAJES MEDIOS DE BURBUJA CON PRESUPUESTO ==========
-    $viajesMediosBurbujaCubiertos = [];
-    $idsViajesCubiertos = [];
+    $viajesMediosBurbujaCubiertos = [];   // Viajes medios de burbuja que entran en el presupuesto
+    $idsViajesCubiertos = [];              // IDs para evitar duplicados
     $acumuladoMedios = 0;
     $presupuestoUsado = 0;
     $presupuestoIngresado = $presupuesto ?? 0;
@@ -997,19 +1249,24 @@ if ($tipoInforme === 'real') {
     $faltaPresupuesto = 0;
     
     if ($presupuestoIngresado > 0 && !empty($viajesMediosBurbuja)) {
-        // Ordenar por fecha (ya vienen ordenados de la consulta)
-        foreach ($viajesMediosBurbuja as $viaje) {
+        // Crear un array con los viajes medios de burbuja en orden cronológico
+        $viajesMediosBurbujaOrdenados = $viajesMediosBurbuja;
+        
+        foreach ($viajesMediosBurbujaOrdenados as $index => $viaje) {
             $valorViaje = floatval($viaje['valor_viaje'] ?? 0);
             
             if ($acumuladoMedios < $presupuestoIngresado) {
+                // Este viaje entra en el presupuesto
                 $viajesMediosBurbujaCubiertos[] = $viaje;
-                // Usar el ID de la base de datos como identificador único
-                $idsViajesCubiertos[] = $viaje['id'];
+                // Guardar un identificador único para este viaje (podemos usar fecha + ruta + valor como clave)
+                $idViaje = md5($viaje['fecha'] . $viaje['ruta'] . $viaje['valor_viaje'] . $viaje['tipo_vehiculo']);
+                $idsViajesCubiertos[] = $idViaje;
                 $acumuladoMedios += $valorViaje;
                 $presupuestoUsado += $valorViaje;
             }
         }
         
+        // Calcular sobrante o faltante
         if ($acumuladoMedios > $presupuestoIngresado) {
             $sobrantePresupuesto = $acumuladoMedios - $presupuestoIngresado;
         } elseif ($acumuladoMedios < $presupuestoIngresado) {
@@ -1021,11 +1278,18 @@ if ($tipoInforme === 'real') {
     $viajesBurbujaFiltrados = [];
     
     foreach ($viajesBurbuja as $viaje) {
-        // Si es un viaje MEDIO de burbuja y está en la lista de cubiertos por su ID, NO lo incluimos
-        if (in_array($viaje['id'], $idsViajesCubiertos)) {
+        $clasificacion = strtolower(trim($viaje['clasificacion'] ?? ''));
+        $esMedio = ($clasificacion === 'medio');
+        
+        // Crear identificador único para este viaje
+        $idViaje = md5($viaje['fecha'] . $viaje['ruta'] . $viaje['valor_viaje'] . $viaje['tipo_vehiculo']);
+        
+        // Si es un viaje MEDIO de burbuja y está en la lista de cubiertos, NO lo incluimos en la tabla de burbuja
+        if ($esMedio && in_array($idViaje, $idsViajesCubiertos)) {
             continue;
         }
-        // Para todos los demás casos, los incluimos
+        
+        // Para todos los demás casos (completos, extra, siapana, o medios que NO entraron en presupuesto), los incluimos
         $viajesBurbujaFiltrados[] = $viaje;
     }
     
@@ -1034,6 +1298,7 @@ if ($tipoInforme === 'real') {
     $consecutivos = 0;
     $conductoresNoCarrotanque = array_diff($conductoresSeleccionados, $conductoresCarrotanque);
     
+    // Función para asignar conductor a un viaje
     function asignarConductorParaViaje($viaje, $conductoresNoCarrotanque, $conductoresCarrotanque, &$ultimoConductor, &$consecutivos, $conductoresSeleccionados) {
         $tipoVehiculo = strtolower(trim($viaje['tipo_vehiculo'] ?? ''));
         $esViajeCarrotanque = strpos($tipoVehiculo, 'carrotanque') !== false;
@@ -1078,7 +1343,6 @@ if ($tipoInforme === 'real') {
             }
             
             $resultado[] = [
-                'id' => $viaje['id'],
                 'fecha' => $viaje['fecha'],
                 'conductor' => $conductorAsignado,
                 'cedula' => $conductorInfo ? $conductorInfo['cedula'] : 'N/A',
@@ -1093,7 +1357,7 @@ if ($tipoInforme === 'real') {
         return $resultado;
     }
     
-    // Procesar cada grupo
+    // Procesar cada grupo con asignación de conductores
     $ultimoConductor = null;
     $consecutivos = 0;
     $viajesMediosBurbujaCubiertosAsignados = procesarViajesConConductores($viajesMediosBurbujaCubiertos, $conductoresNoCarrotanque, $conductoresCarrotanque, $ultimoConductor, $consecutivos, $conductoresSeleccionados, $conductoresInfo);
@@ -1132,20 +1396,24 @@ if ($tipoInforme === 'real') {
 $phpWord = new PhpWord();
 $section = $phpWord->addSection();
 
+// Configurar márgenes
 $section->getStyle()->setMarginTop(720);
 $section->getStyle()->setMarginBottom(720);
 $section->getStyle()->setMarginLeft(720);
 $section->getStyle()->setMarginRight(720);
 
+// Título principal
 $section->addText("INFORME DE VIAJES POR TIPO DE VEHÍCULO", ['bold' => true, 'size' => 16, 'color' => '1F4E78'], ['align' => 'center']);
 $section->addTextBreak(0.5);
 
+// Subtítulo
 $section->addText("SEGÚN ACTA DE INICIO AL CONTRATO DE PRESTACIÓN DE SERVICIOS NO. 1313-2025 SUSCRITO POR LA E.S.E. HOSPITAL SAN JOSÉ DE MAICAO Y LA ASOCIACIÓN DE TRANSPORTISTAS ZONA NORTE EXTREMA WUINPUMUÍN.", 
     ['italic' => true, 'size' => 9, 'color' => '666666'], ['align' => 'center']);
 $section->addText("OBJETO: TRASLADO DE PERSONAL ASISTENCIAL – SEDE NAZARETH.", 
     ['italic' => true, 'size' => 9, 'color' => '666666'], ['align' => 'center']);
 $section->addTextBreak(1);
 
+// Información del periodo
 $section->addText("Período: " . date('d/m/Y', strtotime($desde)) . " al " . date('d/m/Y', strtotime($hasta)), ['bold' => true, 'size' => 10]);
 if (!empty($empresasSeleccionadas)) {
     $section->addText("Empresas seleccionadas: " . implode(", ", $empresasSeleccionadas), ['size' => 10]);
@@ -1168,7 +1436,7 @@ if ($tipoInforme === 'aleatorio') {
         } elseif ($faltaPresupuesto > 0) {
             $section->addText("⚠️ Faltante para alcanzar el presupuesto con viajes MEDIOS de BURBUJA: " . formatearMoneda($faltaPresupuesto), ['italic' => true, 'size' => 9, 'color' => 'CC0000']);
         }
-        $section->addText("NOTA: Los demás vehículos (Carrotanque, Camión 350, Copetrana, Otros) se muestran COMPLETOS sin afectar el presupuesto.", ['italic' => true, 'size' => 9, 'color' => '666666']);
+        $section->addText("NOTA: Los demás vehículos (Carrotanque, Camión 350, Copetrana, Otros) se muestran COMPLETOS sin afectar el presupuesto. Los viajes de BURBUJA que NO son medios o que son medios pero NO entraron en presupuesto se muestran en su tabla correspondiente.", ['italic' => true, 'size' => 9, 'color' => '666666']);
     }
 } else {
     $section->addText("Tipo de informe: DATOS REALES (sin asignación)", ['bold' => true, 'size' => 10, 'color' => '0000FF']);
@@ -1176,7 +1444,7 @@ if ($tipoInforme === 'aleatorio') {
 }
 $section->addTextBreak(1);
 
-// Función para crear tabla de viajes
+// ========== FUNCIÓN PARA CREAR TABLA DE VIAJES ==========
 function crearTablaViajes($section, $titulo, $viajes, $subtotal, $mostrarConductor = true, $mostrarCedula = false) {
     if (empty($viajes)) {
         return;
@@ -1187,6 +1455,7 @@ function crearTablaViajes($section, $titulo, $viajes, $subtotal, $mostrarConduct
     
     $table = $section->addTable(['borderSize' => 1, 'borderColor' => 'AAAAAA', 'cellMargin' => 60, 'width' => 100 * 50]);
     
+    // Encabezados
     $table->addRow();
     $table->addCell(1200)->addText("FECHA", ['bold' => true, 'size' => 9, 'align' => 'center']);
     if ($mostrarConductor) {
@@ -1228,6 +1497,7 @@ function crearTablaViajes($section, $titulo, $viajes, $subtotal, $mostrarConduct
         }
     }
     
+    // Fila de subtotal
     $table->addRow();
     $colspan = 3 + ($mostrarConductor ? 1 : 0) + ($mostrarCedula ? 1 : 0);
     $cellSubtotal = $table->addCell(($colspan * 1000), ['gridSpan' => $colspan]);
@@ -1237,15 +1507,16 @@ function crearTablaViajes($section, $titulo, $viajes, $subtotal, $mostrarConduct
     $section->addTextBreak(1);
 }
 
-// ========== GENERAR TABLAS ==========
+// ========== GENERAR TABLAS SEGÚN TIPO DE INFORME ==========
 
 if ($tipoInforme === 'real') {
+    // INFORME REAL: Mostrar tablas por categoría de vehículo
     $categorias = [
-        'carrotanque' => ['titulo' => '🚛 VEHÍCULOS TIPO CARROTANQUE'],
-        'camion_350' => ['titulo' => '🚚 VEHÍCULOS TIPO CAMIÓN 350'],
-        'burbuja' => ['titulo' => '🚙 VEHÍCULOS TIPO BURBUJA'],
-        'copetrana' => ['titulo' => '🚐 VEHÍCULOS TIPO COPETRANA'],
-        'otros' => ['titulo' => '🔧 OTROS VEHÍCULOS']
+        'carrotanque' => ['titulo' => '🚛 VEHÍCULOS TIPO CARROTANQUE', 'icono' => '🚛'],
+        'camion_350' => ['titulo' => '🚚 VEHÍCULOS TIPO CAMIÓN 350', 'icono' => '🚚'],
+        'burbuja' => ['titulo' => '🚙 VEHÍCULOS TIPO BURBUJA', 'icono' => '🚙'],
+        'copetrana' => ['titulo' => '🚐 VEHÍCULOS TIPO COPETRANA', 'icono' => '🚐'],
+        'otros' => ['titulo' => '🔧 OTROS VEHÍCULOS', 'icono' => '🔧']
     ];
     
     foreach ($categorias as $categoria => $info) {
@@ -1268,6 +1539,7 @@ if ($tipoInforme === 'real') {
         }
     }
     
+    // Total general
     $section->addTextBreak(0.5);
     $section->addText("RESUMEN GENERAL POR TIPO DE VEHÍCULO", ['bold' => true, 'size' => 12, 'color' => '1F4E78']);
     $section->addTextBreak(0.5);
@@ -1293,6 +1565,8 @@ if ($tipoInforme === 'real') {
     $tableTotal->addCell(2500)->addText(formatearMoneda($totalGeneral), ['bold' => true, 'align' => 'right', 'color' => 'CC0000']);
     
 } else {
+    // INFORME ALEATORIO: Mostrar todas las tablas
+    
     // Tabla 1: Viajes medios de BURBUJA que entran en el presupuesto
     if (!empty($viajesMediosBurbujaCubiertosAsignados)) {
         $titulo = "📊 VIAJES MEDIOS DE BURBUJA QUE ENTRAN EN EL PRESUPUESTO";
@@ -1303,6 +1577,10 @@ if ($tipoInforme === 'real') {
             }
         }
         crearTablaViajes($section, $titulo, $viajesMediosBurbujaCubiertosAsignados, $totalMediosBurbujaCubiertos, true, true);
+    } elseif ($presupuestoIngresado > 0 && empty($viajesMediosBurbujaCubiertosAsignados) && !empty($viajesMediosBurbuja)) {
+        $section->addText("📊 VIAJES MEDIOS DE BURBUJA", ['bold' => true, 'size' => 12, 'color' => '1F4E78']);
+        $section->addText("No hay viajes medios de burbuja disponibles en el rango de fechas seleccionado.", ['italic' => true, 'size' => 10, 'color' => 'CC0000']);
+        $section->addTextBreak(1);
     }
     
     // Tabla 2: Carrotanque - TODOS sus viajes
@@ -1315,7 +1593,7 @@ if ($tipoInforme === 'real') {
         crearTablaViajes($section, "🚚 VEHÍCULOS TIPO CAMIÓN 350 (TODOS LOS VIAJES)", $viajesCamion350Asignados, $totalCamion350, true, true);
     }
     
-    // Tabla 4: Burbuja - Viajes que NO están en el presupuesto
+    // Tabla 4: Burbuja - Viajes que NO están en el presupuesto (completos, extra, siapana, y medios sobrantes)
     if (!empty($viajesBurbujaFiltradosAsignados)) {
         $titulo = "🚙 VEHÍCULOS TIPO BURBUJA";
         if ($presupuestoIngresado > 0) {
@@ -1334,7 +1612,7 @@ if ($tipoInforme === 'real') {
         crearTablaViajes($section, "🔧 OTROS VEHÍCULOS (TODOS LOS VIAJES)", $viajesOtrosAsignados, $totalOtros, true, true);
     }
     
-    // Resumen General
+    // Resumen General con Totales
     $section->addTextBreak(0.5);
     $section->addText("RESUMEN GENERAL DE TOTALES", ['bold' => true, 'size' => 12, 'color' => '1F4E78']);
     $section->addTextBreak(0.5);
@@ -1392,9 +1670,13 @@ if ($tipoInforme === 'real') {
         $section->addText("• Total utilizado en viajes MEDIOS de BURBUJA que entran: " . formatearMoneda($presupuestoUsado), ['size' => 9]);
         if ($sobrantePresupuesto > 0) {
             $section->addText("• Sobrante después del último viaje MEDIO de BURBUJA incluido: " . formatearMoneda($sobrantePresupuesto), ['size' => 9, 'color' => '0066CC']);
+            $section->addText("• NOTA: El presupuesto se superó con el último viaje MEDIO de BURBUJA incluido.", ['italic' => true, 'size' => 9, 'color' => '0066CC']);
         } elseif ($faltaPresupuesto > 0) {
             $section->addText("• Faltante para alcanzar el presupuesto: " . formatearMoneda($faltaPresupuesto), ['size' => 9, 'color' => 'CC0000']);
+            $section->addText("• NOTA: Los viajes MEDIOS de BURBUJA disponibles NO alcanzaron para cubrir el presupuesto.", ['italic' => true, 'size' => 9, 'color' => 'CC0000']);
         }
+        $section->addText("• Los demás vehículos (Carrotanque, Camión 350, Copetrana, Otros) se muestran COMPLETOS y se cobran en su totalidad.", ['italic' => true, 'size' => 9, 'color' => '666666']);
+        $section->addText("• Los viajes de BURBUJA que NO son medios, o que son medios pero NO entraron en presupuesto, se muestran en la tabla de Burbuja.", ['italic' => true, 'size' => 9, 'color' => '666666']);
     }
 }
 
