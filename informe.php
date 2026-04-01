@@ -684,7 +684,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                         <strong>Informe Aleatorio:</strong> Distribuye los viajes entre los conductores seleccionados (máx 2 veces seguidas). Requiere seleccionar al menos un conductor.
                         <br>
                         <i class="fas fa-chart-line"></i>
-                        <strong>Presupuesto:</strong> Solo aplica para informe aleatorio. Los viajes MEDIOS se acumulan hasta alcanzar el valor ingresado. Los demás vehículos (Carrotanque, 350, Burbuja, Copetrana) se muestran completos sin afectar el presupuesto.
+                        <strong>Presupuesto:</strong> Solo aplica para informe aleatorio. Los viajes MEDIOS de VEHÍCULOS BURBUJA se acumulan hasta alcanzar el valor ingresado. Los demás vehículos (Carrotanque, Camión 350, Copetrana, Otros) se muestran completos sin afectar el presupuesto.
                     </div>
                     
                     <form method="post" id="formInforme">
@@ -703,7 +703,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                             </div>
                             <div class="presupuesto-group">
                                 <div class="presupuesto-input">
-                                    <label><i class="fas fa-dollar-sign"></i> Presupuesto (solo para viajes MEDIOS)</label>
+                                    <label><i class="fas fa-dollar-sign"></i> Presupuesto (solo para viajes MEDIOS de BURBUJA)</label>
                                     <input type="number" name="presupuesto" id="presupuesto" step="1000" placeholder="Ej: 60000000">
                                 </div>
                             </div>
@@ -1007,9 +1007,6 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
                         return false;
                     }
                 }
-                
-                // Para informe REAL, no hay validación de conductores
-                // Solo se validan fechas (ya están con required en HTML)
             });
             
             setTimeout(() => {
@@ -1042,7 +1039,7 @@ if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_info
 // Parámetros
 $desde = $_POST['desde'];
 $hasta = $_POST['hasta'];
-$tipoInforme = $_POST['tipo_informe'] ?? 'aleatorio'; // 'aleatorio' o 'real'
+$tipoInforme = $_POST['tipo_informe'] ?? 'aleatorio';
 $empresasSeleccionadas = $_POST['empresas'] ?? [];
 $presupuesto = isset($_POST['presupuesto']) && $_POST['presupuesto'] !== '' ? floatval($_POST['presupuesto']) : null;
 
@@ -1164,7 +1161,7 @@ if ($tipoInforme === 'real') {
     }
     
 } else {
-    // INFORME ALEATORIO: Lógica de asignación con presupuesto SOLO PARA VIAJES MEDIOS
+    // INFORME ALEATORIO
     $conductoresSeleccionados = $_POST['conductores_seleccionados'] ?? [];
     
     if (empty($conductoresSeleccionados)) {
@@ -1205,14 +1202,19 @@ if ($tipoInforme === 'real') {
     $viajesCopetrana = [];
     $viajesOtrosVehiculos = [];
     
-    // Separar viajes MEDIOS para el presupuesto
-    $viajesMedios = [];
+    // Separar viajes MEDIOS de BURBUJA para el presupuesto
+    $viajesMediosBurbuja = [];
+    $todosLosViajesParaClasificar = [];
     
     foreach ($todosLosViajes as $viaje) {
         $categoriaVehiculo = obtenerCategoriaVehiculo($viaje['tipo_vehiculo']);
         $clasificacion = strtolower(trim($viaje['clasificacion'] ?? ''));
+        $esBurbuja = ($categoriaVehiculo === 'burbuja');
         
-        // Agrupar por tipo de vehículo (TODOS los viajes, sin importar clasificación)
+        // Guardar el viaje original para referencia
+        $todosLosViajesParaClasificar[] = $viaje;
+        
+        // Agrupar por tipo de vehículo (todos los viajes)
         switch ($categoriaVehiculo) {
             case 'carrotanque':
                 $viajesCarrotanque[] = $viaje;
@@ -1231,34 +1233,36 @@ if ($tipoInforme === 'real') {
                 break;
         }
         
-        // Separar SOLO los viajes con clasificación MEDIO para el presupuesto
-        if ($clasificacion === 'medio') {
-            $viajesMedios[] = $viaje;
+        // Separar SOLO los viajes MEDIOS de BURBUJA para el presupuesto
+        if ($esBurbuja && $clasificacion === 'medio') {
+            $viajesMediosBurbuja[] = $viaje;
         }
     }
     
-    // ========== PROCESAR VIAJES MEDIOS CON PRESUPUESTO ==========
-    // Los viajes medios se acumulan en orden cronológico hasta alcanzar el presupuesto
-    $viajesMediosCubiertos = [];   // Viajes medios que entran en el presupuesto
-    $viajesMediosRestantes = [];    // Viajes medios que quedan por fuera (se superó el presupuesto)
+    // ========== PROCESAR VIAJES MEDIOS DE BURBUJA CON PRESUPUESTO ==========
+    $viajesMediosBurbujaCubiertos = [];   // Viajes medios de burbuja que entran en el presupuesto
+    $idsViajesCubiertos = [];              // IDs para evitar duplicados
     $acumuladoMedios = 0;
     $presupuestoUsado = 0;
     $presupuestoIngresado = $presupuesto ?? 0;
     $sobrantePresupuesto = 0;
     $faltaPresupuesto = 0;
     
-    if ($presupuestoIngresado > 0 && !empty($viajesMedios)) {
-        foreach ($viajesMedios as $viaje) {
+    if ($presupuestoIngresado > 0 && !empty($viajesMediosBurbuja)) {
+        // Crear un array con los viajes medios de burbuja en orden cronológico
+        $viajesMediosBurbujaOrdenados = $viajesMediosBurbuja;
+        
+        foreach ($viajesMediosBurbujaOrdenados as $index => $viaje) {
             $valorViaje = floatval($viaje['valor_viaje'] ?? 0);
             
             if ($acumuladoMedios < $presupuestoIngresado) {
                 // Este viaje entra en el presupuesto
-                $viajesMediosCubiertos[] = $viaje;
+                $viajesMediosBurbujaCubiertos[] = $viaje;
+                // Guardar un identificador único para este viaje (podemos usar fecha + ruta + valor como clave)
+                $idViaje = md5($viaje['fecha'] . $viaje['ruta'] . $viaje['valor_viaje'] . $viaje['tipo_vehiculo']);
+                $idsViajesCubiertos[] = $idViaje;
                 $acumuladoMedios += $valorViaje;
                 $presupuestoUsado += $valorViaje;
-            } else {
-                // Ya se alcanzó o superó el presupuesto, los siguientes van a restantes
-                $viajesMediosRestantes[] = $viaje;
             }
         }
         
@@ -1268,9 +1272,25 @@ if ($tipoInforme === 'real') {
         } elseif ($acumuladoMedios < $presupuestoIngresado) {
             $faltaPresupuesto = $presupuestoIngresado - $acumuladoMedios;
         }
-    } else {
-        // Si no hay presupuesto, todos los medios van a restantes (no se filtran)
-        $viajesMediosRestantes = $viajesMedios;
+    }
+    
+    // ========== CONSTRUIR TABLA DE BURBUJA EXCLUYENDO LOS VIAJES QUE YA ESTÁN EN EL PRESUPUESTO ==========
+    $viajesBurbujaFiltrados = [];
+    
+    foreach ($viajesBurbuja as $viaje) {
+        $clasificacion = strtolower(trim($viaje['clasificacion'] ?? ''));
+        $esMedio = ($clasificacion === 'medio');
+        
+        // Crear identificador único para este viaje
+        $idViaje = md5($viaje['fecha'] . $viaje['ruta'] . $viaje['valor_viaje'] . $viaje['tipo_vehiculo']);
+        
+        // Si es un viaje MEDIO de burbuja y está en la lista de cubiertos, NO lo incluimos en la tabla de burbuja
+        if ($esMedio && in_array($idViaje, $idsViajesCubiertos)) {
+            continue;
+        }
+        
+        // Para todos los demás casos (completos, extra, siapana, o medios que NO entraron en presupuesto), los incluimos
+        $viajesBurbujaFiltrados[] = $viaje;
     }
     
     // ========== ASIGNAR CONDUCTORES ==========
@@ -1283,12 +1303,10 @@ if ($tipoInforme === 'real') {
         $tipoVehiculo = strtolower(trim($viaje['tipo_vehiculo'] ?? ''));
         $esViajeCarrotanque = strpos($tipoVehiculo, 'carrotanque') !== false;
         
-        // Si el viaje es de carrotanque, conserva su conductor real
         if ($esViajeCarrotanque) {
             return $viaje['conductor_real'];
         }
         
-        // Para los demás tipos de vehículo, asignación aleatoria
         if (empty($conductoresNoCarrotanque)) {
             $conductoresParaAsignar = $conductoresSeleccionados;
         } else {
@@ -1311,7 +1329,6 @@ if ($tipoInforme === 'real') {
         return $conductorAsignado;
     }
     
-    // Procesar cada grupo de viajes con asignación de conductores
     function procesarViajesConConductores($viajes, $conductoresNoCarrotanque, $conductoresCarrotanque, &$ultimoConductor, &$consecutivos, $conductoresSeleccionados, $conductoresInfo) {
         $resultado = [];
         foreach ($viajes as $viaje) {
@@ -1340,16 +1357,10 @@ if ($tipoInforme === 'real') {
         return $resultado;
     }
     
-    // Reiniciar contadores para cada grupo
+    // Procesar cada grupo con asignación de conductores
     $ultimoConductor = null;
     $consecutivos = 0;
-    
-    // Procesar cada grupo
-    $viajesMediosCubiertosAsignados = procesarViajesConConductores($viajesMediosCubiertos, $conductoresNoCarrotanque, $conductoresCarrotanque, $ultimoConductor, $consecutivos, $conductoresSeleccionados, $conductoresInfo);
-    
-    $ultimoConductor = null;
-    $consecutivos = 0;
-    $viajesMediosRestantesAsignados = procesarViajesConConductores($viajesMediosRestantes, $conductoresNoCarrotanque, $conductoresCarrotanque, $ultimoConductor, $consecutivos, $conductoresSeleccionados, $conductoresInfo);
+    $viajesMediosBurbujaCubiertosAsignados = procesarViajesConConductores($viajesMediosBurbujaCubiertos, $conductoresNoCarrotanque, $conductoresCarrotanque, $ultimoConductor, $consecutivos, $conductoresSeleccionados, $conductoresInfo);
     
     $ultimoConductor = null;
     $consecutivos = 0;
@@ -1361,7 +1372,7 @@ if ($tipoInforme === 'real') {
     
     $ultimoConductor = null;
     $consecutivos = 0;
-    $viajesBurbujaAsignados = procesarViajesConConductores($viajesBurbuja, $conductoresNoCarrotanque, $conductoresCarrotanque, $ultimoConductor, $consecutivos, $conductoresSeleccionados, $conductoresInfo);
+    $viajesBurbujaFiltradosAsignados = procesarViajesConConductores($viajesBurbujaFiltrados, $conductoresNoCarrotanque, $conductoresCarrotanque, $ultimoConductor, $consecutivos, $conductoresSeleccionados, $conductoresInfo);
     
     $ultimoConductor = null;
     $consecutivos = 0;
@@ -1374,12 +1385,11 @@ if ($tipoInforme === 'real') {
     // Calcular totales
     $totalCarrotanque = array_sum(array_column($viajesCarrotanqueAsignados, 'valor'));
     $totalCamion350 = array_sum(array_column($viajesCamion350Asignados, 'valor'));
-    $totalBurbuja = array_sum(array_column($viajesBurbujaAsignados, 'valor'));
+    $totalBurbuja = array_sum(array_column($viajesBurbujaFiltradosAsignados, 'valor'));
     $totalCopetrana = array_sum(array_column($viajesCopetranaAsignados, 'valor'));
     $totalOtros = array_sum(array_column($viajesOtrosAsignados, 'valor'));
-    $totalMediosCubiertos = array_sum(array_column($viajesMediosCubiertosAsignados, 'valor'));
-    $totalMediosRestantes = array_sum(array_column($viajesMediosRestantesAsignados, 'valor'));
-    $totalGeneral = $totalCarrotanque + $totalCamion350 + $totalBurbuja + $totalCopetrana + $totalOtros + $totalMediosCubiertos + $totalMediosRestantes;
+    $totalMediosBurbujaCubiertos = array_sum(array_column($viajesMediosBurbujaCubiertosAsignados, 'valor'));
+    $totalGeneral = $totalCarrotanque + $totalCamion350 + $totalBurbuja + $totalCopetrana + $totalOtros + $totalMediosBurbujaCubiertos;
 }
 
 // ========== GENERAR DOCUMENTO WORD ==========
@@ -1419,14 +1429,14 @@ if ($tipoInforme === 'aleatorio') {
     $section->addText("Tipo de informe: DISTRIBUCIÓN ALEATORIA (máx 2 veces seguidas)", ['bold' => true, 'size' => 10, 'color' => '008000']);
     
     if ($presupuestoIngresado > 0) {
-        $section->addText("PRESUPUESTO ASIGNADO EXCLUSIVAMENTE PARA VIAJES MEDIOS: " . formatearMoneda($presupuestoIngresado), ['bold' => true, 'size' => 10, 'color' => 'CC6600']);
-        $section->addText("Total acumulado en viajes MEDIOS que entran en presupuesto: " . formatearMoneda($presupuestoUsado), ['size' => 10]);
+        $section->addText("PRESUPUESTO ASIGNADO EXCLUSIVAMENTE PARA VIAJES MEDIOS DE BURBUJA: " . formatearMoneda($presupuestoIngresado), ['bold' => true, 'size' => 10, 'color' => 'CC6600']);
+        $section->addText("Total acumulado en viajes MEDIOS de BURBUJA que entran en presupuesto: " . formatearMoneda($presupuestoUsado), ['size' => 10]);
         if ($sobrantePresupuesto > 0) {
-            $section->addText("⚠️ Sobrante después del último viaje MEDIO incluido: " . formatearMoneda($sobrantePresupuesto), ['italic' => true, 'size' => 9, 'color' => '0066CC']);
+            $section->addText("⚠️ Sobrante después del último viaje MEDIO de BURBUJA incluido: " . formatearMoneda($sobrantePresupuesto), ['italic' => true, 'size' => 9, 'color' => '0066CC']);
         } elseif ($faltaPresupuesto > 0) {
-            $section->addText("⚠️ Faltante para alcanzar el presupuesto con viajes MEDIOS: " . formatearMoneda($faltaPresupuesto), ['italic' => true, 'size' => 9, 'color' => 'CC0000']);
+            $section->addText("⚠️ Faltante para alcanzar el presupuesto con viajes MEDIOS de BURBUJA: " . formatearMoneda($faltaPresupuesto), ['italic' => true, 'size' => 9, 'color' => 'CC0000']);
         }
-        $section->addText("NOTA: Los demás vehículos (Carrotanque, Camión 350, Burbuja, Copetrana, Otros) se muestran COMPLETOS sin afectar el presupuesto.", ['italic' => true, 'size' => 9, 'color' => '666666']);
+        $section->addText("NOTA: Los demás vehículos (Carrotanque, Camión 350, Copetrana, Otros) se muestran COMPLETOS sin afectar el presupuesto. Los viajes de BURBUJA que NO son medios o que son medios pero NO entraron en presupuesto se muestran en su tabla correspondiente.", ['italic' => true, 'size' => 9, 'color' => '666666']);
     }
 } else {
     $section->addText("Tipo de informe: DATOS REALES (sin asignación)", ['bold' => true, 'size' => 10, 'color' => '0000FF']);
@@ -1501,7 +1511,6 @@ function crearTablaViajes($section, $titulo, $viajes, $subtotal, $mostrarConduct
 
 if ($tipoInforme === 'real') {
     // INFORME REAL: Mostrar tablas por categoría de vehículo
-    
     $categorias = [
         'carrotanque' => ['titulo' => '🚛 VEHÍCULOS TIPO CARROTANQUE', 'icono' => '🚛'],
         'camion_350' => ['titulo' => '🚚 VEHÍCULOS TIPO CAMIÓN 350', 'icono' => '🚚'],
@@ -1558,53 +1567,47 @@ if ($tipoInforme === 'real') {
 } else {
     // INFORME ALEATORIO: Mostrar todas las tablas
     
-    // Tabla 1: Viajes medios que cubren el presupuesto
-    if (!empty($viajesMediosCubiertosAsignados)) {
-        $titulo = "📊 VIAJES MEDIOS QUE ENTRAN EN EL PRESUPUESTO";
+    // Tabla 1: Viajes medios de BURBUJA que entran en el presupuesto
+    if (!empty($viajesMediosBurbujaCubiertosAsignados)) {
+        $titulo = "📊 VIAJES MEDIOS DE BURBUJA QUE ENTRAN EN EL PRESUPUESTO";
         if ($presupuestoIngresado > 0) {
             $titulo .= " (Acumulado: " . formatearMoneda($acumuladoMedios) . ")";
             if ($sobrantePresupuesto > 0) {
                 $titulo .= " - Sobrante: " . formatearMoneda($sobrantePresupuesto);
             }
         }
-        crearTablaViajes($section, $titulo, $viajesMediosCubiertosAsignados, $totalMediosCubiertos, true, true);
-    } elseif ($presupuestoIngresado > 0 && empty($viajesMediosCubiertosAsignados) && !empty($viajesMedios)) {
-        // Si hay presupuesto pero ningún viaje medio alcanzó (todos son menores al primer viaje)
-        $section->addText("📊 VIAJES MEDIOS", ['bold' => true, 'size' => 12, 'color' => '1F4E78']);
-        $section->addText("No hay viajes medios disponibles en el rango de fechas seleccionado.", ['italic' => true, 'size' => 10, 'color' => 'CC0000']);
+        crearTablaViajes($section, $titulo, $viajesMediosBurbujaCubiertosAsignados, $totalMediosBurbujaCubiertos, true, true);
+    } elseif ($presupuestoIngresado > 0 && empty($viajesMediosBurbujaCubiertosAsignados) && !empty($viajesMediosBurbuja)) {
+        $section->addText("📊 VIAJES MEDIOS DE BURBUJA", ['bold' => true, 'size' => 12, 'color' => '1F4E78']);
+        $section->addText("No hay viajes medios de burbuja disponibles en el rango de fechas seleccionado.", ['italic' => true, 'size' => 10, 'color' => 'CC0000']);
         $section->addTextBreak(1);
     }
     
-    // Tabla 2: Viajes medios restantes (los que quedaron por fuera del presupuesto)
-    if (!empty($viajesMediosRestantesAsignados)) {
-        $titulo = "📋 VIAJES MEDIOS RESTANTES (No entran en el presupuesto)";
-        if ($faltaPresupuesto > 0) {
-            $titulo .= " - Faltante para alcanzar presupuesto: " . formatearMoneda($faltaPresupuesto);
-        }
-        crearTablaViajes($section, $titulo, $viajesMediosRestantesAsignados, $totalMediosRestantes, true, true);
-    }
-    
-    // Tabla 3: Carrotanque - TODOS sus viajes (completos, medios, extras, etc.)
+    // Tabla 2: Carrotanque - TODOS sus viajes
     if (!empty($viajesCarrotanqueAsignados)) {
         crearTablaViajes($section, "🚛 VEHÍCULOS TIPO CARROTANQUE (TODOS LOS VIAJES)", $viajesCarrotanqueAsignados, $totalCarrotanque, true, true);
     }
     
-    // Tabla 4: Camión 350 - TODOS sus viajes
+    // Tabla 3: Camión 350 - TODOS sus viajes
     if (!empty($viajesCamion350Asignados)) {
         crearTablaViajes($section, "🚚 VEHÍCULOS TIPO CAMIÓN 350 (TODOS LOS VIAJES)", $viajesCamion350Asignados, $totalCamion350, true, true);
     }
     
-    // Tabla 5: Burbuja - TODOS sus viajes
-    if (!empty($viajesBurbujaAsignados)) {
-        crearTablaViajes($section, "🚙 VEHÍCULOS TIPO BURBUJA (TODOS LOS VIAJES)", $viajesBurbujaAsignados, $totalBurbuja, true, true);
+    // Tabla 4: Burbuja - Viajes que NO están en el presupuesto (completos, extra, siapana, y medios sobrantes)
+    if (!empty($viajesBurbujaFiltradosAsignados)) {
+        $titulo = "🚙 VEHÍCULOS TIPO BURBUJA";
+        if ($presupuestoIngresado > 0) {
+            $titulo .= " (Viajes que NO están en el presupuesto: completos, extra, siapana, y medios sobrantes)";
+        }
+        crearTablaViajes($section, $titulo, $viajesBurbujaFiltradosAsignados, $totalBurbuja, true, true);
     }
     
-    // Tabla 6: Copetrana - TODOS sus viajes
+    // Tabla 5: Copetrana - TODOS sus viajes
     if (!empty($viajesCopetranaAsignados)) {
         crearTablaViajes($section, "🚐 VEHÍCULOS TIPO COPETRANA (TODOS LOS VIAJES)", $viajesCopetranaAsignados, $totalCopetrana, true, true);
     }
     
-    // Tabla 7: Otros vehículos - TODOS sus viajes
+    // Tabla 6: Otros vehículos - TODOS sus viajes
     if (!empty($viajesOtrosAsignados)) {
         crearTablaViajes($section, "🔧 OTROS VEHÍCULOS (TODOS LOS VIAJES)", $viajesOtrosAsignados, $totalOtros, true, true);
     }
@@ -1619,16 +1622,10 @@ if ($tipoInforme === 'real') {
     $tableResumen->addCell(5000)->addText("CONCEPTO", ['bold' => true]);
     $tableResumen->addCell(2500)->addText("TOTAL", ['bold' => true, 'align' => 'right']);
     
-    if ($totalMediosCubiertos > 0) {
+    if ($totalMediosBurbujaCubiertos > 0) {
         $tableResumen->addRow();
-        $tableResumen->addCell(5000)->addText("Viajes Medios (Entran en Presupuesto)");
-        $tableResumen->addCell(2500)->addText(formatearMoneda($totalMediosCubiertos), ['align' => 'right']);
-    }
-    
-    if ($totalMediosRestantes > 0) {
-        $tableResumen->addRow();
-        $tableResumen->addCell(5000)->addText("Viajes Medios (Restantes - No entran)");
-        $tableResumen->addCell(2500)->addText(formatearMoneda($totalMediosRestantes), ['align' => 'right']);
+        $tableResumen->addCell(5000)->addText("Viajes Medios de Burbuja (Entran en Presupuesto)");
+        $tableResumen->addCell(2500)->addText(formatearMoneda($totalMediosBurbujaCubiertos), ['align' => 'right']);
     }
     
     if ($totalCarrotanque > 0) {
@@ -1645,7 +1642,7 @@ if ($tipoInforme === 'real') {
     
     if ($totalBurbuja > 0) {
         $tableResumen->addRow();
-        $tableResumen->addCell(5000)->addText("Burbuja (Todos los viajes)");
+        $tableResumen->addCell(5000)->addText("Burbuja (Viajes NO incluidos en presupuesto)");
         $tableResumen->addCell(2500)->addText(formatearMoneda($totalBurbuja), ['align' => 'right']);
     }
     
@@ -1668,17 +1665,18 @@ if ($tipoInforme === 'real') {
     
     if ($presupuestoIngresado > 0) {
         $section->addTextBreak(0.5);
-        $section->addText("NOTA DE PRESUPUESTO (SOLO PARA VIAJES MEDIOS):", ['bold' => true, 'size' => 10, 'color' => 'CC6600']);
-        $section->addText("• Presupuesto ingresado para viajes MEDIOS: " . formatearMoneda($presupuestoIngresado), ['size' => 9]);
-        $section->addText("• Total utilizado en viajes MEDIOS que entran: " . formatearMoneda($presupuestoUsado), ['size' => 9]);
+        $section->addText("NOTA DE PRESUPUESTO (SOLO PARA VIAJES MEDIOS DE BURBUJA):", ['bold' => true, 'size' => 10, 'color' => 'CC6600']);
+        $section->addText("• Presupuesto ingresado para viajes MEDIOS de BURBUJA: " . formatearMoneda($presupuestoIngresado), ['size' => 9]);
+        $section->addText("• Total utilizado en viajes MEDIOS de BURBUJA que entran: " . formatearMoneda($presupuestoUsado), ['size' => 9]);
         if ($sobrantePresupuesto > 0) {
-            $section->addText("• Sobrante después del último viaje MEDIO incluido: " . formatearMoneda($sobrantePresupuesto), ['size' => 9, 'color' => '0066CC']);
-            $section->addText("• NOTA: El presupuesto se superó con el último viaje MEDIO incluido.", ['italic' => true, 'size' => 9, 'color' => '0066CC']);
+            $section->addText("• Sobrante después del último viaje MEDIO de BURBUJA incluido: " . formatearMoneda($sobrantePresupuesto), ['size' => 9, 'color' => '0066CC']);
+            $section->addText("• NOTA: El presupuesto se superó con el último viaje MEDIO de BURBUJA incluido.", ['italic' => true, 'size' => 9, 'color' => '0066CC']);
         } elseif ($faltaPresupuesto > 0) {
             $section->addText("• Faltante para alcanzar el presupuesto: " . formatearMoneda($faltaPresupuesto), ['size' => 9, 'color' => 'CC0000']);
-            $section->addText("• NOTA: Los viajes MEDIOS disponibles NO alcanzaron para cubrir el presupuesto.", ['italic' => true, 'size' => 9, 'color' => 'CC0000']);
+            $section->addText("• NOTA: Los viajes MEDIOS de BURBUJA disponibles NO alcanzaron para cubrir el presupuesto.", ['italic' => true, 'size' => 9, 'color' => 'CC0000']);
         }
-        $section->addText("• Los demás vehículos (Carrotanque, Camión 350, Burbuja, Copetrana, Otros) se muestran COMPLETOS y se cobran en su totalidad, independientemente del presupuesto.", ['italic' => true, 'size' => 9, 'color' => '666666']);
+        $section->addText("• Los demás vehículos (Carrotanque, Camión 350, Copetrana, Otros) se muestran COMPLETOS y se cobran en su totalidad.", ['italic' => true, 'size' => 9, 'color' => '666666']);
+        $section->addText("• Los viajes de BURBUJA que NO son medios, o que son medios pero NO entraron en presupuesto, se muestran en la tabla de Burbuja.", ['italic' => true, 'size' => 9, 'color' => '666666']);
     }
 }
 
