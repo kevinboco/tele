@@ -185,7 +185,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
                 WHERE v.fecha >= '$fechaDesdeSql' 
                     AND v.fecha <= '$fechaHastaSql'
                     AND v.empresa = '$empresaSql'
-                    AND v.nombre = '$conductorSql'
                 ORDER BY v.fecha ASC, v.id ASC
             ";
             
