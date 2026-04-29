@@ -173,6 +173,22 @@ function obtenerTipoVehiculo($tipo) {
             transform: scale(1.05);
         }
         
+        .btn-asignar-mismo-presupuesto {
+            background: linear-gradient(135deg, #ffc107 0%, #ff9800 100%);
+            color: #212529;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            border: none;
+            transition: all 0.3s;
+        }
+        
+        .btn-asignar-mismo-presupuesto:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255,152,0,0.3);
+        }
+        
         .fila-puesto {
             background: var(--light-color);
             border-radius: 12px;
@@ -316,14 +332,72 @@ function obtenerTipoVehiculo($tipo) {
             margin-top: 2rem;
         }
         
+        .resumen-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        
+        .resumen-header h5 {
+            margin: 0;
+        }
+        
         .resumen-item {
-            padding: 0.5rem;
+            padding: 0.75rem;
             border-bottom: 1px solid #cce5ff;
             font-size: 0.85rem;
         }
         
+        .resumen-item:last-child {
+            border-bottom: none;
+        }
+        
         .resumen-item strong {
             color: var(--primary-color);
+        }
+        
+        .input-presupuesto {
+            width: 180px;
+            padding: 0.4rem 0.6rem;
+            border: 1px solid #cce5ff;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            text-align: right;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        
+        .input-presupuesto:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(13,110,253,0.1);
+        }
+        
+        .resumen-item-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        
+        .resumen-item-info {
+            flex: 1;
+        }
+        
+        .resumen-item-presupuesto {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .resumen-item-presupuesto label {
+            font-size: 0.7rem;
+            color: var(--secondary-color);
+            margin: 0;
         }
         
         .info-banner {
@@ -375,7 +449,7 @@ function obtenerTipoVehiculo($tipo) {
                 <div class="info-banner">
                     <i class="fas fa-info-circle"></i> 
                     <strong>¿Cómo funciona?</strong> Aquí puedes asignar uno o más conductores a cada EMPRESA que tenga "P." en su nombre (Puesto de Salud). 
-                    Estas asignaciones se guardarán y se usarán cuando generes los informes. Puedes agregar múltiples empresas y a cada una asignarle 1 o 2 conductores.
+                    También puedes asignar un presupuesto específico para cada empresa o usar el botón para asignar el mismo presupuesto a todas.
                 </div>
                 
                 <!-- Botón para abrir el modal -->
@@ -385,7 +459,12 @@ function obtenerTipoVehiculo($tipo) {
                 
                 <!-- Aquí se mostrará el resumen de asignaciones -->
                 <div id="resumenAsignaciones" class="resumen-asignaciones">
-                    <h5><i class="fas fa-list-check"></i> Asignaciones actuales</h5>
+                    <div class="resumen-header">
+                        <h5><i class="fas fa-list-check"></i> Asignaciones actuales</h5>
+                        <button type="button" class="btn-asignar-mismo-presupuesto" id="btnMismoPresupuesto">
+                            <i class="fas fa-dollar-sign"></i> Asignar mismo presupuesto a todos
+                        </button>
+                    </div>
                     <div id="listaResumen">
                         <p class="text-muted text-center">No hay asignaciones. Haz clic en el botón para configurar.</p>
                     </div>
@@ -446,6 +525,38 @@ function obtenerTipoVehiculo($tipo) {
         
         // Contador para IDs únicos
         let contadorPuestos = 0;
+        
+        // Función para formatear número con puntos (separadores de miles)
+        function formatearNumero(numero) {
+            if (numero === '' || numero === null || numero === undefined) return '';
+            // Si es string, convertir a número
+            let num = typeof numero === 'string' ? parseFloat(numero.replace(/\./g, '').replace(/,/g, '')) : numero;
+            if (isNaN(num)) return '';
+            // Formatear con puntos como separadores de miles
+            return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+        }
+        
+        // Función para desformatear número (quitar puntos)
+        function desformatearNumero(numeroFormateado) {
+            if (!numeroFormateado) return '';
+            return numeroFormateado.toString().replace(/\./g, '');
+        }
+        
+        // Función para aplicar máscara a input de presupuesto
+        function aplicarMascaraPresupuesto(input) {
+            if (!input) return;
+            let valor = input.value.replace(/\./g, '').replace(/[^0-9]/g, '');
+            if (valor === '') {
+                input.value = '';
+                return;
+            }
+            let numero = parseInt(valor, 10);
+            if (isNaN(numero)) {
+                input.value = '';
+                return;
+            }
+            input.value = formatearNumero(numero);
+        }
         
         // Función para obtener badge del tipo de vehículo
         function obtenerBadgeVehiculo(tipoVehiculo) {
@@ -524,15 +635,17 @@ function obtenerTipoVehiculo($tipo) {
         }
         
         // Función para agregar una nueva empresa/puesto
-        function agregarPuesto(empresaPredefinida = null) {
+        function agregarPuesto(empresaPredefinida = null, presupuestoPredefinido = null) {
             const id = ++contadorPuestos;
             const empresaSeleccionada = empresaPredefinida || '';
+            const presupuestoValor = presupuestoPredefinido || '';
             
             // Crear objeto de asignación
             asignaciones.push({
                 id: id,
                 empresa: empresaSeleccionada,
-                conductores: []
+                conductores: [],
+                presupuesto: presupuestoValor
             });
             
             const contenedor = document.getElementById('contenedorPuestos');
@@ -693,7 +806,7 @@ function obtenerTipoVehiculo($tipo) {
             }
         };
         
-        // Función para actualizar el resumen de asignaciones
+        // Función para actualizar el resumen de asignaciones (con presupuesto)
         function actualizarResumen() {
             const resumenDiv = document.getElementById('listaResumen');
             const asignacionesActivas = asignaciones.filter(a => a.empresa && a.conductores.length > 0);
@@ -704,19 +817,101 @@ function obtenerTipoVehiculo($tipo) {
             }
             
             let html = '';
-            asignacionesActivas.forEach(asig => {
+            asignacionesActivas.forEach((asig, index) => {
+                const presupuestoMostrar = asig.presupuesto ? formatearNumero(asig.presupuesto) : '';
                 html += `
-                    <div class="resumen-item">
-                        <strong><i class="fas fa-building"></i> ${escapeHtml(asig.empresa)}</strong><br>
-                        <span style="font-size: 0.8rem;">Conductores asignados:</span><br>
-                        ${asig.conductores.map(c => `&nbsp;&nbsp;<i class="fas fa-user"></i> ${escapeHtml(c.nombre)}`).join('<br>')}
+                    <div class="resumen-item" data-empresa-idx="${index}">
+                        <div class="resumen-item-row">
+                            <div class="resumen-item-info">
+                                <strong><i class="fas fa-building"></i> ${escapeHtml(asig.empresa)}</strong><br>
+                                <span style="font-size: 0.8rem;">Conductores asignados:</span><br>
+                                ${asig.conductores.map(c => `&nbsp;&nbsp;<i class="fas fa-user"></i> ${escapeHtml(c.nombre)}`).join('<br>')}
+                            </div>
+                            <div class="resumen-item-presupuesto">
+                                <label><i class="fas fa-dollar-sign"></i> Presupuesto:</label>
+                                <input type="text" 
+                                       class="input-presupuesto" 
+                                       data-empresa="${escapeHtml(asig.empresa)}"
+                                       value="${presupuestoMostrar}"
+                                       placeholder="0"
+                                       oninput="actualizarPresupuesto('${escapeHtml(asig.empresa)}', this)">
+                            </div>
+                        </div>
                     </div>
                 `;
             });
             resumenDiv.innerHTML = html;
         }
         
-        // Guardar asignaciones
+        // Función para actualizar el presupuesto de una empresa específica
+        window.actualizarPresupuesto = function(empresa, inputElement) {
+            // Aplicar máscara al input
+            aplicarMascaraPresupuesto(inputElement);
+            
+            // Obtener valor numérico (sin puntos)
+            const valorSinPuntos = desformatearNumero(inputElement.value);
+            const valorNumerico = valorSinPuntos ? parseFloat(valorSinPuntos) : 0;
+            
+            // Buscar la asignación y actualizar su presupuesto
+            const asignacion = asignaciones.find(a => a.empresa === empresa);
+            if (asignacion) {
+                asignacion.presupuesto = isNaN(valorNumerico) ? 0 : valorNumerico;
+                guardarEnLocalStorage();
+            }
+        };
+        
+        // Función para asignar el mismo presupuesto a todas las empresas
+        function asignarMismoPresupuestoATodos() {
+            const asignacionesActivas = asignaciones.filter(a => a.empresa && a.conductores.length > 0);
+            
+            if (asignacionesActivas.length === 0) {
+                alert('⚠️ No hay asignaciones para modificar.');
+                return;
+            }
+            
+            const valor = prompt('💰 Ingrese el presupuesto para TODAS las empresas:', '0');
+            
+            if (valor === null) return; // Canceló
+            
+            // Limpiar el valor (quitar puntos si los tiene)
+            let valorLimpio = valor.toString().replace(/\./g, '').replace(/[^0-9]/g, '');
+            
+            if (valorLimpio === '' || isNaN(parseFloat(valorLimpio))) {
+                alert('⚠️ Por favor ingrese un valor numérico válido.');
+                return;
+            }
+            
+            const valorNumerico = parseFloat(valorLimpio);
+            const valorFormateado = formatearNumero(valorNumerico);
+            
+            // Actualizar todas las asignaciones
+            asignacionesActivas.forEach(asig => {
+                asig.presupuesto = valorNumerico;
+            });
+            
+            // Guardar en localStorage
+            guardarEnLocalStorage();
+            
+            // Actualizar el resumen
+            actualizarResumen();
+            
+            // Mostrar mensaje de éxito
+            alert(`✅ Presupuesto de ${valorFormateado} asignado a todas las empresas.`);
+        }
+        
+        // Guardar asignaciones en localStorage
+        function guardarEnLocalStorage() {
+            const asignacionesParaGuardar = asignaciones
+                .filter(a => a.empresa && a.conductores.length > 0)
+                .map(a => ({
+                    empresa: a.empresa,
+                    conductores: a.conductores,
+                    presupuesto: a.presupuesto || 0
+                }));
+            localStorage.setItem('asignacionesPuestosSalud', JSON.stringify(asignacionesParaGuardar));
+        }
+        
+        // Guardar asignaciones desde el modal
         document.getElementById('btnGuardarAsignaciones').addEventListener('click', function() {
             // Filtrar solo las asignaciones que tienen empresa y al menos un conductor
             const asignacionesValidas = asignaciones.filter(a => a.empresa && a.conductores.length > 0);
@@ -726,9 +921,7 @@ function obtenerTipoVehiculo($tipo) {
                 return;
             }
             
-            // Guardar en localStorage
-            localStorage.setItem('asignacionesPuestosSalud', JSON.stringify(asignacionesValidas));
-            
+            guardarEnLocalStorage();
             actualizarResumen();
             
             // Cerrar modal
@@ -738,19 +931,27 @@ function obtenerTipoVehiculo($tipo) {
             alert('✅ Asignaciones guardadas correctamente.');
         });
         
+        // Botón para asignar mismo presupuesto a todos
+        document.getElementById('btnMismoPresupuesto').addEventListener('click', function() {
+            asignarMismoPresupuestoATodos();
+        });
+        
         // Cargar asignaciones guardadas al iniciar
         function cargarAsignacionesGuardadas() {
             const guardadas = localStorage.getItem('asignacionesPuestosSalud');
             if (guardadas) {
                 try {
                     const asignacionesGuardadas = JSON.parse(guardadas);
+                    asignaciones = [];
+                    contadorPuestos = 0;
+                    
                     asignacionesGuardadas.forEach(asig => {
-                        agregarPuesto(asig.empresa);
-                        // Esperar un poco para que se cree el DOM
+                        agregarPuesto(asig.empresa, asig.presupuesto || 0);
                         setTimeout(() => {
                             const fila = asignaciones.find(a => a.empresa === asig.empresa);
                             if (fila) {
                                 fila.conductores = asig.conductores;
+                                fila.presupuesto = asig.presupuesto || 0;
                                 renderizarConductoresSeleccionados(fila.id, fila.conductores);
                                 actualizarContadorConductores(fila.id);
                             }
@@ -785,15 +986,15 @@ function obtenerTipoVehiculo($tipo) {
                 try {
                     const asignacionesGuardadas = JSON.parse(guardadas);
                     if (asignacionesGuardadas.length === 0) {
-                        // Si no hay asignaciones, agregar una fila vacía
                         agregarPuesto();
                     } else {
                         asignacionesGuardadas.forEach(asig => {
-                            agregarPuesto(asig.empresa);
+                            agregarPuesto(asig.empresa, asig.presupuesto || 0);
                             setTimeout(() => {
                                 const fila = asignaciones.find(a => a.empresa === asig.empresa);
                                 if (fila) {
                                     fila.conductores = asig.conductores;
+                                    fila.presupuesto = asig.presupuesto || 0;
                                     renderizarConductoresSeleccionados(fila.id, fila.conductores);
                                     actualizarContadorConductores(fila.id);
                                 }
