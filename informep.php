@@ -94,13 +94,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
     $section->addText("Periodo: " . date('d/m/Y', strtotime($fecha_desde)) . " al " . date('d/m/Y', strtotime($fecha_hasta)), ['bold' => true, 'size' => 10]);
     $section->addTextBreak(1);
     
+    // Array para almacenar viajes extra de p.nazareth
     $viajesExtra = [];
     
+    // Procesar cada empresa seleccionada
     foreach ($empresas_seleccionadas as $empresa) {
         
         $empresaSql = $conn->real_escape_string($empresa);
         $esPuestoNazareth = (strtolower($empresa) === 'p.nazareth');
         
+        // Verificar si hay asignación manual para esta empresa
         $conductoresAsignados = [];
         $asignacionManual = false;
         
@@ -109,39 +112,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
             $asignacionManual = true;
         }
         
-        $conductoresParaProcesar = [];
+        // Obtener los nombres reales de los conductores de esta empresa (para filtrar viajes)
+        $conductoresReales = [];
+        $sqlConductoresReales = "
+            SELECT DISTINCT v.nombre, v.cedula, v.tipo_vehiculo
+            FROM viajes v
+            WHERE v.empresa = '$empresaSql'
+                AND v.nombre IS NOT NULL 
+                AND v.nombre != ''
+            ORDER BY v.nombre ASC
+        ";
+        $resReales = $conn->query($sqlConductoresReales);
+        if ($resReales) {
+            while ($c = $resReales->fetch_assoc()) {
+                $conductoresReales[$c['nombre']] = $c;
+            }
+        }
+        
+        // Determinar qué conductores mostrar y a qué nombre real corresponde cada uno
+        $conductoresAMostrar = [];
         
         if ($asignacionManual) {
-            foreach ($conductoresAsignados as $conductorAsignado) {
-                if (!empty($conductorAsignado['nombre'])) {
-                    $conductoresParaProcesar[] = [
-                        'nombre' => $conductorAsignado['nombre'],
-                        'cedula' => $conductorAsignado['cedula'] ?? 'ASIGNADO',
-                        'tipo_vehiculo' => $conductorAsignado['tipo_vehiculo'] ?? ''
+            // Para asignación manual: cada conductor asignado tomará los viajes de un conductor real
+            // Por simplicidad, asignamos el primer conductor real disponible al primer asignado, etc.
+            $realesKeys = array_keys($conductoresReales);
+            foreach ($conductoresAsignados as $idx => $conAsignado) {
+                if (!empty($conAsignado['nombre']) && isset($realesKeys[$idx])) {
+                    $nombreReal = $realesKeys[$idx];
+                    $conductoresAMostrar[] = [
+                        'nombre_mostrar' => $conAsignado['nombre'],
+                        'cedula_mostrar' => $conAsignado['cedula'] ?? 'ASIGNADO',
+                        'nombre_real' => $nombreReal,
+                        'cedula_real' => $conductoresReales[$nombreReal]['cedula'] ?? '',
+                        'tipo_vehiculo' => $conductoresReales[$nombreReal]['tipo_vehiculo'] ?? ''
+                    ];
+                } elseif (!empty($conAsignado['nombre'])) {
+                    // Si no hay conductor real correspondiente, mostrar sin viajes
+                    $conductoresAMostrar[] = [
+                        'nombre_mostrar' => $conAsignado['nombre'],
+                        'cedula_mostrar' => $conAsignado['cedula'] ?? 'ASIGNADO',
+                        'nombre_real' => null,
+                        'cedula_real' => '',
+                        'tipo_vehiculo' => ''
                     ];
                 }
             }
         } else {
-            $sqlConductores = "
-                SELECT DISTINCT v.nombre, v.cedula, v.tipo_vehiculo
-                FROM viajes v
-                WHERE v.empresa = '$empresaSql'
-                    AND v.nombre IS NOT NULL 
-                    AND v.nombre != ''
-                ORDER BY v.nombre ASC
-            ";
-            $resConductores = $conn->query($sqlConductores);
-            if ($resConductores) {
-                while ($c = $resConductores->fetch_assoc()) {
-                    $conductoresParaProcesar[] = $c;
-                }
+            // Sin asignación manual: usar los nombres reales
+            foreach ($conductoresReales as $nombreReal => $datos) {
+                $conductoresAMostrar[] = [
+                    'nombre_mostrar' => $nombreReal,
+                    'cedula_mostrar' => $datos['cedula'] ?? 'N/A',
+                    'nombre_real' => $nombreReal,
+                    'cedula_real' => $datos['cedula'] ?? '',
+                    'tipo_vehiculo' => $datos['tipo_vehiculo'] ?? ''
+                ];
             }
         }
         
-        if (empty($conductoresParaProcesar)) {
+        if (empty($conductoresAMostrar)) {
             continue;
         }
         
+        // Título de la empresa
         $section->addTextBreak(0.5);
         $section->addText(strtoupper($empresa), ['bold' => true, 'size' => 14, 'color' => '1F4E78']);
         if ($asignacionManual) {
@@ -149,13 +182,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
         }
         $section->addTextBreak(0.3);
         
-        foreach ($conductoresParaProcesar as $conductor) {
-            $nombreConductor = $conductor['nombre'];
-            $cedulaConductor = $conductor['cedula'] ?? 'N/A';
-            $tipoVehiculoConductor = $conductor['tipo_vehiculo'] ?? '';
+        // Procesar cada conductor y SUS propios viajes
+        foreach ($conductoresAMostrar as $conductorInfo) {
+            $nombreMostrar = $conductorInfo['nombre_mostrar'];
+            $cedulaMostrar = $conductorInfo['cedula_mostrar'];
+            $nombreReal = $conductorInfo['nombre_real'];
+            $tipoVehiculo = $conductorInfo['tipo_vehiculo'];
             
-            $conductorSql = $conn->real_escape_string($nombreConductor);
+            // Si no hay nombre real, mostrar mensaje de que no tiene viajes
+            if (empty($nombreReal)) {
+                $section->addText("Conductor: " . $nombreMostrar . " (Cédula: " . $cedulaMostrar . ")", ['bold' => true, 'size' => 11]);
+                $section->addText("No tiene viajes registrados en este período.", ['italic' => true, 'size' => 9, 'color' => '999999']);
+                $section->addTextBreak(0.5);
+                continue;
+            }
             
+            $nombreRealSql = $conn->real_escape_string($nombreReal);
+            
+            // CONSULTA CORREGIDA: Filtrar POR CONDUCTOR REAL
             $sqlViajes = "
                 SELECT 
                     v.fecha,
@@ -185,6 +229,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
                 WHERE v.fecha >= '$fechaDesdeSql' 
                     AND v.fecha <= '$fechaHastaSql'
                     AND v.empresa = '$empresaSql'
+                    AND v.nombre = '$nombreRealSql'
                 ORDER BY v.fecha ASC, v.id ASC
             ";
             
@@ -205,11 +250,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
                     'tipo_vehiculo' => $row['tipo_vehiculo'],
                     'valor' => $valor,
                     'clasificacion' => $row['clasificacion'],
-                    'conductor' => $nombreConductor,
-                    'cedula' => $cedulaConductor,
-                    'empresa' => $empresa
+                    'conductor' => $nombreMostrar,
+                    'cedula' => $cedulaMostrar,
+                    'empresa' => $empresa,
+                    'nombre_real' => $nombreReal
                 ];
                 
+                // Clasificar viajes para p.nazareth
                 if ($esPuestoNazareth && esRutaMaicaoRiohacha($row['ruta'])) {
                     $viajesExtra[] = $viajeData;
                 } else {
@@ -218,45 +265,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
                 }
             }
             
-            if (empty($viajesNormales)) {
-                continue;
-            }
-            
-            $section->addText("Conductor: " . $nombreConductor . " (Cédula: " . $cedulaConductor . ")", ['bold' => true, 'size' => 11]);
-            if (!empty($tipoVehiculoConductor)) {
-                $section->addText("Tipo de vehículo: " . obtenerTipoVehiculoFormateado($tipoVehiculoConductor), ['italic' => true, 'size' => 9]);
-            }
-            $section->addTextBreak(0.2);
-            
-            $table = $section->addTable(['borderSize' => 1, 'borderColor' => 'AAAAAA', 'cellMargin' => 60, 'width' => 100 * 50]);
-            
-            $table->addRow();
-            $table->addCell(1500)->addText("FECHA", ['bold' => true, 'size' => 9, 'align' => 'center']);
-            $table->addCell(4500)->addText("RUTA", ['bold' => true, 'size' => 9, 'align' => 'center']);
-            $table->addCell(2000)->addText("VALOR", ['bold' => true, 'size' => 9, 'align' => 'center']);
-            
-            foreach ($viajesNormales as $viaje) {
-                $table->addRow();
-                $table->addCell(1500)->addText(date('d/m/Y', strtotime($viaje['fecha'])), ['size' => 9]);
-                $table->addCell(4500)->addText($viaje['ruta'] ?: '-', ['size' => 9]);
-                
-                if ($viaje['valor'] > 0) {
-                    $table->addCell(2000)->addText(formatearMoneda($viaje['valor']), ['size' => 9, 'align' => 'right']);
-                } else {
-                    $textoValor = "N/A";
-                    if (!empty($viaje['clasificacion'])) {
-                        $textoValor = "Sin tarifa (" . $viaje['clasificacion'] . ")";
-                    }
-                    $table->addCell(2000)->addText($textoValor, ['size' => 9, 'align' => 'right']);
+            // Mostrar conductor SOLO si tiene viajes normales
+            if (!empty($viajesNormales)) {
+                $section->addText("Conductor: " . $nombreMostrar . " (Cédula: " . $cedulaMostrar . ")", ['bold' => true, 'size' => 11]);
+                if (!empty($tipoVehiculo)) {
+                    $section->addText("Tipo de vehículo: " . obtenerTipoVehiculoFormateado($tipoVehiculo), ['italic' => true, 'size' => 9]);
                 }
+                $section->addTextBreak(0.2);
+                
+                $table = $section->addTable(['borderSize' => 1, 'borderColor' => 'AAAAAA', 'cellMargin' => 60, 'width' => 100 * 50]);
+                
+                $table->addRow();
+                $table->addCell(1500)->addText("FECHA", ['bold' => true, 'size' => 9, 'align' => 'center']);
+                $table->addCell(4500)->addText("RUTA", ['bold' => true, 'size' => 9, 'align' => 'center']);
+                $table->addCell(2000)->addText("VALOR", ['bold' => true, 'size' => 9, 'align' => 'center']);
+                
+                foreach ($viajesNormales as $viaje) {
+                    $table->addRow();
+                    $table->addCell(1500)->addText(date('d/m/Y', strtotime($viaje['fecha'])), ['size' => 9]);
+                    $table->addCell(4500)->addText($viaje['ruta'] ?: '-', ['size' => 9]);
+                    
+                    if ($viaje['valor'] > 0) {
+                        $table->addCell(2000)->addText(formatearMoneda($viaje['valor']), ['size' => 9, 'align' => 'right']);
+                    } else {
+                        $textoValor = "N/A";
+                        if (!empty($viaje['clasificacion'])) {
+                            $textoValor = "Sin tarifa (" . $viaje['clasificacion'] . ")";
+                        }
+                        $table->addCell(2000)->addText($textoValor, ['size' => 9, 'align' => 'right']);
+                    }
+                }
+                
+                $table->addRow();
+                $cellTotal = $table->addCell(6000, ['gridSpan' => 2]);
+                $cellTotal->addText("TOTAL", ['bold' => true, 'size' => 9, 'align' => 'right']);
+                $table->addCell(2000)->addText(formatearMoneda($totalNormal), ['bold' => true, 'size' => 9, 'align' => 'right', 'color' => 'CC0000']);
+                
+                $section->addTextBreak(0.8);
             }
-            
-            $table->addRow();
-            $cellTotal = $table->addCell(6000, ['gridSpan' => 2]);
-            $cellTotal->addText("TOTAL", ['bold' => true, 'size' => 9, 'align' => 'right']);
-            $table->addCell(2000)->addText(formatearMoneda($totalNormal), ['bold' => true, 'size' => 9, 'align' => 'right', 'color' => 'CC0000']);
-            
-            $section->addTextBreak(0.8);
         }
         
         $section->addTextBreak(0.5);
@@ -264,7 +310,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
         $section->addTextBreak(0.5);
     }
     
-    // SECCIÓN EXTRA
+    // ========== SECCIÓN EXTRA ==========
     if (!empty($viajesExtra)) {
         $section->addTextBreak(1);
         $section->addText("═══════════════════════════════════════════════════════════════════════════════", ['size' => 8]);
@@ -514,7 +560,6 @@ if ($resEmpresas) {
             margin-bottom: 0.75rem;
         }
         
-        /* Estilos para autocompletado */
         .autocomplete-container {
             position: relative;
         }
@@ -636,7 +681,7 @@ if ($resEmpresas) {
         </div>
     </div>
     
-    <!-- MODAL DE ASIGNACIONES CON AUTOCOMPLETADO -->
+    <!-- MODAL DE ASIGNACIONES -->
     <div class="modal fade modal-asignaciones" id="modalAsignaciones" data-bs-backdrop="static" tabindex="-1">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
@@ -672,12 +717,10 @@ if ($resEmpresas) {
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // Datos de PHP a JavaScript
         const empresasPuestos = <?php echo json_encode($empresasPuestosLista); ?>;
         const todosConductores = <?php echo json_encode($todosConductores); ?>;
         let asignaciones = {};
         
-        // Cargar asignaciones guardadas
         function cargarAsignaciones() {
             const guardadas = localStorage.getItem('asignacionesConductores');
             if (guardadas) {
@@ -688,22 +731,16 @@ if ($resEmpresas) {
             }
         }
         
-        // Guardar asignaciones
         function guardarAsignaciones() {
             localStorage.setItem('asignacionesConductores', JSON.stringify(asignaciones));
             actualizarBadges();
         }
         
-        // Actualizar badges
         function actualizarBadges() {
             empresasPuestos.forEach(empresa => {
                 const badge = document.getElementById(`badge_${md5(empresa)}`);
                 if (badge) {
-                    if (asignaciones[empresa] && asignaciones[empresa].length > 0) {
-                        badge.style.display = 'inline-block';
-                    } else {
-                        badge.style.display = 'none';
-                    }
+                    badge.style.display = (asignaciones[empresa]?.length > 0) ? 'inline-block' : 'none';
                 }
             });
         }
@@ -722,13 +759,10 @@ if ($resEmpresas) {
             return div.innerHTML;
         }
         
-        // Función para crear autocompletado en un input
         function setupAutocomplete(input, cedulaInput, conductoresList) {
             if (!input) return;
-            
             let container = input.parentElement;
             let autocompleteDiv = container.querySelector('.autocomplete-items');
-            
             if (!autocompleteDiv) {
                 autocompleteDiv = document.createElement('div');
                 autocompleteDiv.className = 'autocomplete-items';
@@ -742,11 +776,7 @@ if ($resEmpresas) {
                     autocompleteDiv.classList.remove('show');
                     return;
                 }
-                
-                const filtrados = conductoresList.filter(c => 
-                    c.nombre.toLowerCase().includes(valor)
-                ).slice(0, 10);
-                
+                const filtrados = conductoresList.filter(c => c.nombre.toLowerCase().includes(valor)).slice(0, 10);
                 if (filtrados.length === 0) {
                     autocompleteDiv.innerHTML = '<div class="autocomplete-item">No hay resultados</div>';
                 } else {
@@ -764,26 +794,19 @@ if ($resEmpresas) {
                 const item = e.target.closest('.autocomplete-item');
                 if (item) {
                     input.value = item.getAttribute('data-nombre');
-                    if (cedulaInput) {
-                        cedulaInput.value = item.getAttribute('data-cedula');
-                    }
-                    autocompleteDiv.innerHTML = '';
+                    if (cedulaInput) cedulaInput.value = item.getAttribute('data-cedula');
                     autocompleteDiv.classList.remove('show');
                 }
             });
             
             document.addEventListener('click', function(e) {
-                if (!container.contains(e.target)) {
-                    autocompleteDiv.classList.remove('show');
-                }
+                if (!container.contains(e.target)) autocompleteDiv.classList.remove('show');
             });
         }
         
-        // Renderizar modal con autocompletado
         function renderizarModal() {
             const container = document.getElementById('asignacionesContainer');
             if (!container) return;
-            
             if (empresasPuestos.length === 0) {
                 container.innerHTML = '<div class="alert alert-warning">No hay puestos de salud disponibles.</div>';
                 return;
@@ -794,37 +817,30 @@ if ($resEmpresas) {
                 const asignacionActual = asignaciones[empresa] || [];
                 const conductor1 = asignacionActual[0] || { nombre: '', cedula: '' };
                 const conductor2 = asignacionActual[1] || { nombre: '', cedula: '' };
-                
                 html += `
                     <div class="asignacion-item" data-empresa="${empresa.replace(/"/g, '&quot;')}">
-                        <div class="asignacion-empresa">
-                            <i class="fas fa-building"></i> ${escapeHtml(empresa)}
-                        </div>
+                        <div class="asignacion-empresa"><i class="fas fa-building"></i> ${escapeHtml(empresa)}</div>
                         <div class="row">
                             <div class="col-md-6 mb-3">
                                 <label class="form-label small fw-bold">Conductor 1</label>
                                 <div class="autocomplete-container">
                                     <input type="text" class="form-control form-control-sm autocomplete-input conductor1-nombre" 
-                                           placeholder="Escribe para buscar conductor..." 
-                                           value="${escapeHtml(conductor1.nombre)}"
+                                           placeholder="Escribe para buscar..." value="${escapeHtml(conductor1.nombre)}"
                                            data-empresa="${empresa}" data-conductor="1">
                                 </div>
                                 <input type="text" class="form-control form-control-sm mt-1 conductor1-cedula" 
-                                       placeholder="Cédula (automática)" 
-                                       value="${escapeHtml(conductor1.cedula)}"
+                                       placeholder="Cédula" value="${escapeHtml(conductor1.cedula)}"
                                        data-empresa="${empresa}" data-conductor="1-cedula" readonly>
                             </div>
                             <div class="col-md-6 mb-3">
                                 <label class="form-label small fw-bold">Conductor 2 (opcional)</label>
                                 <div class="autocomplete-container">
                                     <input type="text" class="form-control form-control-sm autocomplete-input conductor2-nombre" 
-                                           placeholder="Escribe para buscar conductor..." 
-                                           value="${escapeHtml(conductor2.nombre)}"
+                                           placeholder="Escribe para buscar..." value="${escapeHtml(conductor2.nombre)}"
                                            data-empresa="${empresa}" data-conductor="2">
                                 </div>
                                 <input type="text" class="form-control form-control-sm mt-1 conductor2-cedula" 
-                                       placeholder="Cédula (automática)" 
-                                       value="${escapeHtml(conductor2.cedula)}"
+                                       placeholder="Cédula" value="${escapeHtml(conductor2.cedula)}"
                                        data-empresa="${empresa}" data-conductor="2-cedula" readonly>
                             </div>
                         </div>
@@ -838,143 +854,109 @@ if ($resEmpresas) {
             });
             container.innerHTML = html;
             
-            // Configurar autocompletado para cada input
             empresasPuestos.forEach(empresa => {
                 const input1 = container.querySelector(`.conductor1-nombre[data-empresa="${empresa}"]`);
                 const cedula1 = container.querySelector(`.conductor1-cedula[data-empresa="${empresa}"]`);
                 const input2 = container.querySelector(`.conductor2-nombre[data-empresa="${empresa}"]`);
                 const cedula2 = container.querySelector(`.conductor2-cedula[data-empresa="${empresa}"]`);
-                
                 if (input1) setupAutocomplete(input1, cedula1, todosConductores);
                 if (input2) setupAutocomplete(input2, cedula2, todosConductores);
             });
             
-            // Eventos para limpiar asignación individual
             document.querySelectorAll('.limpiar-asignacion').forEach(btn => {
                 btn.addEventListener('click', function() {
-                    const empresa = this.getAttribute('data-empresa');
-                    delete asignaciones[empresa];
+                    delete asignaciones[this.getAttribute('data-empresa')];
                     renderizarModal();
                 });
             });
         }
         
-        // Recoger datos del modal
         function recogerAsignacionesDesdeModal() {
-            const nuevasAsignaciones = {};
+            const nuevas = {};
             document.querySelectorAll('.asignacion-item').forEach(item => {
                 const empresa = item.getAttribute('data-empresa');
                 const conductores = [];
-                
                 const nombre1 = item.querySelector('.conductor1-nombre')?.value.trim();
                 const cedula1 = item.querySelector('.conductor1-cedula')?.value.trim();
                 const nombre2 = item.querySelector('.conductor2-nombre')?.value.trim();
                 const cedula2 = item.querySelector('.conductor2-cedula')?.value.trim();
-                
-                if (nombre1) {
-                    conductores.push({ nombre: nombre1, cedula: cedula1 || '' });
-                }
-                if (nombre2) {
-                    conductores.push({ nombre: nombre2, cedula: cedula2 || '' });
-                }
-                
-                if (conductores.length > 0) {
-                    nuevasAsignaciones[empresa] = conductores;
-                }
+                if (nombre1) conductores.push({ nombre: nombre1, cedula: cedula1 || '' });
+                if (nombre2) conductores.push({ nombre: nombre2, cedula: cedula2 || '' });
+                if (conductores.length > 0) nuevas[empresa] = conductores;
             });
-            return nuevasAsignaciones;
+            return nuevas;
         }
         
-        // Eventos del modal
         document.getElementById('btnGuardarAsignaciones')?.addEventListener('click', function() {
             asignaciones = recogerAsignacionesDesdeModal();
             guardarAsignaciones();
-            const modal = bootstrap.Modal.getInstance(document.getElementById('modalAsignaciones'));
-            modal.hide();
+            bootstrap.Modal.getInstance(document.getElementById('modalAsignaciones')).hide();
             alert('✅ Asignaciones guardadas correctamente.');
         });
         
         document.getElementById('btnLimpiarTodas')?.addEventListener('click', function() {
-            if (confirm('¿Eliminar todas las asignaciones de conductores?')) {
+            if (confirm('¿Eliminar todas las asignaciones?')) {
                 asignaciones = {};
                 guardarAsignaciones();
                 renderizarModal();
             }
         });
         
-        document.getElementById('modalAsignaciones')?.addEventListener('show.bs.modal', function() {
-            renderizarModal();
-        });
+        document.getElementById('modalAsignaciones')?.addEventListener('show.bs.modal', () => renderizarModal());
         
-        // Contador de seleccionados
         function actualizarContador() {
             const checkboxes = document.querySelectorAll('.empresa-check');
             const seleccionados = Array.from(checkboxes).filter(cb => cb.checked).length;
             const total = checkboxes.length;
-            const contadorDiv = document.getElementById('contadorSeleccion');
-            if (contadorDiv) {
-                contadorDiv.innerHTML = `<i class="fas fa-check-circle"></i> ${seleccionados} de ${total} puestos seleccionados`;
-                contadorDiv.style.color = seleccionados === 0 ? '#dc3545' : '#198754';
+            const div = document.getElementById('contadorSeleccion');
+            if (div) {
+                div.innerHTML = `<i class="fas fa-check-circle"></i> ${seleccionados} de ${total} puestos seleccionados`;
+                div.style.color = seleccionados === 0 ? '#dc3545' : '#198754';
             }
         }
         
-        document.getElementById('btnSeleccionarTodos')?.addEventListener('click', function() {
+        document.getElementById('btnSeleccionarTodos')?.addEventListener('click', () => {
             document.querySelectorAll('.empresa-check').forEach(cb => cb.checked = true);
             actualizarContador();
         });
         
-        document.getElementById('btnDeseleccionarTodos')?.addEventListener('click', function() {
+        document.getElementById('btnDeseleccionarTodos')?.addEventListener('click', () => {
             document.querySelectorAll('.empresa-check').forEach(cb => cb.checked = false);
             actualizarContador();
         });
         
-        document.querySelectorAll('.empresa-check').forEach(cb => {
-            cb.addEventListener('change', actualizarContador);
-        });
+        document.querySelectorAll('.empresa-check').forEach(cb => cb.addEventListener('change', actualizarContador));
         
-        // Validar antes de enviar
         document.getElementById('formInforme')?.addEventListener('submit', function(e) {
             const fechaDesde = document.getElementById('fecha_desde').value;
             const fechaHasta = document.getElementById('fecha_hasta').value;
             const seleccionados = document.querySelectorAll('.empresa-check:checked');
-            
             if (!fechaDesde || !fechaHasta) {
                 e.preventDefault();
                 alert('⚠️ Debes seleccionar ambas fechas.');
                 return;
             }
-            
             if (fechaDesde > fechaHasta) {
                 e.preventDefault();
                 alert('⚠️ La fecha "Desde" no puede ser mayor que la fecha "Hasta".');
                 return;
             }
-            
             if (seleccionados.length === 0) {
                 e.preventDefault();
                 alert('⚠️ Debes seleccionar al menos un puesto de salud.');
                 return;
             }
-            
             document.getElementById('hiddenAsignaciones').value = JSON.stringify(asignaciones);
         });
         
-        // Fechas por defecto
         const hoy = new Date();
         const hace30Dias = new Date();
         hace30Dias.setDate(hoy.getDate() - 30);
-        
         const fechaDesde = document.getElementById('fecha_desde');
         const fechaHasta = document.getElementById('fecha_hasta');
+        if (fechaDesde && !fechaDesde.value) fechaDesde.value = hace30Dias.toISOString().split('T')[0];
+        if (fechaHasta && !fechaHasta.value) fechaHasta.value = hoy.toISOString().split('T')[0];
         
-        if (fechaDesde && !fechaDesde.value) {
-            fechaDesde.value = hace30Dias.toISOString().split('T')[0];
-        }
-        if (fechaHasta && !fechaHasta.value) {
-            fechaHasta.value = hoy.toISOString().split('T')[0];
-        }
-        
-        // Inicializar
         cargarAsignaciones();
         actualizarContador();
     </script>
