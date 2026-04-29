@@ -47,26 +47,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
     
     $fecha_desde = $_POST['fecha_desde'];
     $fecha_hasta = $_POST['fecha_hasta'];
+    $empresas_seleccionadas = isset($_POST['empresas']) ? $_POST['empresas'] : [];
     
     if (empty($fecha_desde) || empty($fecha_hasta)) {
         die("Error: Debe seleccionar ambas fechas.");
     }
     
+    if (empty($empresas_seleccionadas)) {
+        die("Error: Debe seleccionar al menos un puesto de salud.");
+    }
+    
     $fechaDesdeSql = $conn->real_escape_string($fecha_desde . " 00:00:00");
     $fechaHastaSql = $conn->real_escape_string($fecha_hasta . " 23:59:59");
-    
-    // Obtener todas las empresas que contienen "P." (puestos de salud)
-    $empresasPuestos = [];
-    $resEmpresas = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa != '' AND UPPER(empresa) LIKE '%P.%' ORDER BY empresa ASC");
-    if ($resEmpresas) {
-        while ($r = $resEmpresas->fetch_assoc()) {
-            $empresasPuestos[] = $r['empresa'];
-        }
-    }
-    
-    if (empty($empresasPuestos)) {
-        die("Error: No se encontraron empresas con 'P.' en la base de datos.");
-    }
     
     // Generar documento Word
     $phpWord = new PhpWord();
@@ -91,11 +83,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
     $section->addText("Periodo: " . date('d/m/Y', strtotime($fecha_desde)) . " al " . date('d/m/Y', strtotime($fecha_hasta)), ['bold' => true, 'size' => 10]);
     $section->addTextBreak(1);
     
-    // Procesar cada empresa (puesto de salud)
-    foreach ($empresasPuestos as $empresa) {
+    // Procesar cada empresa seleccionada
+    foreach ($empresas_seleccionadas as $empresa) {
+        
+        $empresaSql = $conn->real_escape_string($empresa);
         
         // Obtener conductores únicos que tienen viajes en esta empresa
-        $empresaSql = $conn->real_escape_string($empresa);
         $sqlConductores = "
             SELECT DISTINCT v.nombre, v.cedula, v.tipo_vehiculo
             FROM viajes v
@@ -252,7 +245,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
     exit;
 }
 
-// Obtener lista de empresas con "P." para mostrar en la interfaz (solo informativo)
+// Obtener lista de empresas con "P."
 $empresasPuestosLista = [];
 $resEmpresas = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa <> '' AND UPPER(empresa) LIKE '%P.%' ORDER BY empresa ASC");
 if ($resEmpresas) {
@@ -284,7 +277,7 @@ if ($resEmpresas) {
         }
         
         .container-custom {
-            max-width: 800px;
+            max-width: 900px;
             margin: 0 auto;
         }
         
@@ -341,6 +334,29 @@ if ($resEmpresas) {
             box-shadow: 0 10px 25px rgba(25,135,84,0.3);
         }
         
+        .btn-seleccionar-todos, .btn-deseleccionar-todos {
+            padding: 0.3rem 0.8rem;
+            font-size: 0.8rem;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+        
+        .btn-seleccionar-todos {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+        }
+        
+        .btn-deseleccionar-todos {
+            background: #6c757d;
+            color: white;
+            border: none;
+        }
+        
+        .btn-seleccionar-todos:hover, .btn-deseleccionar-todos:hover {
+            transform: translateY(-2px);
+        }
+        
         .info-banner {
             background: #e7f3ff;
             border-left: 4px solid var(--primary-color);
@@ -357,14 +373,38 @@ if ($resEmpresas) {
             margin-top: 1.5rem;
         }
         
-        .badge-empresa {
-            display: inline-block;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 0.3rem 0.8rem;
-            border-radius: 20px;
-            font-size: 0.8rem;
-            margin: 0.2rem;
+        .empresa-checkbox {
+            display: inline-flex;
+            align-items: center;
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 25px;
+            padding: 0.4rem 1rem;
+            margin: 0.3rem;
+            transition: all 0.2s;
+        }
+        
+        .empresa-checkbox:hover {
+            background: #e9ecef;
+            transform: translateY(-2px);
+        }
+        
+        .empresa-checkbox input {
+            margin-right: 0.5rem;
+            transform: scale(1.1);
+        }
+        
+        .empresa-checkbox label {
+            margin: 0;
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+        
+        .contador-seleccion {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--success-color);
+            margin-bottom: 0.75rem;
         }
     </style>
 </head>
@@ -380,8 +420,9 @@ if ($resEmpresas) {
             <div class="card-body-custom">
                 <div class="info-banner">
                     <i class="fas fa-info-circle"></i> 
-                    <strong>¿Cómo funciona?</strong> El sistema genera automáticamente un informe con todos los conductores 
-                    y sus viajes, agrupados por puesto de salud (empresas con "P."). Solo debes seleccionar el rango de fechas.
+                    <strong>¿Cómo funciona?</strong> Selecciona los puestos de salud que quieres incluir en el informe, 
+                    elige el rango de fechas y haz clic en generar. El sistema mostrará automáticamente todos los conductores 
+                    y sus viajes para los puestos seleccionados.
                 </div>
                 
                 <form method="POST" action="" id="formInforme">
@@ -401,19 +442,39 @@ if ($resEmpresas) {
                         <input type="date" name="fecha_hasta" id="fecha_hasta" class="form-control form-control-lg" required>
                     </div>
                     
-                    <button type="submit" class="btn-generar-informe">
+                    <?php if (!empty($empresasPuestosLista)): ?>
+                    <div class="lista-empresas">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap mb-3">
+                            <h6 class="mb-0"><i class="fas fa-building"></i> Puestos de salud disponibles:</h6>
+                            <div>
+                                <button type="button" class="btn-seleccionar-todos me-2" id="btnSeleccionarTodos">
+                                    <i class="fas fa-check-double"></i> Seleccionar todos
+                                </button>
+                                <button type="button" class="btn-deseleccionar-todos" id="btnDeseleccionarTodos">
+                                    <i class="fas fa-times"></i> Deseleccionar todos
+                                </button>
+                            </div>
+                        </div>
+                        <div id="contadorSeleccion" class="contador-seleccion"></div>
+                        <div id="listaEmpresas">
+                            <?php foreach ($empresasPuestosLista as $emp): ?>
+                            <div class="empresa-checkbox">
+                                <input type="checkbox" name="empresas[]" value="<?php echo htmlspecialchars($emp); ?>" class="empresa-check" id="emp_<?php echo md5($emp); ?>">
+                                <label for="emp_<?php echo md5($emp); ?>"><?php echo htmlspecialchars($emp); ?></label>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <?php else: ?>
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i> No se encontraron empresas con "P." en la base de datos.
+                    </div>
+                    <?php endif; ?>
+                    
+                    <button type="submit" class="btn-generar-informe mt-3" id="btnGenerar">
                         <i class="fas fa-file-word"></i> Generar Informe en Word
                     </button>
                 </form>
-                
-                <?php if (!empty($empresasPuestosLista)): ?>
-                <div class="lista-empresas">
-                    <h6 class="mb-2"><i class="fas fa-building"></i> Puestos de salud encontrados:</h6>
-                    <?php foreach ($empresasPuestosLista as $emp): ?>
-                        <span class="badge-empresa"><?php echo htmlspecialchars($emp); ?></span>
-                    <?php endforeach; ?>
-                </div>
-                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -434,10 +495,49 @@ if ($resEmpresas) {
             fechaHastaInput.value = hoy.toISOString().split('T')[0];
         }
         
-        // Validar fechas antes de enviar
+        // Función para actualizar el contador de seleccionados
+        function actualizarContador() {
+            const checkboxes = document.querySelectorAll('.empresa-check');
+            const seleccionados = Array.from(checkboxes).filter(cb => cb.checked).length;
+            const total = checkboxes.length;
+            const contadorDiv = document.getElementById('contadorSeleccion');
+            if (contadorDiv) {
+                contadorDiv.innerHTML = `<i class="fas fa-check-circle"></i> ${seleccionados} de ${total} puestos seleccionados`;
+                if (seleccionados === 0) {
+                    contadorDiv.style.color = '#dc3545';
+                } else {
+                    contadorDiv.style.color = '#198754';
+                }
+            }
+        }
+        
+        // Seleccionar todos
+        document.getElementById('btnSeleccionarTodos')?.addEventListener('click', function() {
+            const checkboxes = document.querySelectorAll('.empresa-check');
+            checkboxes.forEach(cb => cb.checked = true);
+            actualizarContador();
+        });
+        
+        // Deseleccionar todos
+        document.getElementById('btnDeseleccionarTodos')?.addEventListener('click', function() {
+            const checkboxes = document.querySelectorAll('.empresa-check');
+            checkboxes.forEach(cb => cb.checked = false);
+            actualizarContador();
+        });
+        
+        // Actualizar contador cuando cambie cualquier checkbox
+        document.querySelectorAll('.empresa-check').forEach(cb => {
+            cb.addEventListener('change', actualizarContador);
+        });
+        
+        // Inicializar contador
+        actualizarContador();
+        
+        // Validar antes de enviar
         document.getElementById('formInforme').addEventListener('submit', function(e) {
             const fechaDesde = document.getElementById('fecha_desde').value;
             const fechaHasta = document.getElementById('fecha_hasta').value;
+            const seleccionados = document.querySelectorAll('.empresa-check:checked');
             
             if (!fechaDesde || !fechaHasta) {
                 e.preventDefault();
@@ -448,6 +548,12 @@ if ($resEmpresas) {
             if (fechaDesde > fechaHasta) {
                 e.preventDefault();
                 alert('⚠️ La fecha "Desde" no puede ser mayor que la fecha "Hasta".');
+                return;
+            }
+            
+            if (seleccionados.length === 0) {
+                e.preventDefault();
+                alert('⚠️ Debes seleccionar al menos un puesto de salud.');
                 return;
             }
         });
