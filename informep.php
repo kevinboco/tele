@@ -38,6 +38,12 @@ function obtenerTipoVehiculoFormateado($tipo) {
     return $tipo ?: '-';
 }
 
+// Función para verificar si una ruta contiene Maicao o Riohacha (insensible a mayúsculas)
+function esRutaMaicaoRiohacha($ruta) {
+    $rutaLower = strtolower($ruta);
+    return (strpos($rutaLower, 'maicao') !== false || strpos($rutaLower, 'riohacha') !== false);
+}
+
 // ========== PROCESAR GENERACIÓN DE INFORME WORD ==========
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_informe'])) {
     
@@ -157,23 +163,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
                 continue;
             }
             
-            $viajes = [];
-            $totalValor = 0;
+            // Clasificar viajes: normales vs extra (solo para p.nazareth)
+            $esPuestoNazareth = (strtolower($empresa) === 'p.nazareth');
+            $viajesNormales = [];
+            $viajesExtra = [];
+            $totalNormal = 0;
+            $totalExtra = 0;
             
             while ($row = $resViajes->fetch_assoc()) {
                 $valor = floatval($row['valor_viaje'] ?? 0);
-                $totalValor += $valor;
-                $viajes[] = [
+                $viajeData = [
                     'fecha' => $row['fecha'],
                     'ruta' => $row['ruta'],
                     'tipo_vehiculo' => $row['tipo_vehiculo'],
                     'valor' => $valor,
                     'clasificacion' => $row['clasificacion']
                 ];
+                
+                if ($esPuestoNazareth && esRutaMaicaoRiohacha($row['ruta'])) {
+                    $viajesExtra[] = $viajeData;
+                    $totalExtra += $valor;
+                } else {
+                    $viajesNormales[] = $viajeData;
+                    $totalNormal += $valor;
+                }
             }
             
-            // Si no hay viajes en el período, omitir este conductor
-            if (empty($viajes)) {
+            // Si no hay ningún viaje en el período, omitir este conductor
+            if (empty($viajesNormales) && empty($viajesExtra)) {
                 continue;
             }
             
@@ -182,37 +199,88 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
             $section->addText("Tipo de vehículo: " . obtenerTipoVehiculoFormateado($tipoVehiculoConductor), ['italic' => true, 'size' => 9]);
             $section->addTextBreak(0.2);
             
-            // Crear tabla de viajes
-            $table = $section->addTable(['borderSize' => 1, 'borderColor' => 'AAAAAA', 'cellMargin' => 60, 'width' => 100 * 50]);
-            
-            // Encabezados
-            $table->addRow();
-            $table->addCell(1500)->addText("FECHA", ['bold' => true, 'size' => 9, 'align' => 'center']);
-            $table->addCell(4500)->addText("RUTA", ['bold' => true, 'size' => 9, 'align' => 'center']);
-            $table->addCell(2000)->addText("VALOR", ['bold' => true, 'size' => 9, 'align' => 'center']);
-            
-            // Filas de viajes
-            foreach ($viajes as $viaje) {
-                $table->addRow();
-                $table->addCell(1500)->addText(date('d/m/Y', strtotime($viaje['fecha'])), ['size' => 9]);
-                $table->addCell(4500)->addText($viaje['ruta'] ?: '-', ['size' => 9]);
+            // ========== TABLA DE VIAJES NORMALES ==========
+            if (!empty($viajesNormales)) {
+                // Crear tabla de viajes normales
+                $table = $section->addTable(['borderSize' => 1, 'borderColor' => 'AAAAAA', 'cellMargin' => 60, 'width' => 100 * 50]);
                 
-                if ($viaje['valor'] > 0) {
-                    $table->addCell(2000)->addText(formatearMoneda($viaje['valor']), ['size' => 9, 'align' => 'right']);
-                } else {
-                    $textoValor = "N/A";
-                    if (!empty($viaje['clasificacion'])) {
-                        $textoValor = "Sin tarifa (" . $viaje['clasificacion'] . ")";
+                // Encabezados
+                $table->addRow();
+                $table->addCell(1500)->addText("FECHA", ['bold' => true, 'size' => 9, 'align' => 'center']);
+                $table->addCell(4500)->addText("RUTA", ['bold' => true, 'size' => 9, 'align' => 'center']);
+                $table->addCell(2000)->addText("VALOR", ['bold' => true, 'size' => 9, 'align' => 'center']);
+                
+                // Filas de viajes normales
+                foreach ($viajesNormales as $viaje) {
+                    $table->addRow();
+                    $table->addCell(1500)->addText(date('d/m/Y', strtotime($viaje['fecha'])), ['size' => 9]);
+                    $table->addCell(4500)->addText($viaje['ruta'] ?: '-', ['size' => 9]);
+                    
+                    if ($viaje['valor'] > 0) {
+                        $table->addCell(2000)->addText(formatearMoneda($viaje['valor']), ['size' => 9, 'align' => 'right']);
+                    } else {
+                        $textoValor = "N/A";
+                        if (!empty($viaje['clasificacion'])) {
+                            $textoValor = "Sin tarifa (" . $viaje['clasificacion'] . ")";
+                        }
+                        $table->addCell(2000)->addText($textoValor, ['size' => 9, 'align' => 'right']);
                     }
-                    $table->addCell(2000)->addText($textoValor, ['size' => 9, 'align' => 'right']);
                 }
+                
+                // Fila de total normal
+                $table->addRow();
+                $cellTotal = $table->addCell(6000, ['gridSpan' => 2]);
+                $cellTotal->addText("TOTAL VIAJES NORMALES", ['bold' => true, 'size' => 9, 'align' => 'right']);
+                $table->addCell(2000)->addText(formatearMoneda($totalNormal), ['bold' => true, 'size' => 9, 'align' => 'right', 'color' => 'CC0000']);
+                
+                $section->addTextBreak(0.5);
             }
             
-            // Fila de total
-            $table->addRow();
-            $cellTotal = $table->addCell(6000, ['gridSpan' => 2]);
-            $cellTotal->addText("TOTAL", ['bold' => true, 'size' => 9, 'align' => 'right']);
-            $table->addCell(2000)->addText(formatearMoneda($totalValor), ['bold' => true, 'size' => 9, 'align' => 'right', 'color' => 'CC0000']);
+            // ========== TABLA DE VIAJES EXTRA (solo si hay y solo para p.nazareth) ==========
+            if ($esPuestoNazareth && !empty($viajesExtra)) {
+                // Título de la sección extra
+                $section->addText("*** EXTRA - VIAJES A MAICAO/RIOHACHA ***", ['bold' => true, 'size' => 10, 'color' => 'CC6600']);
+                $section->addTextBreak(0.1);
+                
+                // Crear tabla de viajes extra
+                $tableExtra = $section->addTable(['borderSize' => 1, 'borderColor' => 'AAAAAA', 'cellMargin' => 60, 'width' => 100 * 50]);
+                
+                // Encabezados
+                $tableExtra->addRow();
+                $tableExtra->addCell(1500)->addText("FECHA", ['bold' => true, 'size' => 9, 'align' => 'center']);
+                $tableExtra->addCell(4500)->addText("RUTA", ['bold' => true, 'size' => 9, 'align' => 'center']);
+                $tableExtra->addCell(2000)->addText("VALOR", ['bold' => true, 'size' => 9, 'align' => 'center']);
+                
+                // Filas de viajes extra
+                foreach ($viajesExtra as $viaje) {
+                    $tableExtra->addRow();
+                    $tableExtra->addCell(1500)->addText(date('d/m/Y', strtotime($viaje['fecha'])), ['size' => 9]);
+                    $tableExtra->addCell(4500)->addText($viaje['ruta'] ?: '-', ['size' => 9]);
+                    
+                    if ($viaje['valor'] > 0) {
+                        $tableExtra->addCell(2000)->addText(formatearMoneda($viaje['valor']), ['size' => 9, 'align' => 'right']);
+                    } else {
+                        $textoValor = "N/A";
+                        if (!empty($viaje['clasificacion'])) {
+                            $textoValor = "Sin tarifa (" . $viaje['clasificacion'] . ")";
+                        }
+                        $tableExtra->addCell(2000)->addText($textoValor, ['size' => 9, 'align' => 'right']);
+                    }
+                }
+                
+                // Fila de total extra
+                $tableExtra->addRow();
+                $cellTotalExtra = $tableExtra->addCell(6000, ['gridSpan' => 2]);
+                $cellTotalExtra->addText("TOTAL VIAJES EXTRA", ['bold' => true, 'size' => 9, 'align' => 'right']);
+                $tableExtra->addCell(2000)->addText(formatearMoneda($totalExtra), ['bold' => true, 'size' => 9, 'align' => 'right', 'color' => 'CC6600']);
+            }
+            
+            // Mostrar total general combinado si hay ambas tablas
+            if ($esPuestoNazareth && !empty($viajesNormales) && !empty($viajesExtra)) {
+                $totalGeneral = $totalNormal + $totalExtra;
+                $section->addTextBreak(0.2);
+                $section->addText("TOTAL GENERAL (Normal + Extra): " . formatearMoneda($totalGeneral), ['bold' => true, 'size' => 10, 'color' => '0000CC'], ['align' => 'right']);
+            }
             
             $section->addTextBreak(0.8);
         }
@@ -406,6 +474,15 @@ if ($resEmpresas) {
             color: var(--success-color);
             margin-bottom: 0.75rem;
         }
+        
+        .nota-especial {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            margin-top: 1rem;
+            font-size: 0.8rem;
+        }
     </style>
 </head>
 <body>
@@ -421,8 +498,11 @@ if ($resEmpresas) {
                 <div class="info-banner">
                     <i class="fas fa-info-circle"></i> 
                     <strong>¿Cómo funciona?</strong> Selecciona los puestos de salud que quieres incluir en el informe, 
-                    elige el rango de fechas y haz clic en generar. El sistema mostrará automáticamente todos los conductores 
-                    y sus viajes para los puestos seleccionados.
+                    elige el rango de fechas y haz clic en generar.
+                    <br><br>
+                    <i class="fas fa-star-of-life" style="color: #cc6600;"></i> 
+                    <strong>Nota especial para "p.nazareth":</strong> Los viajes con rutas que contengan "Maicao" o "Riohacha" 
+                    se mostrarán en una tabla separada llamada "EXTRA".
                 </div>
                 
                 <form method="POST" action="" id="formInforme">
@@ -475,6 +555,13 @@ if ($resEmpresas) {
                         <i class="fas fa-file-word"></i> Generar Informe en Word
                     </button>
                 </form>
+                
+                <div class="nota-especial">
+                    <i class="fas fa-info-circle"></i> 
+                    <strong>Nota:</strong> Para el puesto <strong>p.nazareth</strong>, los viajes con rutas que contengan 
+                    "Maicao" o "Riohacha" (sin importar mayúsculas/minúsculas) se mostrarán en una tabla separada llamada 
+                    <strong>"EXTRA - VIAJES A MAICAO/RIOHACHA"</strong>.
+                </div>
             </div>
         </div>
     </div>
