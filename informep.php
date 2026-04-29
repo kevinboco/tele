@@ -38,16 +38,24 @@ function obtenerTipoVehiculoFormateado($tipo) {
     return $tipo ?: '-';
 }
 
-// Función para verificar si una ruta contiene Maicao o Riohacha (insensible a mayúsculas)
+// Función para verificar si una ruta contiene Maicao o Riohacha
 function esRutaMaicaoRiohacha($ruta) {
     $rutaLower = strtolower($ruta);
     return (strpos($rutaLower, 'maicao') !== false || strpos($rutaLower, 'riohacha') !== false);
 }
 
+// Obtener lista de todos los conductores para autocompletado
+$todosConductores = [];
+$resCond = $conn->query("SELECT DISTINCT nombre, cedula, tipo_vehiculo FROM viajes WHERE nombre IS NOT NULL AND nombre != '' ORDER BY nombre ASC");
+if ($resCond) {
+    while ($r = $resCond->fetch_assoc()) {
+        $todosConductores[] = $r;
+    }
+}
+
 // ========== PROCESAR GENERACIÓN DE INFORME WORD ==========
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_informe'])) {
     
-    // Evitar cualquier salida previa
     if (ob_get_level()) { ob_end_clean(); }
     header_remove();
     
@@ -68,39 +76,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
     $fechaDesdeSql = $conn->real_escape_string($fecha_desde . " 00:00:00");
     $fechaHastaSql = $conn->real_escape_string($fecha_hasta . " 23:59:59");
     
-    // Generar documento Word
     $phpWord = new PhpWord();
     $section = $phpWord->addSection();
     
-    // Configurar márgenes
     $section->getStyle()->setMarginTop(720);
     $section->getStyle()->setMarginBottom(720);
     $section->getStyle()->setMarginLeft(720);
     $section->getStyle()->setMarginRight(720);
     
-    // Título principal
     $section->addText("INFORME DE VIAJES POR PUESTO DE SALUD Y CONDUCTOR", ['bold' => true, 'size' => 16, 'color' => '1F4E78'], ['align' => 'center']);
     $section->addTextBreak(0.5);
     
-    // Subtítulo
     $section->addText("ASOCIACIÓN DE TRANSPORTISTAS ZONA NORTE EXTREMA WUINPUMUÍN", 
         ['italic' => true, 'size' => 10, 'color' => '666666'], ['align' => 'center']);
     $section->addTextBreak(0.5);
     
-    // Información del periodo
     $section->addText("Periodo: " . date('d/m/Y', strtotime($fecha_desde)) . " al " . date('d/m/Y', strtotime($fecha_hasta)), ['bold' => true, 'size' => 10]);
     $section->addTextBreak(1);
     
-    // Array para almacenar viajes extra de p.nazareth (Maicao/Riohacha)
     $viajesExtra = [];
     
-    // Procesar cada empresa seleccionada
     foreach ($empresas_seleccionadas as $empresa) {
         
         $empresaSql = $conn->real_escape_string($empresa);
         $esPuestoNazareth = (strtolower($empresa) === 'p.nazareth');
         
-        // Verificar si hay asignación manual para esta empresa
         $conductoresAsignados = [];
         $asignacionManual = false;
         
@@ -109,12 +109,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
             $asignacionManual = true;
         }
         
-        // Obtener conductores (reales o asignados manualmente)
         $conductoresParaProcesar = [];
         
         if ($asignacionManual) {
-            // Usar los conductores asignados manualmente
-            foreach ($conductoresAsignados as $idx => $conductorAsignado) {
+            foreach ($conductoresAsignados as $conductorAsignado) {
                 if (!empty($conductorAsignado['nombre'])) {
                     $conductoresParaProcesar[] = [
                         'nombre' => $conductorAsignado['nombre'],
@@ -124,7 +122,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
                 }
             }
         } else {
-            // Obtener conductores reales de la BD
             $sqlConductores = "
                 SELECT DISTINCT v.nombre, v.cedula, v.tipo_vehiculo
                 FROM viajes v
@@ -145,7 +142,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
             continue;
         }
         
-        // Título de la empresa
         $section->addTextBreak(0.5);
         $section->addText(strtoupper($empresa), ['bold' => true, 'size' => 14, 'color' => '1F4E78']);
         if ($asignacionManual) {
@@ -153,13 +149,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
         }
         $section->addTextBreak(0.3);
         
-        // Procesar cada conductor
         foreach ($conductoresParaProcesar as $conductor) {
             $nombreConductor = $conductor['nombre'];
             $cedulaConductor = $conductor['cedula'] ?? 'N/A';
             $tipoVehiculoConductor = $conductor['tipo_vehiculo'] ?? '';
             
-            // Consultar viajes
             $conductorSql = $conn->real_escape_string($nombreConductor);
             
             $sqlViajes = "
@@ -200,7 +194,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
                 continue;
             }
             
-            // Clasificar viajes
             $viajesNormales = [];
             $totalNormal = 0;
             
@@ -217,7 +210,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
                     'empresa' => $empresa
                 ];
                 
-                // Si es p.nazareth y la ruta contiene Maicao/Riohacha, va a viajesExtra
                 if ($esPuestoNazareth && esRutaMaicaoRiohacha($row['ruta'])) {
                     $viajesExtra[] = $viajeData;
                 } else {
@@ -226,28 +218,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
                 }
             }
             
-            // Si no hay viajes normales, omitir
             if (empty($viajesNormales)) {
                 continue;
             }
             
-            // Subtítulo del conductor
             $section->addText("Conductor: " . $nombreConductor . " (Cédula: " . $cedulaConductor . ")", ['bold' => true, 'size' => 11]);
             if (!empty($tipoVehiculoConductor)) {
                 $section->addText("Tipo de vehículo: " . obtenerTipoVehiculoFormateado($tipoVehiculoConductor), ['italic' => true, 'size' => 9]);
             }
             $section->addTextBreak(0.2);
             
-            // TABLA DE VIAJES NORMALES
             $table = $section->addTable(['borderSize' => 1, 'borderColor' => 'AAAAAA', 'cellMargin' => 60, 'width' => 100 * 50]);
             
-            // Encabezados
             $table->addRow();
             $table->addCell(1500)->addText("FECHA", ['bold' => true, 'size' => 9, 'align' => 'center']);
             $table->addCell(4500)->addText("RUTA", ['bold' => true, 'size' => 9, 'align' => 'center']);
             $table->addCell(2000)->addText("VALOR", ['bold' => true, 'size' => 9, 'align' => 'center']);
             
-            // Filas de viajes normales
             foreach ($viajesNormales as $viaje) {
                 $table->addRow();
                 $table->addCell(1500)->addText(date('d/m/Y', strtotime($viaje['fecha'])), ['size' => 9]);
@@ -264,7 +251,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
                 }
             }
             
-            // Fila de total
             $table->addRow();
             $cellTotal = $table->addCell(6000, ['gridSpan' => 2]);
             $cellTotal->addText("TOTAL", ['bold' => true, 'size' => 9, 'align' => 'right']);
@@ -278,7 +264,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
         $section->addTextBreak(0.5);
     }
     
-    // ========== SECCIÓN EXTRA ==========
+    // SECCIÓN EXTRA
     if (!empty($viajesExtra)) {
         $section->addTextBreak(1);
         $section->addText("═══════════════════════════════════════════════════════════════════════════════", ['size' => 8]);
@@ -286,15 +272,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
         $section->addText("═══════════════════════════════════════════════════════════════════════════════", ['size' => 8]);
         $section->addTextBreak(0.3);
         
-        // Ordenar por fecha
         usort($viajesExtra, function($a, $b) {
             return strtotime($a['fecha']) - strtotime($b['fecha']);
         });
         
-        // Tabla extra
         $tablaExtra = $section->addTable(['borderSize' => 1, 'borderColor' => 'CC6600', 'cellMargin' => 60, 'width' => 100 * 50]);
         
-        // Encabezados
         $tablaExtra->addRow();
         $tablaExtra->addCell(1500)->addText("FECHA", ['bold' => true, 'size' => 9, 'align' => 'center']);
         $tablaExtra->addCell(3500)->addText("RUTA", ['bold' => true, 'size' => 9, 'align' => 'center']);
@@ -321,14 +304,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
             }
         }
         
-        // Total extra
         $tablaExtra->addRow();
         $celdaTotalExtra = $tablaExtra->addCell(7500, ['gridSpan' => 3]);
         $celdaTotalExtra->addText("TOTAL VIAJES EXTRA (Maicao/Riohacha)", ['bold' => true, 'size' => 9, 'align' => 'right']);
         $tablaExtra->addCell(2000)->addText(formatearMoneda($totalExtraGeneral), ['bold' => true, 'size' => 9, 'align' => 'right', 'color' => 'CC6600']);
     }
     
-    // Firma
     $section->addTextBreak(2);
     date_default_timezone_set('America/Bogota');
     $section->addText("Maicao, " . date('d/m/Y'), ['align' => 'right']);
@@ -338,7 +319,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
     $section->addText("NUMAS JOSÉ IGUARÁN IGUARÁN", ['bold' => true, 'align' => 'right']);
     $section->addText("Representante Legal", ['align' => 'right']);
     
-    // Generar archivo
     $filename = "informe_conductores_por_puesto_" . date('Ymd_His') . ".docx";
     header("Content-Description: File Transfer");
     header("Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document");
@@ -372,7 +352,6 @@ if ($resEmpresas) {
         :root {
             --primary-color: #0d6efd;
             --success-color: #198754;
-            --warning-color: #ffc107;
         }
         
         body {
@@ -526,12 +505,57 @@ if ($resEmpresas) {
         .asignacion-empresa {
             font-weight: bold;
             margin-bottom: 0.5rem;
+            color: #1F4E78;
         }
         
         .contador-seleccion {
             font-size: 0.85rem;
             font-weight: 500;
             margin-bottom: 0.75rem;
+        }
+        
+        /* Estilos para autocompletado */
+        .autocomplete-container {
+            position: relative;
+        }
+        
+        .autocomplete-items {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+            display: none;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+        
+        .autocomplete-items.show {
+            display: block;
+        }
+        
+        .autocomplete-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .autocomplete-item:hover {
+            background: #e7f3ff;
+        }
+        
+        .autocomplete-item strong {
+            color: #1F4E78;
+        }
+        
+        .autocomplete-item small {
+            display: block;
+            font-size: 0.7rem;
+            color: #666;
         }
         
         .modal-asignaciones .modal-body {
@@ -556,7 +580,6 @@ if ($resEmpresas) {
                     Puedes asignar conductores personalizados (1 o 2) a cualquier puesto de salud.
                 </div>
                 
-                <!-- Botón para asignaciones -->
                 <button type="button" class="btn-asignaciones" data-bs-toggle="modal" data-bs-target="#modalAsignaciones">
                     <i class="fas fa-users-cog"></i> 📝 Asignar conductores personalizados (opcional)
                 </button>
@@ -613,7 +636,7 @@ if ($resEmpresas) {
         </div>
     </div>
     
-    <!-- MODAL DE ASIGNACIONES -->
+    <!-- MODAL DE ASIGNACIONES CON AUTOCOMPLETADO -->
     <div class="modal fade modal-asignaciones" id="modalAsignaciones" data-bs-backdrop="static" tabindex="-1">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
@@ -626,13 +649,11 @@ if ($resEmpresas) {
                 <div class="modal-body">
                     <div class="alert alert-info">
                         <i class="fas fa-info-circle"></i> 
-                        <strong>Opcional:</strong> Asigna 1 o 2 conductores a cada puesto. Si no asignas, se usarán los nombres reales de la BD.
-                        La asignación se guarda en tu navegador.
+                        <strong>Opcional:</strong> Asigna 1 o 2 conductores a cada puesto. Escribe el nombre y selecciona de la lista.
+                        Si no asignas, se usarán los nombres reales de la BD.
                     </div>
                     
-                    <div id="asignacionesContainer">
-                        <!-- Se llena con JS -->
-                    </div>
+                    <div id="asignacionesContainer"></div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
@@ -651,8 +672,9 @@ if ($resEmpresas) {
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // Datos
+        // Datos de PHP a JavaScript
         const empresasPuestos = <?php echo json_encode($empresasPuestosLista); ?>;
+        const todosConductores = <?php echo json_encode($todosConductores); ?>;
         let asignaciones = {};
         
         // Cargar asignaciones guardadas
@@ -666,7 +688,13 @@ if ($resEmpresas) {
             }
         }
         
-        // Actualizar badges en la lista
+        // Guardar asignaciones
+        function guardarAsignaciones() {
+            localStorage.setItem('asignacionesConductores', JSON.stringify(asignaciones));
+            actualizarBadges();
+        }
+        
+        // Actualizar badges
         function actualizarBadges() {
             empresasPuestos.forEach(empresa => {
                 const badge = document.getElementById(`badge_${md5(empresa)}`);
@@ -680,13 +708,6 @@ if ($resEmpresas) {
             });
         }
         
-        // Guardar asignaciones
-        function guardarAsignaciones() {
-            localStorage.setItem('asignacionesConductores', JSON.stringify(asignaciones));
-            actualizarBadges();
-        }
-        
-        // MD5 simple para IDs
         function md5(str) {
             return str.split('').reduce((a, b) => {
                 a = ((a << 5) - a) + b.charCodeAt(0);
@@ -694,7 +715,71 @@ if ($resEmpresas) {
             }, 0).toString(16);
         }
         
-        // Renderizar modal con todas las empresas
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Función para crear autocompletado en un input
+        function setupAutocomplete(input, cedulaInput, conductoresList) {
+            if (!input) return;
+            
+            let container = input.parentElement;
+            let autocompleteDiv = container.querySelector('.autocomplete-items');
+            
+            if (!autocompleteDiv) {
+                autocompleteDiv = document.createElement('div');
+                autocompleteDiv.className = 'autocomplete-items';
+                container.appendChild(autocompleteDiv);
+            }
+            
+            input.addEventListener('input', function() {
+                const valor = this.value.toLowerCase().trim();
+                if (valor.length === 0) {
+                    autocompleteDiv.innerHTML = '';
+                    autocompleteDiv.classList.remove('show');
+                    return;
+                }
+                
+                const filtrados = conductoresList.filter(c => 
+                    c.nombre.toLowerCase().includes(valor)
+                ).slice(0, 10);
+                
+                if (filtrados.length === 0) {
+                    autocompleteDiv.innerHTML = '<div class="autocomplete-item">No hay resultados</div>';
+                } else {
+                    autocompleteDiv.innerHTML = filtrados.map(c => `
+                        <div class="autocomplete-item" data-nombre="${escapeHtml(c.nombre)}" data-cedula="${escapeHtml(c.cedula || '')}">
+                            <strong>${escapeHtml(c.nombre)}</strong>
+                            <small>Cédula: ${escapeHtml(c.cedula || 'N/A')} | Tipo: ${escapeHtml(c.tipo_vehiculo || 'N/A')}</small>
+                        </div>
+                    `).join('');
+                }
+                autocompleteDiv.classList.add('show');
+            });
+            
+            autocompleteDiv.addEventListener('click', function(e) {
+                const item = e.target.closest('.autocomplete-item');
+                if (item) {
+                    input.value = item.getAttribute('data-nombre');
+                    if (cedulaInput) {
+                        cedulaInput.value = item.getAttribute('data-cedula');
+                    }
+                    autocompleteDiv.innerHTML = '';
+                    autocompleteDiv.classList.remove('show');
+                }
+            });
+            
+            document.addEventListener('click', function(e) {
+                if (!container.contains(e.target)) {
+                    autocompleteDiv.classList.remove('show');
+                }
+            });
+        }
+        
+        // Renderizar modal con autocompletado
         function renderizarModal() {
             const container = document.getElementById('asignacionesContainer');
             if (!container) return;
@@ -713,26 +798,34 @@ if ($resEmpresas) {
                 html += `
                     <div class="asignacion-item" data-empresa="${empresa.replace(/"/g, '&quot;')}">
                         <div class="asignacion-empresa">
-                            <i class="fas fa-building"></i> ${empresa}
+                            <i class="fas fa-building"></i> ${escapeHtml(empresa)}
                         </div>
                         <div class="row">
-                            <div class="col-md-6 mb-2">
+                            <div class="col-md-6 mb-3">
                                 <label class="form-label small fw-bold">Conductor 1</label>
-                                <input type="text" class="form-control form-control-sm conductor-nombre" 
-                                       placeholder="Nombre del conductor" value="${escapeHtml(conductor1.nombre)}"
-                                       data-empresa="${empresa}" data-conductor="1">
-                                <input type="text" class="form-control form-control-sm mt-1" 
-                                       placeholder="Cédula (opcional)" value="${escapeHtml(conductor1.cedula)}"
-                                       data-empresa="${empresa}" data-conductor="1-cedula">
+                                <div class="autocomplete-container">
+                                    <input type="text" class="form-control form-control-sm autocomplete-input conductor1-nombre" 
+                                           placeholder="Escribe para buscar conductor..." 
+                                           value="${escapeHtml(conductor1.nombre)}"
+                                           data-empresa="${empresa}" data-conductor="1">
+                                </div>
+                                <input type="text" class="form-control form-control-sm mt-1 conductor1-cedula" 
+                                       placeholder="Cédula (automática)" 
+                                       value="${escapeHtml(conductor1.cedula)}"
+                                       data-empresa="${empresa}" data-conductor="1-cedula" readonly>
                             </div>
-                            <div class="col-md-6 mb-2">
+                            <div class="col-md-6 mb-3">
                                 <label class="form-label small fw-bold">Conductor 2 (opcional)</label>
-                                <input type="text" class="form-control form-control-sm conductor-nombre" 
-                                       placeholder="Nombre del conductor" value="${escapeHtml(conductor2.nombre)}"
-                                       data-empresa="${empresa}" data-conductor="2">
-                                <input type="text" class="form-control form-control-sm mt-1" 
-                                       placeholder="Cédula (opcional)" value="${escapeHtml(conductor2.cedula)}"
-                                       data-empresa="${empresa}" data-conductor="2-cedula">
+                                <div class="autocomplete-container">
+                                    <input type="text" class="form-control form-control-sm autocomplete-input conductor2-nombre" 
+                                           placeholder="Escribe para buscar conductor..." 
+                                           value="${escapeHtml(conductor2.nombre)}"
+                                           data-empresa="${empresa}" data-conductor="2">
+                                </div>
+                                <input type="text" class="form-control form-control-sm mt-1 conductor2-cedula" 
+                                       placeholder="Cédula (automática)" 
+                                       value="${escapeHtml(conductor2.cedula)}"
+                                       data-empresa="${empresa}" data-conductor="2-cedula" readonly>
                             </div>
                         </div>
                         <div class="text-end mt-1">
@@ -745,6 +838,17 @@ if ($resEmpresas) {
             });
             container.innerHTML = html;
             
+            // Configurar autocompletado para cada input
+            empresasPuestos.forEach(empresa => {
+                const input1 = container.querySelector(`.conductor1-nombre[data-empresa="${empresa}"]`);
+                const cedula1 = container.querySelector(`.conductor1-cedula[data-empresa="${empresa}"]`);
+                const input2 = container.querySelector(`.conductor2-nombre[data-empresa="${empresa}"]`);
+                const cedula2 = container.querySelector(`.conductor2-cedula[data-empresa="${empresa}"]`);
+                
+                if (input1) setupAutocomplete(input1, cedula1, todosConductores);
+                if (input2) setupAutocomplete(input2, cedula2, todosConductores);
+            });
+            
             // Eventos para limpiar asignación individual
             document.querySelectorAll('.limpiar-asignacion').forEach(btn => {
                 btn.addEventListener('click', function() {
@@ -755,14 +859,6 @@ if ($resEmpresas) {
             });
         }
         
-        // Escape HTML
-        function escapeHtml(text) {
-            if (!text) return '';
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-        
         // Recoger datos del modal
         function recogerAsignacionesDesdeModal() {
             const nuevasAsignaciones = {};
@@ -770,10 +866,10 @@ if ($resEmpresas) {
                 const empresa = item.getAttribute('data-empresa');
                 const conductores = [];
                 
-                const nombre1 = item.querySelector('[data-conductor="1"]')?.value.trim();
-                const cedula1 = item.querySelector('[data-conductor="1-cedula"]')?.value.trim();
-                const nombre2 = item.querySelector('[data-conductor="2"]')?.value.trim();
-                const cedula2 = item.querySelector('[data-conductor="2-cedula"]')?.value.trim();
+                const nombre1 = item.querySelector('.conductor1-nombre')?.value.trim();
+                const cedula1 = item.querySelector('.conductor1-cedula')?.value.trim();
+                const nombre2 = item.querySelector('.conductor2-nombre')?.value.trim();
+                const cedula2 = item.querySelector('.conductor2-cedula')?.value.trim();
                 
                 if (nombre1) {
                     conductores.push({ nombre: nombre1, cedula: cedula1 || '' });
@@ -806,7 +902,6 @@ if ($resEmpresas) {
             }
         });
         
-        // Abrir modal
         document.getElementById('modalAsignaciones')?.addEventListener('show.bs.modal', function() {
             renderizarModal();
         });
@@ -861,7 +956,6 @@ if ($resEmpresas) {
                 return;
             }
             
-            // Guardar asignaciones en hidden field
             document.getElementById('hiddenAsignaciones').value = JSON.stringify(asignaciones);
         });
         
