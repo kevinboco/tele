@@ -10,12 +10,12 @@ if ($conn->connect_error) {
 }
 $conn->set_charset('utf8mb4');
 
-// Obtener lista de puestos de salud (rutas distintas)
-$puestosSalud = [];
-$resPuestos = $conn->query("SELECT DISTINCT ruta FROM viajes WHERE ruta IS NOT NULL AND ruta <> '' ORDER BY ruta ASC");
-if ($resPuestos) {
-    while ($r = $resPuestos->fetch_assoc()) {
-        $puestosSalud[] = $r['ruta'];
+// Obtener lista de EMPRESAS que contengan "P." (insensible a mayúsculas/minúsculas)
+$empresasPuestos = [];
+$resEmpresas = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa <> '' AND UPPER(empresa) LIKE '%P.%' ORDER BY empresa ASC");
+if ($resEmpresas) {
+    while ($r = $resEmpresas->fetch_assoc()) {
+        $empresasPuestos[] = $r['empresa'];
     }
 }
 
@@ -234,10 +234,10 @@ function obtenerTipoVehiculo($tipo) {
         
         .buscador-conductor input {
             width: 100%;
-            padding: 0.5rem 0.75rem 0.5rem 2rem;
+            padding: 0.6rem 0.75rem 0.6rem 2rem;
             border: 1px solid #e0e0e0;
             border-radius: 6px;
-            font-size: 0.85rem;
+            font-size: 0.9rem;
             outline: none;
             transition: all 0.3s;
         }
@@ -253,7 +253,7 @@ function obtenerTipoVehiculo($tipo) {
             top: 50%;
             transform: translateY(-50%);
             color: var(--secondary-color);
-            font-size: 0.8rem;
+            font-size: 0.9rem;
         }
         
         .lista-conductores-dropdown {
@@ -263,12 +263,12 @@ function obtenerTipoVehiculo($tipo) {
             right: 0;
             background: white;
             border: 1px solid #e0e0e0;
-            border-radius: 6px;
-            max-height: 200px;
+            border-radius: 8px;
+            max-height: 350px;
             overflow-y: auto;
             z-index: 1000;
             display: none;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.15);
         }
         
         .lista-conductores-dropdown.show {
@@ -276,7 +276,7 @@ function obtenerTipoVehiculo($tipo) {
         }
         
         .conductor-option {
-            padding: 0.5rem 0.75rem;
+            padding: 0.75rem 1rem;
             cursor: pointer;
             transition: background 0.2s;
             border-bottom: 1px solid #f0f0f0;
@@ -288,11 +288,11 @@ function obtenerTipoVehiculo($tipo) {
         
         .badge-vehiculo {
             display: inline-block;
-            padding: 0.1rem 0.4rem;
+            padding: 0.2rem 0.5rem;
             border-radius: 12px;
-            font-size: 0.6rem;
+            font-size: 0.65rem;
             font-weight: 500;
-            margin-top: 0.2rem;
+            margin-top: 0.25rem;
         }
         
         .badge-carrotanque {
@@ -335,9 +335,10 @@ function obtenerTipoVehiculo($tipo) {
             font-size: 0.85rem;
         }
         
+        /* Scroll más bonito */
         ::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
+            width: 8px;
+            height: 8px;
         }
         
         ::-webkit-scrollbar-track {
@@ -348,6 +349,16 @@ function obtenerTipoVehiculo($tipo) {
         ::-webkit-scrollbar-thumb {
             background: var(--primary-color);
             border-radius: 10px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: #0b5ed7;
+        }
+        
+        /* Select de empresas más grande */
+        .select-puesto {
+            font-size: 0.9rem;
+            padding: 0.5rem;
         }
     </style>
 </head>
@@ -363,14 +374,13 @@ function obtenerTipoVehiculo($tipo) {
             <div class="card-body-custom">
                 <div class="info-banner">
                     <i class="fas fa-info-circle"></i> 
-                    <strong>¿Cómo funciona?</strong> Aquí puedes asignar uno o más conductores a cada puesto de salud. 
-                    Estas asignaciones se guardarán y se usarán cuando generes los informes. Puedes agregar múltiples puestos 
-                    y a cada puesto asignarle 1 o 2 conductores.
+                    <strong>¿Cómo funciona?</strong> Aquí puedes asignar uno o más conductores a cada EMPRESA que tenga "P." en su nombre (Puesto de Salud). 
+                    Estas asignaciones se guardarán y se usarán cuando generes los informes. Puedes agregar múltiples empresas y a cada una asignarle 1 o 2 conductores.
                 </div>
                 
                 <!-- Botón para abrir el modal -->
                 <button type="button" class="btn-configurar" data-bs-toggle="modal" data-bs-target="#modalAsignacion">
-                    <i class="fas fa-users-cog"></i> 🎯 Asignar Conductores por Puesto de Salud
+                    <i class="fas fa-users-cog"></i> 🎯 Asignar Conductores por Empresa (P. *)
                 </button>
                 
                 <!-- Aquí se mostrará el resumen de asignaciones -->
@@ -390,26 +400,26 @@ function obtenerTipoVehiculo($tipo) {
             <div class="modal-content">
                 <div class="modal-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
                     <h5 class="modal-title">
-                        <i class="fas fa-users-cog"></i> Asignar Conductores a Puestos de Salud
+                        <i class="fas fa-users-cog"></i> Asignar Conductores a Empresas (Puesto de Salud)
                     </h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
                     <div class="alert alert-info">
                         <i class="fas fa-info-circle"></i> 
-                        <strong>Instrucciones:</strong> Agrega los puestos de salud que necesites. Para cada puesto, busca y selecciona 
-                        los conductores que le corresponden (puedes seleccionar 1 o 2 conductores por puesto).
+                        <strong>Instrucciones:</strong> Agrega las EMPRESAS que tengan "P." en su nombre. Para cada empresa, busca y selecciona 
+                        los conductores que le corresponden (puedes seleccionar 1 o 2 conductores por empresa).
                     </div>
                     
-                    <!-- Contenedor dinámico de puestos -->
+                    <!-- Contenedor dinámico de empresas/puestos -->
                     <div id="contenedorPuestos">
                         <!-- Las filas se agregarán aquí dinámicamente -->
                     </div>
                     
-                    <!-- Botón para agregar nuevo puesto -->
+                    <!-- Botón para agregar nueva empresa -->
                     <div class="text-center mt-3">
                         <button type="button" class="btn-agregar-puesto" id="btnAgregarPuesto">
-                            <i class="fas fa-plus-circle"></i> Agregar otro puesto de salud
+                            <i class="fas fa-plus-circle"></i> Agregar otra empresa (P. *)
                         </button>
                     </div>
                 </div>
@@ -428,7 +438,7 @@ function obtenerTipoVehiculo($tipo) {
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         // Datos de PHP a JavaScript
-        const puestosSalud = <?php echo json_encode($puestosSalud); ?>;
+        const empresasPuestos = <?php echo json_encode($empresasPuestos); ?>;
         const todosConductores = <?php echo json_encode($todosConductores); ?>;
         
         // Almacenar asignaciones
@@ -440,10 +450,21 @@ function obtenerTipoVehiculo($tipo) {
         // Función para obtener badge del tipo de vehículo
         function obtenerBadgeVehiculo(tipoVehiculo) {
             const esCarrotanque = tipoVehiculo && tipoVehiculo.toLowerCase().includes('carrotanque');
-            const tipoFormateado = tipoVehiculo ? tipoVehiculo : '-';
+            const tipoFormateado = obtenerTipoVehiculoFormateado(tipoVehiculo);
             const badgeClass = esCarrotanque ? 'badge-carrotanque' : 'badge-otro';
             const icono = esCarrotanque ? 'fa-truck' : 'fa-car';
             return `<span class="badge-vehiculo ${badgeClass}"><i class="fas ${icono}"></i> ${tipoFormateado}</span>`;
+        }
+        
+        // Función para formatear tipo de vehículo
+        function obtenerTipoVehiculoFormateado(tipo) {
+            if (!tipo) return '-';
+            const tipoLower = tipo.toLowerCase();
+            if (tipoLower.includes('burbuja')) return 'Camioneta Burbuja 4x4 Doble Cabina';
+            if (tipoLower.includes('carrotanque')) return 'Carrotanque';
+            if (tipoLower.includes('350')) return 'Camión 350';
+            if (tipoLower.includes('copetrana')) return 'Copetrana';
+            return tipo;
         }
         
         // Función para renderizar la lista de conductores seleccionados para un puesto
@@ -502,15 +523,15 @@ function obtenerTipoVehiculo($tipo) {
             }
         }
         
-        // Función para agregar un nuevo puesto
-        function agregarPuesto(puestoPredefinido = null) {
+        // Función para agregar una nueva empresa/puesto
+        function agregarPuesto(empresaPredefinida = null) {
             const id = ++contadorPuestos;
-            const puestoSeleccionado = puestoPredefinido || '';
+            const empresaSeleccionada = empresaPredefinida || '';
             
             // Crear objeto de asignación
             asignaciones.push({
                 id: id,
-                puesto: puestoSeleccionado,
+                empresa: empresaSeleccionada,
                 conductores: []
             });
             
@@ -522,12 +543,13 @@ function obtenerTipoVehiculo($tipo) {
                 <div class="row">
                     <div class="col-md-5">
                         <label class="form-label fw-bold">
-                            <i class="fas fa-hospital"></i> Puesto de Salud
+                            <i class="fas fa-building"></i> Empresa (Puesto de Salud)
                         </label>
                         <select class="form-select select-puesto" data-puesto-id="${id}">
-                            <option value="">-- Seleccione un puesto --</option>
-                            ${puestosSalud.map(p => `<option value="${escapeHtml(p)}" ${p === puestoSeleccionado ? 'selected' : ''}>${escapeHtml(p)}</option>`).join('')}
+                            <option value="">-- Seleccione una empresa con P. --</option>
+                            ${empresasPuestos.map(e => `<option value="${escapeHtml(e)}" ${e === empresaSeleccionada ? 'selected' : ''}>${escapeHtml(e)}</option>`).join('')}
                         </select>
+                        ${empresasPuestos.length === 0 ? '<small class="text-danger">⚠️ No hay empresas con "P." en la base de datos</small>' : ''}
                     </div>
                     <div class="col-md-7">
                         <div class="d-flex justify-content-between align-items-center mb-2">
@@ -538,7 +560,7 @@ function obtenerTipoVehiculo($tipo) {
                                 0/2 conductores
                             </span>
                             <button type="button" class="btn-eliminar-puesto" onclick="eliminarPuesto(${id})">
-                                <i class="fas fa-trash-alt"></i> Eliminar puesto
+                                <i class="fas fa-trash-alt"></i> Eliminar
                             </button>
                         </div>
                         <div id="conductores-${id}" class="mb-2">
@@ -564,7 +586,7 @@ function obtenerTipoVehiculo($tipo) {
             select.addEventListener('change', function(e) {
                 const filaAsignacion = asignaciones.find(a => a.id === id);
                 if (filaAsignacion) {
-                    filaAsignacion.puesto = this.value;
+                    filaAsignacion.empresa = this.value;
                 }
             });
             
@@ -588,7 +610,7 @@ function obtenerTipoVehiculo($tipo) {
             });
         }
         
-        // Función para filtrar conductores en el dropdown
+        // Función para filtrar conductores en el dropdown (más grande)
         function filtrarConductoresDropdown(input, dropdown, puestoId) {
             const busqueda = input.value.toLowerCase().trim();
             let conductoresFiltrados = todosConductores;
@@ -604,9 +626,11 @@ function obtenerTipoVehiculo($tipo) {
             } else {
                 dropdown.innerHTML = conductoresFiltrados.map(conductor => `
                     <div class="conductor-option" onclick="seleccionarConductor(${puestoId}, '${escapeHtml(conductor.nombre)}', '${escapeHtml(conductor.cedula || 'N/A')}', '${escapeHtml(conductor.tipo_vehiculo || '')}')">
-                        <div><strong>${escapeHtml(conductor.nombre)}</strong></div>
-                        <div style="font-size: 0.7rem; color: #6c757d;">Cédula: ${escapeHtml(conductor.cedula || 'N/A')}</div>
-                        <div>${obtenerBadgeVehiculo(conductor.tipo_vehiculo)}</div>
+                        <div><strong><i class="fas fa-user"></i> ${escapeHtml(conductor.nombre)}</strong></div>
+                        <div style="font-size: 0.7rem; color: #6c757d; margin-top: 3px;">
+                            <i class="fas fa-id-card"></i> Cédula: ${escapeHtml(conductor.cedula || 'N/A')}
+                        </div>
+                        <div style="margin-top: 5px;">${obtenerBadgeVehiculo(conductor.tipo_vehiculo)}</div>
                     </div>
                 `).join('');
             }
@@ -622,13 +646,13 @@ function obtenerTipoVehiculo($tipo) {
             
             // Verificar límite de 2 conductores
             if (filaAsignacion.conductores.length >= 2) {
-                alert('⚠️ Solo puedes asignar máximo 2 conductores por puesto de salud.');
+                alert('⚠️ Solo puedes asignar máximo 2 conductores por empresa.');
                 return;
             }
             
             // Verificar si ya está asignado
             if (filaAsignacion.conductores.some(c => c.nombre === nombre)) {
-                alert('⚠️ Este conductor ya está asignado a este puesto.');
+                alert('⚠️ Este conductor ya está asignado a esta empresa.');
                 return;
             }
             
@@ -654,7 +678,7 @@ function obtenerTipoVehiculo($tipo) {
             }
         };
         
-        // Función para eliminar un puesto completo
+        // Función para eliminar una empresa/puesto completo
         window.eliminarPuesto = function(puestoId) {
             // Eliminar del array de asignaciones
             const index = asignaciones.findIndex(a => a.id === puestoId);
@@ -672,7 +696,7 @@ function obtenerTipoVehiculo($tipo) {
         // Función para actualizar el resumen de asignaciones
         function actualizarResumen() {
             const resumenDiv = document.getElementById('listaResumen');
-            const asignacionesActivas = asignaciones.filter(a => a.puesto && a.conductores.length > 0);
+            const asignacionesActivas = asignaciones.filter(a => a.empresa && a.conductores.length > 0);
             
             if (asignacionesActivas.length === 0) {
                 resumenDiv.innerHTML = '<p class="text-muted text-center mb-0">No hay asignaciones guardadas. Configura usando el botón.</p>';
@@ -683,7 +707,7 @@ function obtenerTipoVehiculo($tipo) {
             asignacionesActivas.forEach(asig => {
                 html += `
                     <div class="resumen-item">
-                        <strong><i class="fas fa-hospital"></i> ${escapeHtml(asig.puesto)}</strong><br>
+                        <strong><i class="fas fa-building"></i> ${escapeHtml(asig.empresa)}</strong><br>
                         <span style="font-size: 0.8rem;">Conductores asignados:</span><br>
                         ${asig.conductores.map(c => `&nbsp;&nbsp;<i class="fas fa-user"></i> ${escapeHtml(c.nombre)}`).join('<br>')}
                     </div>
@@ -694,15 +718,15 @@ function obtenerTipoVehiculo($tipo) {
         
         // Guardar asignaciones
         document.getElementById('btnGuardarAsignaciones').addEventListener('click', function() {
-            // Filtrar solo las asignaciones que tienen puesto y al menos un conductor
-            const asignacionesValidas = asignaciones.filter(a => a.puesto && a.conductores.length > 0);
+            // Filtrar solo las asignaciones que tienen empresa y al menos un conductor
+            const asignacionesValidas = asignaciones.filter(a => a.empresa && a.conductores.length > 0);
             
             if (asignacionesValidas.length === 0) {
-                alert('⚠️ No has configurado ninguna asignación válida. Debes seleccionar un puesto y al menos un conductor.');
+                alert('⚠️ No has configurado ninguna asignación válida. Debes seleccionar una empresa y al menos un conductor.');
                 return;
             }
             
-            // Aquí puedes guardar en localStorage o enviar al servidor
+            // Guardar en localStorage
             localStorage.setItem('asignacionesPuestosSalud', JSON.stringify(asignacionesValidas));
             
             actualizarResumen();
@@ -721,10 +745,10 @@ function obtenerTipoVehiculo($tipo) {
                 try {
                     const asignacionesGuardadas = JSON.parse(guardadas);
                     asignacionesGuardadas.forEach(asig => {
-                        agregarPuesto(asig.puesto);
+                        agregarPuesto(asig.empresa);
                         // Esperar un poco para que se cree el DOM
                         setTimeout(() => {
-                            const fila = asignaciones.find(a => a.puesto === asig.puesto);
+                            const fila = asignaciones.find(a => a.empresa === asig.empresa);
                             if (fila) {
                                 fila.conductores = asig.conductores;
                                 renderizarConductoresSeleccionados(fila.id, fila.conductores);
@@ -747,7 +771,7 @@ function obtenerTipoVehiculo($tipo) {
             return div.innerHTML;
         }
         
-        // Evento para abrir el modal y limpiar las asignaciones temporales
+        // Evento para abrir el modal
         document.getElementById('modalAsignacion').addEventListener('show.bs.modal', function() {
             // Limpiar el contenedor
             document.getElementById('contenedorPuestos').innerHTML = '';
@@ -761,13 +785,13 @@ function obtenerTipoVehiculo($tipo) {
                 try {
                     const asignacionesGuardadas = JSON.parse(guardadas);
                     if (asignacionesGuardadas.length === 0) {
-                        // Si no hay asignaciones, agregar un puesto vacío
+                        // Si no hay asignaciones, agregar una fila vacía
                         agregarPuesto();
                     } else {
                         asignacionesGuardadas.forEach(asig => {
-                            agregarPuesto(asig.puesto);
+                            agregarPuesto(asig.empresa);
                             setTimeout(() => {
-                                const fila = asignaciones.find(a => a.puesto === asig.puesto);
+                                const fila = asignaciones.find(a => a.empresa === asig.empresa);
                                 if (fila) {
                                     fila.conductores = asig.conductores;
                                     renderizarConductoresSeleccionados(fila.id, fila.conductores);
@@ -784,7 +808,7 @@ function obtenerTipoVehiculo($tipo) {
             }
         });
         
-        // Botón para agregar puesto
+        // Botón para agregar empresa
         document.getElementById('btnAgregarPuesto').addEventListener('click', function() {
             agregarPuesto();
         });
