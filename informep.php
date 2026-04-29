@@ -3,12 +3,245 @@
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
+require 'vendor/autoload.php';
+
+use PhpOffice\PhpWord\PhpWord;
+use PhpOffice\PhpWord\IOFactory;
+
 // Conexión BD
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
 if ($conn->connect_error) {
     die("Error conexión BD: " . $conn->connect_error);
 }
 $conn->set_charset('utf8mb4');
+
+// ========== PROCESAR GENERACIÓN DE INFORME WORD ==========
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_informe'])) {
+    
+    // Evitar cualquier salida previa
+    if (ob_get_level()) { ob_end_clean(); }
+    header_remove();
+    
+    $fecha_desde = $_POST['fecha_desde'];
+    $fecha_hasta = $_POST['fecha_hasta'];
+    
+    if (empty($fecha_desde) || empty($fecha_hasta)) {
+        die("Error: Debe seleccionar ambas fechas.");
+    }
+    
+    // Obtener asignaciones guardadas
+    $asignacionesGuardadas = [];
+    $guardadas = isset($_POST['asignaciones_json']) ? $_POST['asignaciones_json'] : '';
+    
+    if (!empty($guardadas)) {
+        $asignacionesGuardadas = json_decode($guardadas, true);
+    } else {
+        // Intentar cargar desde localStorage (no se puede en PHP, así que mostramos error)
+        die("Error: No hay asignaciones de conductores. Configure primero los conductores por puesto de salud.");
+    }
+    
+    if (empty($asignacionesGuardadas)) {
+        die("Error: No hay asignaciones de conductores. Configure primero los conductores por puesto de salud.");
+    }
+    
+    // Función para formatear valores monetarios
+    function formatearMoneda($valor) {
+        if ($valor === null || $valor === '') return 'N/A';
+        return '$ ' . number_format(floatval($valor), 0, ',', '.');
+    }
+    
+    // Función para obtener el tipo de vehículo formateado
+    function obtenerTipoVehiculo($tipo) {
+        if (stripos($tipo, 'burbuja') !== false) {
+            return 'Camioneta Burbuja 4x4 Doble Cabina';
+        }
+        if (stripos($tipo, 'carrotanque') !== false) {
+            return 'Carrotanque';
+        }
+        if (stripos($tipo, '350') !== false) {
+            return 'Camión 350';
+        }
+        if (stripos($tipo, 'copetrana') !== false) {
+            return 'Copetrana';
+        }
+        return $tipo ?: '-';
+    }
+    
+    // Generar documento Word
+    $phpWord = new PhpWord();
+    $section = $phpWord->addSection();
+    
+    // Configurar márgenes
+    $section->getStyle()->setMarginTop(720);
+    $section->getStyle()->setMarginBottom(720);
+    $section->getStyle()->setMarginLeft(720);
+    $section->getStyle()->setMarginRight(720);
+    
+    // Título principal
+    $section->addText("INFORME DE VIAJES POR PUESTO DE SALUD Y CONDUCTOR", ['bold' => true, 'size' => 16, 'color' => '1F4E78'], ['align' => 'center']);
+    $section->addTextBreak(0.5);
+    
+    // Subtítulo
+    $section->addText("ASOCIACIÓN DE TRANSPORTISTAS ZONA NORTE EXTREMA WUINPUMUÍN", 
+        ['italic' => true, 'size' => 10, 'color' => '666666'], ['align' => 'center']);
+    $section->addTextBreak(0.5);
+    
+    // Información del periodo
+    $section->addText("Periodo: " . date('d/m/Y', strtotime($fecha_desde)) . " al " . date('d/m/Y', strtotime($fecha_hasta)), ['bold' => true, 'size' => 10]);
+    $section->addTextBreak(1);
+    
+    // Procesar cada empresa asignada
+    foreach ($asignacionesGuardadas as $asignacion) {
+        $empresa = $asignacion['empresa'];
+        $conductores = $asignacion['conductores'];
+        
+        if (empty($conductores)) continue;
+        
+        // Título de la empresa
+        $section->addTextBreak(0.5);
+        $section->addText(strtoupper($empresa), ['bold' => true, 'size' => 14, 'color' => '1F4E78']);
+        $section->addTextBreak(0.3);
+        
+        // Procesar cada conductor de esta empresa
+        foreach ($conductores as $conductor) {
+            $nombreConductor = $conductor['nombre'];
+            $cedulaConductor = $conductor['cedula'] ?? 'N/A';
+            
+            // Consultar viajes de este conductor en esta empresa en el rango de fechas
+            $fechaDesdeSql = $conn->real_escape_string($fecha_desde . " 00:00:00");
+            $fechaHastaSql = $conn->real_escape_string($fecha_hasta . " 23:59:59");
+            $empresaSql = $conn->real_escape_string($empresa);
+            $conductorSql = $conn->real_escape_string($nombreConductor);
+            
+            $sqlViajes = "
+                SELECT 
+                    v.fecha,
+                    v.ruta,
+                    v.tipo_vehiculo,
+                    v.empresa,
+                    rc.clasificacion,
+                    CASE 
+                        WHEN rc.clasificacion = 'completo' THEN t.completo
+                        WHEN rc.clasificacion = 'medio' THEN t.medio
+                        WHEN rc.clasificacion = 'extra' THEN t.extra
+                        WHEN rc.clasificacion = 'carrotanque' THEN t.carrotanque
+                        WHEN rc.clasificacion = 'siapana' THEN t.siapana
+                        WHEN rc.clasificacion = 'prueba' THEN t.prueba
+                        WHEN rc.clasificacion = 'riohacha_completo' THEN t.riohacha_completo
+                        WHEN rc.clasificacion = 'riohacha_medio' THEN t.riohacha_medio
+                        WHEN rc.clasificacion = 'nazareth_siapana_maicao' THEN t.nazareth_siapana_maicao
+                        WHEN rc.clasificacion = 'nazareth_siapana_flor_de_la_guajira' THEN t.nazareth_siapana_flor_de_la_guajira
+                        ELSE NULL
+                    END as valor_viaje
+                FROM viajes v
+                LEFT JOIN ruta_clasificacion rc 
+                    ON v.ruta COLLATE utf8mb4_general_ci = rc.ruta COLLATE utf8mb4_general_ci
+                    AND v.tipo_vehiculo COLLATE utf8mb4_general_ci = rc.tipo_vehiculo COLLATE utf8mb4_general_ci
+                LEFT JOIN tarifas t 
+                    ON v.empresa COLLATE utf8mb4_general_ci = t.empresa COLLATE utf8mb4_general_ci
+                    AND v.tipo_vehiculo COLLATE utf8mb4_general_ci = t.tipo_vehiculo COLLATE utf8mb4_general_ci
+                WHERE v.fecha >= '$fechaDesdeSql' 
+                    AND v.fecha <= '$fechaHastaSql'
+                    AND v.empresa = '$empresaSql'
+                    AND v.nombre = '$conductorSql'
+                ORDER BY v.fecha ASC, v.id ASC
+            ";
+            
+            $resViajes = $conn->query($sqlViajes);
+            
+            if (!$resViajes) {
+                continue;
+            }
+            
+            $viajes = [];
+            $totalValor = 0;
+            
+            while ($row = $resViajes->fetch_assoc()) {
+                $valor = floatval($row['valor_viaje'] ?? 0);
+                $totalValor += $valor;
+                $viajes[] = [
+                    'fecha' => $row['fecha'],
+                    'ruta' => $row['ruta'],
+                    'tipo_vehiculo' => $row['tipo_vehiculo'],
+                    'valor' => $valor,
+                    'clasificacion' => $row['clasificacion']
+                ];
+            }
+            
+            // Subtítulo del conductor
+            $section->addText("Conductor: " . $nombreConductor . " (Cédula: " . $cedulaConductor . ")", ['bold' => true, 'size' => 11]);
+            $section->addTextBreak(0.2);
+            
+            if (empty($viajes)) {
+                $section->addText("No hay viajes registrados en este período.", ['italic' => true, 'size' => 9, 'color' => '999999']);
+                $section->addTextBreak(0.5);
+                continue;
+            }
+            
+            // Crear tabla de viajes
+            $table = $section->addTable(['borderSize' => 1, 'borderColor' => 'AAAAAA', 'cellMargin' => 60, 'width' => 100 * 50]);
+            
+            // Encabezados
+            $table->addRow();
+            $table->addCell(1500)->addText("FECHA", ['bold' => true, 'size' => 9, 'align' => 'center']);
+            $table->addCell(3500)->addText("RUTA", ['bold' => true, 'size' => 9, 'align' => 'center']);
+            $table->addCell(3000)->addText("TIPO VEHÍCULO", ['bold' => true, 'size' => 9, 'align' => 'center']);
+            $table->addCell(2000)->addText("VALOR", ['bold' => true, 'size' => 9, 'align' => 'center']);
+            
+            // Filas de viajes
+            foreach ($viajes as $viaje) {
+                $table->addRow();
+                $table->addCell(1500)->addText(date('d/m/Y', strtotime($viaje['fecha'])), ['size' => 9]);
+                $table->addCell(3500)->addText($viaje['ruta'] ?: '-', ['size' => 9]);
+                $table->addCell(3000)->addText(obtenerTipoVehiculo($viaje['tipo_vehiculo']), ['size' => 9]);
+                
+                if ($viaje['valor'] > 0) {
+                    $table->addCell(2000)->addText(formatearMoneda($viaje['valor']), ['size' => 9, 'align' => 'right']);
+                } else {
+                    $textoValor = "N/A";
+                    if (!empty($viaje['clasificacion'])) {
+                        $textoValor = "Sin tarifa (" . $viaje['clasificacion'] . ")";
+                    }
+                    $table->addCell(2000)->addText($textoValor, ['size' => 9, 'align' => 'right']);
+                }
+            }
+            
+            // Fila de total
+            $table->addRow();
+            $cellTotal = $table->addCell(8000, ['gridSpan' => 3]);
+            $cellTotal->addText("TOTAL", ['bold' => true, 'size' => 9, 'align' => 'right']);
+            $table->addCell(2000)->addText(formatearMoneda($totalValor), ['bold' => true, 'size' => 9, 'align' => 'right', 'color' => 'CC0000']);
+            
+            $section->addTextBreak(0.8);
+        }
+        
+        $section->addTextBreak(0.5);
+        $section->addText("_______________________________________________________________________________", ['size' => 8]);
+        $section->addTextBreak(0.5);
+    }
+    
+    // Firma
+    $section->addTextBreak(2);
+    date_default_timezone_set('America/Bogota');
+    $section->addText("Maicao, " . date('d/m/Y'), ['align' => 'right']);
+    $section->addTextBreak(1);
+    $section->addText("Cordialmente,", ['align' => 'right']);
+    $section->addTextBreak(2);
+    $section->addText("NUMAS JOSÉ IGUARÁN IGUARÁN", ['bold' => true, 'align' => 'right']);
+    $section->addText("Representante Legal", ['align' => 'right']);
+    
+    // Generar archivo
+    $filename = "informe_conductores_por_puesto_" . date('Ymd_His') . ".docx";
+    header("Content-Description: File Transfer");
+    header("Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    header("Content-Disposition: attachment; filename=\"$filename\"");
+    header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+    header("Pragma: public");
+    
+    $writer = IOFactory::createWriter($phpWord, 'Word2007');
+    $writer->save('php://output');
+    exit;
+}
 
 // Obtener lista de EMPRESAS que contengan "P." (insensible a mayúsculas/minúsculas)
 $empresasPuestos = [];
@@ -135,12 +368,29 @@ function obtenerTipoVehiculo($tipo) {
             border: none;
             transition: all 0.3s;
             width: 100%;
-            margin-bottom: 2rem;
+            margin-bottom: 1.5rem;
         }
         
         .btn-configurar:hover {
             transform: translateY(-3px);
             box-shadow: 0 10px 25px rgba(238,90,36,0.3);
+        }
+        
+        .btn-generar-informe {
+            background: linear-gradient(135deg, var(--success-color) 0%, #0f6848 100%);
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 1.1rem;
+            border: none;
+            transition: all 0.3s;
+            width: 100%;
+        }
+        
+        .btn-generar-informe:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px rgba(25,135,84,0.3);
         }
         
         .btn-agregar-puesto {
@@ -359,45 +609,24 @@ function obtenerTipoVehiculo($tipo) {
             color: var(--primary-color);
         }
         
-        .input-presupuesto {
-            width: 180px;
-            padding: 0.4rem 0.6rem;
+        .filtros-informe {
+            background: #f0f4ff;
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
             border: 1px solid #cce5ff;
-            border-radius: 6px;
+        }
+        
+        .filtros-informe label {
+            font-weight: 600;
             font-size: 0.85rem;
-            text-align: right;
-            font-weight: 500;
-            transition: all 0.2s;
+            margin-bottom: 0.25rem;
         }
         
-        .input-presupuesto:focus {
-            outline: none;
-            border-color: var(--primary-color);
-            box-shadow: 0 0 0 2px rgba(13,110,253,0.1);
-        }
-        
-        .resumen-item-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-        }
-        
-        .resumen-item-info {
-            flex: 1;
-        }
-        
-        .resumen-item-presupuesto {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        
-        .resumen-item-presupuesto label {
-            font-size: 0.7rem;
-            color: var(--secondary-color);
-            margin: 0;
+        .filtros-informe input {
+            border-radius: 8px;
+            padding: 0.5rem;
+            border: 1px solid #cce5ff;
         }
         
         .info-banner {
@@ -429,7 +658,6 @@ function obtenerTipoVehiculo($tipo) {
             background: #0b5ed7;
         }
         
-        /* Select de empresas más grande */
         .select-puesto {
             font-size: 0.9rem;
             padding: 0.5rem;
@@ -448,8 +676,28 @@ function obtenerTipoVehiculo($tipo) {
             <div class="card-body-custom">
                 <div class="info-banner">
                     <i class="fas fa-info-circle"></i> 
-                    <strong>¿Cómo funciona?</strong> Aquí puedes asignar uno o más conductores a cada EMPRESA que tenga "P." en su nombre (Puesto de Salud). 
-                    También puedes asignar un presupuesto específico para cada empresa o usar el botón para asignar el mismo presupuesto a todas.
+                    <strong>¿Cómo funciona?</strong> Primero asigna los conductores a cada empresa (puesto de salud). 
+                    Luego selecciona las fechas y genera el informe en Word. Cada conductor tendrá su propia tabla con sus viajes.
+                </div>
+                
+                <!-- Filtros para el informe -->
+                <div class="filtros-informe">
+                    <h6 class="mb-3"><i class="fas fa-calendar-alt"></i> Seleccionar período para el informe</h6>
+                    <div class="row g-3">
+                        <div class="col-md-5">
+                            <label>Fecha Desde</label>
+                            <input type="date" id="fecha_desde" class="form-control">
+                        </div>
+                        <div class="col-md-5">
+                            <label>Fecha Hasta</label>
+                            <input type="date" id="fecha_hasta" class="form-control">
+                        </div>
+                        <div class="col-md-2 d-flex align-items-end">
+                            <button type="button" class="btn-generar-informe w-100" id="btnGenerarInforme">
+                                <i class="fas fa-file-word"></i> Generar Informe Word
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 
                 <!-- Botón para abrir el modal -->
@@ -461,7 +709,7 @@ function obtenerTipoVehiculo($tipo) {
                 <div id="resumenAsignaciones" class="resumen-asignaciones">
                     <div class="resumen-header">
                         <h5><i class="fas fa-list-check"></i> Asignaciones actuales</h5>
-                        <button type="button" class="btn-asignar-mismo-presupuesto" id="btnMismoPresupuesto">
+                        <button type="button" class="btn-asignar-mismo-presupuesto" id="btnMismoPresupuesto" style="display: none;">
                             <i class="fas fa-dollar-sign"></i> Asignar mismo presupuesto a todos
                         </button>
                     </div>
@@ -514,6 +762,14 @@ function obtenerTipoVehiculo($tipo) {
         </div>
     </div>
 
+    <!-- Formulario oculto para enviar datos al servidor -->
+    <form id="formGenerarInforme" method="POST" action="" style="display: none;">
+        <input type="hidden" name="accion_generar_informe" value="1">
+        <input type="hidden" name="fecha_desde" id="hidden_fecha_desde">
+        <input type="hidden" name="fecha_hasta" id="hidden_fecha_hasta">
+        <input type="hidden" name="asignaciones_json" id="hidden_asignaciones_json">
+    </form>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         // Datos de PHP a JavaScript
@@ -525,38 +781,6 @@ function obtenerTipoVehiculo($tipo) {
         
         // Contador para IDs únicos
         let contadorPuestos = 0;
-        
-        // Función para formatear número con puntos (separadores de miles)
-        function formatearNumero(numero) {
-            if (numero === '' || numero === null || numero === undefined) return '';
-            // Si es string, convertir a número
-            let num = typeof numero === 'string' ? parseFloat(numero.replace(/\./g, '').replace(/,/g, '')) : numero;
-            if (isNaN(num)) return '';
-            // Formatear con puntos como separadores de miles
-            return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-        }
-        
-        // Función para desformatear número (quitar puntos)
-        function desformatearNumero(numeroFormateado) {
-            if (!numeroFormateado) return '';
-            return numeroFormateado.toString().replace(/\./g, '');
-        }
-        
-        // Función para aplicar máscara a input de presupuesto
-        function aplicarMascaraPresupuesto(input) {
-            if (!input) return;
-            let valor = input.value.replace(/\./g, '').replace(/[^0-9]/g, '');
-            if (valor === '') {
-                input.value = '';
-                return;
-            }
-            let numero = parseInt(valor, 10);
-            if (isNaN(numero)) {
-                input.value = '';
-                return;
-            }
-            input.value = formatearNumero(numero);
-        }
         
         // Función para obtener badge del tipo de vehículo
         function obtenerBadgeVehiculo(tipoVehiculo) {
@@ -635,17 +859,15 @@ function obtenerTipoVehiculo($tipo) {
         }
         
         // Función para agregar una nueva empresa/puesto
-        function agregarPuesto(empresaPredefinida = null, presupuestoPredefinido = null) {
+        function agregarPuesto(empresaPredefinida = null) {
             const id = ++contadorPuestos;
             const empresaSeleccionada = empresaPredefinida || '';
-            const presupuestoValor = presupuestoPredefinido || '';
             
             // Crear objeto de asignación
             asignaciones.push({
                 id: id,
                 empresa: empresaSeleccionada,
-                conductores: [],
-                presupuesto: presupuestoValor
+                conductores: []
             });
             
             const contenedor = document.getElementById('contenedorPuestos');
@@ -723,7 +945,7 @@ function obtenerTipoVehiculo($tipo) {
             });
         }
         
-        // Función para filtrar conductores en el dropdown (más grande)
+        // Función para filtrar conductores en el dropdown
         function filtrarConductoresDropdown(input, dropdown, puestoId) {
             const busqueda = input.value.toLowerCase().trim();
             let conductoresFiltrados = todosConductores;
@@ -806,7 +1028,7 @@ function obtenerTipoVehiculo($tipo) {
             }
         };
         
-        // Función para actualizar el resumen de asignaciones (con presupuesto)
+        // Función para actualizar el resumen de asignaciones
         function actualizarResumen() {
             const resumenDiv = document.getElementById('listaResumen');
             const asignacionesActivas = asignaciones.filter(a => a.empresa && a.conductores.length > 0);
@@ -818,23 +1040,13 @@ function obtenerTipoVehiculo($tipo) {
             
             let html = '';
             asignacionesActivas.forEach((asig, index) => {
-                const presupuestoMostrar = asig.presupuesto ? formatearNumero(asig.presupuesto) : '';
                 html += `
                     <div class="resumen-item" data-empresa-idx="${index}">
-                        <div class="resumen-item-row">
+                        <div class="resumen-item-row" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
                             <div class="resumen-item-info">
                                 <strong><i class="fas fa-building"></i> ${escapeHtml(asig.empresa)}</strong><br>
                                 <span style="font-size: 0.8rem;">Conductores asignados:</span><br>
                                 ${asig.conductores.map(c => `&nbsp;&nbsp;<i class="fas fa-user"></i> ${escapeHtml(c.nombre)}`).join('<br>')}
-                            </div>
-                            <div class="resumen-item-presupuesto">
-                                <label><i class="fas fa-dollar-sign"></i> Presupuesto:</label>
-                                <input type="text" 
-                                       class="input-presupuesto" 
-                                       data-empresa="${escapeHtml(asig.empresa)}"
-                                       value="${presupuestoMostrar}"
-                                       placeholder="0"
-                                       oninput="actualizarPresupuesto('${escapeHtml(asig.empresa)}', this)">
                             </div>
                         </div>
                     </div>
@@ -843,77 +1055,19 @@ function obtenerTipoVehiculo($tipo) {
             resumenDiv.innerHTML = html;
         }
         
-        // Función para actualizar el presupuesto de una empresa específica
-        window.actualizarPresupuesto = function(empresa, inputElement) {
-            // Aplicar máscara al input
-            aplicarMascaraPresupuesto(inputElement);
-            
-            // Obtener valor numérico (sin puntos)
-            const valorSinPuntos = desformatearNumero(inputElement.value);
-            const valorNumerico = valorSinPuntos ? parseFloat(valorSinPuntos) : 0;
-            
-            // Buscar la asignación y actualizar su presupuesto
-            const asignacion = asignaciones.find(a => a.empresa === empresa);
-            if (asignacion) {
-                asignacion.presupuesto = isNaN(valorNumerico) ? 0 : valorNumerico;
-                guardarEnLocalStorage();
-            }
-        };
-        
-        // Función para asignar el mismo presupuesto a todas las empresas
-        function asignarMismoPresupuestoATodos() {
-            const asignacionesActivas = asignaciones.filter(a => a.empresa && a.conductores.length > 0);
-            
-            if (asignacionesActivas.length === 0) {
-                alert('⚠️ No hay asignaciones para modificar.');
-                return;
-            }
-            
-            const valor = prompt('💰 Ingrese el presupuesto para TODAS las empresas:', '0');
-            
-            if (valor === null) return; // Canceló
-            
-            // Limpiar el valor (quitar puntos si los tiene)
-            let valorLimpio = valor.toString().replace(/\./g, '').replace(/[^0-9]/g, '');
-            
-            if (valorLimpio === '' || isNaN(parseFloat(valorLimpio))) {
-                alert('⚠️ Por favor ingrese un valor numérico válido.');
-                return;
-            }
-            
-            const valorNumerico = parseFloat(valorLimpio);
-            const valorFormateado = formatearNumero(valorNumerico);
-            
-            // Actualizar todas las asignaciones
-            asignacionesActivas.forEach(asig => {
-                asig.presupuesto = valorNumerico;
-            });
-            
-            // Guardar en localStorage
-            guardarEnLocalStorage();
-            
-            // Actualizar el resumen
-            actualizarResumen();
-            
-            // Mostrar mensaje de éxito
-            alert(`✅ Presupuesto de ${valorFormateado} asignado a todas las empresas.`);
-        }
-        
         // Guardar asignaciones en localStorage
         function guardarEnLocalStorage() {
             const asignacionesParaGuardar = asignaciones
                 .filter(a => a.empresa && a.conductores.length > 0)
                 .map(a => ({
                     empresa: a.empresa,
-                    conductores: a.conductores,
-                    presupuesto: a.presupuesto || 0
+                    conductores: a.conductores
                 }));
             localStorage.setItem('asignacionesPuestosSalud', JSON.stringify(asignacionesParaGuardar));
         }
         
         // Guardar asignaciones desde el modal
         document.getElementById('btnGuardarAsignaciones').addEventListener('click', function() {
-            // Filtrar solo las asignaciones que tienen empresa y al menos un conductor
             const asignacionesValidas = asignaciones.filter(a => a.empresa && a.conductores.length > 0);
             
             if (asignacionesValidas.length === 0) {
@@ -924,16 +1078,10 @@ function obtenerTipoVehiculo($tipo) {
             guardarEnLocalStorage();
             actualizarResumen();
             
-            // Cerrar modal
             const modal = bootstrap.Modal.getInstance(document.getElementById('modalAsignacion'));
             modal.hide();
             
             alert('✅ Asignaciones guardadas correctamente.');
-        });
-        
-        // Botón para asignar mismo presupuesto a todos
-        document.getElementById('btnMismoPresupuesto').addEventListener('click', function() {
-            asignarMismoPresupuestoATodos();
         });
         
         // Cargar asignaciones guardadas al iniciar
@@ -946,12 +1094,11 @@ function obtenerTipoVehiculo($tipo) {
                     contadorPuestos = 0;
                     
                     asignacionesGuardadas.forEach(asig => {
-                        agregarPuesto(asig.empresa, asig.presupuesto || 0);
+                        agregarPuesto(asig.empresa);
                         setTimeout(() => {
                             const fila = asignaciones.find(a => a.empresa === asig.empresa);
                             if (fila) {
                                 fila.conductores = asig.conductores;
-                                fila.presupuesto = asig.presupuesto || 0;
                                 renderizarConductoresSeleccionados(fila.id, fila.conductores);
                                 actualizarContadorConductores(fila.id);
                             }
@@ -974,10 +1121,8 @@ function obtenerTipoVehiculo($tipo) {
         
         // Evento para abrir el modal
         document.getElementById('modalAsignacion').addEventListener('show.bs.modal', function() {
-            // Limpiar el contenedor
             document.getElementById('contenedorPuestos').innerHTML = '';
             
-            // Cargar asignaciones actuales
             const guardadas = localStorage.getItem('asignacionesPuestosSalud');
             asignaciones = [];
             contadorPuestos = 0;
@@ -989,12 +1134,11 @@ function obtenerTipoVehiculo($tipo) {
                         agregarPuesto();
                     } else {
                         asignacionesGuardadas.forEach(asig => {
-                            agregarPuesto(asig.empresa, asig.presupuesto || 0);
+                            agregarPuesto(asig.empresa);
                             setTimeout(() => {
                                 const fila = asignaciones.find(a => a.empresa === asig.empresa);
                                 if (fila) {
                                     fila.conductores = asig.conductores;
-                                    fila.presupuesto = asig.presupuesto || 0;
                                     renderizarConductoresSeleccionados(fila.id, fila.conductores);
                                     actualizarContadorConductores(fila.id);
                                 }
@@ -1013,6 +1157,59 @@ function obtenerTipoVehiculo($tipo) {
         document.getElementById('btnAgregarPuesto').addEventListener('click', function() {
             agregarPuesto();
         });
+        
+        // ========== GENERAR INFORME WORD ==========
+        document.getElementById('btnGenerarInforme').addEventListener('click', function() {
+            const fechaDesde = document.getElementById('fecha_desde').value;
+            const fechaHasta = document.getElementById('fecha_hasta').value;
+            
+            if (!fechaDesde || !fechaHasta) {
+                alert('⚠️ Debes seleccionar ambas fechas (Desde y Hasta).');
+                return;
+            }
+            
+            if (fechaDesde > fechaHasta) {
+                alert('⚠️ La fecha "Desde" no puede ser mayor que la fecha "Hasta".');
+                return;
+            }
+            
+            // Obtener asignaciones actuales
+            const asignacionesActivas = asignaciones.filter(a => a.empresa && a.conductores.length > 0);
+            
+            if (asignacionesActivas.length === 0) {
+                alert('⚠️ No hay asignaciones de conductores. Configura primero los conductores por puesto de salud.');
+                return;
+            }
+            
+            // Preparar datos para enviar
+            const asignacionesParaEnviar = asignacionesActivas.map(a => ({
+                empresa: a.empresa,
+                conductores: a.conductores
+            }));
+            
+            // Llenar formulario oculto
+            document.getElementById('hidden_fecha_desde').value = fechaDesde;
+            document.getElementById('hidden_fecha_hasta').value = fechaHasta;
+            document.getElementById('hidden_asignaciones_json').value = JSON.stringify(asignacionesParaEnviar);
+            
+            // Enviar formulario
+            document.getElementById('formGenerarInforme').submit();
+        });
+        
+        // Establecer fechas por defecto (últimos 30 días)
+        const hoy = new Date();
+        const hace30Dias = new Date();
+        hace30Dias.setDate(hoy.getDate() - 30);
+        
+        const fechaDesdeInput = document.getElementById('fecha_desde');
+        const fechaHastaInput = document.getElementById('fecha_hasta');
+        
+        if (fechaDesdeInput && !fechaDesdeInput.value) {
+            fechaDesdeInput.value = hace30Dias.toISOString().split('T')[0];
+        }
+        if (fechaHastaInput && !fechaHastaInput.value) {
+            fechaHastaInput.value = hoy.toISOString().split('T')[0];
+        }
         
         // Inicializar
         cargarAsignacionesGuardadas();
