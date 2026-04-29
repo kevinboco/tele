@@ -36,7 +36,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
     if (!empty($guardadas)) {
         $asignacionesGuardadas = json_decode($guardadas, true);
     } else {
-        // Intentar cargar desde localStorage (no se puede en PHP, así que mostramos error)
         die("Error: No hay asignaciones de conductores. Configure primero los conductores por puesto de salud.");
     }
     
@@ -50,7 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
         return '$ ' . number_format(floatval($valor), 0, ',', '.');
     }
     
-    // Función para obtener el tipo de vehículo formateado
+    // Función para obtener el tipo de vehículo formateado (UNICA DECLARACIÓN)
     function obtenerTipoVehiculo($tipo) {
         if (stripos($tipo, 'burbuja') !== false) {
             return 'Camioneta Burbuja 4x4 Doble Cabina';
@@ -259,23 +258,6 @@ if ($resCond) {
     while ($r = $resCond->fetch_assoc()) {
         $todosConductores[] = $r;
     }
-}
-
-// Función para obtener el tipo de vehículo formateado
-function obtenerTipoVehiculo($tipo) {
-    if (stripos($tipo, 'burbuja') !== false) {
-        return 'Camioneta Burbuja 4x4 Doble Cabina';
-    }
-    if (stripos($tipo, 'carrotanque') !== false) {
-        return 'Carrotanque';
-    }
-    if (stripos($tipo, '350') !== false) {
-        return 'Camión 350';
-    }
-    if (stripos($tipo, 'copetrana') !== false) {
-        return 'Copetrana';
-    }
-    return $tipo ?: '-';
 }
 
 ?>

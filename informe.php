@@ -19,8 +19,6 @@ if ($conn->connect_error) {
 }
 $conn->set_charset('utf8mb4');
 
-// ========== FUNCIONES (DECLARADAS UNA SOLA VEZ) ==========
-
 // Función para obtener el tipo de vehículo formateado
 function obtenerTipoVehiculo($tipo) {
     if (stripos($tipo, 'burbuja') !== false) {
@@ -117,131 +115,6 @@ function esConductorCarrotanque($conn, $nombreConductor) {
     }
     return false;
 }
-
-// Función para crear tablas en el documento Word
-function crearTablaViajes($section, $titulo, $viajes, $subtotal, $mostrarConductor = true, $mostrarCedula = false) {
-    if (empty($viajes)) {
-        return;
-    }
-    
-    $section->addText($titulo, ['bold' => true, 'size' => 12, 'color' => '1F4E78']);
-    $section->addTextBreak(0.5);
-    
-    $table = $section->addTable(['borderSize' => 1, 'borderColor' => 'AAAAAA', 'cellMargin' => 60, 'width' => 100 * 50]);
-    
-    // Encabezados
-    $table->addRow();
-    $table->addCell(1200)->addText("FECHA", ['bold' => true, 'size' => 9, 'align' => 'center']);
-    if ($mostrarConductor) {
-        $table->addCell(2500)->addText("CONDUCTOR", ['bold' => true, 'size' => 9, 'align' => 'center']);
-    }
-    if ($mostrarCedula) {
-        $table->addCell(2000)->addText("CÉDULA", ['bold' => true, 'size' => 9, 'align' => 'center']);
-    }
-    $table->addCell(2500)->addText("VEHÍCULO", ['bold' => true, 'size' => 9, 'align' => 'center']);
-    $table->addCell(3000)->addText("RUTA", ['bold' => true, 'size' => 9, 'align' => 'center']);
-    $table->addCell(2000)->addText("VALOR", ['bold' => true, 'size' => 9, 'align' => 'center']);
-    
-    foreach ($viajes as $viaje) {
-        $valor = floatval($viaje['valor'] ?? 0);
-        
-        $table->addRow();
-        $table->addCell(1200)->addText(date('d/m/Y', strtotime($viaje['fecha'])), ['size' => 9]);
-        if ($mostrarConductor) {
-            $textoConductor = $viaje['conductor'] ?: '-';
-            if (!empty($viaje['es_carrotanque'])) {
-                $textoConductor .= " 🚛";
-            }
-            $table->addCell(2500)->addText($textoConductor, ['size' => 9]);
-        }
-        if ($mostrarCedula) {
-            $table->addCell(2000)->addText($viaje['cedula'] ?? 'N/A', ['size' => 9]);
-        }
-        $table->addCell(2500)->addText(obtenerTipoVehiculo($viaje['tipo_vehiculo']), ['size' => 9]);
-        $table->addCell(3000)->addText($viaje['ruta'] ?: '-', ['size' => 9]);
-        
-        if ($valor > 0) {
-            $table->addCell(2000)->addText(formatearMoneda($valor), ['size' => 9, 'align' => 'right']);
-        } else {
-            $textoValor = "N/A";
-            if (!empty($viaje['clasificacion'])) {
-                $textoValor = "Sin tarifa (" . $viaje['clasificacion'] . ")";
-            }
-            $table->addCell(2000)->addText($textoValor, ['size' => 9, 'align' => 'right']);
-        }
-    }
-    
-    // Fila de subtotal
-    $table->addRow();
-    $colspan = 3 + ($mostrarConductor ? 1 : 0) + ($mostrarCedula ? 1 : 0);
-    $cellSubtotal = $table->addCell(($colspan * 1000), ['gridSpan' => $colspan]);
-    $cellSubtotal->addText("SUBTOTAL", ['bold' => true, 'size' => 9, 'align' => 'right']);
-    $table->addCell(2000)->addText(formatearMoneda($subtotal), ['bold' => true, 'size' => 9, 'align' => 'right']);
-    
-    $section->addTextBreak(1);
-}
-
-// Función para asignar conductor a un viaje específico
-function asignarConductorParaViaje($viaje, $conductoresNoCarrotanque, $conductoresCarrotanque, &$ultimoConductor, &$consecutivos, $conductoresSeleccionados) {
-    $tipoVehiculo = strtolower(trim($viaje['tipo_vehiculo'] ?? ''));
-    $esViajeCarrotanque = strpos($tipoVehiculo, 'carrotanque') !== false;
-    
-    if ($esViajeCarrotanque) {
-        return $viaje['conductor_real'];
-    }
-    
-    if (empty($conductoresNoCarrotanque)) {
-        $conductoresParaAsignar = $conductoresSeleccionados;
-    } else {
-        $conductoresParaAsignar = $conductoresNoCarrotanque;
-    }
-    
-    if (count($conductoresParaAsignar) == 1) {
-        return $conductoresParaAsignar[0];
-    }
-    
-    $conductorAsignado = asignarConductorConRegla($conductoresParaAsignar, $ultimoConductor, $consecutivos);
-    
-    if ($conductorAsignado == $ultimoConductor) {
-        $consecutivos++;
-    } else {
-        $consecutivos = 1;
-    }
-    $ultimoConductor = $conductorAsignado;
-    
-    return $conductorAsignado;
-}
-
-// Función para procesar viajes con asignación de conductores
-function procesarViajesConConductores($viajes, $conductoresNoCarrotanque, $conductoresCarrotanque, &$ultimoConductor, &$consecutivos, $conductoresSeleccionados, $conductoresInfo) {
-    $resultado = [];
-    foreach ($viajes as $viaje) {
-        $conductorAsignado = asignarConductorParaViaje($viaje, $conductoresNoCarrotanque, $conductoresCarrotanque, $ultimoConductor, $consecutivos, $conductoresSeleccionados);
-        
-        $conductorInfo = null;
-        foreach ($conductoresInfo as $info) {
-            if ($info['nombre'] == $conductorAsignado) {
-                $conductorInfo = $info;
-                break;
-            }
-        }
-        
-        $resultado[] = [
-            'fecha' => $viaje['fecha'],
-            'conductor' => $conductorAsignado,
-            'cedula' => $conductorInfo ? $conductorInfo['cedula'] : 'N/A',
-            'tipo_vehiculo' => $viaje['tipo_vehiculo'],
-            'ruta' => $viaje['ruta'],
-            'valor' => $viaje['valor_viaje'],
-            'clasificacion' => $viaje['clasificacion'],
-            'es_carrotanque' => stripos($viaje['tipo_vehiculo'], 'carrotanque') !== false,
-            'empresa' => $viaje['empresa']
-        ];
-    }
-    return $resultado;
-}
-
-// ========== FIN DE LAS FUNCIONES ==========
 
 // Si no se han enviado parámetros, mostramos formulario
 if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_informe'])) {
@@ -1425,6 +1298,65 @@ if ($tipoInforme === 'real') {
     $consecutivos = 0;
     $conductoresNoCarrotanque = array_diff($conductoresSeleccionados, $conductoresCarrotanque);
     
+    // Función para asignar conductor a un viaje
+    function asignarConductorParaViaje($viaje, $conductoresNoCarrotanque, $conductoresCarrotanque, &$ultimoConductor, &$consecutivos, $conductoresSeleccionados) {
+        $tipoVehiculo = strtolower(trim($viaje['tipo_vehiculo'] ?? ''));
+        $esViajeCarrotanque = strpos($tipoVehiculo, 'carrotanque') !== false;
+        
+        if ($esViajeCarrotanque) {
+            return $viaje['conductor_real'];
+        }
+        
+        if (empty($conductoresNoCarrotanque)) {
+            $conductoresParaAsignar = $conductoresSeleccionados;
+        } else {
+            $conductoresParaAsignar = $conductoresNoCarrotanque;
+        }
+        
+        if (count($conductoresParaAsignar) == 1) {
+            return $conductoresParaAsignar[0];
+        }
+        
+        $conductorAsignado = asignarConductorConRegla($conductoresParaAsignar, $ultimoConductor, $consecutivos);
+        
+        if ($conductorAsignado == $ultimoConductor) {
+            $consecutivos++;
+        } else {
+            $consecutivos = 1;
+        }
+        $ultimoConductor = $conductorAsignado;
+        
+        return $conductorAsignado;
+    }
+    
+    function procesarViajesConConductores($viajes, $conductoresNoCarrotanque, $conductoresCarrotanque, &$ultimoConductor, &$consecutivos, $conductoresSeleccionados, $conductoresInfo) {
+        $resultado = [];
+        foreach ($viajes as $viaje) {
+            $conductorAsignado = asignarConductorParaViaje($viaje, $conductoresNoCarrotanque, $conductoresCarrotanque, $ultimoConductor, $consecutivos, $conductoresSeleccionados);
+            
+            $conductorInfo = null;
+            foreach ($conductoresInfo as $info) {
+                if ($info['nombre'] == $conductorAsignado) {
+                    $conductorInfo = $info;
+                    break;
+                }
+            }
+            
+            $resultado[] = [
+                'fecha' => $viaje['fecha'],
+                'conductor' => $conductorAsignado,
+                'cedula' => $conductorInfo ? $conductorInfo['cedula'] : 'N/A',
+                'tipo_vehiculo' => $viaje['tipo_vehiculo'],
+                'ruta' => $viaje['ruta'],
+                'valor' => $viaje['valor_viaje'],
+                'clasificacion' => $viaje['clasificacion'],
+                'es_carrotanque' => stripos($viaje['tipo_vehiculo'], 'carrotanque') !== false,
+                'empresa' => $viaje['empresa']
+            ];
+        }
+        return $resultado;
+    }
+    
     // Procesar cada grupo con asignación de conductores
     $ultimoConductor = null;
     $consecutivos = 0;
@@ -1511,6 +1443,69 @@ if ($tipoInforme === 'aleatorio') {
     $section->addText("Los conductores mostrados son los que realmente realizaron cada viaje según la base de datos.", ['italic' => true, 'size' => 9]);
 }
 $section->addTextBreak(1);
+
+// ========== FUNCIÓN PARA CREAR TABLA DE VIAJES ==========
+function crearTablaViajes($section, $titulo, $viajes, $subtotal, $mostrarConductor = true, $mostrarCedula = false) {
+    if (empty($viajes)) {
+        return;
+    }
+    
+    $section->addText($titulo, ['bold' => true, 'size' => 12, 'color' => '1F4E78']);
+    $section->addTextBreak(0.5);
+    
+    $table = $section->addTable(['borderSize' => 1, 'borderColor' => 'AAAAAA', 'cellMargin' => 60, 'width' => 100 * 50]);
+    
+    // Encabezados
+    $table->addRow();
+    $table->addCell(1200)->addText("FECHA", ['bold' => true, 'size' => 9, 'align' => 'center']);
+    if ($mostrarConductor) {
+        $table->addCell(2500)->addText("CONDUCTOR", ['bold' => true, 'size' => 9, 'align' => 'center']);
+    }
+    if ($mostrarCedula) {
+        $table->addCell(2000)->addText("CÉDULA", ['bold' => true, 'size' => 9, 'align' => 'center']);
+    }
+    $table->addCell(2500)->addText("VEHÍCULO", ['bold' => true, 'size' => 9, 'align' => 'center']);
+    $table->addCell(3000)->addText("RUTA", ['bold' => true, 'size' => 9, 'align' => 'center']);
+    $table->addCell(2000)->addText("VALOR", ['bold' => true, 'size' => 9, 'align' => 'center']);
+    
+    foreach ($viajes as $viaje) {
+        $valor = floatval($viaje['valor'] ?? 0);
+        
+        $table->addRow();
+        $table->addCell(1200)->addText(date('d/m/Y', strtotime($viaje['fecha'])), ['size' => 9]);
+        if ($mostrarConductor) {
+            $textoConductor = $viaje['conductor'] ?: '-';
+            if (!empty($viaje['es_carrotanque'])) {
+                $textoConductor .= " 🚛";
+            }
+            $table->addCell(2500)->addText($textoConductor, ['size' => 9]);
+        }
+        if ($mostrarCedula) {
+            $table->addCell(2000)->addText($viaje['cedula'] ?? 'N/A', ['size' => 9]);
+        }
+        $table->addCell(2500)->addText(obtenerTipoVehiculo($viaje['tipo_vehiculo']), ['size' => 9]);
+        $table->addCell(3000)->addText($viaje['ruta'] ?: '-', ['size' => 9]);
+        
+        if ($valor > 0) {
+            $table->addCell(2000)->addText(formatearMoneda($valor), ['size' => 9, 'align' => 'right']);
+        } else {
+            $textoValor = "N/A";
+            if (!empty($viaje['clasificacion'])) {
+                $textoValor = "Sin tarifa (" . $viaje['clasificacion'] . ")";
+            }
+            $table->addCell(2000)->addText($textoValor, ['size' => 9, 'align' => 'right']);
+        }
+    }
+    
+    // Fila de subtotal
+    $table->addRow();
+    $colspan = 3 + ($mostrarConductor ? 1 : 0) + ($mostrarCedula ? 1 : 0);
+    $cellSubtotal = $table->addCell(($colspan * 1000), ['gridSpan' => $colspan]);
+    $cellSubtotal->addText("SUBTOTAL", ['bold' => true, 'size' => 9, 'align' => 'right']);
+    $table->addCell(2000)->addText(formatearMoneda($subtotal), ['bold' => true, 'size' => 9, 'align' => 'right']);
+    
+    $section->addTextBreak(1);
+}
 
 // ========== GENERAR TABLAS SEGÚN TIPO DE INFORME ==========
 
@@ -1694,6 +1689,7 @@ $section->addText("Cordialmente,", ['align' => 'right']);
 $section->addTextBreak(2);
 $section->addText("NUMAS JOSÉ IGUARÁN IGUARÁN", ['bold' => true, 'align' => 'right']);
 $section->addText("Representante Legal", ['align' => 'right']);
+
 
 $sufijo = ($tipoInforme === 'real') ? 'real' : 'aleatorio';
 $filename = "informe_viajes_{$sufijo}_{$desde}_a_{$hasta}.docx";
