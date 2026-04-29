@@ -156,6 +156,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
             
             $conductorSql = $conn->real_escape_string($nombreConductor);
             
+            // ✅ CONSULTA CORREGIDA - AHORA FILTRA POR CONDUCTOR
             $sqlViajes = "
                 SELECT 
                     v.fecha,
@@ -185,6 +186,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
                 WHERE v.fecha >= '$fechaDesdeSql' 
                     AND v.fecha <= '$fechaHastaSql'
                     AND v.empresa = '$empresaSql'
+                    AND v.nombre = '$conductorSql'   // <--- FILTRO POR CONDUCTOR CORREGIDO
                 ORDER BY v.fecha ASC, v.id ASC
             ";
             
@@ -218,6 +220,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
                 }
             }
             
+            // Si no hay viajes para este conductor, continuar con el siguiente
             if (empty($viajesNormales)) {
                 continue;
             }
