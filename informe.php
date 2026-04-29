@@ -1690,7 +1690,7 @@ $section->addTextBreak(2);
 $section->addText("NUMAS JOSÉ IGUARÁN IGUARÁN", ['bold' => true, 'align' => 'right']);
 $section->addText("Representante Legal", ['align' => 'right']);
 
-// Enviar archivo
+
 $sufijo = ($tipoInforme === 'real') ? 'real' : 'aleatorio';
 $filename = "informe_viajes_{$sufijo}_{$desde}_a_{$hasta}.docx";
 header("Content-Description: File Transfer");
