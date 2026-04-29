@@ -243,79 +243,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
         $section->addTextBreak(0.5);
     }
     
-    // ========== SECCIÓN EXTRA - VIAJES A MAICAO/RIOHACHA ==========
+    // ========== SECCIÓN EXTRA - UNA SOLA TABLA CON TODOS LOS VIAJES ==========
     if (!empty($viajesExtra)) {
         $section->addTextBreak(1);
         $section->addText("═══════════════════════════════════════════════════════════════════════════════", ['size' => 8]);
         $section->addText("SECCIÓN EXTRA - VIAJES A MAICAO / RIOHACHA (provenientes de p.nazareth)", ['bold' => true, 'size' => 14, 'color' => 'CC6600'], ['align' => 'center']);
         $section->addText("═══════════════════════════════════════════════════════════════════════════════", ['size' => 8]);
-        $section->addTextBreak(0.5);
+        $section->addTextBreak(0.3);
         
-        // Agrupar viajes extra por conductor
-        $viajesExtraPorConductor = [];
+        // Ordenar viajes extra por fecha
+        usort($viajesExtra, function($a, $b) {
+            return strtotime($a['fecha']) - strtotime($b['fecha']);
+        });
+        
+        // Crear UNA SOLA TABLA con todos los viajes extra
+        $tablaExtra = $section->addTable(['borderSize' => 1, 'borderColor' => 'CC6600', 'cellMargin' => 60, 'width' => 100 * 50]);
+        
+        // Encabezados de la tabla extra
+        $tablaExtra->addRow();
+        $tablaExtra->addCell(1500)->addText("FECHA", ['bold' => true, 'size' => 9, 'align' => 'center']);
+        $tablaExtra->addCell(3500)->addText("RUTA", ['bold' => true, 'size' => 9, 'align' => 'center']);
+        $tablaExtra->addCell(2500)->addText("CONDUCTOR", ['bold' => true, 'size' => 9, 'align' => 'center']);
+        $tablaExtra->addCell(2000)->addText("VALOR", ['bold' => true, 'size' => 9, 'align' => 'center']);
+        
+        $totalExtraGeneral = 0;
+        
+        // Llenar la tabla con todos los viajes extra (sin agrupar por conductor)
         foreach ($viajesExtra as $viaje) {
-            $conductorKey = $viaje['conductor'];
-            if (!isset($viajesExtraPorConductor[$conductorKey])) {
-                $viajesExtraPorConductor[$conductorKey] = [
-                    'cedula' => $viaje['cedula'],
-                    'viajes' => []
-                ];
-            }
-            $viajesExtraPorConductor[$conductorKey]['viajes'][] = $viaje;
-        }
-        
-        // Mostrar cada conductor con sus viajes extra
-        foreach ($viajesExtraPorConductor as $nombreConductor => $datos) {
-            $section->addText("Conductor: " . $nombreConductor . " (Cédula: " . $datos['cedula'] . ")", ['bold' => true, 'size' => 11, 'color' => 'CC6600']);
-            $section->addTextBreak(0.2);
+            $tablaExtra->addRow();
+            $tablaExtra->addCell(1500)->addText(date('d/m/Y', strtotime($viaje['fecha'])), ['size' => 9]);
+            $tablaExtra->addCell(3500)->addText($viaje['ruta'] ?: '-', ['size' => 9]);
+            $tablaExtra->addCell(2500)->addText($viaje['conductor'] ?: '-', ['size' => 9]);
             
-            // Tabla de viajes extra
-            $tableExtra = $section->addTable(['borderSize' => 1, 'borderColor' => 'CC6600', 'cellMargin' => 60, 'width' => 100 * 50]);
-            
-            // Encabezados
-            $tableExtra->addRow();
-            $tableExtra->addCell(1500)->addText("FECHA", ['bold' => true, 'size' => 9, 'align' => 'center']);
-            $tableExtra->addCell(3500)->addText("RUTA", ['bold' => true, 'size' => 9, 'align' => 'center']);
-            $tableExtra->addCell(2000)->addText("VALOR", ['bold' => true, 'size' => 9, 'align' => 'center']);
-            
-            $totalExtraConductor = 0;
-            
-            foreach ($datos['viajes'] as $viaje) {
-                $tableExtra->addRow();
-                $tableExtra->addCell(1500)->addText(date('d/m/Y', strtotime($viaje['fecha'])), ['size' => 9]);
-                $tableExtra->addCell(3500)->addText($viaje['ruta'] ?: '-', ['size' => 9]);
-                
-                if ($viaje['valor'] > 0) {
-                    $tableExtra->addCell(2000)->addText(formatearMoneda($viaje['valor']), ['size' => 9, 'align' => 'right']);
-                    $totalExtraConductor += $viaje['valor'];
-                } else {
-                    $textoValor = "N/A";
-                    if (!empty($viaje['clasificacion'])) {
-                        $textoValor = "Sin tarifa (" . $viaje['clasificacion'] . ")";
-                    }
-                    $tableExtra->addCell(2000)->addText($textoValor, ['size' => 9, 'align' => 'right']);
+            if ($viaje['valor'] > 0) {
+                $tablaExtra->addCell(2000)->addText(formatearMoneda($viaje['valor']), ['size' => 9, 'align' => 'right']);
+                $totalExtraGeneral += $viaje['valor'];
+            } else {
+                $textoValor = "N/A";
+                if (!empty($viaje['clasificacion'])) {
+                    $textoValor = "Sin tarifa (" . $viaje['clasificacion'] . ")";
                 }
+                $tablaExtra->addCell(2000)->addText($textoValor, ['size' => 9, 'align' => 'right']);
             }
-            
-            // Total por conductor
-            $tableExtra->addRow();
-            $cellTotalExtra = $tableExtra->addCell(5000, ['gridSpan' => 2]);
-            $cellTotalExtra->addText("TOTAL EXTRA - " . $nombreConductor, ['bold' => true, 'size' => 9, 'align' => 'right']);
-            $tableExtra->addCell(2000)->addText(formatearMoneda($totalExtraConductor), ['bold' => true, 'size' => 9, 'align' => 'right', 'color' => 'CC6600']);
-            
-            $section->addTextBreak(0.5);
         }
         
-        // Total general de todos los viajes extra
-        $totalGeneralExtra = 0;
-        foreach ($viajesExtra as $viaje) {
-            $totalGeneralExtra += $viaje['valor'];
-        }
+        // Fila de total general de la sección extra
+        $tablaExtra->addRow();
+        $celdaTotalExtra = $tablaExtra->addCell(7500, ['gridSpan' => 3]);
+        $celdaTotalExtra->addText("TOTAL VIAJES EXTRA (Maicao/Riohacha)", ['bold' => true, 'size' => 9, 'align' => 'right']);
+        $tablaExtra->addCell(2000)->addText(formatearMoneda($totalExtraGeneral), ['bold' => true, 'size' => 9, 'align' => 'right', 'color' => 'CC6600']);
         
         $section->addTextBreak(0.5);
-        $section->addText("───────────────────────────────────────────────────────────────────────────────", ['size' => 8]);
-        $section->addText("TOTAL GENERAL DE VIAJES EXTRA (Maicao/Riohacha): " . formatearMoneda($totalGeneralExtra), ['bold' => true, 'size' => 11, 'color' => 'CC6600'], ['align' => 'right']);
-        $section->addText("───────────────────────────────────────────────────────────────────────────────", ['size' => 8]);
+        $section->addText("Nota: En esta sección se listan todos los viajes de p.nazareth cuyas rutas contienen 'Maicao' o 'Riohacha'.", ['italic' => true, 'size' => 8, 'color' => '666666']);
     }
     
     // Firma
@@ -584,7 +563,7 @@ if ($resEmpresas) {
                     <i class="fas fa-star-of-life" style="color: #cc6600;"></i> 
                     <strong>Nota especial:</strong> Los viajes del puesto <strong>p.nazareth</strong> cuyas rutas contengan 
                     "Maicao" o "Riohacha" (sin importar mayúsculas/minúsculas) se moverán a una <strong>SECCIÓN EXTRA</strong> 
-                    al final del documento, para identificarlos fácilmente.
+                    al final del documento, con una sola tabla que incluye fecha, ruta, conductor y valor.
                 </div>
             </div>
         </div>
