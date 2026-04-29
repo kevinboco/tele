@@ -54,6 +54,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
     $fecha_desde = $_POST['fecha_desde'];
     $fecha_hasta = $_POST['fecha_hasta'];
     $empresas_seleccionadas = isset($_POST['empresas']) ? $_POST['empresas'] : [];
+    $asignacionesJSON = isset($_POST['asignaciones']) ? $_POST['asignaciones'] : '{}';
+    $asignaciones = json_decode($asignacionesJSON, true);
     
     if (empty($fecha_desde) || empty($fecha_hasta)) {
         die("Error: Debe seleccionar ambas fechas.");
@@ -98,34 +100,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
         $empresaSql = $conn->real_escape_string($empresa);
         $esPuestoNazareth = (strtolower($empresa) === 'p.nazareth');
         
-        // Obtener conductores únicos que tienen viajes en esta empresa
-        $sqlConductores = "
-            SELECT DISTINCT v.nombre, v.cedula, v.tipo_vehiculo
-            FROM viajes v
-            WHERE v.empresa = '$empresaSql'
-                AND v.nombre IS NOT NULL 
-                AND v.nombre != ''
-            ORDER BY v.nombre ASC
-        ";
+        // Verificar si hay asignación manual para esta empresa
+        $conductoresAsignados = [];
+        $asignacionManual = false;
         
-        $resConductores = $conn->query($sqlConductores);
+        if (isset($asignaciones[$empresa]) && !empty($asignaciones[$empresa])) {
+            $conductoresAsignados = $asignaciones[$empresa];
+            $asignacionManual = true;
+        }
         
-        if (!$resConductores || $resConductores->num_rows == 0) {
+        // Obtener conductores (reales o asignados manualmente)
+        $conductoresParaProcesar = [];
+        
+        if ($asignacionManual) {
+            // Usar los conductores asignados manualmente
+            foreach ($conductoresAsignados as $idx => $conductorAsignado) {
+                if (!empty($conductorAsignado['nombre'])) {
+                    $conductoresParaProcesar[] = [
+                        'nombre' => $conductorAsignado['nombre'],
+                        'cedula' => $conductorAsignado['cedula'] ?? 'ASIGNADO',
+                        'tipo_vehiculo' => $conductorAsignado['tipo_vehiculo'] ?? ''
+                    ];
+                }
+            }
+        } else {
+            // Obtener conductores reales de la BD
+            $sqlConductores = "
+                SELECT DISTINCT v.nombre, v.cedula, v.tipo_vehiculo
+                FROM viajes v
+                WHERE v.empresa = '$empresaSql'
+                    AND v.nombre IS NOT NULL 
+                    AND v.nombre != ''
+                ORDER BY v.nombre ASC
+            ";
+            $resConductores = $conn->query($sqlConductores);
+            if ($resConductores) {
+                while ($c = $resConductores->fetch_assoc()) {
+                    $conductoresParaProcesar[] = $c;
+                }
+            }
+        }
+        
+        if (empty($conductoresParaProcesar)) {
             continue;
         }
         
         // Título de la empresa
         $section->addTextBreak(0.5);
         $section->addText(strtoupper($empresa), ['bold' => true, 'size' => 14, 'color' => '1F4E78']);
+        if ($asignacionManual) {
+            $section->addText("(* Conductores asignados manualmente *)", ['italic' => true, 'size' => 8, 'color' => 'CC6600']);
+        }
         $section->addTextBreak(0.3);
         
-        // Procesar cada conductor de esta empresa
-        while ($conductor = $resConductores->fetch_assoc()) {
+        // Procesar cada conductor
+        foreach ($conductoresParaProcesar as $conductor) {
             $nombreConductor = $conductor['nombre'];
             $cedulaConductor = $conductor['cedula'] ?? 'N/A';
             $tipoVehiculoConductor = $conductor['tipo_vehiculo'] ?? '';
             
-            // Consultar viajes de este conductor en esta empresa en el rango de fechas
+            // Consultar viajes
             $conductorSql = $conn->real_escape_string($nombreConductor);
             
             $sqlViajes = "
@@ -157,7 +191,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
                 WHERE v.fecha >= '$fechaDesdeSql' 
                     AND v.fecha <= '$fechaHastaSql'
                     AND v.empresa = '$empresaSql'
-                    AND v.nombre = '$conductorSql'
                 ORDER BY v.fecha ASC, v.id ASC
             ";
             
@@ -193,14 +226,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
                 }
             }
             
-            // Si no hay viajes normales en el período, omitir este conductor de la sección normal
+            // Si no hay viajes normales, omitir
             if (empty($viajesNormales)) {
                 continue;
             }
             
             // Subtítulo del conductor
             $section->addText("Conductor: " . $nombreConductor . " (Cédula: " . $cedulaConductor . ")", ['bold' => true, 'size' => 11]);
-            $section->addText("Tipo de vehículo: " . obtenerTipoVehiculoFormateado($tipoVehiculoConductor), ['italic' => true, 'size' => 9]);
+            if (!empty($tipoVehiculoConductor)) {
+                $section->addText("Tipo de vehículo: " . obtenerTipoVehiculoFormateado($tipoVehiculoConductor), ['italic' => true, 'size' => 9]);
+            }
             $section->addTextBreak(0.2);
             
             // TABLA DE VIAJES NORMALES
@@ -229,7 +264,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
                 }
             }
             
-            // Fila de total normal
+            // Fila de total
             $table->addRow();
             $cellTotal = $table->addCell(6000, ['gridSpan' => 2]);
             $cellTotal->addText("TOTAL", ['bold' => true, 'size' => 9, 'align' => 'right']);
@@ -243,7 +278,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
         $section->addTextBreak(0.5);
     }
     
-    // ========== SECCIÓN EXTRA - UNA SOLA TABLA CON TODOS LOS VIAJES ==========
+    // ========== SECCIÓN EXTRA ==========
     if (!empty($viajesExtra)) {
         $section->addTextBreak(1);
         $section->addText("═══════════════════════════════════════════════════════════════════════════════", ['size' => 8]);
@@ -251,15 +286,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
         $section->addText("═══════════════════════════════════════════════════════════════════════════════", ['size' => 8]);
         $section->addTextBreak(0.3);
         
-        // Ordenar viajes extra por fecha
+        // Ordenar por fecha
         usort($viajesExtra, function($a, $b) {
             return strtotime($a['fecha']) - strtotime($b['fecha']);
         });
         
-        // Crear UNA SOLA TABLA con todos los viajes extra
+        // Tabla extra
         $tablaExtra = $section->addTable(['borderSize' => 1, 'borderColor' => 'CC6600', 'cellMargin' => 60, 'width' => 100 * 50]);
         
-        // Encabezados de la tabla extra
+        // Encabezados
         $tablaExtra->addRow();
         $tablaExtra->addCell(1500)->addText("FECHA", ['bold' => true, 'size' => 9, 'align' => 'center']);
         $tablaExtra->addCell(3500)->addText("RUTA", ['bold' => true, 'size' => 9, 'align' => 'center']);
@@ -268,7 +303,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
         
         $totalExtraGeneral = 0;
         
-        // Llenar la tabla con todos los viajes extra (sin agrupar por conductor)
         foreach ($viajesExtra as $viaje) {
             $tablaExtra->addRow();
             $tablaExtra->addCell(1500)->addText(date('d/m/Y', strtotime($viaje['fecha'])), ['size' => 9]);
@@ -287,14 +321,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion_generar_inform
             }
         }
         
-        // Fila de total general de la sección extra
+        // Total extra
         $tablaExtra->addRow();
         $celdaTotalExtra = $tablaExtra->addCell(7500, ['gridSpan' => 3]);
         $celdaTotalExtra->addText("TOTAL VIAJES EXTRA (Maicao/Riohacha)", ['bold' => true, 'size' => 9, 'align' => 'right']);
         $tablaExtra->addCell(2000)->addText(formatearMoneda($totalExtraGeneral), ['bold' => true, 'size' => 9, 'align' => 'right', 'color' => 'CC6600']);
-        
-        $section->addTextBreak(0.5);
-        $section->addText("Nota: En esta sección se listan todos los viajes de p.nazareth cuyas rutas contienen 'Maicao' o 'Riohacha'.", ['italic' => true, 'size' => 8, 'color' => '666666']);
     }
     
     // Firma
@@ -352,7 +383,7 @@ if ($resEmpresas) {
         }
         
         .container-custom {
-            max-width: 900px;
+            max-width: 1000px;
             margin: 0 auto;
         }
         
@@ -409,43 +440,28 @@ if ($resEmpresas) {
             box-shadow: 0 10px 25px rgba(25,135,84,0.3);
         }
         
-        .btn-seleccionar-todos, .btn-deseleccionar-todos {
-            padding: 0.3rem 0.8rem;
-            font-size: 0.8rem;
-            border-radius: 6px;
-            transition: all 0.2s;
-        }
-        
-        .btn-seleccionar-todos {
-            background: var(--primary-color);
+        .btn-asignaciones {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
             color: white;
+            padding: 0.8rem 1.5rem;
+            border-radius: 10px;
+            font-weight: 600;
             border: none;
-        }
-        
-        .btn-deseleccionar-todos {
-            background: #6c757d;
-            color: white;
-            border: none;
-        }
-        
-        .btn-seleccionar-todos:hover, .btn-deseleccionar-todos:hover {
-            transform: translateY(-2px);
-        }
-        
-        .info-banner {
-            background: #e7f3ff;
-            border-left: 4px solid var(--primary-color);
-            padding: 1rem;
-            border-radius: 8px;
+            transition: all 0.3s;
             margin-bottom: 1.5rem;
-            font-size: 0.9rem;
+            width: 100%;
+        }
+        
+        .btn-asignaciones:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(238,90,36,0.3);
         }
         
         .lista-empresas {
             background: #f8f9fa;
             border-radius: 12px;
             padding: 1rem;
-            margin-top: 1.5rem;
+            margin: 1rem 0;
         }
         
         .empresa-checkbox {
@@ -461,12 +477,10 @@ if ($resEmpresas) {
         
         .empresa-checkbox:hover {
             background: #e9ecef;
-            transform: translateY(-2px);
         }
         
         .empresa-checkbox input {
             margin-right: 0.5rem;
-            transform: scale(1.1);
         }
         
         .empresa-checkbox label {
@@ -475,11 +489,22 @@ if ($resEmpresas) {
             cursor: pointer;
         }
         
-        .contador-seleccion {
-            font-size: 0.85rem;
-            font-weight: 500;
-            color: var(--success-color);
-            margin-bottom: 0.75rem;
+        .badge-asignada {
+            background: #ff6b6b;
+            color: white;
+            font-size: 0.7rem;
+            border-radius: 12px;
+            padding: 0.2rem 0.5rem;
+            margin-left: 0.5rem;
+        }
+        
+        .info-banner {
+            background: #e7f3ff;
+            border-left: 4px solid var(--primary-color);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+            font-size: 0.9rem;
         }
         
         .nota-especial {
@@ -489,6 +514,29 @@ if ($resEmpresas) {
             border-radius: 8px;
             margin-top: 1rem;
             font-size: 0.85rem;
+        }
+        
+        .asignacion-item {
+            background: #f0f4ff;
+            border-radius: 10px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .asignacion-empresa {
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+        }
+        
+        .contador-seleccion {
+            font-size: 0.85rem;
+            font-weight: 500;
+            margin-bottom: 0.75rem;
+        }
+        
+        .modal-asignaciones .modal-body {
+            max-height: 70vh;
+            overflow-y: auto;
         }
     </style>
 </head>
@@ -504,12 +552,18 @@ if ($resEmpresas) {
             <div class="card-body-custom">
                 <div class="info-banner">
                     <i class="fas fa-info-circle"></i> 
-                    <strong>¿Cómo funciona?</strong> Selecciona los puestos de salud que quieres incluir en el informe, 
-                    elige el rango de fechas y haz clic en generar.
+                    <strong>¿Cómo funciona?</strong> Selecciona los puestos de salud, elige fechas y genera el informe.
+                    Puedes asignar conductores personalizados (1 o 2) a cualquier puesto de salud.
                 </div>
+                
+                <!-- Botón para asignaciones -->
+                <button type="button" class="btn-asignaciones" data-bs-toggle="modal" data-bs-target="#modalAsignaciones">
+                    <i class="fas fa-users-cog"></i> 📝 Asignar conductores personalizados (opcional)
+                </button>
                 
                 <form method="POST" action="" id="formInforme">
                     <input type="hidden" name="accion_generar_informe" value="1">
+                    <input type="hidden" name="asignaciones" id="hiddenAsignaciones" value="{}">
                     
                     <div class="mb-4">
                         <label class="form-label fw-bold">
@@ -525,17 +579,12 @@ if ($resEmpresas) {
                         <input type="date" name="fecha_hasta" id="fecha_hasta" class="form-control form-control-lg" required>
                     </div>
                     
-                    <?php if (!empty($empresasPuestosLista)): ?>
                     <div class="lista-empresas">
                         <div class="d-flex justify-content-between align-items-center flex-wrap mb-3">
                             <h6 class="mb-0"><i class="fas fa-building"></i> Puestos de salud disponibles:</h6>
                             <div>
-                                <button type="button" class="btn-seleccionar-todos me-2" id="btnSeleccionarTodos">
-                                    <i class="fas fa-check-double"></i> Seleccionar todos
-                                </button>
-                                <button type="button" class="btn-deseleccionar-todos" id="btnDeseleccionarTodos">
-                                    <i class="fas fa-times"></i> Deseleccionar todos
-                                </button>
+                                <button type="button" class="btn btn-sm btn-primary" id="btnSeleccionarTodos">Seleccionar todos</button>
+                                <button type="button" class="btn btn-sm btn-secondary" id="btnDeseleccionarTodos">Deseleccionar todos</button>
                             </div>
                         </div>
                         <div id="contadorSeleccion" class="contador-seleccion"></div>
@@ -544,15 +593,11 @@ if ($resEmpresas) {
                             <div class="empresa-checkbox">
                                 <input type="checkbox" name="empresas[]" value="<?php echo htmlspecialchars($emp); ?>" class="empresa-check" id="emp_<?php echo md5($emp); ?>">
                                 <label for="emp_<?php echo md5($emp); ?>"><?php echo htmlspecialchars($emp); ?></label>
+                                <span class="badge-asignada" style="display: none;" id="badge_<?php echo md5($emp); ?>">✏️ Asignado</span>
                             </div>
                             <?php endforeach; ?>
                         </div>
                     </div>
-                    <?php else: ?>
-                    <div class="alert alert-warning">
-                        <i class="fas fa-exclamation-triangle"></i> No se encontraron empresas con "P." en la base de datos.
-                    </div>
-                    <?php endif; ?>
                     
                     <button type="submit" class="btn-generar-informe mt-3" id="btnGenerar">
                         <i class="fas fa-file-word"></i> Generar Informe en Word
@@ -561,31 +606,212 @@ if ($resEmpresas) {
                 
                 <div class="nota-especial">
                     <i class="fas fa-star-of-life" style="color: #cc6600;"></i> 
-                    <strong>Nota especial:</strong> Los viajes del puesto <strong>p.nazareth</strong> cuyas rutas contengan 
-                    "Maicao" o "Riohacha" (sin importar mayúsculas/minúsculas) se moverán a una <strong>SECCIÓN EXTRA</strong> 
-                    al final del documento, con una sola tabla que incluye fecha, ruta, conductor y valor.
+                    <strong>Nota:</strong> Los viajes de <strong>p.nazareth</strong> con rutas que contengan "Maicao" o "Riohacha" 
+                    se muestran en una sección EXTRA al final.
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- MODAL DE ASIGNACIONES -->
+    <div class="modal fade modal-asignaciones" id="modalAsignaciones" data-bs-backdrop="static" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header" style="background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%); color: white;">
+                    <h5 class="modal-title">
+                        <i class="fas fa-users-cog"></i> Asignar conductores personalizados
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i> 
+                        <strong>Opcional:</strong> Asigna 1 o 2 conductores a cada puesto. Si no asignas, se usarán los nombres reales de la BD.
+                        La asignación se guarda en tu navegador.
+                    </div>
+                    
+                    <div id="asignacionesContainer">
+                        <!-- Se llena con JS -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                        <i class="fas fa-times"></i> Cancelar
+                    </button>
+                    <button type="button" class="btn btn-danger" id="btnLimpiarTodas">
+                        <i class="fas fa-trash-alt"></i> Limpiar todas
+                    </button>
+                    <button type="button" class="btn btn-primary" id="btnGuardarAsignaciones">
+                        <i class="fas fa-save"></i> Guardar asignaciones
+                    </button>
                 </div>
             </div>
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // Establecer fechas por defecto (últimos 30 días)
-        const hoy = new Date();
-        const hace30Dias = new Date();
-        hace30Dias.setDate(hoy.getDate() - 30);
+        // Datos
+        const empresasPuestos = <?php echo json_encode($empresasPuestosLista); ?>;
+        let asignaciones = {};
         
-        const fechaDesdeInput = document.getElementById('fecha_desde');
-        const fechaHastaInput = document.getElementById('fecha_hasta');
-        
-        if (fechaDesdeInput && !fechaDesdeInput.value) {
-            fechaDesdeInput.value = hace30Dias.toISOString().split('T')[0];
+        // Cargar asignaciones guardadas
+        function cargarAsignaciones() {
+            const guardadas = localStorage.getItem('asignacionesConductores');
+            if (guardadas) {
+                try {
+                    asignaciones = JSON.parse(guardadas);
+                    actualizarBadges();
+                } catch(e) {}
+            }
         }
-        if (fechaHastaInput && !fechaHastaInput.value) {
-            fechaHastaInput.value = hoy.toISOString().split('T')[0];
+        
+        // Actualizar badges en la lista
+        function actualizarBadges() {
+            empresasPuestos.forEach(empresa => {
+                const badge = document.getElementById(`badge_${md5(empresa)}`);
+                if (badge) {
+                    if (asignaciones[empresa] && asignaciones[empresa].length > 0) {
+                        badge.style.display = 'inline-block';
+                    } else {
+                        badge.style.display = 'none';
+                    }
+                }
+            });
         }
         
-        // Función para actualizar el contador de seleccionados
+        // Guardar asignaciones
+        function guardarAsignaciones() {
+            localStorage.setItem('asignacionesConductores', JSON.stringify(asignaciones));
+            actualizarBadges();
+        }
+        
+        // MD5 simple para IDs
+        function md5(str) {
+            return str.split('').reduce((a, b) => {
+                a = ((a << 5) - a) + b.charCodeAt(0);
+                return a & a;
+            }, 0).toString(16);
+        }
+        
+        // Renderizar modal con todas las empresas
+        function renderizarModal() {
+            const container = document.getElementById('asignacionesContainer');
+            if (!container) return;
+            
+            if (empresasPuestos.length === 0) {
+                container.innerHTML = '<div class="alert alert-warning">No hay puestos de salud disponibles.</div>';
+                return;
+            }
+            
+            let html = '';
+            empresasPuestos.forEach(empresa => {
+                const asignacionActual = asignaciones[empresa] || [];
+                const conductor1 = asignacionActual[0] || { nombre: '', cedula: '' };
+                const conductor2 = asignacionActual[1] || { nombre: '', cedula: '' };
+                
+                html += `
+                    <div class="asignacion-item" data-empresa="${empresa.replace(/"/g, '&quot;')}">
+                        <div class="asignacion-empresa">
+                            <i class="fas fa-building"></i> ${empresa}
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-2">
+                                <label class="form-label small fw-bold">Conductor 1</label>
+                                <input type="text" class="form-control form-control-sm conductor-nombre" 
+                                       placeholder="Nombre del conductor" value="${escapeHtml(conductor1.nombre)}"
+                                       data-empresa="${empresa}" data-conductor="1">
+                                <input type="text" class="form-control form-control-sm mt-1" 
+                                       placeholder="Cédula (opcional)" value="${escapeHtml(conductor1.cedula)}"
+                                       data-empresa="${empresa}" data-conductor="1-cedula">
+                            </div>
+                            <div class="col-md-6 mb-2">
+                                <label class="form-label small fw-bold">Conductor 2 (opcional)</label>
+                                <input type="text" class="form-control form-control-sm conductor-nombre" 
+                                       placeholder="Nombre del conductor" value="${escapeHtml(conductor2.nombre)}"
+                                       data-empresa="${empresa}" data-conductor="2">
+                                <input type="text" class="form-control form-control-sm mt-1" 
+                                       placeholder="Cédula (opcional)" value="${escapeHtml(conductor2.cedula)}"
+                                       data-empresa="${empresa}" data-conductor="2-cedula">
+                            </div>
+                        </div>
+                        <div class="text-end mt-1">
+                            <button type="button" class="btn btn-sm btn-outline-danger limpiar-asignacion" data-empresa="${empresa}">
+                                <i class="fas fa-eraser"></i> Limpiar
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+            
+            // Eventos para limpiar asignación individual
+            document.querySelectorAll('.limpiar-asignacion').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const empresa = this.getAttribute('data-empresa');
+                    delete asignaciones[empresa];
+                    renderizarModal();
+                });
+            });
+        }
+        
+        // Escape HTML
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Recoger datos del modal
+        function recogerAsignacionesDesdeModal() {
+            const nuevasAsignaciones = {};
+            document.querySelectorAll('.asignacion-item').forEach(item => {
+                const empresa = item.getAttribute('data-empresa');
+                const conductores = [];
+                
+                const nombre1 = item.querySelector('[data-conductor="1"]')?.value.trim();
+                const cedula1 = item.querySelector('[data-conductor="1-cedula"]')?.value.trim();
+                const nombre2 = item.querySelector('[data-conductor="2"]')?.value.trim();
+                const cedula2 = item.querySelector('[data-conductor="2-cedula"]')?.value.trim();
+                
+                if (nombre1) {
+                    conductores.push({ nombre: nombre1, cedula: cedula1 || '' });
+                }
+                if (nombre2) {
+                    conductores.push({ nombre: nombre2, cedula: cedula2 || '' });
+                }
+                
+                if (conductores.length > 0) {
+                    nuevasAsignaciones[empresa] = conductores;
+                }
+            });
+            return nuevasAsignaciones;
+        }
+        
+        // Eventos del modal
+        document.getElementById('btnGuardarAsignaciones')?.addEventListener('click', function() {
+            asignaciones = recogerAsignacionesDesdeModal();
+            guardarAsignaciones();
+            const modal = bootstrap.Modal.getInstance(document.getElementById('modalAsignaciones'));
+            modal.hide();
+            alert('✅ Asignaciones guardadas correctamente.');
+        });
+        
+        document.getElementById('btnLimpiarTodas')?.addEventListener('click', function() {
+            if (confirm('¿Eliminar todas las asignaciones de conductores?')) {
+                asignaciones = {};
+                guardarAsignaciones();
+                renderizarModal();
+            }
+        });
+        
+        // Abrir modal
+        document.getElementById('modalAsignaciones')?.addEventListener('show.bs.modal', function() {
+            renderizarModal();
+        });
+        
+        // Contador de seleccionados
         function actualizarContador() {
             const checkboxes = document.querySelectorAll('.empresa-check');
             const seleccionados = Array.from(checkboxes).filter(cb => cb.checked).length;
@@ -593,38 +819,26 @@ if ($resEmpresas) {
             const contadorDiv = document.getElementById('contadorSeleccion');
             if (contadorDiv) {
                 contadorDiv.innerHTML = `<i class="fas fa-check-circle"></i> ${seleccionados} de ${total} puestos seleccionados`;
-                if (seleccionados === 0) {
-                    contadorDiv.style.color = '#dc3545';
-                } else {
-                    contadorDiv.style.color = '#198754';
-                }
+                contadorDiv.style.color = seleccionados === 0 ? '#dc3545' : '#198754';
             }
         }
         
-        // Seleccionar todos
         document.getElementById('btnSeleccionarTodos')?.addEventListener('click', function() {
-            const checkboxes = document.querySelectorAll('.empresa-check');
-            checkboxes.forEach(cb => cb.checked = true);
+            document.querySelectorAll('.empresa-check').forEach(cb => cb.checked = true);
             actualizarContador();
         });
         
-        // Deseleccionar todos
         document.getElementById('btnDeseleccionarTodos')?.addEventListener('click', function() {
-            const checkboxes = document.querySelectorAll('.empresa-check');
-            checkboxes.forEach(cb => cb.checked = false);
+            document.querySelectorAll('.empresa-check').forEach(cb => cb.checked = false);
             actualizarContador();
         });
         
-        // Actualizar contador cuando cambie cualquier checkbox
         document.querySelectorAll('.empresa-check').forEach(cb => {
             cb.addEventListener('change', actualizarContador);
         });
         
-        // Inicializar contador
-        actualizarContador();
-        
         // Validar antes de enviar
-        document.getElementById('formInforme').addEventListener('submit', function(e) {
+        document.getElementById('formInforme')?.addEventListener('submit', function(e) {
             const fechaDesde = document.getElementById('fecha_desde').value;
             const fechaHasta = document.getElementById('fecha_hasta').value;
             const seleccionados = document.querySelectorAll('.empresa-check:checked');
@@ -646,7 +860,29 @@ if ($resEmpresas) {
                 alert('⚠️ Debes seleccionar al menos un puesto de salud.');
                 return;
             }
+            
+            // Guardar asignaciones en hidden field
+            document.getElementById('hiddenAsignaciones').value = JSON.stringify(asignaciones);
         });
+        
+        // Fechas por defecto
+        const hoy = new Date();
+        const hace30Dias = new Date();
+        hace30Dias.setDate(hoy.getDate() - 30);
+        
+        const fechaDesde = document.getElementById('fecha_desde');
+        const fechaHasta = document.getElementById('fecha_hasta');
+        
+        if (fechaDesde && !fechaDesde.value) {
+            fechaDesde.value = hace30Dias.toISOString().split('T')[0];
+        }
+        if (fechaHasta && !fechaHasta.value) {
+            fechaHasta.value = hoy.toISOString().split('T')[0];
+        }
+        
+        // Inicializar
+        cargarAsignaciones();
+        actualizarContador();
     </script>
 </body>
 </html>
