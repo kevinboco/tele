@@ -26,7 +26,7 @@ if (!isset($_SESSION['totales_manuales'])) {
     $_SESSION['totales_manuales'] = array();
 }
 
-// Procesar acción de mover a extras
+// Procesar acciones POST
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['export_word'])) {
         // No hacer nada, solo exportar
@@ -50,7 +50,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $costo = obtener_tarifa($clasificacion, $row['tipo_vehiculo'], $row['empresa'], $conn);
                 $row['costo'] = $costo;
                 
-                // Si el nombre fue cambiado, mantener el nombre cambiado
                 if (isset($_SESSION['nombres_cambiados'][$id])) {
                     $row['nombre'] = $_SESSION['nombres_cambiados'][$id];
                 }
@@ -79,7 +78,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
     
-    // Cambiar nombres de conductores en una tabla
     if (isset($_POST['action']) && $_POST['action'] === 'cambiar_conductores') {
         $empresa = $_POST['empresa_cambio'];
         $nombres = isset($_POST['nombres_conductores']) ? $_POST['nombres_conductores'] : array();
@@ -95,7 +93,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
     
-    // Guardar total manual
     if (isset($_POST['action']) && $_POST['action'] === 'guardar_total_manual') {
         $key = $_POST['total_key'];
         $valor = floatval(str_replace(['.', ','], ['', '.'], $_POST['total_valor']));
@@ -104,7 +101,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
     
-    // Guardar total manual de extras
     if (isset($_POST['action']) && $_POST['action'] === 'guardar_total_extras') {
         $valor = floatval(str_replace(['.', ','], ['', '.'], $_POST['total_extras_valor']));
         $_SESSION['totales_manuales']['__extras__'] = $valor;
@@ -112,7 +108,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
     
-    // Restaurar nombres originales
     if (isset($_POST['action']) && $_POST['action'] === 'restaurar_nombres') {
         $_SESSION['nombres_cambiados'] = array();
         $_SESSION['nombres_cambiados_empresa'] = array();
@@ -120,7 +115,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
     
-    // Restaurar totales manuales
     if (isset($_POST['action']) && $_POST['action'] === 'restaurar_totales') {
         $_SESSION['totales_manuales'] = array();
         header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
@@ -280,10 +274,11 @@ function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_s
                 if (!empty($nombres_cambiados)) {
                     $tablas_conductores = array();
                     foreach ($nombres_cambiados as $idx => $nombre_conductor) {
-                        $key = $empresa_actual . '|' . $nombre_conductor;
+                        // Crear clave ÚNICA por empresa + conductor
+                        $key_tabla = $empresa_actual . '||' . $nombre_conductor;
                         $tablas_conductores[$idx] = array(
                             'nombre_conductor' => $nombre_conductor,
-                            'key' => $key,
+                            'key' => $key_tabla,
                             'rows' => array(),
                             'total_calculado' => 0,
                             'total' => 0
@@ -302,12 +297,17 @@ function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_s
                         $contador_intercalado++;
                     }
                     
-                    // Aplicar totales manuales
+                    // Aplicar totales manuales con clave única
                     foreach ($tablas_conductores as &$tabla) {
                         $tabla['total'] = obtenerTotalEfectivo($tabla['key'], $tabla['total_calculado']);
                     }
+                    unset($tabla);
                     
-                    $total_general_efectivo = array_sum(array_column($tablas_conductores, 'total'));
+                    // Calcular total general efectivo sumando los totales de cada tabla
+                    $total_general_efectivo = 0;
+                    foreach ($tablas_conductores as $tabla) {
+                        $total_general_efectivo += $tabla['total'];
+                    }
                     
                     $datos[$empresa_actual] = array(
                         'tipo' => 'multiple',
@@ -336,12 +336,13 @@ function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_s
                         $rows_data[] = array_merge($row, array('acumulado' => $acumulado));
                     }
                     
-                    $key = $empresa_actual;
-                    $total_efectivo = obtenerTotalEfectivo($key, $acumulado);
+                    // Clave única para empresa simple
+                    $key_tabla = $empresa_actual . '||_simple_';
+                    $total_efectivo = obtenerTotalEfectivo($key_tabla, $acumulado);
                     
                     $datos[$empresa_actual] = array(
                         'tipo' => 'simple',
-                        'key' => $key,
+                        'key' => $key_tabla,
                         'rows' => $rows_data,
                         'total' => $acumulado,
                         'total_efectivo' => $total_efectivo
@@ -358,7 +359,13 @@ function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_s
                     }
                 }
             } else {
-                $datos[$empresa_actual] = array('tipo' => 'simple', 'key' => $empresa_actual, 'rows' => array(), 'total' => 0, 'total_efectivo' => 0);
+                $datos[$empresa_actual] = array(
+                    'tipo' => 'simple', 
+                    'key' => $empresa_actual . '||_simple_', 
+                    'rows' => array(), 
+                    'total' => 0, 
+                    'total_efectivo' => 0
+                );
             }
             $stmt->close();
         }
@@ -375,16 +382,30 @@ $resultado = obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empres
 $datos_empresas = $resultado['datos'];
 $alertas = $resultado['alertas'];
 
-// Calcular totales para el resumen
+// ============ CALCULAR TOTALES PARA EL RESUMEN - CORREGIDO ============
 $total_puestos = 0;
-foreach ($datos_empresas as $empresa => $data) {
+$resumen_empresas = array();
+
+foreach ($empresas_seleccionadas as $empresa) {
+    if (!isset($datos_empresas[$empresa])) continue;
+    $data = $datos_empresas[$empresa];
+    
     if ($data['tipo'] === 'multiple') {
-        $total_puestos += $data['total_general_efectivo'];
+        // Sumar los totales de cada tabla de conductor
+        $total_empresa = 0;
+        foreach ($data['tablas'] as $tabla) {
+            $total_empresa += $tabla['total'];
+        }
     } else {
-        $total_puestos += $data['total_efectivo'];
+        $total_empresa = $data['total_efectivo'];
     }
+    
+    $resumen_empresas[$empresa] = $total_empresa;
+    $total_puestos += $total_empresa;
 }
+
 $total_general = $total_puestos + $total_extras;
+// ============ FIN CÁLCULO DE TOTALES ============
 
 // Si es exportación a Word
 if (isset($_POST['export_word'])) {
@@ -523,14 +544,10 @@ if (isset($_POST['export_word'])) {
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($empresas_seleccionadas as $empresa): 
-                        if (!isset($datos_empresas[$empresa])) continue;
-                        $data = $datos_empresas[$empresa];
-                        $total_empresa = ($data['tipo'] === 'multiple') ? $data['total_general_efectivo'] : $data['total_efectivo'];
-                    ?>
+                    <?php foreach ($resumen_empresas as $empresa => $total): ?>
                     <tr>
                         <td>🏥 <?php echo htmlspecialchars($empresa); ?></td>
-                        <td class="costo">$ <?php echo number_format($total_empresa, 0, ',', '.'); ?></td>
+                        <td class="costo">$ <?php echo number_format($total, 0, ',', '.'); ?></td>
                     </tr>
                     <?php endforeach; ?>
                     <tr class="subtotal-row">
@@ -1052,7 +1069,6 @@ if (isset($_POST['export_word'])) {
             font-size: 14px;
         }
         
-        /* Estilos para totales editables */
         .total-editable {
             display: flex;
             align-items: center;
@@ -1109,7 +1125,6 @@ if (isset($_POST['export_word'])) {
             font-size: 13px;
         }
         
-        /* Estilos para la tabla resumen */
         .resumen-table {
             background: white;
             border-radius: 12px;
@@ -1290,7 +1305,6 @@ if (isset($_POST['export_word'])) {
                     </tbody>
                 </table>
             </div>
-            <!-- Total editable de extras -->
             <div class="extras-total-editable">
                 <span style="font-weight: 700; margin-right: 10px;">TOTAL EXTRAS:</span>
                 <?php if ($total_extras != $total_extras_calculado): ?>
@@ -1306,7 +1320,7 @@ if (isset($_POST['export_word'])) {
         </div>
         <?php endif; ?>
         
-        <!-- TABLAS POREMPRESA -->
+        <!-- TABLAS POR EMPRESA -->
         <?php
         if (!empty($empresas_seleccionadas)) {
             foreach ($empresas_seleccionadas as $empresa_actual) {
@@ -1333,7 +1347,6 @@ if (isset($_POST['export_word'])) {
                 if ($data['tipo'] === 'multiple'):
                     $total_general = $data['total_general'];
                     $total_general_efectivo = $data['total_general_efectivo'];
-                    $key_empresa = $data['key'];
                     ?>
                     <div class="empresa-table" id="<?php echo $empresa_anchor; ?>">
                         <div class="table-header">
@@ -1352,7 +1365,6 @@ if (isset($_POST['export_word'])) {
                             </div>
                         </div>
                         
-                        <!-- SECCIÓN DE CAMBIO DE CONDUCTORES -->
                         <div class="cambio-conductores-section">
                             <div class="filtro-group" style="flex: 2; min-width: 300px;">
                                 <label>👤 Buscar o escribir nombre del conductor (máx. 2) - Presiona Enter para agregar</label>
@@ -1446,7 +1458,6 @@ if (isset($_POST['export_word'])) {
                                 </div>
                             </form>
                             
-                            <!-- Total editable -->
                             <div style="background:#e8f0fe;padding:12px 20px;display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap;">
                                 <strong>TOTAL <?php echo htmlspecialchars($conductor_nombre); ?>:</strong>
                                 <?php if ($es_manual): ?>
@@ -1576,7 +1587,6 @@ if (isset($_POST['export_word'])) {
                         </script>
                         <?php endforeach; ?>
                         
-                        <!-- Total general de la empresa (solo informativo, no editable directamente) -->
                         <div class="total-general-row">
                             💰 TOTAL <?php echo htmlspecialchars($empresa_actual); ?>: 
                             $ <?php echo number_format($total_general_efectivo, 0, ',', '.'); ?>
@@ -1671,7 +1681,6 @@ if (isset($_POST['export_word'])) {
                         </div>
                     </div>
                     
-                    <!-- SECCIÓN DE CAMBIO DE CONDUCTORES -->
                     <div class="cambio-conductores-section">
                         <div class="filtro-group" style="flex: 2; min-width: 300px;">
                             <label>👤 Buscar o escribir nombre del conductor (máx. 2) - Presiona Enter para agregar</label>
@@ -1738,7 +1747,6 @@ if (isset($_POST['export_word'])) {
                         </div>
                     </form>
                     
-                    <!-- Total editable -->
                     <div style="background:#e8f0fe;padding:12px 20px;display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap;">
                         <strong>TOTAL <?php echo htmlspecialchars($empresa_actual); ?>:</strong>
                         <?php if ($es_manual): ?>
@@ -1931,14 +1939,10 @@ if (isset($_POST['export_word'])) {
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($empresas_seleccionadas as $empresa): 
-                            if (!isset($datos_empresas[$empresa])) continue;
-                            $data = $datos_empresas[$empresa];
-                            $total_empresa = ($data['tipo'] === 'multiple') ? $data['total_general_efectivo'] : $data['total_efectivo'];
-                        ?>
+                        <?php foreach ($resumen_empresas as $empresa => $total): ?>
                         <tr>
                             <td>🏥 <?php echo htmlspecialchars($empresa); ?></td>
-                            <td class="costo">$ <?php echo number_format($total_empresa, 0, ',', '.'); ?></td>
+                            <td class="costo">$ <?php echo number_format($total, 0, ',', '.'); ?></td>
                         </tr>
                         <?php endforeach; ?>
                         <tr class="subtotal-row">
