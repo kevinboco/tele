@@ -51,7 +51,7 @@ function obtener_tarifa($clasificacion, $tipo_vehiculo, $empresa, $conn) {
     }
 }
 
-// Obtener empresas que empiezan con P (punto incluido)
+// Obtener empresas que empiezan con P. (punto incluido)
 $empresas_disponibles = array();
 $sql_emp = "SELECT DISTINCT empresa 
             FROM viajes 
@@ -390,12 +390,13 @@ if ($res_emp) {
         if (!empty($empresas_seleccionadas)) {
             foreach ($empresas_seleccionadas as $empresa_actual) {
                 
-                // Construir consulta para esta empresa específica
+                // CONSULTA CORREGIDA - Solución del problema de collation
+                // Usamos CONVERT para unificar los collations
                 $sql = "SELECT v.id, v.nombre, v.cedula, v.fecha, v.ruta, v.tipo_vehiculo, v.empresa, rc.clasificacion
                         FROM viajes v
                         LEFT JOIN ruta_clasificacion rc 
-                            ON v.ruta = rc.ruta 
-                            AND v.tipo_vehiculo = rc.tipo_vehiculo
+                            ON CONVERT(v.ruta USING utf8mb4) = CONVERT(rc.ruta USING utf8mb4) 
+                            AND CONVERT(v.tipo_vehiculo USING utf8mb4) = CONVERT(rc.tipo_vehiculo USING utf8mb4)
                         WHERE v.empresa = ?";
                 
                 $params = array($empresa_actual);
@@ -427,8 +428,8 @@ if ($res_emp) {
                         <div class="empresa-table">
                             <div class="table-header">
                                 <h2>🏥 <?php echo htmlspecialchars($empresa_actual); ?></h2>
-                                <div class="total-empresa" id="total-<?php echo md5($empresa_actual); ?>">
-                                    Cargando...
+                                <div class="total-empresa">
+                                    Total: $0
                                 </div>
                             </div>
                             <table>
@@ -475,6 +476,10 @@ if ($res_emp) {
                                 </tbody>
                             </table>
                         </div>
+                        <script>
+                            // Actualizar el total en el header
+                            document.querySelector('#total-<?php echo md5($empresa_actual); ?>').innerHTML = 'Total: $ <?php echo number_format($total_empresa, 0, ',', '.'); ?>';
+                        </script>
                         <?php
                     } else {
                         ?>
