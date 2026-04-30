@@ -430,9 +430,9 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
         <div class="extras-table">
             <div class="extras-header">
                 <h2>⭐ EXTRAS ⭐</h2>
-                <form method="POST" style="display: inline;">
+                <form method="POST" style="display: inline;" id="formLimpiarExtras">
                     <input type="hidden" name="action" value="limpiar_extras">
-                    <button type="submit" class="btn-limpiar-extras" onclick="return confirm('¿Limpiar todas las extras?')">🗑️ Limpiar todas</button>
+                    <button type="submit" class="btn-limpiar-extras">🗑️ Limpiar todas</button>
                 </form>
             </div>
             <table>
@@ -449,7 +449,7 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
                         $row = $extra['data'];
                         $acum = $extra['acumulado'];
                     ?>
-                    <tr>
+                    <tr id="extra-row-<?php echo $extra['index']; ?>">
                         <td><?php echo $idx_extra + 1; ?></td>
                         <td><?php echo $row['fecha'] ? date('d/m/Y', strtotime($row['fecha'])) : '-'; ?></td>
                         <td><strong><?php echo htmlspecialchars($row['nombre'] ?? '-'); ?></strong></td>
@@ -461,10 +461,10 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
                         <td class="costo">$ <?php echo number_format($row['costo'], 0, ',', '.'); ?></td>
                         <td class="acumulado">$ <?php echo number_format($acum, 0, ',', '.'); ?></td>
                         <td>
-                            <form method="POST" style="display: inline;">
+                            <form method="POST" style="display: inline;" class="form-eliminar-extra">
                                 <input type="hidden" name="action" value="eliminar_extra">
                                 <input type="hidden" name="extra_index" value="<?php echo $extra['index']; ?>">
-                                <button type="submit" class="btn-eliminar-extra" onclick="return confirm('¿Eliminar?')">✖</button>
+                                <button type="submit" class="btn-eliminar-extra">✖</button>
                             </form>
                         </td>
                     </tr>
@@ -719,14 +719,9 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
                             window.moverSeleccionados = function(empId) {
                                 const cbs = document.querySelectorAll(`.fila-check-${empId}`);
                                 const idsSeleccionados = Array.from(cbs).filter(cb => cb.checked).map(cb => cb.value);
-                                if (idsSeleccionados.length === 0) {
-                                    alert('Selecciona al menos una fila para mover a EXTRAS');
-                                    return;
-                                }
-                                if (confirm(`¿Mover ${idsSeleccionados.length} registro(s) a la tabla EXTRAS?`)) {
-                                    document.getElementById(`ids-${empId}`).value = idsSeleccionados.join(',');
-                                    document.getElementById(`form-${empId}`).submit();
-                                }
+                                if (idsSeleccionados.length === 0) return;
+                                document.getElementById(`ids-${empId}`).value = idsSeleccionados.join(',');
+                                document.getElementById(`form-${empId}`).submit();
                             };
                             
                             // Inicializar
