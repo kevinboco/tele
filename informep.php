@@ -2,7 +2,8 @@
 // ==============================================
 // INFORME DE VIAJES POR PUESTO DE SALUD
 // CON SELECCIÓN MÚLTIPLE DE PUESTOS
-// EXTRAS CORRECTAMENTE SEPARADOS PARA P.NAZARETH
+// CORREGIDO: Detecta p.nazareth en mayúscula/minúscula
+// EXTRAS SEPARADOS CORRECTAMENTE
 // ==============================================
 
 // Conexión a la base de datos
@@ -107,8 +108,8 @@ if ($generar_informe) {
             $v['fecha'] = date('d/m/Y', strtotime($v['fecha']));
         }
         
-        // === REGLA ESPECIAL PARA P.NAZARETH ===
-        if ($empresa === 'P.nazareth') {
+        // === REGLA ESPECIAL PARA P.NAZARETH (cualquier variación mayúscula/minúscula) ===
+        if (strtolower($empresa) === 'p.nazareth') {
             $normales = [];
             $extras = [];
             
@@ -203,7 +204,7 @@ if ($generar_informe) {
             // ==========================================
             echo "<h3>📌 VIAJES NORMALES</h3>";
             if (count($data['normales']) > 0) {
-                echo "</td>";
+                echo "<table>";
                 echo "<tr><th>Fecha</th><th>Nombre</th><th>Cédula</th><th>Ruta</th><th>Tipo Vehículo</th><th>Valor</th></tr>";
                 foreach ($data['normales'] as $v) {
                     $valor = ($v['costo'] === 'N/A') ? 'N/A' : '$ ' . number_format($v['costo'], 0, ',', '.');
@@ -384,9 +385,6 @@ $conn->close();
             font-size: 14px;
             color: #0066cc;
         }
-        hr {
-            margin: 20px 0;
-        }
     </style>
     <script>
         function seleccionarTodos() {
@@ -437,7 +435,7 @@ $conn->close();
         
         <div class="info">
             <strong>ℹ️ Información:</strong><br>
-            • <strong>P.nazareth</strong>: las rutas que contengan "Maicao" o "Riohacha" (sin importar mayúsculas/minúsculas) aparecen SOLO en la tabla llamada <strong>"EXTRAS"</strong>.<br>
+            • <strong>p.nazareth</strong> (cualquier variación mayúscula/minúscula): las rutas que contengan "Maicao" o "Riohacha" aparecen SOLO en la tabla llamada <strong>"EXTRAS"</strong>.<br>
             • Las rutas que NO contengan "Maicao" ni "Riohacha" aparecen SOLO en la tabla <strong>"VIAJES NORMALES"</strong>.<br>
             • <strong>Los demás puestos</strong>: se aplica el presupuesto. Los viajes se colorean en VERDE (acumulado ≤ presupuesto) o ROJO (acumulado > presupuesto).<br>
             • Si una ruta no tiene clasificación o tarifa, el valor se muestra como <strong>N/A</strong>.<br>
