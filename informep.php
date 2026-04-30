@@ -21,6 +21,11 @@ if (!isset($_SESSION['nombres_cambiados'])) {
     $_SESSION['nombres_cambiados'] = array();
 }
 
+// Inicializar sesión para totales manuales
+if (!isset($_SESSION['totales_manuales'])) {
+    $_SESSION['totales_manuales'] = array();
+}
+
 // Procesar acción de mover a extras
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['export_word'])) {
@@ -90,10 +95,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
     
+    // Guardar total manual
+    if (isset($_POST['action']) && $_POST['action'] === 'guardar_total_manual') {
+        $key = $_POST['total_key'];
+        $valor = floatval(str_replace(['.', ','], ['', '.'], $_POST['total_valor']));
+        $_SESSION['totales_manuales'][$key] = $valor;
+        header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
+        exit;
+    }
+    
+    // Guardar total manual de extras
+    if (isset($_POST['action']) && $_POST['action'] === 'guardar_total_extras') {
+        $valor = floatval(str_replace(['.', ','], ['', '.'], $_POST['total_extras_valor']));
+        $_SESSION['totales_manuales']['__extras__'] = $valor;
+        header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
+        exit;
+    }
+    
     // Restaurar nombres originales
     if (isset($_POST['action']) && $_POST['action'] === 'restaurar_nombres') {
         $_SESSION['nombres_cambiados'] = array();
         $_SESSION['nombres_cambiados_empresa'] = array();
+        header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
+        exit;
+    }
+    
+    // Restaurar totales manuales
+    if (isset($_POST['action']) && $_POST['action'] === 'restaurar_totales') {
+        $_SESSION['totales_manuales'] = array();
         header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
         exit;
     }
@@ -171,6 +200,14 @@ function calcular_acumulado_extras($extras) {
     return $resultados;
 }
 
+// Función para obtener el total efectivo (manual o calculado)
+function obtenerTotalEfectivo($key, $total_calculado) {
+    if (isset($_SESSION['totales_manuales'][$key])) {
+        return $_SESSION['totales_manuales'][$key];
+    }
+    return $total_calculado;
+}
+
 // Función para obtener datos de las tablas
 function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_seleccionadas, $extras, $PRESUPUESTO_BASE) {
     $datos = array();
@@ -243,9 +280,12 @@ function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_s
                 if (!empty($nombres_cambiados)) {
                     $tablas_conductores = array();
                     foreach ($nombres_cambiados as $idx => $nombre_conductor) {
+                        $key = $empresa_actual . '|' . $nombre_conductor;
                         $tablas_conductores[$idx] = array(
                             'nombre_conductor' => $nombre_conductor,
+                            'key' => $key,
                             'rows' => array(),
+                            'total_calculado' => 0,
                             'total' => 0
                         );
                     }
@@ -257,15 +297,24 @@ function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_s
                         $_SESSION['nombres_cambiados'][$row['id']] = $row['nombre'];
                         
                         $tablas_conductores[$conductor_idx]['rows'][] = $row;
-                        $tablas_conductores[$conductor_idx]['total'] += $row['costo'];
+                        $tablas_conductores[$conductor_idx]['total_calculado'] += $row['costo'];
                         
                         $contador_intercalado++;
                     }
                     
+                    // Aplicar totales manuales
+                    foreach ($tablas_conductores as &$tabla) {
+                        $tabla['total'] = obtenerTotalEfectivo($tabla['key'], $tabla['total_calculado']);
+                    }
+                    
+                    $total_general_efectivo = array_sum(array_column($tablas_conductores, 'total'));
+                    
                     $datos[$empresa_actual] = array(
                         'tipo' => 'multiple',
                         'tablas' => $tablas_conductores,
-                        'total_general' => $acumulado_total
+                        'total_general' => $acumulado_total,
+                        'total_general_efectivo' => $total_general_efectivo,
+                        'key' => $empresa_actual
                     );
                     
                     foreach ($tablas_conductores as $tabla) {
@@ -287,24 +336,29 @@ function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_s
                         $rows_data[] = array_merge($row, array('acumulado' => $acumulado));
                     }
                     
+                    $key = $empresa_actual;
+                    $total_efectivo = obtenerTotalEfectivo($key, $acumulado);
+                    
                     $datos[$empresa_actual] = array(
                         'tipo' => 'simple',
+                        'key' => $key,
                         'rows' => $rows_data,
-                        'total' => $acumulado
+                        'total' => $acumulado,
+                        'total_efectivo' => $total_efectivo
                     );
                     
-                    if ($acumulado > $PRESUPUESTO_BASE) {
-                        $exceso = $acumulado - $PRESUPUESTO_BASE;
+                    if ($total_efectivo > $PRESUPUESTO_BASE) {
+                        $exceso = $total_efectivo - $PRESUPUESTO_BASE;
                         $alertas[] = array(
                             'empresa' => $empresa_actual,
-                            'total' => $acumulado,
+                            'total' => $total_efectivo,
                             'exceso' => $exceso,
                             'presupuesto' => $PRESUPUESTO_BASE
                         );
                     }
                 }
             } else {
-                $datos[$empresa_actual] = array('tipo' => 'simple', 'rows' => array(), 'total' => 0);
+                $datos[$empresa_actual] = array('tipo' => 'simple', 'key' => $empresa_actual, 'rows' => array(), 'total' => 0, 'total_efectivo' => 0);
             }
             $stmt->close();
         }
@@ -314,7 +368,8 @@ function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_s
 }
 
 $extras_con_acumulado = calcular_acumulado_extras($_SESSION['extras']);
-$total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
+$total_extras_calculado = array_sum(array_column($_SESSION['extras'], 'costo'));
+$total_extras = obtenerTotalEfectivo('__extras__', $total_extras_calculado);
 
 $resultado = obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_seleccionadas, $_SESSION['extras'], $PRESUPUESTO_BASE);
 $datos_empresas = $resultado['datos'];
@@ -324,9 +379,9 @@ $alertas = $resultado['alertas'];
 $total_puestos = 0;
 foreach ($datos_empresas as $empresa => $data) {
     if ($data['tipo'] === 'multiple') {
-        $total_puestos += $data['total_general'];
+        $total_puestos += $data['total_general_efectivo'];
     } else {
-        $total_puestos += $data['total'];
+        $total_puestos += $data['total_efectivo'];
     }
 }
 $total_general = $total_puestos + $total_extras;
@@ -420,7 +475,7 @@ if (isset($_POST['export_word'])) {
                         <?php endforeach; ?>
                         <tr class="total-row">
                             <td colspan="3" style="text-align:right;">TOTAL:</td>
-                            <td class="costo">$ <?php echo number_format($data['total'], 0, ',', '.'); ?></td>
+                            <td class="costo">$ <?php echo number_format($data['total_efectivo'], 0, ',', '.'); ?></td>
                         </tr>
                     </tbody>
                 </table>
@@ -471,8 +526,7 @@ if (isset($_POST['export_word'])) {
                     <?php foreach ($empresas_seleccionadas as $empresa): 
                         if (!isset($datos_empresas[$empresa])) continue;
                         $data = $datos_empresas[$empresa];
-                        $total_empresa = ($data['tipo'] === 'multiple') ? $data['total_general'] : $data['total'];
-                        if ($total_empresa == 0 && empty($data['rows']) && empty($data['tablas'])) continue;
+                        $total_empresa = ($data['tipo'] === 'multiple') ? $data['total_general_efectivo'] : $data['total_efectivo'];
                     ?>
                     <tr>
                         <td>🏥 <?php echo htmlspecialchars($empresa); ?></td>
@@ -559,6 +613,19 @@ if (isset($_POST['export_word'])) {
             margin-left: 10px;
         }
         .btn-restaurar:hover { background: #b71c1c; }
+        
+        .btn-restaurar-totales {
+            background: #6a1b9a;
+            color: white;
+            border: none;
+            padding: 10px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            margin-left: 10px;
+        }
+        .btn-restaurar-totales:hover { background: #4a148c; }
         
         .alertas-container { margin-bottom: 25px; }
         .alerta-presupuesto {
@@ -966,6 +1033,7 @@ if (isset($_POST['export_word'])) {
             display: flex;
             gap: 10px;
             align-items: center;
+            flex-wrap: wrap;
         }
         
         .sub-table-wrapper {
@@ -982,6 +1050,63 @@ if (isset($_POST['export_word'])) {
             padding: 12px 20px;
             text-align: right;
             font-size: 14px;
+        }
+        
+        /* Estilos para totales editables */
+        .total-editable {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+        
+        .total-editable input {
+            width: 120px;
+            padding: 4px 8px;
+            border: 1px solid #1a73e8;
+            border-radius: 6px;
+            text-align: right;
+            font-weight: 600;
+            font-size: 12px;
+            color: #1a73e8;
+        }
+        
+        .total-editable .total-calculado-original {
+            font-size: 10px;
+            color: #999;
+            text-decoration: line-through;
+            margin-right: 5px;
+        }
+        
+        .btn-guardar-total {
+            background: #1a73e8;
+            color: white;
+            border: none;
+            padding: 4px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .btn-guardar-total:hover { background: #1557b0; }
+        
+        .extras-total-editable {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            justify-content: flex-end;
+            padding: 10px 15px;
+            background: #ffe0b2;
+        }
+        
+        .extras-total-editable input {
+            width: 130px;
+            padding: 5px 10px;
+            border: 1px solid #ff9800;
+            border-radius: 6px;
+            text-align: right;
+            font-weight: 600;
+            font-size: 13px;
         }
         
         /* Estilos para la tabla resumen */
@@ -1035,6 +1160,7 @@ if (isset($_POST['export_word'])) {
             .table-header { flex-direction: column; text-align: center; }
             .acciones-header { justify-content: center; }
             .cambio-conductores-section { flex-direction: column; }
+            .btn-header-group { justify-content: center; }
         }
     </style>
 </head>
@@ -1052,7 +1178,11 @@ if (isset($_POST['export_word'])) {
                 </form>
                 <form method="POST" style="display: inline;">
                     <input type="hidden" name="action" value="restaurar_nombres">
-                    <button type="submit" class="btn-restaurar">🔄 Restaurar Nombres Originales</button>
+                    <button type="submit" class="btn-restaurar">🔄 Restaurar Nombres</button>
+                </form>
+                <form method="POST" style="display: inline;">
+                    <input type="hidden" name="action" value="restaurar_totales">
+                    <button type="submit" class="btn-restaurar-totales">🔢 Restaurar Totales</button>
                 </form>
             </div>
         </div>
@@ -1157,14 +1287,21 @@ if (isset($_POST['export_word'])) {
                             </td>
                         </tr>
                         <?php endforeach; ?>
-                        <tr style="background: #ffe0b2; font-weight: bold;">
-                            <td colspan="9" style="text-align: right;">TOTAL EXTRAS:</td>
-                            <td class="costo">$ <?php echo number_format($total_extras, 0, ',', '.'); ?></td>
-                            <td class="acumulado">$ <?php echo number_format($total_extras, 0, ',', '.'); ?></td>
-                            <td></td>
-                        </tr>
                     </tbody>
                 </table>
+            </div>
+            <!-- Total editable de extras -->
+            <div class="extras-total-editable">
+                <span style="font-weight: 700; margin-right: 10px;">TOTAL EXTRAS:</span>
+                <?php if ($total_extras != $total_extras_calculado): ?>
+                <span style="font-size:11px;color:#999;text-decoration:line-through;margin-right:5px;">$ <?php echo number_format($total_extras_calculado, 0, ',', '.'); ?></span>
+                <?php endif; ?>
+                <span style="font-weight:700;margin-right:10px;">$ <?php echo number_format($total_extras, 0, ',', '.'); ?></span>
+                <form method="POST" style="display: inline-flex; align-items: center; gap: 6px;">
+                    <input type="hidden" name="action" value="guardar_total_extras">
+                    <input type="number" name="total_extras_valor" value="<?php echo $total_extras; ?>" step="1" style="width:130px;padding:5px 10px;border:1px solid #ff9800;border-radius:6px;text-align:right;font-weight:600;font-size:13px;">
+                    <button type="submit" class="btn-guardar-total" style="background:#ff9800;">💾 Guardar</button>
+                </form>
             </div>
         </div>
         <?php endif; ?>
@@ -1195,6 +1332,8 @@ if (isset($_POST['export_word'])) {
                 
                 if ($data['tipo'] === 'multiple'):
                     $total_general = $data['total_general'];
+                    $total_general_efectivo = $data['total_general_efectivo'];
+                    $key_empresa = $data['key'];
                     ?>
                     <div class="empresa-table" id="<?php echo $empresa_anchor; ?>">
                         <div class="table-header">
@@ -1252,8 +1391,11 @@ if (isset($_POST['export_word'])) {
                             $empresa_id = $empresa_id_base . '_c' . $tab_idx;
                             $conductor_nombre = $tabla['nombre_conductor'];
                             $rows_data = $tabla['rows'];
-                            $total_tabla = $tabla['total'];
-                            $excede = $total_tabla > $PRESUPUESTO_BASE;
+                            $total_calculado = $tabla['total_calculado'];
+                            $total_efectivo = $tabla['total'];
+                            $key_tabla = $tabla['key'];
+                            $excede = $total_efectivo > $PRESUPUESTO_BASE;
+                            $es_manual = isset($_SESSION['totales_manuales'][$key_tabla]);
                         ?>
                         <div class="sub-table-wrapper">
                             <div class="table-header-conductor" style="<?php echo $excede ? 'background: #f44336;' : ''; ?>">
@@ -1299,15 +1441,26 @@ if (isset($_POST['export_word'])) {
                                                 <td class="acumulado">$ <?php echo number_format($acum, 0, ',', '.'); ?></td>
                                             </tr>
                                             <?php endforeach; ?>
-                                            <tr style="background: #e8f0fe; font-weight: bold;">
-                                                <td colspan="8" style="text-align: right;">TOTAL <?php echo htmlspecialchars($conductor_nombre); ?>:</td>
-                                                <td class="costo">$ <?php echo number_format($total_tabla, 0, ',', '.'); ?></td>
-                                                <td class="acumulado">$ <?php echo number_format($total_tabla, 0, ',', '.'); ?></td>
-                                            </tr>
                                         </tbody>
                                     </table>
                                 </div>
                             </form>
+                            
+                            <!-- Total editable -->
+                            <div style="background:#e8f0fe;padding:12px 20px;display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap;">
+                                <strong>TOTAL <?php echo htmlspecialchars($conductor_nombre); ?>:</strong>
+                                <?php if ($es_manual): ?>
+                                <span style="font-size:11px;color:#999;text-decoration:line-through;">$ <?php echo number_format($total_calculado, 0, ',', '.'); ?></span>
+                                <span style="color:#e65100;">➜</span>
+                                <?php endif; ?>
+                                <span style="font-weight:700;font-size:14px;color:#1a73e8;">$ <?php echo number_format($total_efectivo, 0, ',', '.'); ?></span>
+                                <form method="POST" style="display:inline-flex;align-items:center;gap:6px;">
+                                    <input type="hidden" name="action" value="guardar_total_manual">
+                                    <input type="hidden" name="total_key" value="<?php echo htmlspecialchars($key_tabla); ?>">
+                                    <input type="number" name="total_valor" value="<?php echo $total_efectivo; ?>" step="1" style="width:110px;padding:4px 8px;border:1px solid #1a73e8;border-radius:6px;text-align:right;font-weight:600;font-size:12px;">
+                                    <button type="submit" class="btn-guardar-total">💾</button>
+                                </form>
+                            </div>
                         </div>
                         
                         <script>
@@ -1423,8 +1576,13 @@ if (isset($_POST['export_word'])) {
                         </script>
                         <?php endforeach; ?>
                         
+                        <!-- Total general de la empresa (solo informativo, no editable directamente) -->
                         <div class="total-general-row">
-                            💰 TOTAL GENERAL <?php echo htmlspecialchars($empresa_actual); ?>: $ <?php echo number_format($total_general, 0, ',', '.'); ?>
+                            💰 TOTAL <?php echo htmlspecialchars($empresa_actual); ?>: 
+                            $ <?php echo number_format($total_general_efectivo, 0, ',', '.'); ?>
+                            <?php if ($total_general_efectivo != $total_general): ?>
+                            <span style="font-size:10px;opacity:0.7;"> (calculado: $ <?php echo number_format($total_general, 0, ',', '.'); ?>)</span>
+                            <?php endif; ?>
                         </div>
                     </div>
                     
@@ -1465,9 +1623,12 @@ if (isset($_POST['export_word'])) {
                     
                 <?php else: 
                     $rows_data = $data['rows'];
-                    $total_empresa = $data['total'];
-                    $excede = $total_empresa > $PRESUPUESTO_BASE;
+                    $total_calculado = $data['total'];
+                    $total_efectivo = $data['total_efectivo'];
+                    $excede = $total_efectivo > $PRESUPUESTO_BASE;
                     $empresa_id = $empresa_id_base;
+                    $key_tabla = $data['key'];
+                    $es_manual = isset($_SESSION['totales_manuales'][$key_tabla]);
                     
                     if (empty($rows_data)) {
                         ?>
@@ -1572,15 +1733,26 @@ if (isset($_POST['export_word'])) {
                                         <td class="acumulado">$ <?php echo number_format($row['acumulado'], 0, ',', '.'); ?></td>
                                     </tr>
                                     <?php endforeach; ?>
-                                    <tr style="background: #e8f0fe; font-weight: bold;">
-                                        <td colspan="8" style="text-align: right;">TOTAL <?php echo htmlspecialchars($empresa_actual); ?>:</td>
-                                        <td class="costo">$ <?php echo number_format($total_empresa, 0, ',', '.'); ?></td>
-                                        <td class="acumulado">$ <?php echo number_format($total_empresa, 0, ',', '.'); ?></td>
-                                    </tr>
                                 </tbody>
                             </table>
                         </div>
                     </form>
+                    
+                    <!-- Total editable -->
+                    <div style="background:#e8f0fe;padding:12px 20px;display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap;">
+                        <strong>TOTAL <?php echo htmlspecialchars($empresa_actual); ?>:</strong>
+                        <?php if ($es_manual): ?>
+                        <span style="font-size:11px;color:#999;text-decoration:line-through;">$ <?php echo number_format($total_calculado, 0, ',', '.'); ?></span>
+                        <span style="color:#e65100;">➜</span>
+                        <?php endif; ?>
+                        <span style="font-weight:700;font-size:14px;color:#1a73e8;">$ <?php echo number_format($total_efectivo, 0, ',', '.'); ?></span>
+                        <form method="POST" style="display:inline-flex;align-items:center;gap:6px;">
+                            <input type="hidden" name="action" value="guardar_total_manual">
+                            <input type="hidden" name="total_key" value="<?php echo htmlspecialchars($key_tabla); ?>">
+                            <input type="number" name="total_valor" value="<?php echo $total_efectivo; ?>" step="1" style="width:110px;padding:4px 8px;border:1px solid #1a73e8;border-radius:6px;text-align:right;font-weight:600;font-size:12px;">
+                            <button type="submit" class="btn-guardar-total">💾</button>
+                        </form>
+                    </div>
                 </div>
                 
                 <script>
@@ -1762,8 +1934,7 @@ if (isset($_POST['export_word'])) {
                         <?php foreach ($empresas_seleccionadas as $empresa): 
                             if (!isset($datos_empresas[$empresa])) continue;
                             $data = $datos_empresas[$empresa];
-                            $total_empresa = ($data['tipo'] === 'multiple') ? $data['total_general'] : $data['total'];
-                            if ($total_empresa == 0 && empty($data['rows']) && (isset($data['tablas']) && empty($data['tablas']))) continue;
+                            $total_empresa = ($data['tipo'] === 'multiple') ? $data['total_general_efectivo'] : $data['total_efectivo'];
                         ?>
                         <tr>
                             <td>🏥 <?php echo htmlspecialchars($empresa); ?></td>
