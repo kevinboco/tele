@@ -139,17 +139,12 @@ function calcular_acumulado_extras($extras) {
 
 $extras_con_acumulado = calcular_acumulado_extras($_SESSION['extras']);
 $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
-
-// Generar mapa de IDs para JavaScript
-$empresa_ids_map = array();
-foreach ($empresas_seleccionadas as $emp) {
-    $empresa_ids_map[$emp] = 'emp_' . preg_replace('/[^a-zA-Z0-9]/', '_', $emp);
-}
 ?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Informe de Viajes con Extras</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -281,11 +276,12 @@ foreach ($empresas_seleccionadas as $emp) {
             font-size: 13px;
         }
         
+        /* Tabla de Extras */
         .extras-table {
             background: linear-gradient(135deg, #fff8e7 0%, #fff3d6 100%);
             border-radius: 12px;
             margin-bottom: 30px;
-            overflow: hidden;
+            overflow-x: auto;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
             border: 2px solid #ff9800;
         }
@@ -318,11 +314,12 @@ foreach ($empresas_seleccionadas as $emp) {
             font-weight: 600;
         }
         
+        /* Tabla de empresa */
         .empresa-table {
             background: white;
             border-radius: 12px;
             margin-bottom: 30px;
-            overflow: hidden;
+            overflow-x: auto;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
         
@@ -372,6 +369,7 @@ foreach ($empresas_seleccionadas as $emp) {
         table {
             width: 100%;
             border-collapse: collapse;
+            min-width: 800px;
         }
         
         th {
@@ -382,6 +380,7 @@ foreach ($empresas_seleccionadas as $emp) {
             color: #5f6368;
             border-bottom: 1px solid #dadce0;
             font-size: 12px;
+            white-space: nowrap;
         }
         
         td {
@@ -399,8 +398,8 @@ foreach ($empresas_seleccionadas as $emp) {
             background: #f8f9fa;
         }
         
-        .costo { font-weight: 600; color: #1a73e8; }
-        .acumulado { font-weight: 700; color: #34a853; }
+        .costo { font-weight: 600; color: #1a73e8; text-align: right; }
+        .acumulado { font-weight: 700; color: #34a853; text-align: right; }
         
         .checkbox-col {
             width: 30px;
@@ -417,6 +416,10 @@ foreach ($empresas_seleccionadas as $emp) {
             text-align: center;
             padding: 40px;
             color: #5f6368;
+        }
+        
+        .text-right {
+            text-align: right;
         }
         
         @media (max-width: 768px) {
@@ -610,7 +613,7 @@ foreach ($empresas_seleccionadas as $emp) {
                         }
                         $total_empresa = $acumulado;
                         ?>
-                        <div class="empresa-table" data-empresa="<?php echo htmlspecialchars($empresa_actual); ?>">
+                        <div class="empresa-table">
                             <div class="table-header">
                                 <h2>🏥 <?php echo htmlspecialchars($empresa_actual); ?></h2>
                                 <div class="acciones-header">
@@ -625,7 +628,7 @@ foreach ($empresas_seleccionadas as $emp) {
                                 <input type="hidden" name="action" value="mover_extras">
                                 <input type="hidden" name="empresa_origen" value="<?php echo htmlspecialchars($empresa_actual); ?>">
                                 <input type="hidden" name="ids_seleccionados" id="ids-<?php echo $empresa_id; ?>">
-                                </table>
+                                <table>
                                     <thead>
                                         <tr>
                                             <th class="checkbox-col"><input type="checkbox" id="select-all-<?php echo $empresa_id; ?>" onchange="toggleSeleccionarTodos(this, '<?php echo $empresa_id; ?>')"></th>
