@@ -2,6 +2,7 @@
 // ==============================================
 // INFORME DE VIAJES POR PUESTO DE SALUD
 // CON SELECCIÓN MÚLTIPLE DE PUESTOS
+// EXTRAS CORRECTAMENTE SEPARADOS PARA P.NAZARETH
 // ==============================================
 
 // Conexión a la base de datos
@@ -95,7 +96,7 @@ if ($generar_informe) {
         }
         
         if (count($viajes) == 0) {
-            continue; // No hay viajes para esta empresa en el período
+            continue;
         }
         
         // Calcular costo de cada viaje
@@ -106,24 +107,31 @@ if ($generar_informe) {
             $v['fecha'] = date('d/m/Y', strtotime($v['fecha']));
         }
         
-        // Aplicar reglas según empresa
+        // === REGLA ESPECIAL PARA P.NAZARETH ===
         if ($empresa === 'P.nazareth') {
             $normales = [];
             $extras = [];
+            
             foreach ($viajes as $v) {
+                // Convertir ruta a minúsculas para comparar sin importar mayúsculas
                 $ruta_lower = strtolower($v['ruta']);
+                
+                // Si contiene "maicao" o "riohacha" -> va a EXTRAS
                 if (strpos($ruta_lower, 'maicao') !== false || strpos($ruta_lower, 'riohacha') !== false) {
                     $extras[] = $v;
                 } else {
+                    // Sino -> va a NORMALES
                     $normales[] = $v;
                 }
             }
+            
             $empresas_con_viajes[$empresa] = [
                 'tipo' => 'estrella',
                 'normales' => $normales,
                 'extras' => $extras
             ];
         } else {
+            // Puestos normales con presupuesto
             $acumulado = 0;
             $viajes_con_color = [];
             foreach ($viajes as $v) {
@@ -190,10 +198,12 @@ if ($generar_informe) {
         echo "<h2>$puesto</h2>";
         
         if ($data['tipo'] === 'estrella') {
-            // Tabla de viajes normales
+            // ==========================================
+            // P.NAZARETH - TABLA DE VIAJES NORMALES
+            // ==========================================
             echo "<h3>📌 VIAJES NORMALES</h3>";
             if (count($data['normales']) > 0) {
-                echo "<table>";
+                echo "</td>";
                 echo "<tr><th>Fecha</th><th>Nombre</th><th>Cédula</th><th>Ruta</th><th>Tipo Vehículo</th><th>Valor</th></tr>";
                 foreach ($data['normales'] as $v) {
                     $valor = ($v['costo'] === 'N/A') ? 'N/A' : '$ ' . number_format($v['costo'], 0, ',', '.');
@@ -211,7 +221,9 @@ if ($generar_informe) {
                 echo "<p>No hay viajes normales</p>";
             }
             
-            // Tabla de EXTRAS (Maicao o Riohacha)
+            // ==========================================
+            // P.NAZARETH - TABLA DE EXTRAS (Maicao o Riohacha)
+            // ==========================================
             echo "<h3>⭐ EXTRAS (Rutas con Maicao o Riohacha)</h3>";
             if (count($data['extras']) > 0) {
                 echo "<table class='extra-tabla'>";
@@ -232,7 +244,9 @@ if ($generar_informe) {
                 echo "<p>No hay viajes extras</p>";
             }
         } else {
-            // Puestos normales con presupuesto
+            // ==========================================
+            // DEMÁS PUESTOS (con presupuesto)
+            // ==========================================
             echo "<div class='presupuesto'>💰 Presupuesto para este puesto: $" . number_format($presupuesto, 0, ',', '.') . "</div>";
             echo "<table>";
             echo "<tr><th>Fecha</th><th>Nombre</th><th>Cédula</th><th>Ruta</th><th>Tipo Vehículo</th><th>Valor</th><th>Acumulado</th></tr>";
@@ -423,7 +437,8 @@ $conn->close();
         
         <div class="info">
             <strong>ℹ️ Información:</strong><br>
-            • <strong>P.nazareth</strong>: las rutas que contengan "Maicao" o "Riohacha" aparecen en una tabla separada llamada <strong>"EXTRAS"</strong>.<br>
+            • <strong>P.nazareth</strong>: las rutas que contengan "Maicao" o "Riohacha" (sin importar mayúsculas/minúsculas) aparecen SOLO en la tabla llamada <strong>"EXTRAS"</strong>.<br>
+            • Las rutas que NO contengan "Maicao" ni "Riohacha" aparecen SOLO en la tabla <strong>"VIAJES NORMALES"</strong>.<br>
             • <strong>Los demás puestos</strong>: se aplica el presupuesto. Los viajes se colorean en VERDE (acumulado ≤ presupuesto) o ROJO (acumulado > presupuesto).<br>
             • Si una ruta no tiene clasificación o tarifa, el valor se muestra como <strong>N/A</strong>.<br>
             • Puede seleccionar <strong>varios puestos</strong> a la vez y se generará un solo informe con todos.
