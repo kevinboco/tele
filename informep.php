@@ -1306,7 +1306,7 @@ if (isset($_POST['export_word'])) {
         </div>
         <?php endif; ?>
         
-        <!-- TABLAS POR EMPRESA -->
+        <!-- TABLAS POREMPRESA -->
         <?php
         if (!empty($empresas_seleccionadas)) {
             foreach ($empresas_seleccionadas as $empresa_actual) {
