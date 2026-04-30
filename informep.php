@@ -24,7 +24,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         foreach ($ids as $id) {
             $id = intval($id);
-            // Obtener datos del viaje
             $sql = "SELECT v.*, rc.clasificacion 
                     FROM viajes v
                     LEFT JOIN ruta_clasificacion rc ON v.ruta COLLATE utf8mb4_general_ci = rc.ruta COLLATE utf8mb4_general_ci 
@@ -38,13 +37,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $clasificacion = $row['clasificacion'];
                 $costo = obtener_tarifa($clasificacion, $row['tipo_vehiculo'], $row['empresa'], $conn);
                 $row['costo'] = $costo;
-                // Agregar a extras
                 $_SESSION['extras'][] = $row;
             }
             $stmt->close();
         }
         
-        // Redirigir para evitar reenvío del POST
         header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
         exit;
     }
@@ -70,7 +67,6 @@ $fecha_desde = isset($_GET['fecha_desde']) ? $_GET['fecha_desde'] : '';
 $fecha_hasta = isset($_GET['fecha_hasta']) ? $_GET['fecha_hasta'] : '';
 $empresas_seleccionadas = isset($_GET['empresas']) ? $_GET['empresas'] : array();
 
-// Función para obtener tarifa
 function obtener_tarifa($clasificacion, $tipo_vehiculo, $empresa, $conn) {
     if (empty($clasificacion) || empty($empresa)) {
         return 0;
@@ -82,18 +78,14 @@ function obtener_tarifa($clasificacion, $tipo_vehiculo, $empresa, $conn) {
             FROM tarifas 
             WHERE empresa = ? AND tipo_vehiculo = ?";
     $stmt = $conn->prepare($sql);
-    if (!$stmt) {
-        return 0;
-    }
+    if (!$stmt) return 0;
     $stmt->bind_param("ss", $empresa, $tipo_vehiculo);
     $stmt->execute();
     $result = $stmt->get_result();
     $tarifa = $result->fetch_assoc();
     $stmt->close();
     
-    if (!$tarifa) {
-        return 0;
-    }
+    if (!$tarifa) return 0;
     
     switch($clasificacion) {
         case 'completo': return isset($tarifa['completo']) ? floatval($tarifa['completo']) : 0;
@@ -109,12 +101,7 @@ function obtener_tarifa($clasificacion, $tipo_vehiculo, $empresa, $conn) {
 
 // Obtener empresas que empiezan con P.
 $empresas_disponibles = array();
-$sql_emp = "SELECT DISTINCT empresa 
-            FROM viajes 
-            WHERE empresa IS NOT NULL 
-            AND empresa != '' 
-            AND empresa LIKE 'P.%' 
-            ORDER BY empresa";
+$sql_emp = "SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa != '' AND empresa LIKE 'P.%' ORDER BY empresa";
 $res_emp = $conn->query($sql_emp);
 if ($res_emp) {
     while ($row = $res_emp->fetch_assoc()) {
@@ -122,17 +109,12 @@ if ($res_emp) {
     }
 }
 
-// Procesar extras para cálculo de acumulado
 function calcular_acumulado_extras($extras) {
     $acumulado = 0;
     $resultados = array();
     foreach ($extras as $index => $extra) {
         $acumulado += $extra['costo'];
-        $resultados[] = array(
-            'index' => $index,
-            'data' => $extra,
-            'acumulado' => $acumulado
-        );
+        $resultados[] = array('index' => $index, 'data' => $extra, 'acumulado' => $acumulado);
     }
     return $resultados;
 }
@@ -145,7 +127,7 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Informe de Viajes con Extras</title>
+    <title>Informe de Viajes - Selección por deslizamiento</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
@@ -155,10 +137,7 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
             padding: 20px;
         }
         
-        .container {
-            max-width: 1600px;
-            margin: 0 auto;
-        }
+        .container { max-width: 1600px; margin: 0 auto; }
         
         .header {
             background: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%);
@@ -208,24 +187,17 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
             min-width: 200px;
         }
         
-        .btn-filtrar {
-            background: #1a73e8;
-            color: white;
-            border: none;
+        .btn-filtrar, .btn-limpiar {
             padding: 10px 25px;
             border-radius: 8px;
             cursor: pointer;
             font-weight: 600;
+            border: none;
         }
         
-        .btn-limpiar {
-            background: #5f6368;
-            color: white;
-            border: none;
-            padding: 10px 25px;
-            border-radius: 8px;
-            cursor: pointer;
-        }
+        .btn-filtrar { background: #1a73e8; color: white; }
+        .btn-filtrar:hover { background: #1557b0; }
+        .btn-limpiar { background: #5f6368; color: white; }
         
         .empresas-section {
             border-top: 1px solid #e8eaed;
@@ -241,10 +213,7 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
             gap: 15px;
         }
         
-        .btn-group {
-            display: flex;
-            gap: 10px;
-        }
+        .btn-group { display: flex; gap: 10px; }
         
         .btn-seleccion {
             background: #f1f3f4;
@@ -297,13 +266,6 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
             gap: 15px;
         }
         
-        .extras-header h2 {
-            font-size: 18px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
         .btn-limpiar-extras {
             background: #e65100;
             color: white;
@@ -336,10 +298,7 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
         
         .table-header h2 { font-size: 18px; }
         
-        .acciones-header {
-            display: flex;
-            gap: 10px;
-        }
+        .acciones-header { display: flex; gap: 10px; }
         
         .btn-mover-extras {
             background: #ff9800;
@@ -369,7 +328,7 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
         table {
             width: 100%;
             border-collapse: collapse;
-            min-width: 800px;
+            min-width: 900px;
         }
         
         th {
@@ -390,36 +349,25 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
             font-size: 12px;
         }
         
-        tr.seleccionado {
-            background: #e3f2fd;
-        }
-        
-        tr:hover {
-            background: #f8f9fa;
-        }
+        tr.seleccionado { background: #e3f2fd; }
+        tr:hover { background: #f8f9fa; }
         
         .costo { font-weight: 600; color: #1a73e8; text-align: right; }
         .acumulado { font-weight: 700; color: #34a853; text-align: right; }
         
-        .checkbox-col {
-            width: 30px;
-            text-align: center;
-        }
+        .checkbox-col { width: 30px; text-align: center; }
+        .checkbox-col input { width: 18px; height: 18px; cursor: pointer; }
         
-        .checkbox-col input {
-            width: 18px;
-            height: 18px;
-            cursor: pointer;
-        }
+        .sin-datos { text-align: center; padding: 40px; color: #5f6368; }
         
-        .sin-datos {
-            text-align: center;
-            padding: 40px;
-            color: #5f6368;
-        }
-        
-        .text-right {
-            text-align: right;
+        .drag-instruction {
+            font-size: 11px;
+            background: rgba(255,255,255,0.2);
+            padding: 5px 12px;
+            border-radius: 20px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
         }
         
         @media (max-width: 768px) {
@@ -434,7 +382,7 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
     <div class="container">
         <div class="header">
             <h1>📊 Informe de Viajes por Puesto de Salud</h1>
-            <p>Selecciona filas y muévelas a la tabla EXTRAS</p>
+            <p>✨ Arrastra el mouse sobre los checkboxes para seleccionar múltiples filas | Shift + Click para seleccionar rango</p>
         </div>
         
         <form method="GET" action="" id="filtroForm">
@@ -490,17 +438,8 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
             <table>
                 <thead>
                     <tr>
-                        <th>#</th>
-                        <th>Fecha</th>
-                        <th>Conductor</th>
-                        <th>Cédula</th>
-                        <th>Ruta</th>
-                        <th>Tipo</th>
-                        <th>Empresa Origen</th>
-                        <th>Clasificación</th>
-                        <th>Valor</th>
-                        <th>Acumulado</th>
-                        <th>Acción</th>
+                        <th>#</th><th>Fecha</th><th>Conductor</th><th>Cédula</th><th>Ruta</th><th>Tipo</th>
+                        <th>Empresa Origen</th><th>Clasificación</th><th>Valor</th><th>Acumulado</th><th>Acción</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -525,7 +464,7 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
                             <form method="POST" style="display: inline;">
                                 <input type="hidden" name="action" value="eliminar_extra">
                                 <input type="hidden" name="extra_index" value="<?php echo $extra['index']; ?>">
-                                <button type="submit" class="btn-eliminar-extra" onclick="return confirm('¿Eliminar este registro de extras?')">✖</button>
+                                <button type="submit" class="btn-eliminar-extra" onclick="return confirm('¿Eliminar?')">✖</button>
                             </form>
                         </td>
                     </tr>
@@ -548,7 +487,6 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
         <?php
         if (!empty($empresas_seleccionadas)) {
             foreach ($empresas_seleccionadas as $empresa_actual) {
-                // Generar ID único para esta empresa
                 $empresa_id = 'emp_' . preg_replace('/[^a-zA-Z0-9]/', '_', $empresa_actual);
                 
                 $sql = "SELECT v.id, v.nombre, v.cedula, v.fecha, v.ruta, v.tipo_vehiculo, v.empresa, rc.clasificacion
@@ -572,7 +510,6 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
                     $types .= "s";
                 }
                 
-                // Excluir IDs que ya están en extras
                 $ids_en_extras = array_column($_SESSION['extras'], 'id');
                 if (!empty($ids_en_extras)) {
                     $placeholders = implode(',', array_fill(0, count($ids_en_extras), '?'));
@@ -599,56 +536,44 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
                             $costo = obtener_tarifa($clasificacion, $row['tipo_vehiculo'], $row['empresa'], $conn);
                             $acumulado += $costo;
                             $rows_data[] = array(
-                                'id' => $row['id'],
-                                'fecha' => $row['fecha'],
-                                'nombre' => $row['nombre'],
-                                'cedula' => $row['cedula'],
-                                'ruta' => $row['ruta'],
-                                'tipo_vehiculo' => $row['tipo_vehiculo'],
-                                'empresa' => $row['empresa'],
-                                'clasificacion' => $clasificacion,
-                                'costo' => $costo,
-                                'acumulado' => $acumulado
+                                'id' => $row['id'], 'fecha' => $row['fecha'], 'nombre' => $row['nombre'],
+                                'cedula' => $row['cedula'], 'ruta' => $row['ruta'], 'tipo_vehiculo' => $row['tipo_vehiculo'],
+                                'empresa' => $row['empresa'], 'clasificacion' => $clasificacion,
+                                'costo' => $costo, 'acumulado' => $acumulado
                             );
                         }
                         $total_empresa = $acumulado;
+                        $total_filas = count($rows_data);
                         ?>
                         <div class="empresa-table">
                             <div class="table-header">
                                 <h2>🏥 <?php echo htmlspecialchars($empresa_actual); ?></h2>
-                                <div class="acciones-header">
-                                    <button type="button" class="btn-mover-extras" 
-                                            onclick="moverSeleccionados('<?php echo $empresa_id; ?>')"
-                                            id="btn-mover-<?php echo $empresa_id; ?>">
-                                        ➡️ Mover seleccionados a EXTRAS
-                                    </button>
+                                <div style="display: flex; gap: 15px; align-items: center;">
+                                    <div class="drag-instruction">
+                                        🖱️ Arrastra sobre los checkboxes para seleccionar múltiples
+                                    </div>
+                                    <div class="acciones-header">
+                                        <button type="button" class="btn-mover-extras" 
+                                                onclick="moverSeleccionados('<?php echo $empresa_id; ?>')"
+                                                id="btn-mover-<?php echo $empresa_id; ?>">
+                                            ➡️ Mover seleccionados a EXTRAS
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                             <form method="POST" id="form-<?php echo $empresa_id; ?>">
                                 <input type="hidden" name="action" value="mover_extras">
                                 <input type="hidden" name="empresa_origen" value="<?php echo htmlspecialchars($empresa_actual); ?>">
                                 <input type="hidden" name="ids_seleccionados" id="ids-<?php echo $empresa_id; ?>">
-                                <table>
+                                <table id="table-<?php echo $empresa_id; ?>">
                                     <thead>
                                         <tr>
                                             <th class="checkbox-col"><input type="checkbox" id="select-all-<?php echo $empresa_id; ?>" onchange="toggleSeleccionarTodos(this, '<?php echo $empresa_id; ?>')"></th>
-                                            <th>#</th>
-                                            <th>Fecha</th>
-                                            <th>Conductor</th>
-                                            <th>Cédula</th>
-                                            <th>Ruta</th>
-                                            <th>Tipo</th>
-                                            <th>Clasificación</th>
-                                            <th>Valor Viaje</th>
-                                            <th>Acumulado</th>
+                                            <th>#</th><th>Fecha</th><th>Conductor</th><th>Cédula</th><th>Ruta</th><th>Tipo</th><th>Clasificación</th><th>Valor Viaje</th><th>Acumulado</th>
                                         </tr>
                                     </thead>
-                                    <tbody>
-                                        <?php 
-                                        $contador = 0;
-                                        foreach ($rows_data as $row): 
-                                            $contador++;
-                                        ?>
+                                    <tbody id="tbody-<?php echo $empresa_id; ?>">
+                                        <?php $contador = 0; foreach ($rows_data as $row): $contador++; ?>
                                         <tr>
                                             <td class="checkbox-col">
                                                 <input type="checkbox" class="fila-check-<?php echo $empresa_id; ?>" value="<?php echo $row['id']; ?>">
@@ -673,6 +598,147 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
                                 </table>
                             </form>
                         </div>
+                        
+                        <script>
+                        (function() {
+                            const empresaId = '<?php echo $empresa_id; ?>';
+                            const checkboxes = document.querySelectorAll(`.fila-check-${empresaId}`);
+                            
+                            // ============================================
+                            // OPCIÓN 3: DESLIZAR MOUSE (Drag to Select)
+                            // ============================================
+                            let isDragging = false;
+                            let lastToggledIndex = -1;
+                            
+                            const toggleCheckbox = (checkbox, isEntering) => {
+                                if (isEntering && checkbox) {
+                                    if (lastToggledIndex !== -1) {
+                                        const currentIndex = Array.from(checkboxes).indexOf(checkbox);
+                                        const start = Math.min(lastToggledIndex, currentIndex);
+                                        const end = Math.max(lastToggledIndex, currentIndex);
+                                        
+                                        for (let i = start; i <= end; i++) {
+                                            if (i !== lastToggledIndex) {
+                                                checkboxes[i].checked = checkbox.checked;
+                                            }
+                                        }
+                                    }
+                                    lastToggledIndex = Array.from(checkboxes).indexOf(checkbox);
+                                }
+                            };
+                            
+                            checkboxes.forEach(checkbox => {
+                                checkbox.addEventListener('mousedown', (e) => {
+                                    isDragging = true;
+                                    lastToggledIndex = Array.from(checkboxes).indexOf(checkbox);
+                                    checkbox.checked = !checkbox.checked;
+                                    updateSelectAllCheckbox(empresaId);
+                                    actualizarBotonMover(empresaId);
+                                });
+                                
+                                checkbox.addEventListener('mouseenter', () => {
+                                    if (isDragging) {
+                                        const currentIndex = Array.from(checkboxes).indexOf(checkbox);
+                                        if (currentIndex !== lastToggledIndex) {
+                                            checkbox.checked = !checkbox.checked;
+                                            toggleCheckbox(checkbox, true);
+                                            updateSelectAllCheckbox(empresaId);
+                                            actualizarBotonMover(empresaId);
+                                        }
+                                    }
+                                });
+                            });
+                            
+                            document.addEventListener('mouseup', () => {
+                                isDragging = false;
+                                lastToggledIndex = -1;
+                            });
+                            
+                            // ============================================
+                            // OPCIÓN 1: SHIFT + CLICK (Selección por rango)
+                            // ============================================
+                            let lastChecked = null;
+                            checkboxes.forEach(checkbox => {
+                                checkbox.addEventListener('click', function(e) {
+                                    if (e.shiftKey && lastChecked !== null) {
+                                        const checkboxesArray = Array.from(checkboxes);
+                                        const currentIndex = checkboxesArray.indexOf(this);
+                                        const lastIndex = checkboxesArray.indexOf(lastChecked);
+                                        const start = Math.min(currentIndex, lastIndex);
+                                        const end = Math.max(currentIndex, lastIndex);
+                                        for (let i = start; i <= end; i++) {
+                                            checkboxesArray[i].checked = this.checked;
+                                        }
+                                        updateSelectAllCheckbox(empresaId);
+                                        actualizarBotonMover(empresaId);
+                                    }
+                                    lastChecked = this;
+                                });
+                            });
+                            
+                            function updateSelectAllCheckbox(empId) {
+                                const selectAll = document.getElementById(`select-all-${empId}`);
+                                if (!selectAll) return;
+                                const cbs = document.querySelectorAll(`.fila-check-${empId}`);
+                                const todosChecked = Array.from(cbs).every(cb => cb.checked);
+                                const algunosChecked = Array.from(cbs).some(cb => cb.checked);
+                                if (todosChecked) {
+                                    selectAll.checked = true;
+                                    selectAll.indeterminate = false;
+                                } else if (algunosChecked) {
+                                    selectAll.checked = false;
+                                    selectAll.indeterminate = true;
+                                } else {
+                                    selectAll.checked = false;
+                                    selectAll.indeterminate = false;
+                                }
+                            }
+                            
+                            window.updateSelectAllCheckbox = updateSelectAllCheckbox;
+                            window.actualizarBotonMover = function(empId) {
+                                const cbs = document.querySelectorAll(`.fila-check-${empId}`);
+                                const checkeados = Array.from(cbs).filter(cb => cb.checked);
+                                const btn = document.getElementById(`btn-mover-${empId}`);
+                                if (btn) {
+                                    btn.disabled = checkeados.length === 0;
+                                    if (checkeados.length > 0) {
+                                        btn.innerHTML = `➡️ Mover ${checkeados.length} seleccionado(s) a EXTRAS`;
+                                    } else {
+                                        btn.innerHTML = `➡️ Mover seleccionados a EXTRAS`;
+                                    }
+                                }
+                            };
+                            
+                            window.toggleSeleccionarTodos = function(checkbox, empId) {
+                                const cbs = document.querySelectorAll(`.fila-check-${empId}`);
+                                cbs.forEach(cb => cb.checked = checkbox.checked);
+                                updateSelectAllCheckbox(empId);
+                                window.actualizarBotonMover(empId);
+                            };
+                            
+                            window.moverSeleccionados = function(empId) {
+                                const cbs = document.querySelectorAll(`.fila-check-${empId}`);
+                                const idsSeleccionados = Array.from(cbs).filter(cb => cb.checked).map(cb => cb.value);
+                                if (idsSeleccionados.length === 0) {
+                                    alert('Selecciona al menos una fila para mover a EXTRAS');
+                                    return;
+                                }
+                                if (confirm(`¿Mover ${idsSeleccionados.length} registro(s) a la tabla EXTRAS?`)) {
+                                    document.getElementById(`ids-${empId}`).value = idsSeleccionados.join(',');
+                                    document.getElementById(`form-${empId}`).submit();
+                                }
+                            };
+                            
+                            // Inicializar
+                            checkboxes.forEach(cb => {
+                                cb.addEventListener('change', () => {
+                                    updateSelectAllCheckbox(empresaId);
+                                    window.actualizarBotonMover(empresaId);
+                                });
+                            });
+                            window.actualizarBotonMover(empresaId);
+                        })();
+                        </script>
                         <?php
                     else:
                         ?>
@@ -708,57 +774,6 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
         document.querySelectorAll('#empresasGrid input[type="checkbox"]').forEach(cb => {
             cb.addEventListener('change', () => document.getElementById('filtroForm').submit());
         });
-        
-        function toggleSeleccionarTodos(checkbox, empresaId) {
-            const checkboxes = document.querySelectorAll(`.fila-check-${empresaId}`);
-            checkboxes.forEach(cb => cb.checked = checkbox.checked);
-            actualizarBotonMover(empresaId);
-        }
-        
-        function actualizarBotonMover(empresaId) {
-            const checkboxes = document.querySelectorAll(`.fila-check-${empresaId}`);
-            const checkeados = Array.from(checkboxes).filter(cb => cb.checked);
-            const btn = document.getElementById(`btn-mover-${empresaId}`);
-            if (btn) {
-                btn.disabled = checkeados.length === 0;
-                if (checkeados.length > 0) {
-                    btn.innerHTML = `➡️ Mover ${checkeados.length} seleccionado(s) a EXTRAS`;
-                } else {
-                    btn.innerHTML = `➡️ Mover seleccionados a EXTRAS`;
-                }
-            }
-        }
-        
-        function moverSeleccionados(empresaId) {
-            const checkboxes = document.querySelectorAll(`.fila-check-${empresaId}`);
-            const idsSeleccionados = Array.from(checkboxes)
-                .filter(cb => cb.checked)
-                .map(cb => cb.value);
-            
-            if (idsSeleccionados.length === 0) {
-                alert('Selecciona al menos una fila para mover a EXTRAS');
-                return;
-            }
-            
-            if (confirm(`¿Mover ${idsSeleccionados.length} registro(s) a la tabla EXTRAS?`)) {
-                document.getElementById(`ids-${empresaId}`).value = idsSeleccionados.join(',');
-                document.getElementById(`form-${empresaId}`).submit();
-            }
-        }
-        
-        // Inicializar listeners para cada empresa
-        <?php foreach ($empresas_seleccionadas as $emp): 
-            $emp_id = 'emp_' . preg_replace('/[^a-zA-Z0-9]/', '_', $emp);
-        ?>
-        (function() {
-            const empId = '<?php echo $emp_id; ?>';
-            const checkboxes = document.querySelectorAll(`.fila-check-${empId}`);
-            checkboxes.forEach(cb => {
-                cb.addEventListener('change', () => actualizarBotonMover(empId));
-            });
-            actualizarBotonMover(empId);
-        })();
-        <?php endforeach; ?>
     </script>
 </body>
 </html>
