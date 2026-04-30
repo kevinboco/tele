@@ -254,17 +254,20 @@ if (isset($_POST['export_word'])) {
         <?php foreach ($datos_empresas as $empresa => $data): if (empty($data['rows'])) continue; ?>
             <h2>🏥 <?php echo htmlspecialchars($empresa); ?></h2>
             <table>
-                <thead><tr><th>#</th><th>Fecha</th><th>Conductor</th><th>Cédula</th><th>Ruta</th><th>Tipo</th><th>Clasificación</th><th>Valor</th><th>Acumulado</th></tr></thead>
+                <thead><tr><th>#</th><th>Fecha</th><th>Conductor</th><th>Cédula</th><th>Ruta</th><th>Tipo</th><th>Clasificación</th><th>Valor</th><th>Acumulado</th><tr></thead>
                 <tbody>
                     <?php $c=0; foreach($data['rows'] as $row): $c++; ?>
-                    <tr><td><?php echo $c; ?></td><td><?php echo date('d/m/Y', strtotime($row['fecha'])); ?></td>
-                    <td><?php echo htmlspecialchars($row['nombre'] ?? '-'); ?></td>
-                    <td><?php echo htmlspecialchars($row['cedula'] ?? '-'); ?></td>
-                    <td><?php echo htmlspecialchars($row['ruta'] ?? '-'); ?></td>
-                    <td><?php echo htmlspecialchars($row['tipo_vehiculo'] ?? '-'); ?></td>
-                    <td><?php echo htmlspecialchars($row['clasificacion'] ?? '-'); ?></td>
-                    <td class="costo">$ <?php echo number_format($row['costo'], 0, ',', '.'); ?></td>
-                    <td class="acumulado">$ <?php echo number_format($row['acumulado'], 0, ',', '.'); ?></td></tr>
+                    <tr>
+                        <td style="text-align:center"><?php echo $c; ?></td>
+                        <td><?php echo date('d/m/Y', strtotime($row['fecha'])); ?></td>
+                        <td><?php echo htmlspecialchars($row['nombre'] ?? '-'); ?></td>
+                        <td><?php echo htmlspecialchars($row['cedula'] ?? '-'); ?></td>
+                        <td><?php echo htmlspecialchars($row['ruta'] ?? '-'); ?></td>
+                        <td><?php echo htmlspecialchars($row['tipo_vehiculo'] ?? '-'); ?></td>
+                        <td><?php echo htmlspecialchars($row['clasificacion'] ?? '-'); ?></td>
+                        <td class="costo">$ <?php echo number_format($row['costo'], 0, ',', '.'); ?></td>
+                        <td class="acumulado">$ <?php echo number_format($row['acumulado'], 0, ',', '.'); ?></td>
+                    </tr>
                     <?php endforeach; ?>
                     <tr class="total-row"><td colspan="7" style="text-align:right;">TOTAL:</td>
                     <td class="costo">$ <?php echo number_format($data['total'], 0, ',', '.'); ?></td>
@@ -277,15 +280,18 @@ if (isset($_POST['export_word'])) {
             <div class="extras-table"><div class="extras-title">⭐ EXTRAS ⭐</div>
             <table><thead><tr><th>#</th><th>Fecha</th><th>Conductor</th><th>Cédula</th><th>Ruta</th><th>Tipo</th><th>Empresa</th><th>Clasificación</th><th>Valor</th><th>Acumulado</th></tr></thead>
                 <tbody><?php $ix=0; foreach($extras_con_acumulado as $ex): $ix++; ?>
-                <tr><td><?php echo $ix; ?></td><td><?php echo date('d/m/Y', strtotime($ex['data']['fecha'])); ?></td>
-                <td><?php echo htmlspecialchars($ex['data']['nombre'] ?? '-'); ?></td>
-                <td><?php echo htmlspecialchars($ex['data']['cedula'] ?? '-'); ?></td>
-                <td><?php echo htmlspecialchars($ex['data']['ruta'] ?? '-'); ?></td>
-                <td><?php echo htmlspecialchars($ex['data']['tipo_vehiculo'] ?? '-'); ?></td>
-                <td><?php echo htmlspecialchars($ex['data']['empresa'] ?? '-'); ?></td>
-                <td><?php echo htmlspecialchars($ex['data']['clasificacion'] ?? '-'); ?></td>
-                <td class="costo">$ <?php echo number_format($ex['data']['costo'], 0, ',', '.'); ?></td>
-                <td class="acumulado">$ <?php echo number_format($ex['acumulado'], 0, ',', '.'); ?></td></tr>
+                <tr>
+                    <td style="text-align:center"><?php echo $ix; ?></td>
+                    <td><?php echo date('d/m/Y', strtotime($ex['data']['fecha'])); ?></td>
+                    <td><?php echo htmlspecialchars($ex['data']['nombre'] ?? '-'); ?></td>
+                    <td><?php echo htmlspecialchars($ex['data']['cedula'] ?? '-'); ?></td>
+                    <td><?php echo htmlspecialchars($ex['data']['ruta'] ?? '-'); ?></td>
+                    <td><?php echo htmlspecialchars($ex['data']['tipo_vehiculo'] ?? '-'); ?></td>
+                    <td><?php echo htmlspecialchars($ex['data']['empresa'] ?? '-'); ?></td>
+                    <td><?php echo htmlspecialchars($ex['data']['clasificacion'] ?? '-'); ?></td>
+                    <td class="costo">$ <?php echo number_format($ex['data']['costo'], 0, ',', '.'); ?></td>
+                    <td class="acumulado">$ <?php echo number_format($ex['acumulado'], 0, ',', '.'); ?></td>
+                </tr>
                 <?php endforeach; ?>
                 <tr class="total-row"><td colspan="8" style="text-align:right;">TOTAL EXTRAS:</td>
                 <td class="costo">$ <?php echo number_format($total_extras, 0, ',', '.'); ?></td>
@@ -477,7 +483,7 @@ if (isset($_POST['export_word'])) {
             font-size: 13px;
         }
         
-        /* Tabla de Extras - MISMO ESTILO que tablas de empresa */
+        /* Tabla de Extras */
         .extras-table {
             background: linear-gradient(135deg, #fff8e7 0%, #fff3d6 100%);
             border-radius: 12px;
@@ -554,7 +560,38 @@ if (isset($_POST['export_word'])) {
             font-size: 11px;
         }
         
-        /* ESTILOS DE TABLA - UNIFICADOS */
+        /* Estilos de búsqueda por ruta - SOLO PARA P.NAZARETH */
+        .busqueda-ruta {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            background: rgba(255,255,255,0.2);
+            padding: 5px 15px;
+            border-radius: 25px;
+        }
+        .busqueda-ruta input {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 20px;
+            font-size: 12px;
+            width: 180px;
+            outline: none;
+        }
+        .busqueda-ruta button {
+            background: white;
+            color: #1a73e8;
+            border: none;
+            padding: 5px 12px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .busqueda-ruta button:hover {
+            background: #e8eaed;
+        }
+        
+        /* Estilos de tabla unificados */
         table {
             width: 100%;
             border-collapse: collapse;
@@ -580,22 +617,7 @@ if (isset($_POST['export_word'])) {
             vertical-align: middle;
         }
         
-        /* Anchos de columnas para TODAS las tablas */
         .checkbox-col { width: 30px; text-align: center; }
-        th:nth-child(1), td:nth-child(1) { width: 30px; text-align: center; }
-        th:nth-child(2), td:nth-child(2) { width: 40px; text-align: center; }
-        th:nth-child(3), td:nth-child(3) { width: 90px; white-space: nowrap; }
-        th:nth-child(4), td:nth-child(4) { width: 170px; }
-        th:nth-child(5), td:nth-child(5) { width: 90px; }
-        th:nth-child(6), td:nth-child(6) { min-width: 180px; max-width: 220px; }
-        th:nth-child(7), td:nth-child(7) { width: 80px; }
-        th:nth-child(8), td:nth-child(8) { width: 100px; }
-        th:nth-child(9), td:nth-child(9) { width: 110px; text-align: right; }
-        th:nth-child(10), td:nth-child(10) { width: 110px; text-align: right; }
-        th:nth-child(11), td:nth-child(11) { width: 50px; text-align: center; }
-        
-        tr:hover { background: #f8f9fa; }
-        
         .costo { font-weight: 600; color: #1a73e8; text-align: right !important; }
         .acumulado { font-weight: 700; color: #34a853; text-align: right !important; }
         
@@ -699,7 +721,7 @@ if (isset($_POST['export_word'])) {
             </div>
         </form>
         
-        <!-- TABLA DE EXTRAS - CORREGIDA CON MÁS ESPACIO -->
+        <!-- TABLA DE EXTRAS -->
         <?php if (!empty($_SESSION['extras'])): ?>
         <div class="extras-table">
             <div class="extras-header">
@@ -713,17 +735,8 @@ if (isset($_POST['export_word'])) {
                 <table style="min-width: 1200px;">
                     <thead>
                         <tr>
-                            <th>#</th>
-                            <th>Fecha</th>
-                            <th>Conductor</th>
-                            <th>Cédula</th>
-                            <th>Ruta</th>
-                            <th>Tipo</th>
-                            <th>Empresa Origen</th>
-                            <th>Clasificación</th>
-                            <th>Valor</th>
-                            <th>Acumulado</th>
-                            <th>Acción</th>
+                            <th>#</th><th>Fecha</th><th>Conductor</th><th>Cédula</th><th>Ruta</th><th>Tipo</th>
+                            <th>Empresa Origen</th><th>Clasificación</th><th>Valor</th><th>Acumulado</th><th>Acción</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -783,6 +796,9 @@ if (isset($_POST['export_word'])) {
                 $rows_data = $data['rows'];
                 $total_empresa = $data['total'];
                 $excede = $total_empresa > $PRESUPUESTO_BASE;
+                
+                // Verificar si es la empresa p.nazareth (para agregar input de búsqueda)
+                $es_nazareth = (strtolower(trim($empresa_actual)) === 'p.nazareth');
                 ?>
                 <div class="empresa-table" id="<?php echo $empresa_anchor; ?>">
                     <div class="table-header" style="<?php echo $excede ? 'background: #f44336;' : ''; ?>">
@@ -792,7 +808,14 @@ if (isset($_POST['export_word'])) {
                                 <span class="badge-exceso">⚠️ Excede presupuesto</span>
                             <?php endif; ?>
                         </h2>
-                        <div style="display: flex; gap: 15px; align-items: center;">
+                        <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+                            <?php if ($es_nazareth): ?>
+                            <!-- INPUT Y BOTÓN DE BÚSQUEDA POR RUTA - SOLO PARA P.NAZARETH -->
+                            <div class="busqueda-ruta">
+                                <input type="text" id="buscar_ruta_<?php echo $empresa_id; ?>" placeholder="Ej: Riohacha, Maicao..." autocomplete="off">
+                                <button type="button" onclick="seleccionarPorRuta('<?php echo $empresa_id; ?>')">🔍 Seleccionar rutas que contengan</button>
+                            </div>
+                            <?php endif; ?>
                             <div class="drag-instruction">🖱️ Arrastra sobre los checkboxes</div>
                             <div class="acciones-header">
                                 <button type="button" class="btn-mover-extras" 
@@ -813,11 +836,11 @@ if (isset($_POST['export_word'])) {
                                     <tr>
                                         <th><input type="checkbox" id="select-all-<?php echo $empresa_id; ?>" onchange="toggleSeleccionarTodos(this, '<?php echo $empresa_id; ?>')"></th>
                                         <th>#</th><th>Fecha</th><th>Conductor</th><th>Cédula</th><th>Ruta</th><th>Tipo</th><th>Clasificación</th><th>Valor Viaje</th><th>Acumulado</th>
-                                    </tr>
+                                    </td>
                                 </thead>
-                                <tbody>
+                                <tbody id="tbody-<?php echo $empresa_id; ?>">
                                     <?php $contador = 0; foreach ($rows_data as $row): $contador++; ?>
-                                    <tr>
+                                    <tr data-ruta="<?php echo htmlspecialchars(strtolower($row['ruta'] ?? '')); ?>">
                                         <td class="checkbox-col"><input type="checkbox" class="fila-check-<?php echo $empresa_id; ?>" value="<?php echo $row['id']; ?>"></td>
                                         <td style="text-align: center;"><?php echo $contador; ?></td>
                                         <td style="white-space: nowrap;"><?php echo date('d/m/Y', strtotime($row['fecha'])); ?></td>
@@ -846,6 +869,7 @@ if (isset($_POST['export_word'])) {
                     const empresaId = '<?php echo $empresa_id; ?>';
                     const checkboxes = document.querySelectorAll(`.fila-check-${empresaId}`);
                     
+                    // Drag to Select
                     let isDragging = false;
                     let lastToggledIndex = -1;
                     
@@ -892,6 +916,7 @@ if (isset($_POST['export_word'])) {
                         lastToggledIndex = -1;
                     });
                     
+                    // Shift + Click
                     let lastChecked = null;
                     checkboxes.forEach(checkbox => {
                         checkbox.addEventListener('click', function(e) {
@@ -966,6 +991,43 @@ if (isset($_POST['export_word'])) {
                         });
                     });
                     window.actualizarBotonMover(empresaId);
+                    
+                    <?php if ($es_nazareth): ?>
+                    // Función para seleccionar por ruta - SOLO PARA P.NAZARETH
+                    window.seleccionarPorRuta = function(empId) {
+                        const inputBusqueda = document.getElementById(`buscar_ruta_${empId}`);
+                        const textoBusqueda = inputBusqueda.value.trim().toLowerCase();
+                        
+                        if (textoBusqueda === "") {
+                            alert("Escribe una palabra para buscar en las rutas");
+                            return;
+                        }
+                        
+                        const filas = document.querySelectorAll(`#tbody-${empId} tr`);
+                        let seleccionadas = 0;
+                        
+                        filas.forEach(fila => {
+                            const celdaRuta = fila.querySelector('.ruta-cell');
+                            if (celdaRuta) {
+                                const ruta = celdaRuta.textContent.toLowerCase();
+                                const checkbox = fila.querySelector(`.fila-check-${empId}`);
+                                if (checkbox && ruta.includes(textoBusqueda)) {
+                                    checkbox.checked = true;
+                                    seleccionadas++;
+                                }
+                            }
+                        });
+                        
+                        updateSelectAllCheckbox(empId);
+                        actualizarBotonMover(empId);
+                        
+                        if (seleccionadas > 0) {
+                            console.log(`Seleccionadas ${seleccionadas} filas con ruta que contiene "${textoBusqueda}"`);
+                        } else {
+                            alert(`No se encontraron rutas que contengan "${textoBusqueda}"`);
+                        }
+                    };
+                    <?php endif; ?>
                 })();
                 </script>
                 <?php
