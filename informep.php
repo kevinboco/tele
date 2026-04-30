@@ -16,6 +16,11 @@ if (!isset($_SESSION['extras'])) {
     $_SESSION['extras'] = array();
 }
 
+// Inicializar sesión para nombres cambiados
+if (!isset($_SESSION['nombres_cambiados'])) {
+    $_SESSION['nombres_cambiados'] = array();
+}
+
 // Procesar acción de mover a extras
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['export_word'])) {
@@ -39,6 +44,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $clasificacion = $row['clasificacion'];
                 $costo = obtener_tarifa($clasificacion, $row['tipo_vehiculo'], $row['empresa'], $conn);
                 $row['costo'] = $costo;
+                
+                // Si el nombre fue cambiado, mantener el nombre cambiado
+                if (isset($_SESSION['nombres_cambiados'][$id])) {
+                    $row['nombre'] = $_SESSION['nombres_cambiados'][$id];
+                }
+                
                 $_SESSION['extras'][] = $row;
             }
             $stmt->close();
@@ -59,6 +70,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (isset($_SESSION['extras'][$index])) {
             array_splice($_SESSION['extras'], $index, 1);
         }
+        header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
+        exit;
+    }
+    
+    // Cambiar nombres de conductores en una tabla
+    if (isset($_POST['action']) && $_POST['action'] === 'cambiar_conductores') {
+        $empresa = $_POST['empresa_cambio'];
+        $nombres = isset($_POST['nombres_conductores']) ? $_POST['nombres_conductores'] : array();
+        $nombres = array_filter($nombres); // Eliminar vacíos
+        
+        if (!empty($nombres)) {
+            $_SESSION['nombres_cambiados_empresa'][$empresa] = $nombres;
+        }
+        
+        header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
+        exit;
+    }
+    
+    // Restaurar nombres originales
+    if (isset($_POST['action']) && $_POST['action'] === 'restaurar_nombres') {
+        $_SESSION['nombres_cambiados'] = array();
+        $_SESSION['nombres_cambiados_empresa'] = array();
         header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
         exit;
     }
@@ -100,6 +133,8 @@ function obtener_tarifa($clasificacion, $tipo_vehiculo, $empresa, $conn) {
         case 'siapana': return isset($tarifa['siapana']) ? floatval($tarifa['siapana']) : 0;
         case 'riohacha_completo': return isset($tarifa['riohacha_completo']) ? floatval($tarifa['riohacha_completo']) : 0;
         case 'riohacha_medio': return isset($tarifa['riohacha_medio']) ? floatval($tarifa['riohacha_medio']) : 0;
+        case 'nazareth_siapana_maicao': return isset($tarifa['nazareth_siapana_maicao']) ? floatval($tarifa['nazareth_siapana_maicao']) : 0;
+        case 'nazareth_siapana_flor_de_la_guajira': return isset($tarifa['nazareth_siapana_flor_de_la_guajira']) ? floatval($tarifa['nazareth_siapana_flor_de_la_guajira']) : 0;
         default: return 0;
     }
 }
@@ -111,6 +146,16 @@ $res_emp = $conn->query($sql_emp);
 if ($res_emp) {
     while ($row = $res_emp->fetch_assoc()) {
         $empresas_disponibles[] = $row['empresa'];
+    }
+}
+
+// Obtener todos los conductores únicos para el autocompletado
+$todos_conductores = array();
+$sql_cond = "SELECT DISTINCT nombre FROM viajes WHERE nombre IS NOT NULL AND nombre != '' ORDER BY nombre";
+$res_cond = $conn->query($sql_cond);
+if ($res_cond) {
+    while ($row = $res_cond->fetch_assoc()) {
+        $todos_conductores[] = $row['nombre'];
     }
 }
 
@@ -172,10 +217,22 @@ function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_s
             if ($result && $result->num_rows > 0) {
                 $rows_data = array();
                 $acumulado = 0;
+                $nombres_cambiados = isset($_SESSION['nombres_cambiados_empresa'][$empresa_actual]) ? 
+                    $_SESSION['nombres_cambiados_empresa'][$empresa_actual] : array();
+                $contador_intercalado = 0;
+                
                 while ($row = $result->fetch_assoc()) {
                     $clasificacion = $row['clasificacion'];
                     $costo = obtener_tarifa($clasificacion, $row['tipo_vehiculo'], $row['empresa'], $conn);
                     $acumulado += $costo;
+                    
+                    // Aplicar cambio de nombre si existe
+                    if (!empty($nombres_cambiados)) {
+                        $nombre_idx = $contador_intercalado % count($nombres_cambiados);
+                        $row['nombre'] = $nombres_cambiados[$nombre_idx];
+                        $contador_intercalado++;
+                    }
+                    
                     $rows_data[] = array(
                         'id' => $row['id'],
                         'fecha' => $row['fecha'],
@@ -350,7 +407,19 @@ if (isset($_POST['export_word'])) {
         }
         .btn-word:hover { background: #1b5e20; }
         
-        /* Alertas */
+        .btn-restaurar {
+            background: #c62828;
+            color: white;
+            border: none;
+            padding: 10px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            margin-left: 10px;
+        }
+        .btn-restaurar:hover { background: #b71c1c; }
+        
         .alertas-container { margin-bottom: 25px; }
         .alerta-presupuesto {
             background: #ffebee;
@@ -483,7 +552,6 @@ if (isset($_POST['export_word'])) {
             font-size: 13px;
         }
         
-        /* Tabla de Extras */
         .extras-table {
             background: linear-gradient(135deg, #fff8e7 0%, #fff3d6 100%);
             border-radius: 12px;
@@ -514,7 +582,6 @@ if (isset($_POST['export_word'])) {
             font-weight: 600;
         }
         
-        /* Tabla de empresa */
         .empresa-table {
             background: white;
             border-radius: 12px;
@@ -537,7 +604,7 @@ if (isset($_POST['export_word'])) {
         
         .table-header h2 { font-size: 18px; }
         
-        .acciones-header { display: flex; gap: 10px; }
+        .acciones-header { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
         
         .btn-mover-extras {
             background: #ff9800;
@@ -560,7 +627,103 @@ if (isset($_POST['export_word'])) {
             font-size: 11px;
         }
         
-        /* Estilos de búsqueda por ruta - SOLO PARA P.NAZARETH */
+        /* Estilos para el sistema de cambio de conductores */
+        .cambio-conductores-section {
+            background: #e3f2fd;
+            border: 2px solid #1a73e8;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: flex-end;
+        }
+        
+        .cambio-conductores-section .filtro-group {
+            flex: 1;
+            min-width: 200px;
+        }
+        
+        .autocomplete-wrapper {
+            position: relative;
+            width: 100%;
+        }
+        
+        .autocomplete-wrapper input {
+            width: 100%;
+            padding: 10px 15px;
+            border: 1px solid #dadce0;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        
+        .autocomplete-list {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid #dadce0;
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+            display: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        
+        .autocomplete-list div {
+            padding: 10px 15px;
+            cursor: pointer;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .autocomplete-list div:hover {
+            background: #e3f2fd;
+        }
+        
+        .tags-conductores {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-top: 5px;
+        }
+        
+        .tag-conductor {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: #1a73e8;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+        }
+        
+        .tag-conductor .remove-tag {
+            cursor: pointer;
+            font-weight: bold;
+            margin-left: 5px;
+        }
+        
+        .tag-conductor .remove-tag:hover {
+            color: #ffc107;
+        }
+        
+        .btn-cambiar-conductores {
+            background: #1a73e8;
+            color: white;
+            border: none;
+            padding: 10px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .btn-cambiar-conductores:hover { background: #1557b0; }
+        .btn-cambiar-conductores:disabled { background: #90caf9; cursor: not-allowed; }
+        
         .busqueda-ruta {
             display: flex;
             gap: 10px;
@@ -591,7 +754,6 @@ if (isset($_POST['export_word'])) {
             background: #e8eaed;
         }
         
-        /* Estilos de tabla unificados */
         table {
             width: 100%;
             border-collapse: collapse;
@@ -642,9 +804,16 @@ if (isset($_POST['export_word'])) {
         
         html { scroll-behavior: smooth; }
         
+        .btn-header-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
         @media (max-width: 1200px) {
             .table-header { flex-direction: column; text-align: center; }
             .acciones-header { justify-content: center; }
+            .cambio-conductores-section { flex-direction: column; }
         }
     </style>
 </head>
@@ -655,10 +824,16 @@ if (isset($_POST['export_word'])) {
                 <h1>📊 Informe de Viajes por Puesto de Salud</h1>
                 <p>✨ Arrastra el mouse sobre los checkboxes para seleccionar múltiples filas | Shift + Click para seleccionar rango</p>
             </div>
-            <form method="POST" style="display: inline;">
-                <input type="hidden" name="export_word" value="1">
-                <button type="submit" class="btn-word">📄 Generar Word</button>
-            </form>
+            <div class="btn-header-group">
+                <form method="POST" style="display: inline;">
+                    <input type="hidden" name="export_word" value="1">
+                    <button type="submit" class="btn-word">📄 Generar Word</button>
+                </form>
+                <form method="POST" style="display: inline;">
+                    <input type="hidden" name="action" value="restaurar_nombres">
+                    <button type="submit" class="btn-restaurar">🔄 Restaurar Nombres Originales</button>
+                </form>
+            </div>
         </div>
         
         <!-- NOTIFICACIONES DE ALERTA -->
@@ -799,6 +974,10 @@ if (isset($_POST['export_word'])) {
                 
                 // Verificar si es la empresa p.nazareth (para agregar input de búsqueda)
                 $es_nazareth = (strtolower(trim($empresa_actual)) === 'p.nazareth');
+                
+                // Nombres seleccionados para esta empresa
+                $nombres_seleccionados = isset($_SESSION['nombres_cambiados_empresa'][$empresa_actual]) ? 
+                    $_SESSION['nombres_cambiados_empresa'][$empresa_actual] : array();
                 ?>
                 <div class="empresa-table" id="<?php echo $empresa_anchor; ?>">
                     <div class="table-header" style="<?php echo $excede ? 'background: #f44336;' : ''; ?>">
@@ -807,10 +986,12 @@ if (isset($_POST['export_word'])) {
                             <?php if ($excede): ?>
                                 <span class="badge-exceso">⚠️ Excede presupuesto</span>
                             <?php endif; ?>
+                            <?php if (!empty($nombres_seleccionados)): ?>
+                                <span class="badge-exceso" style="background: #1a73e8;">✏️ Nombres cambiados</span>
+                            <?php endif; ?>
                         </h2>
                         <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
                             <?php if ($es_nazareth): ?>
-                            <!-- INPUT Y BOTÓN DE BÚSQUEDA POR RUTA - SOLO PARA P.NAZARETH -->
                             <div class="busqueda-ruta">
                                 <input type="text" id="buscar_ruta_<?php echo $empresa_id; ?>" placeholder="Ej: Riohacha, Maicao..." autocomplete="off">
                                 <button type="button" onclick="seleccionarPorRuta('<?php echo $empresa_id; ?>')">🔍 Seleccionar rutas que contengan</button>
@@ -826,6 +1007,40 @@ if (isset($_POST['export_word'])) {
                             </div>
                         </div>
                     </div>
+                    
+                    <!-- SECCIÓN DE CAMBIO DE CONDUCTORES -->
+                    <div class="cambio-conductores-section">
+                        <div class="filtro-group" style="flex: 2; min-width: 300px;">
+                            <label>👤 Buscar y seleccionar conductores (máx. 2)</label>
+                            <div class="autocomplete-wrapper">
+                                <input type="text" 
+                                       id="input_conductor_<?php echo $empresa_id; ?>" 
+                                       placeholder="Escribe el nombre del conductor..." 
+                                       autocomplete="off"
+                                       onkeyup="buscarConductores('<?php echo $empresa_id; ?>')"
+                                       onfocus="buscarConductores('<?php echo $empresa_id; ?>')">
+                                <div class="autocomplete-list" id="autocomplete_<?php echo $empresa_id; ?>"></div>
+                            </div>
+                            <div class="tags-conductores" id="tags_<?php echo $empresa_id; ?>">
+                                <?php foreach ($nombres_seleccionados as $idx => $nombre): ?>
+                                <span class="tag-conductor">
+                                    <?php echo htmlspecialchars($nombre); ?>
+                                    <span class="remove-tag" onclick="removerConductor('<?php echo $empresa_id; ?>', <?php echo $idx; ?>)">✕</span>
+                                </span>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                        <div class="filtro-group" style="flex: 0 0 auto;">
+                            <button type="button" 
+                                    class="btn-cambiar-conductores" 
+                                    id="btn_cambiar_<?php echo $empresa_id; ?>"
+                                    onclick="cambiarConductores('<?php echo $empresa_id; ?>', '<?php echo htmlspecialchars($empresa_actual); ?>')"
+                                    <?php echo empty($nombres_seleccionados) ? 'disabled' : ''; ?>>
+                                ✏️ Cambiar Conductores
+                            </button>
+                        </div>
+                    </div>
+                    
                     <form method="POST" id="form-<?php echo $empresa_id; ?>">
                         <input type="hidden" name="action" value="mover_extras">
                         <input type="hidden" name="empresa_origen" value="<?php echo htmlspecialchars($empresa_actual); ?>">
@@ -1044,6 +1259,148 @@ if (isset($_POST['export_word'])) {
     </div>
     
     <script>
+        // Lista de todos los conductores desde PHP
+        const todosLosConductores = <?php echo json_encode($todos_conductores); ?>;
+        
+        // Almacenar conductores seleccionados por empresa
+        const conductoresSeleccionados = {};
+        
+        // Inicializar conductores seleccionados desde PHP
+        <?php foreach ($empresas_seleccionadas as $empresa): 
+            $emp_id = 'emp_' . preg_replace('/[^a-zA-Z0-9]/', '_', $empresa);
+            $nombres = isset($_SESSION['nombres_cambiados_empresa'][$empresa]) ? $_SESSION['nombres_cambiados_empresa'][$empresa] : array();
+        ?>
+        conductoresSeleccionados['<?php echo $emp_id; ?>'] = <?php echo json_encode($nombres); ?>;
+        <?php endforeach; ?>
+        
+        function buscarConductores(empresaId) {
+            const input = document.getElementById('input_conductor_' + empresaId);
+            const lista = document.getElementById('autocomplete_' + empresaId);
+            const texto = input.value.toLowerCase().trim();
+            
+            if (texto === '') {
+                lista.style.display = 'none';
+                return;
+            }
+            
+            // Filtrar conductores que coincidan
+            const coincidencias = todosLosConductores.filter(conductor => 
+                conductor.toLowerCase().includes(texto)
+            );
+            
+            if (coincidencias.length === 0) {
+                lista.innerHTML = '<div style="padding:10px;color:#999;">No se encontraron coincidencias</div>';
+                lista.style.display = 'block';
+                return;
+            }
+            
+            // Mostrar lista
+            lista.innerHTML = coincidencias.map(conductor => 
+                `<div onclick="seleccionarConductor('${empresaId}', '${conductor.replace(/'/g, "\\'")}')">${conductor}</div>`
+            ).join('');
+            lista.style.display = 'block';
+        }
+        
+        function seleccionarConductor(empresaId, conductor) {
+            if (!conductoresSeleccionados[empresaId]) {
+                conductoresSeleccionados[empresaId] = [];
+            }
+            
+            // Máximo 2 conductores
+            if (conductoresSeleccionados[empresaId].length >= 2) {
+                alert('Máximo 2 conductores por tabla');
+                return;
+            }
+            
+            // Verificar si ya está seleccionado
+            if (conductoresSeleccionados[empresaId].includes(conductor)) {
+                alert('Este conductor ya está seleccionado');
+                return;
+            }
+            
+            // Agregar conductor
+            conductoresSeleccionados[empresaId].push(conductor);
+            
+            // Actualizar tags visuales
+            actualizarTags(empresaId);
+            
+            // Actualizar botón
+            actualizarBotonCambiar(empresaId);
+            
+            // Limpiar input y cerrar autocomplete
+            const input = document.getElementById('input_conductor_' + empresaId);
+            input.value = '';
+            document.getElementById('autocomplete_' + empresaId).style.display = 'none';
+        }
+        
+        function removerConductor(empresaId, index) {
+            if (conductoresSeleccionados[empresaId]) {
+                conductoresSeleccionados[empresaId].splice(index, 1);
+                actualizarTags(empresaId);
+                actualizarBotonCambiar(empresaId);
+            }
+        }
+        
+        function actualizarTags(empresaId) {
+            const tagsContainer = document.getElementById('tags_' + empresaId);
+            if (!tagsContainer) return;
+            
+            const conductores = conductoresSeleccionados[empresaId] || [];
+            
+            tagsContainer.innerHTML = conductores.map((conductor, idx) => 
+                `<span class="tag-conductor">
+                    ${conductor}
+                    <span class="remove-tag" onclick="removerConductor('${empresaId}', ${idx})">✕</span>
+                </span>`
+            ).join('');
+        }
+        
+        function actualizarBotonCambiar(empresaId) {
+            const btn = document.getElementById('btn_cambiar_' + empresaId);
+            if (!btn) return;
+            
+            const conductores = conductoresSeleccionados[empresaId] || [];
+            btn.disabled = conductores.length === 0;
+        }
+        
+        function cambiarConductores(empresaId, empresaNombre) {
+            const conductores = conductoresSeleccionados[empresaId] || [];
+            
+            if (conductores.length === 0) {
+                alert('Selecciona al menos un conductor');
+                return;
+            }
+            
+            // Crear formulario para enviar
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.style.display = 'none';
+            
+            // Agregar campos ocultos
+            const actionInput = document.createElement('input');
+            actionInput.type = 'hidden';
+            actionInput.name = 'action';
+            actionInput.value = 'cambiar_conductores';
+            form.appendChild(actionInput);
+            
+            const empresaInput = document.createElement('input');
+            empresaInput.type = 'hidden';
+            empresaInput.name = 'empresa_cambio';
+            empresaInput.value = empresaNombre;
+            form.appendChild(empresaInput);
+            
+            conductores.forEach((conductor, idx) => {
+                const nombreInput = document.createElement('input');
+                nombreInput.type = 'hidden';
+                nombreInput.name = 'nombres_conductores[]';
+                nombreInput.value = conductor;
+                form.appendChild(nombreInput);
+            });
+            
+            document.body.appendChild(form);
+            form.submit();
+        }
+        
         function seleccionarTodas(seleccionar) {
             const checkboxes = document.querySelectorAll('#empresasGrid input[type="checkbox"]');
             checkboxes.forEach(cb => cb.checked = seleccionar);
@@ -1066,6 +1423,17 @@ if (isset($_POST['export_word'])) {
                 }, 2000);
             }
         }
+        
+        // Cerrar autocomplete al hacer clic fuera
+        document.addEventListener('click', function(e) {
+            const autocompleteLists = document.querySelectorAll('.autocomplete-list');
+            autocompleteLists.forEach(lista => {
+                const wrapper = lista.parentElement;
+                if (!wrapper.contains(e.target)) {
+                    lista.style.display = 'none';
+                }
+            });
+        });
     </script>
 </body>
 </html>
