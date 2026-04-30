@@ -78,7 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['action']) && $_POST['action'] === 'cambiar_conductores') {
         $empresa = $_POST['empresa_cambio'];
         $nombres = isset($_POST['nombres_conductores']) ? $_POST['nombres_conductores'] : array();
-        $nombres = array_values(array_filter($nombres)); // Eliminar vacíos y reindexar
+        $nombres = array_values(array_filter($nombres, function($n) { return !empty(trim($n)); }));
         
         if (!empty($nombres)) {
             $_SESSION['nombres_cambiados_empresa'][$empresa] = $nombres;
@@ -222,7 +222,6 @@ function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_s
                 $nombres_cambiados = isset($_SESSION['nombres_cambiados_empresa'][$empresa_actual]) ? 
                     $_SESSION['nombres_cambiados_empresa'][$empresa_actual] : array();
                 
-                // Primero obtenemos todas las filas
                 while ($row = $result->fetch_assoc()) {
                     $clasificacion = $row['clasificacion'];
                     $costo = obtener_tarifa($clasificacion, $row['tipo_vehiculo'], $row['empresa'], $conn);
@@ -241,7 +240,6 @@ function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_s
                     );
                 }
                 
-                // Si hay nombres cambiados, dividir en tablas por conductor
                 if (!empty($nombres_cambiados)) {
                     $tablas_conductores = array();
                     foreach ($nombres_cambiados as $idx => $nombre_conductor) {
@@ -270,7 +268,6 @@ function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_s
                         'total_general' => $acumulado_total
                     );
                     
-                    // Verificar alertas por tabla
                     foreach ($tablas_conductores as $tabla) {
                         if ($tabla['total'] > $PRESUPUESTO_BASE) {
                             $exceso = $tabla['total'] - $PRESUPUESTO_BASE;
@@ -283,7 +280,6 @@ function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_s
                         }
                     }
                 } else {
-                    // Una sola tabla
                     $rows_data = array();
                     $acumulado = 0;
                     foreach ($all_rows as $row) {
@@ -856,6 +852,12 @@ if (isset($_POST['export_word'])) {
             background: #e8eaed;
         }
         
+        .input-hint {
+            font-size: 11px;
+            color: #5f6368;
+            margin-top: 3px;
+        }
+        
         table {
             width: 100%;
             border-collapse: collapse;
@@ -1091,7 +1093,6 @@ if (isset($_POST['export_word'])) {
                     $_SESSION['nombres_cambiados_empresa'][$empresa_actual] : array();
                 
                 if ($data['tipo'] === 'multiple'):
-                    // Mostrar tablas separadas por conductor
                     $total_general = $data['total_general'];
                     ?>
                     <div class="empresa-table" id="<?php echo $empresa_anchor; ?>">
@@ -1104,7 +1105,7 @@ if (isset($_POST['export_word'])) {
                                 <?php if ($es_nazareth): ?>
                                 <div class="busqueda-ruta">
                                     <input type="text" id="buscar_ruta_<?php echo $empresa_id_base; ?>" placeholder="Ej: Riohacha, Maicao..." autocomplete="off">
-                                    <button type="button" onclick="seleccionarPorRuta('<?php echo $empresa_id_base; ?>')">🔍 Seleccionar rutas que contengan</button>
+                                    <button type="button" onclick="seleccionarPorRuta('<?php echo $empresa_id_base; ?>')">🔍 Seleccionar rutas</button>
                                 </div>
                                 <?php endif; ?>
                                 <div class="drag-instruction">🖱️ Arrastra sobre los checkboxes</div>
@@ -1114,16 +1115,18 @@ if (isset($_POST['export_word'])) {
                         <!-- SECCIÓN DE CAMBIO DE CONDUCTORES -->
                         <div class="cambio-conductores-section">
                             <div class="filtro-group" style="flex: 2; min-width: 300px;">
-                                <label>👤 Buscar y seleccionar conductores (máx. 2)</label>
+                                <label>👤 Buscar o escribir nombre del conductor (máx. 2) - Presiona Enter para agregar</label>
                                 <div class="autocomplete-wrapper">
                                     <input type="text" 
                                            id="input_conductor_<?php echo $empresa_id_base; ?>" 
-                                           placeholder="Escribe el nombre del conductor..." 
+                                           placeholder="Escribe y selecciona o presiona Enter..." 
                                            autocomplete="off"
                                            onkeyup="buscarConductores('<?php echo $empresa_id_base; ?>')"
-                                           onfocus="buscarConductores('<?php echo $empresa_id_base; ?>')">
+                                           onfocus="buscarConductores('<?php echo $empresa_id_base; ?>')"
+                                           onkeydown="manejarTeclaConductor(event, '<?php echo $empresa_id_base; ?>')">
                                     <div class="autocomplete-list" id="autocomplete_<?php echo $empresa_id_base; ?>"></div>
                                 </div>
+                                <div class="input-hint">💡 Escribe y selecciona de la lista o presiona Enter para agregar un nombre libre</div>
                                 <div class="tags-conductores" id="tags_<?php echo $empresa_id_base; ?>">
                                     <?php foreach ($nombres_seleccionados as $idx => $nombre): ?>
                                     <span class="tag-conductor">
@@ -1331,7 +1334,6 @@ if (isset($_POST['export_word'])) {
                             const textoBusqueda = inputBusqueda.value.trim().toLowerCase();
                             if (textoBusqueda === "") { alert("Escribe una palabra para buscar en las rutas"); return; }
                             
-                            // Buscar en todas las sub-tablas de esta empresa
                             const subTablas = document.querySelectorAll(`[id^="tbody-${empId}_c"]`);
                             let seleccionadas = 0;
                             subTablas.forEach(tbody => {
@@ -1349,7 +1351,6 @@ if (isset($_POST['export_word'])) {
                                 });
                             });
                             
-                            // Actualizar todos los select-all y botones
                             subTablas.forEach(tbody => {
                                 const subId = tbody.id.replace('tbody-', '');
                                 if (typeof updateSelectAllCheckbox === 'function') updateSelectAllCheckbox(subId);
@@ -1362,7 +1363,6 @@ if (isset($_POST['export_word'])) {
                     <?php endif; ?>
                     
                 <?php else: 
-                    // Tabla simple (sin conductores cambiados o solo 1)
                     $rows_data = $data['rows'];
                     $total_empresa = $data['total'];
                     $excede = $total_empresa > $PRESUPUESTO_BASE;
@@ -1395,7 +1395,7 @@ if (isset($_POST['export_word'])) {
                             <?php if ($es_nazareth): ?>
                             <div class="busqueda-ruta">
                                 <input type="text" id="buscar_ruta_<?php echo $empresa_id; ?>" placeholder="Ej: Riohacha, Maicao..." autocomplete="off">
-                                <button type="button" onclick="seleccionarPorRuta('<?php echo $empresa_id; ?>')">🔍 Seleccionar rutas que contengan</button>
+                                <button type="button" onclick="seleccionarPorRuta('<?php echo $empresa_id; ?>')">🔍 Seleccionar rutas</button>
                             </div>
                             <?php endif; ?>
                             <div class="drag-instruction">🖱️ Arrastra sobre los checkboxes</div>
@@ -1412,16 +1412,18 @@ if (isset($_POST['export_word'])) {
                     <!-- SECCIÓN DE CAMBIO DE CONDUCTORES -->
                     <div class="cambio-conductores-section">
                         <div class="filtro-group" style="flex: 2; min-width: 300px;">
-                            <label>👤 Buscar y seleccionar conductores (máx. 2)</label>
+                            <label>👤 Buscar o escribir nombre del conductor (máx. 2) - Presiona Enter para agregar</label>
                             <div class="autocomplete-wrapper">
                                 <input type="text" 
                                        id="input_conductor_<?php echo $empresa_id; ?>" 
-                                       placeholder="Escribe el nombre del conductor..." 
+                                       placeholder="Escribe y selecciona o presiona Enter..." 
                                        autocomplete="off"
                                        onkeyup="buscarConductores('<?php echo $empresa_id; ?>')"
-                                       onfocus="buscarConductores('<?php echo $empresa_id; ?>')">
+                                       onfocus="buscarConductores('<?php echo $empresa_id; ?>')"
+                                       onkeydown="manejarTeclaConductor(event, '<?php echo $empresa_id; ?>')">
                                 <div class="autocomplete-list" id="autocomplete_<?php echo $empresa_id; ?>"></div>
                             </div>
+                            <div class="input-hint">💡 Escribe y selecciona de la lista o presiona Enter para agregar un nombre libre</div>
                             <div class="tags-conductores" id="tags_<?php echo $empresa_id; ?>">
                                 <?php foreach ($nombres_seleccionados as $idx => $nombre): ?>
                                 <span class="tag-conductor">
@@ -1663,27 +1665,63 @@ if (isset($_POST['export_word'])) {
         function buscarConductores(empresaId) {
             const input = document.getElementById('input_conductor_' + empresaId);
             const lista = document.getElementById('autocomplete_' + empresaId);
-            const texto = input.value.toLowerCase().trim();
+            const texto = input.value.trim();
             
             if (texto === '') {
                 lista.style.display = 'none';
                 return;
             }
             
+            const textoLower = texto.toLowerCase();
             const coincidencias = todosLosConductores.filter(conductor => 
-                conductor.toLowerCase().includes(texto)
+                conductor.toLowerCase().includes(textoLower)
             );
             
             if (coincidencias.length === 0) {
-                lista.innerHTML = '<div style="padding:10px;color:#999;">No se encontraron coincidencias</div>';
+                lista.innerHTML = '<div style="padding:10px;color:#999;">Sin coincidencias - Presiona Enter para agregar "' + texto + '"</div>';
                 lista.style.display = 'block';
                 return;
             }
             
             lista.innerHTML = coincidencias.map(conductor => 
                 `<div onclick="seleccionarConductor('${empresaId}', '${conductor.replace(/'/g, "\\'")}')">${conductor}</div>`
-            ).join('');
+            ).join('') + '<div style="padding:8px 15px;background:#f0f0f0;color:#666;font-size:11px;border-top:1px solid #ddd;">💡 O presiona Enter para agregar: <strong>' + texto + '</strong></div>';
             lista.style.display = 'block';
+        }
+        
+        function manejarTeclaConductor(event, empresaId) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                const input = document.getElementById('input_conductor_' + empresaId);
+                const texto = input.value.trim();
+                
+                if (texto === '') return;
+                
+                // Agregar el texto como conductor libre
+                agregarConductorLibre(empresaId, texto);
+                input.value = '';
+                document.getElementById('autocomplete_' + empresaId).style.display = 'none';
+            }
+        }
+        
+        function agregarConductorLibre(empresaId, conductor) {
+            if (!conductoresSeleccionados[empresaId]) {
+                conductoresSeleccionados[empresaId] = [];
+            }
+            
+            if (conductoresSeleccionados[empresaId].length >= 2) {
+                alert('Máximo 2 conductores por tabla');
+                return;
+            }
+            
+            if (conductoresSeleccionados[empresaId].includes(conductor)) {
+                alert('Este conductor ya está seleccionado');
+                return;
+            }
+            
+            conductoresSeleccionados[empresaId].push(conductor);
+            actualizarTags(empresaId);
+            actualizarBotonCambiar(empresaId);
         }
         
         function seleccionarConductor(empresaId, conductor) {
