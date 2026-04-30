@@ -302,7 +302,7 @@ if (isset($_POST['export_word'])) {
             th { background: #f8f9fa; border: 1px solid #ccc; padding: 8px; font-weight: bold; }
             td { border: 1px solid #ccc; padding: 6px 8px; vertical-align: top; }
             .total-row { background: #e8f0fe; font-weight: bold; }
-            .costo, .acumulado { text-align: right; }
+            .costo { text-align: right; }
             .extras-table { margin-top: 30px; border: 2px solid #ff9800; }
             .extras-title { background: #ff9800; color: white; padding: 8px 12px; font-size: 14pt; font-weight: bold; }
         </style>
@@ -317,50 +317,59 @@ if (isset($_POST['export_word'])) {
         <?php foreach ($datos_empresas as $empresa => $data): if (empty($data['rows'])) continue; ?>
             <h2>🏥 <?php echo htmlspecialchars($empresa); ?></h2>
             <table>
-                <thead><tr><th>#</th><th>Fecha</th><th>Conductor</th><th>Cédula</th><th>Ruta</th><th>Tipo</th><th>Clasificación</th><th>Valor</th><th>Acumulado</th><tr></thead>
-                <tbody>
-                    <?php $c=0; foreach($data['rows'] as $row): $c++; ?>
+                <thead>
                     <tr>
-                        <td style="text-align:center"><?php echo $c; ?></td>
+                        <th>Fecha</th>
+                        <th>Conductor</th>
+                        <th>Ruta</th>
+                        <th>Valor</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach($data['rows'] as $row): ?>
+                    <tr>
                         <td><?php echo date('d/m/Y', strtotime($row['fecha'])); ?></td>
                         <td><?php echo htmlspecialchars($row['nombre'] ?? '-'); ?></td>
-                        <td><?php echo htmlspecialchars($row['cedula'] ?? '-'); ?></td>
                         <td><?php echo htmlspecialchars($row['ruta'] ?? '-'); ?></td>
-                        <td><?php echo htmlspecialchars($row['tipo_vehiculo'] ?? '-'); ?></td>
-                        <td><?php echo htmlspecialchars($row['clasificacion'] ?? '-'); ?></td>
                         <td class="costo">$ <?php echo number_format($row['costo'], 0, ',', '.'); ?></td>
-                        <td class="acumulado">$ <?php echo number_format($row['acumulado'], 0, ',', '.'); ?></td>
                     </tr>
                     <?php endforeach; ?>
-                    <tr class="total-row"><td colspan="7" style="text-align:right;">TOTAL:</td>
-                    <td class="costo">$ <?php echo number_format($data['total'], 0, ',', '.'); ?></td>
-                    <td class="acumulado">$ <?php echo number_format($data['total'], 0, ',', '.'); ?></td></tr>
+                    <tr class="total-row">
+                        <td colspan="3" style="text-align:right;">TOTAL:</td>
+                        <td class="costo">$ <?php echo number_format($data['total'], 0, ',', '.'); ?></td>
+                    </tr>
                 </tbody>
             </table>
         <?php endforeach; ?>
         
         <?php if (!empty($_SESSION['extras'])): ?>
-            <div class="extras-table"><div class="extras-title">⭐ EXTRAS ⭐</div>
-            <table><thead><tr><th>#</th><th>Fecha</th><th>Conductor</th><th>Cédula</th><th>Ruta</th><th>Tipo</th><th>Empresa</th><th>Clasificación</th><th>Valor</th><th>Acumulado</th></tr></thead>
-                <tbody><?php $ix=0; foreach($extras_con_acumulado as $ex): $ix++; ?>
-                <tr>
-                    <td style="text-align:center"><?php echo $ix; ?></td>
-                    <td><?php echo date('d/m/Y', strtotime($ex['data']['fecha'])); ?></td>
-                    <td><?php echo htmlspecialchars($ex['data']['nombre'] ?? '-'); ?></td>
-                    <td><?php echo htmlspecialchars($ex['data']['cedula'] ?? '-'); ?></td>
-                    <td><?php echo htmlspecialchars($ex['data']['ruta'] ?? '-'); ?></td>
-                    <td><?php echo htmlspecialchars($ex['data']['tipo_vehiculo'] ?? '-'); ?></td>
-                    <td><?php echo htmlspecialchars($ex['data']['empresa'] ?? '-'); ?></td>
-                    <td><?php echo htmlspecialchars($ex['data']['clasificacion'] ?? '-'); ?></td>
-                    <td class="costo">$ <?php echo number_format($ex['data']['costo'], 0, ',', '.'); ?></td>
-                    <td class="acumulado">$ <?php echo number_format($ex['acumulado'], 0, ',', '.'); ?></td>
-                </tr>
-                <?php endforeach; ?>
-                <tr class="total-row"><td colspan="8" style="text-align:right;">TOTAL EXTRAS:</td>
-                <td class="costo">$ <?php echo number_format($total_extras, 0, ',', '.'); ?></td>
-                <td class="acumulado">$ <?php echo number_format($total_extras, 0, ',', '.'); ?></td></tr>
-                </tbody>
-            </table></div>
+            <div class="extras-table">
+                <div class="extras-title">⭐ EXTRAS ⭐</div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Conductor</th>
+                            <th>Ruta</th>
+                            <th>Valor</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach($extras_con_acumulado as $ex): ?>
+                        <tr>
+                            <td><?php echo date('d/m/Y', strtotime($ex['data']['fecha'])); ?></td>
+                            <td><?php echo htmlspecialchars($ex['data']['nombre'] ?? '-'); ?></td>
+                            <td><?php echo htmlspecialchars($ex['data']['ruta'] ?? '-'); ?></td>
+                            <td class="costo">$ <?php echo number_format($ex['data']['costo'], 0, ',', '.'); ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                        <tr class="total-row">
+                            <td colspan="3" style="text-align:right;">TOTAL EXTRAS:</td>
+                            <td class="costo">$ <?php echo number_format($total_extras, 0, ',', '.'); ?></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
         <?php endif; ?>
     </body>
     </html>
