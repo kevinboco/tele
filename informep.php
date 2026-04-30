@@ -82,6 +82,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         if (!empty($nombres)) {
             $_SESSION['nombres_cambiados_empresa'][$empresa] = $nombres;
+        } else {
+            unset($_SESSION['nombres_cambiados_empresa'][$empresa]);
         }
         
         header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
@@ -227,9 +229,12 @@ function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_s
                     $acumulado += $costo;
                     
                     // Aplicar cambio de nombre si existe
+                    $nombre_original = $row['nombre'];
                     if (!empty($nombres_cambiados)) {
                         $nombre_idx = $contador_intercalado % count($nombres_cambiados);
                         $row['nombre'] = $nombres_cambiados[$nombre_idx];
+                        // Guardar relación ID => nombre cambiado
+                        $_SESSION['nombres_cambiados'][$row['id']] = $row['nombre'];
                         $contador_intercalado++;
                     }
                     
@@ -237,6 +242,7 @@ function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_s
                         'id' => $row['id'],
                         'fecha' => $row['fecha'],
                         'nombre' => $row['nombre'],
+                        'nombre_original' => $nombre_original,
                         'cedula' => $row['cedula'],
                         'ruta' => $row['ruta'],
                         'tipo_vehiculo' => $row['tipo_vehiculo'],
