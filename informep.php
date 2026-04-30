@@ -78,7 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['action']) && $_POST['action'] === 'cambiar_conductores') {
         $empresa = $_POST['empresa_cambio'];
         $nombres = isset($_POST['nombres_conductores']) ? $_POST['nombres_conductores'] : array();
-        $nombres = array_filter($nombres); // Eliminar vacíos
+        $nombres = array_values(array_filter($nombres)); // Eliminar vacíos y reindexar
         
         if (!empty($nombres)) {
             $_SESSION['nombres_cambiados_empresa'][$empresa] = $nombres;
@@ -217,56 +217,98 @@ function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_s
             $result = $stmt->get_result();
             
             if ($result && $result->num_rows > 0) {
-                $rows_data = array();
-                $acumulado = 0;
+                $all_rows = array();
+                $acumulado_total = 0;
                 $nombres_cambiados = isset($_SESSION['nombres_cambiados_empresa'][$empresa_actual]) ? 
                     $_SESSION['nombres_cambiados_empresa'][$empresa_actual] : array();
-                $contador_intercalado = 0;
                 
+                // Primero obtenemos todas las filas
                 while ($row = $result->fetch_assoc()) {
                     $clasificacion = $row['clasificacion'];
                     $costo = obtener_tarifa($clasificacion, $row['tipo_vehiculo'], $row['empresa'], $conn);
-                    $acumulado += $costo;
+                    $acumulado_total += $costo;
                     
-                    // Aplicar cambio de nombre si existe
-                    $nombre_original = $row['nombre'];
-                    if (!empty($nombres_cambiados)) {
-                        $nombre_idx = $contador_intercalado % count($nombres_cambiados);
-                        $row['nombre'] = $nombres_cambiados[$nombre_idx];
-                        // Guardar relación ID => nombre cambiado
-                        $_SESSION['nombres_cambiados'][$row['id']] = $row['nombre'];
-                        $contador_intercalado++;
-                    }
-                    
-                    $rows_data[] = array(
+                    $all_rows[] = array(
                         'id' => $row['id'],
                         'fecha' => $row['fecha'],
                         'nombre' => $row['nombre'],
-                        'nombre_original' => $nombre_original,
+                        'nombre_original' => $row['nombre'],
                         'cedula' => $row['cedula'],
                         'ruta' => $row['ruta'],
                         'tipo_vehiculo' => $row['tipo_vehiculo'],
                         'clasificacion' => $clasificacion,
-                        'costo' => $costo,
-                        'acumulado' => $acumulado
+                        'costo' => $costo
                     );
                 }
-                $datos[$empresa_actual] = array(
-                    'rows' => $rows_data,
-                    'total' => $acumulado
-                );
                 
-                if ($acumulado > $PRESUPUESTO_BASE) {
-                    $exceso = $acumulado - $PRESUPUESTO_BASE;
-                    $alertas[] = array(
-                        'empresa' => $empresa_actual,
-                        'total' => $acumulado,
-                        'exceso' => $exceso,
-                        'presupuesto' => $PRESUPUESTO_BASE
+                // Si hay nombres cambiados, dividir en tablas por conductor
+                if (!empty($nombres_cambiados)) {
+                    $tablas_conductores = array();
+                    foreach ($nombres_cambiados as $idx => $nombre_conductor) {
+                        $tablas_conductores[$idx] = array(
+                            'nombre_conductor' => $nombre_conductor,
+                            'rows' => array(),
+                            'total' => 0
+                        );
+                    }
+                    
+                    $contador_intercalado = 0;
+                    foreach ($all_rows as $row) {
+                        $conductor_idx = $contador_intercalado % count($nombres_cambiados);
+                        $row['nombre'] = $nombres_cambiados[$conductor_idx];
+                        $_SESSION['nombres_cambiados'][$row['id']] = $row['nombre'];
+                        
+                        $tablas_conductores[$conductor_idx]['rows'][] = $row;
+                        $tablas_conductores[$conductor_idx]['total'] += $row['costo'];
+                        
+                        $contador_intercalado++;
+                    }
+                    
+                    $datos[$empresa_actual] = array(
+                        'tipo' => 'multiple',
+                        'tablas' => $tablas_conductores,
+                        'total_general' => $acumulado_total
                     );
+                    
+                    // Verificar alertas por tabla
+                    foreach ($tablas_conductores as $tabla) {
+                        if ($tabla['total'] > $PRESUPUESTO_BASE) {
+                            $exceso = $tabla['total'] - $PRESUPUESTO_BASE;
+                            $alertas[] = array(
+                                'empresa' => $empresa_actual . ' - ' . $tabla['nombre_conductor'],
+                                'total' => $tabla['total'],
+                                'exceso' => $exceso,
+                                'presupuesto' => $PRESUPUESTO_BASE
+                            );
+                        }
+                    }
+                } else {
+                    // Una sola tabla
+                    $rows_data = array();
+                    $acumulado = 0;
+                    foreach ($all_rows as $row) {
+                        $acumulado += $row['costo'];
+                        $rows_data[] = array_merge($row, array('acumulado' => $acumulado));
+                    }
+                    
+                    $datos[$empresa_actual] = array(
+                        'tipo' => 'simple',
+                        'rows' => $rows_data,
+                        'total' => $acumulado
+                    );
+                    
+                    if ($acumulado > $PRESUPUESTO_BASE) {
+                        $exceso = $acumulado - $PRESUPUESTO_BASE;
+                        $alertas[] = array(
+                            'empresa' => $empresa_actual,
+                            'total' => $acumulado,
+                            'exceso' => $exceso,
+                            'presupuesto' => $PRESUPUESTO_BASE
+                        );
+                    }
                 }
             } else {
-                $datos[$empresa_actual] = array('rows' => array(), 'total' => 0);
+                $datos[$empresa_actual] = array('tipo' => 'simple', 'rows' => array(), 'total' => 0);
             }
             $stmt->close();
         }
@@ -297,6 +339,7 @@ if (isset($_POST['export_word'])) {
             body { font-family: Arial, Helvetica, sans-serif; margin: 20px; font-size: 11pt; }
             h1 { color: #1a73e8; font-size: 18pt; }
             h2 { background: #1a73e8; color: white; padding: 8px 12px; font-size: 14pt; margin-top: 20px; }
+            h3 { background: #455a64; color: white; padding: 6px 10px; font-size: 12pt; margin-top: 15px; }
             .info-filtros { margin-bottom: 20px; padding: 10px; background: #f0f2f5; }
             table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
             th { background: #f8f9fa; border: 1px solid #ccc; padding: 8px; font-weight: bold; }
@@ -314,32 +357,63 @@ if (isset($_POST['export_word'])) {
             <strong>🏥 Empresas:</strong> <?php echo !empty($empresas_seleccionadas) ? implode(', ', $empresas_seleccionadas) : 'Ninguna'; ?>
         </div>
         
-        <?php foreach ($datos_empresas as $empresa => $data): if (empty($data['rows'])) continue; ?>
-            <h2>🏥 <?php echo htmlspecialchars($empresa); ?></h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Fecha</th>
-                        <th>Conductor</th>
-                        <th>Ruta</th>
-                        <th>Valor</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach($data['rows'] as $row): ?>
-                    <tr>
-                        <td><?php echo date('d/m/Y', strtotime($row['fecha'])); ?></td>
-                        <td><?php echo htmlspecialchars($row['nombre'] ?? '-'); ?></td>
-                        <td><?php echo htmlspecialchars($row['ruta'] ?? '-'); ?></td>
-                        <td class="costo">$ <?php echo number_format($row['costo'], 0, ',', '.'); ?></td>
-                    </tr>
-                    <?php endforeach; ?>
-                    <tr class="total-row">
-                        <td colspan="3" style="text-align:right;">TOTAL:</td>
-                        <td class="costo">$ <?php echo number_format($data['total'], 0, ',', '.'); ?></td>
-                    </tr>
-                </tbody>
-            </table>
+        <?php foreach ($datos_empresas as $empresa => $data): ?>
+            <?php if ($data['tipo'] === 'multiple'): ?>
+                <?php foreach ($data['tablas'] as $tabla): if (empty($tabla['rows'])) continue; ?>
+                    <h3>🏥 <?php echo htmlspecialchars($empresa); ?> - <?php echo htmlspecialchars($tabla['nombre_conductor']); ?></h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Conductor</th>
+                                <th>Ruta</th>
+                                <th>Valor</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach($tabla['rows'] as $row): ?>
+                            <tr>
+                                <td><?php echo date('d/m/Y', strtotime($row['fecha'])); ?></td>
+                                <td><?php echo htmlspecialchars($row['nombre'] ?? '-'); ?></td>
+                                <td><?php echo htmlspecialchars($row['ruta'] ?? '-'); ?></td>
+                                <td class="costo">$ <?php echo number_format($row['costo'], 0, ',', '.'); ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                            <tr class="total-row">
+                                <td colspan="3" style="text-align:right;">TOTAL:</td>
+                                <td class="costo">$ <?php echo number_format($tabla['total'], 0, ',', '.'); ?></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                <?php endforeach; ?>
+            <?php else: ?>
+                <?php if (empty($data['rows'])) continue; ?>
+                <h2>🏥 <?php echo htmlspecialchars($empresa); ?></h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Conductor</th>
+                            <th>Ruta</th>
+                            <th>Valor</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach($data['rows'] as $row): ?>
+                        <tr>
+                            <td><?php echo date('d/m/Y', strtotime($row['fecha'])); ?></td>
+                            <td><?php echo htmlspecialchars($row['nombre'] ?? '-'); ?></td>
+                            <td><?php echo htmlspecialchars($row['ruta'] ?? '-'); ?></td>
+                            <td class="costo">$ <?php echo number_format($row['costo'], 0, ',', '.'); ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                        <tr class="total-row">
+                            <td colspan="3" style="text-align:right;">TOTAL:</td>
+                            <td class="costo">$ <?php echo number_format($data['total'], 0, ',', '.'); ?></td>
+                        </tr>
+                    </tbody>
+                </table>
+            <?php endif; ?>
         <?php endforeach; ?>
         
         <?php if (!empty($_SESSION['extras'])): ?>
@@ -619,6 +693,19 @@ if (isset($_POST['export_word'])) {
         
         .table-header h2 { font-size: 18px; }
         
+        .table-header-conductor {
+            background: #455a64;
+            color: white;
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .table-header-conductor h3 { font-size: 16px; }
+        
         .acciones-header { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
         
         .btn-mover-extras {
@@ -825,6 +912,22 @@ if (isset($_POST['export_word'])) {
             align-items: center;
         }
         
+        .sub-table-wrapper {
+            border: 1px solid #e8eaed;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            overflow: hidden;
+        }
+        
+        .total-general-row {
+            background: #1a73e8;
+            color: white;
+            font-weight: bold;
+            padding: 12px 20px;
+            text-align: right;
+            font-size: 14px;
+        }
+        
         @media (max-width: 1200px) {
             .table-header { flex-direction: column; text-align: center; }
             .acciones-header { justify-content: center; }
@@ -967,10 +1070,10 @@ if (isset($_POST['export_word'])) {
         <?php
         if (!empty($empresas_seleccionadas)) {
             foreach ($empresas_seleccionadas as $empresa_actual) {
-                $empresa_id = 'emp_' . preg_replace('/[^a-zA-Z0-9]/', '_', $empresa_actual);
+                $empresa_id_base = 'emp_' . preg_replace('/[^a-zA-Z0-9]/', '_', $empresa_actual);
                 $empresa_anchor = 'tabla_' . preg_replace('/[^a-zA-Z0-9]/', '_', $empresa_actual);
                 
-                if (!isset($datos_empresas[$empresa_actual]) || empty($datos_empresas[$empresa_actual]['rows'])) {
+                if (!isset($datos_empresas[$empresa_actual])) {
                     ?>
                     <div class="empresa-table" id="<?php echo $empresa_anchor; ?>">
                         <div class="table-header">
@@ -983,16 +1086,299 @@ if (isset($_POST['export_word'])) {
                 }
                 
                 $data = $datos_empresas[$empresa_actual];
-                $rows_data = $data['rows'];
-                $total_empresa = $data['total'];
-                $excede = $total_empresa > $PRESUPUESTO_BASE;
-                
-                // Verificar si es la empresa p.nazareth (para agregar input de búsqueda)
                 $es_nazareth = (strtolower(trim($empresa_actual)) === 'p.nazareth');
-                
-                // Nombres seleccionados para esta empresa
                 $nombres_seleccionados = isset($_SESSION['nombres_cambiados_empresa'][$empresa_actual]) ? 
                     $_SESSION['nombres_cambiados_empresa'][$empresa_actual] : array();
+                
+                if ($data['tipo'] === 'multiple'):
+                    // Mostrar tablas separadas por conductor
+                    $total_general = $data['total_general'];
+                    ?>
+                    <div class="empresa-table" id="<?php echo $empresa_anchor; ?>">
+                        <div class="table-header">
+                            <h2>
+                                🏥 <?php echo htmlspecialchars($empresa_actual); ?>
+                                <span class="badge-exceso" style="background: #1a73e8;">✏️ 2 Conductores</span>
+                            </h2>
+                            <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+                                <?php if ($es_nazareth): ?>
+                                <div class="busqueda-ruta">
+                                    <input type="text" id="buscar_ruta_<?php echo $empresa_id_base; ?>" placeholder="Ej: Riohacha, Maicao..." autocomplete="off">
+                                    <button type="button" onclick="seleccionarPorRuta('<?php echo $empresa_id_base; ?>')">🔍 Seleccionar rutas que contengan</button>
+                                </div>
+                                <?php endif; ?>
+                                <div class="drag-instruction">🖱️ Arrastra sobre los checkboxes</div>
+                            </div>
+                        </div>
+                        
+                        <!-- SECCIÓN DE CAMBIO DE CONDUCTORES -->
+                        <div class="cambio-conductores-section">
+                            <div class="filtro-group" style="flex: 2; min-width: 300px;">
+                                <label>👤 Buscar y seleccionar conductores (máx. 2)</label>
+                                <div class="autocomplete-wrapper">
+                                    <input type="text" 
+                                           id="input_conductor_<?php echo $empresa_id_base; ?>" 
+                                           placeholder="Escribe el nombre del conductor..." 
+                                           autocomplete="off"
+                                           onkeyup="buscarConductores('<?php echo $empresa_id_base; ?>')"
+                                           onfocus="buscarConductores('<?php echo $empresa_id_base; ?>')">
+                                    <div class="autocomplete-list" id="autocomplete_<?php echo $empresa_id_base; ?>"></div>
+                                </div>
+                                <div class="tags-conductores" id="tags_<?php echo $empresa_id_base; ?>">
+                                    <?php foreach ($nombres_seleccionados as $idx => $nombre): ?>
+                                    <span class="tag-conductor">
+                                        <?php echo htmlspecialchars($nombre); ?>
+                                        <span class="remove-tag" onclick="removerConductor('<?php echo $empresa_id_base; ?>', <?php echo $idx; ?>)">✕</span>
+                                    </span>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                            <div class="filtro-group" style="flex: 0 0 auto;">
+                                <button type="button" 
+                                        class="btn-cambiar-conductores" 
+                                        id="btn_cambiar_<?php echo $empresa_id_base; ?>"
+                                        onclick="cambiarConductores('<?php echo $empresa_id_base; ?>', '<?php echo htmlspecialchars($empresa_actual); ?>')"
+                                        <?php echo empty($nombres_seleccionados) ? 'disabled' : ''; ?>>
+                                    ✏️ Cambiar Conductores
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <?php foreach ($data['tablas'] as $tab_idx => $tabla): 
+                            $empresa_id = $empresa_id_base . '_c' . $tab_idx;
+                            $conductor_nombre = $tabla['nombre_conductor'];
+                            $rows_data = $tabla['rows'];
+                            $total_tabla = $tabla['total'];
+                            $excede = $total_tabla > $PRESUPUESTO_BASE;
+                        ?>
+                        <div class="sub-table-wrapper">
+                            <div class="table-header-conductor" style="<?php echo $excede ? 'background: #f44336;' : ''; ?>">
+                                <h3>
+                                    👤 <?php echo htmlspecialchars($conductor_nombre); ?>
+                                    <?php if ($excede): ?>
+                                        <span class="badge-exceso">⚠️ Excede presupuesto</span>
+                                    <?php endif; ?>
+                                </h3>
+                                <div class="acciones-header">
+                                    <button type="button" class="btn-mover-extras" 
+                                            onclick="moverSeleccionados('<?php echo $empresa_id; ?>')"
+                                            id="btn-mover-<?php echo $empresa_id; ?>">
+                                        ➡️ Mover seleccionados a EXTRAS
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <form method="POST" id="form-<?php echo $empresa_id; ?>">
+                                <input type="hidden" name="action" value="mover_extras">
+                                <input type="hidden" name="empresa_origen" value="<?php echo htmlspecialchars($empresa_actual); ?>">
+                                <input type="hidden" name="ids_seleccionados" id="ids-<?php echo $empresa_id; ?>">
+                                <div style="overflow-x: auto; max-width: 100%;">
+                                    <table style="min-width: 1000px;">
+                                        <thead>
+                                            <tr>
+                                                <th><input type="checkbox" id="select-all-<?php echo $empresa_id; ?>" onchange="toggleSeleccionarTodos(this, '<?php echo $empresa_id; ?>')"></th>
+                                                <th>#</th><th>Fecha</th><th>Conductor</th><th>Cédula</th><th>Ruta</th><th>Tipo</th><th>Clasificación</th><th>Valor Viaje</th><th>Acumulado</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="tbody-<?php echo $empresa_id; ?>">
+                                            <?php $contador = 0; $acum = 0; foreach ($rows_data as $row): $contador++; $acum += $row['costo']; ?>
+                                            <tr data-ruta="<?php echo htmlspecialchars(strtolower($row['ruta'] ?? '')); ?>">
+                                                <td class="checkbox-col"><input type="checkbox" class="fila-check-<?php echo $empresa_id; ?>" value="<?php echo $row['id']; ?>"></td>
+                                                <td style="text-align: center;"><?php echo $contador; ?></td>
+                                                <td style="white-space: nowrap;"><?php echo date('d/m/Y', strtotime($row['fecha'])); ?></td>
+                                                <td><strong><?php echo htmlspecialchars($row['nombre'] ?? '-'); ?></strong></td>
+                                                <td><?php echo htmlspecialchars($row['cedula'] ?? '-'); ?></td>
+                                                <td class="ruta-cell"><?php echo htmlspecialchars($row['ruta'] ?? '-'); ?></td>
+                                                <td><?php echo htmlspecialchars($row['tipo_vehiculo'] ?? '-'); ?></td>
+                                                <td><?php echo htmlspecialchars($row['clasificacion'] ?? '-'); ?></td>
+                                                <td class="costo">$ <?php echo number_format($row['costo'], 0, ',', '.'); ?></td>
+                                                <td class="acumulado">$ <?php echo number_format($acum, 0, ',', '.'); ?></td>
+                                            </tr>
+                                            <?php endforeach; ?>
+                                            <tr style="background: #e8f0fe; font-weight: bold;">
+                                                <td colspan="8" style="text-align: right;">TOTAL <?php echo htmlspecialchars($conductor_nombre); ?>:</td>
+                                                <td class="costo">$ <?php echo number_format($total_tabla, 0, ',', '.'); ?></td>
+                                                <td class="acumulado">$ <?php echo number_format($total_tabla, 0, ',', '.'); ?></td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </form>
+                        </div>
+                        
+                        <script>
+                        (function() {
+                            const empresaId = '<?php echo $empresa_id; ?>';
+                            const checkboxes = document.querySelectorAll(`.fila-check-${empresaId}`);
+                            
+                            let isDragging = false;
+                            let lastToggledIndex = -1;
+                            
+                            checkboxes.forEach(checkbox => {
+                                checkbox.addEventListener('mousedown', (e) => {
+                                    isDragging = true;
+                                    lastToggledIndex = Array.from(checkboxes).indexOf(checkbox);
+                                    checkbox.checked = !checkbox.checked;
+                                    updateSelectAllCheckbox(empresaId);
+                                    actualizarBotonMover(empresaId);
+                                });
+                                
+                                checkbox.addEventListener('mouseenter', () => {
+                                    if (isDragging) {
+                                        const currentIndex = Array.from(checkboxes).indexOf(checkbox);
+                                        if (currentIndex !== lastToggledIndex) {
+                                            checkbox.checked = !checkbox.checked;
+                                            updateSelectAllCheckbox(empresaId);
+                                            actualizarBotonMover(empresaId);
+                                        }
+                                    }
+                                });
+                            });
+                            
+                            document.addEventListener('mouseup', () => {
+                                isDragging = false;
+                                lastToggledIndex = -1;
+                            });
+                            
+                            let lastChecked = null;
+                            checkboxes.forEach(checkbox => {
+                                checkbox.addEventListener('click', function(e) {
+                                    if (e.shiftKey && lastChecked !== null) {
+                                        const checkboxesArray = Array.from(checkboxes);
+                                        const currentIndex = checkboxesArray.indexOf(this);
+                                        const lastIndex = checkboxesArray.indexOf(lastChecked);
+                                        const start = Math.min(currentIndex, lastIndex);
+                                        const end = Math.max(currentIndex, lastIndex);
+                                        for (let i = start; i <= end; i++) {
+                                            checkboxesArray[i].checked = this.checked;
+                                        }
+                                        updateSelectAllCheckbox(empresaId);
+                                        actualizarBotonMover(empresaId);
+                                    }
+                                    lastChecked = this;
+                                });
+                            });
+                            
+                            function updateSelectAllCheckbox(empId) {
+                                const selectAll = document.getElementById(`select-all-${empId}`);
+                                if (!selectAll) return;
+                                const cbs = document.querySelectorAll(`.fila-check-${empId}`);
+                                const todosChecked = Array.from(cbs).every(cb => cb.checked);
+                                const algunosChecked = Array.from(cbs).some(cb => cb.checked);
+                                if (todosChecked) {
+                                    selectAll.checked = true;
+                                    selectAll.indeterminate = false;
+                                } else if (algunosChecked) {
+                                    selectAll.checked = false;
+                                    selectAll.indeterminate = true;
+                                } else {
+                                    selectAll.checked = false;
+                                    selectAll.indeterminate = false;
+                                }
+                            }
+                            
+                            window.updateSelectAllCheckbox = updateSelectAllCheckbox;
+                            
+                            window.actualizarBotonMover = function(empId) {
+                                const cbs = document.querySelectorAll(`.fila-check-${empId}`);
+                                const checkeados = Array.from(cbs).filter(cb => cb.checked);
+                                const btn = document.getElementById(`btn-mover-${empId}`);
+                                if (btn) {
+                                    btn.disabled = checkeados.length === 0;
+                                    if (checkeados.length > 0) {
+                                        btn.innerHTML = `➡️ Mover ${checkeados.length} seleccionado(s) a EXTRAS`;
+                                    } else {
+                                        btn.innerHTML = `➡️ Mover seleccionados a EXTRAS`;
+                                    }
+                                }
+                            };
+                            
+                            window.toggleSeleccionarTodos = function(checkbox, empId) {
+                                const cbs = document.querySelectorAll(`.fila-check-${empId}`);
+                                cbs.forEach(cb => cb.checked = checkbox.checked);
+                                updateSelectAllCheckbox(empId);
+                                window.actualizarBotonMover(empId);
+                            };
+                            
+                            window.moverSeleccionados = function(empId) {
+                                const cbs = document.querySelectorAll(`.fila-check-${empId}`);
+                                const idsSeleccionados = Array.from(cbs).filter(cb => cb.checked).map(cb => cb.value);
+                                if (idsSeleccionados.length === 0) return;
+                                document.getElementById(`ids-${empId}`).value = idsSeleccionados.join(',');
+                                document.getElementById(`form-${empId}`).submit();
+                            };
+                            
+                            checkboxes.forEach(cb => {
+                                cb.addEventListener('change', () => {
+                                    updateSelectAllCheckbox(empresaId);
+                                    window.actualizarBotonMover(empresaId);
+                                });
+                            });
+                            window.actualizarBotonMover(empresaId);
+                        })();
+                        </script>
+                        <?php endforeach; ?>
+                        
+                        <div class="total-general-row">
+                            💰 TOTAL GENERAL <?php echo htmlspecialchars($empresa_actual); ?>: $ <?php echo number_format($total_general, 0, ',', '.'); ?>
+                        </div>
+                    </div>
+                    
+                    <?php if ($es_nazareth): ?>
+                    <script>
+                        window.seleccionarPorRuta = function(empId) {
+                            const inputBusqueda = document.getElementById(`buscar_ruta_${empId}`);
+                            const textoBusqueda = inputBusqueda.value.trim().toLowerCase();
+                            if (textoBusqueda === "") { alert("Escribe una palabra para buscar en las rutas"); return; }
+                            
+                            // Buscar en todas las sub-tablas de esta empresa
+                            const subTablas = document.querySelectorAll(`[id^="tbody-${empId}_c"]`);
+                            let seleccionadas = 0;
+                            subTablas.forEach(tbody => {
+                                const filas = tbody.querySelectorAll('tr');
+                                filas.forEach(fila => {
+                                    const celdaRuta = fila.querySelector('.ruta-cell');
+                                    if (celdaRuta) {
+                                        const ruta = celdaRuta.textContent.toLowerCase();
+                                        const checkbox = fila.querySelector('input[type="checkbox"]');
+                                        if (checkbox && ruta.includes(textoBusqueda)) {
+                                            checkbox.checked = true;
+                                            seleccionadas++;
+                                        }
+                                    }
+                                });
+                            });
+                            
+                            // Actualizar todos los select-all y botones
+                            subTablas.forEach(tbody => {
+                                const subId = tbody.id.replace('tbody-', '');
+                                if (typeof updateSelectAllCheckbox === 'function') updateSelectAllCheckbox(subId);
+                                if (typeof actualizarBotonMover === 'function') actualizarBotonMover(subId);
+                            });
+                            
+                            if (seleccionadas === 0) alert(`No se encontraron rutas que contengan "${textoBusqueda}"`);
+                        };
+                    </script>
+                    <?php endif; ?>
+                    
+                <?php else: 
+                    // Tabla simple (sin conductores cambiados o solo 1)
+                    $rows_data = $data['rows'];
+                    $total_empresa = $data['total'];
+                    $excede = $total_empresa > $PRESUPUESTO_BASE;
+                    $empresa_id = $empresa_id_base;
+                    
+                    if (empty($rows_data)) {
+                        ?>
+                        <div class="empresa-table" id="<?php echo $empresa_anchor; ?>">
+                            <div class="table-header">
+                                <h2>🏥 <?php echo htmlspecialchars($empresa_actual); ?></h2>
+                            </div>
+                            <div class="sin-datos">📭 No hay viajes registrados para este período</div>
+                        </div>
+                        <?php
+                        continue;
+                    }
                 ?>
                 <div class="empresa-table" id="<?php echo $empresa_anchor; ?>">
                     <div class="table-header" style="<?php echo $excede ? 'background: #f44336;' : ''; ?>">
@@ -1066,7 +1452,7 @@ if (isset($_POST['export_word'])) {
                                     <tr>
                                         <th><input type="checkbox" id="select-all-<?php echo $empresa_id; ?>" onchange="toggleSeleccionarTodos(this, '<?php echo $empresa_id; ?>')"></th>
                                         <th>#</th><th>Fecha</th><th>Conductor</th><th>Cédula</th><th>Ruta</th><th>Tipo</th><th>Clasificación</th><th>Valor Viaje</th><th>Acumulado</th>
-                                    </td>
+                                    </tr>
                                 </thead>
                                 <tbody id="tbody-<?php echo $empresa_id; ?>">
                                     <?php $contador = 0; foreach ($rows_data as $row): $contador++; ?>
@@ -1099,7 +1485,6 @@ if (isset($_POST['export_word'])) {
                     const empresaId = '<?php echo $empresa_id; ?>';
                     const checkboxes = document.querySelectorAll(`.fila-check-${empresaId}`);
                     
-                    // Drag to Select
                     let isDragging = false;
                     let lastToggledIndex = -1;
                     
@@ -1146,7 +1531,6 @@ if (isset($_POST['export_word'])) {
                         lastToggledIndex = -1;
                     });
                     
-                    // Shift + Click
                     let lastChecked = null;
                     checkboxes.forEach(checkbox => {
                         checkbox.addEventListener('click', function(e) {
@@ -1223,19 +1607,12 @@ if (isset($_POST['export_word'])) {
                     window.actualizarBotonMover(empresaId);
                     
                     <?php if ($es_nazareth): ?>
-                    // Función para seleccionar por ruta - SOLO PARA P.NAZARETH
                     window.seleccionarPorRuta = function(empId) {
                         const inputBusqueda = document.getElementById(`buscar_ruta_${empId}`);
                         const textoBusqueda = inputBusqueda.value.trim().toLowerCase();
-                        
-                        if (textoBusqueda === "") {
-                            alert("Escribe una palabra para buscar en las rutas");
-                            return;
-                        }
-                        
+                        if (textoBusqueda === "") { alert("Escribe una palabra para buscar en las rutas"); return; }
                         const filas = document.querySelectorAll(`#tbody-${empId} tr`);
                         let seleccionadas = 0;
-                        
                         filas.forEach(fila => {
                             const celdaRuta = fila.querySelector('.ruta-cell');
                             if (celdaRuta) {
@@ -1247,19 +1624,14 @@ if (isset($_POST['export_word'])) {
                                 }
                             }
                         });
-                        
                         updateSelectAllCheckbox(empId);
                         actualizarBotonMover(empId);
-                        
-                        if (seleccionadas > 0) {
-                            console.log(`Seleccionadas ${seleccionadas} filas con ruta que contiene "${textoBusqueda}"`);
-                        } else {
-                            alert(`No se encontraron rutas que contengan "${textoBusqueda}"`);
-                        }
+                        if (seleccionadas === 0) alert(`No se encontraron rutas que contengan "${textoBusqueda}"`);
                     };
                     <?php endif; ?>
                 })();
                 </script>
+                <?php endif; ?>
                 <?php
             }
         } else {
@@ -1298,7 +1670,6 @@ if (isset($_POST['export_word'])) {
                 return;
             }
             
-            // Filtrar conductores que coincidan
             const coincidencias = todosLosConductores.filter(conductor => 
                 conductor.toLowerCase().includes(texto)
             );
@@ -1309,7 +1680,6 @@ if (isset($_POST['export_word'])) {
                 return;
             }
             
-            // Mostrar lista
             lista.innerHTML = coincidencias.map(conductor => 
                 `<div onclick="seleccionarConductor('${empresaId}', '${conductor.replace(/'/g, "\\'")}')">${conductor}</div>`
             ).join('');
@@ -1321,28 +1691,20 @@ if (isset($_POST['export_word'])) {
                 conductoresSeleccionados[empresaId] = [];
             }
             
-            // Máximo 2 conductores
             if (conductoresSeleccionados[empresaId].length >= 2) {
                 alert('Máximo 2 conductores por tabla');
                 return;
             }
             
-            // Verificar si ya está seleccionado
             if (conductoresSeleccionados[empresaId].includes(conductor)) {
                 alert('Este conductor ya está seleccionado');
                 return;
             }
             
-            // Agregar conductor
             conductoresSeleccionados[empresaId].push(conductor);
-            
-            // Actualizar tags visuales
             actualizarTags(empresaId);
-            
-            // Actualizar botón
             actualizarBotonCambiar(empresaId);
             
-            // Limpiar input y cerrar autocomplete
             const input = document.getElementById('input_conductor_' + empresaId);
             input.value = '';
             document.getElementById('autocomplete_' + empresaId).style.display = 'none';
@@ -1386,12 +1748,10 @@ if (isset($_POST['export_word'])) {
                 return;
             }
             
-            // Crear formulario para enviar
             const form = document.createElement('form');
             form.method = 'POST';
             form.style.display = 'none';
             
-            // Agregar campos ocultos
             const actionInput = document.createElement('input');
             actionInput.type = 'hidden';
             actionInput.name = 'action';
@@ -1404,7 +1764,7 @@ if (isset($_POST['export_word'])) {
             empresaInput.value = empresaNombre;
             form.appendChild(empresaInput);
             
-            conductores.forEach((conductor, idx) => {
+            conductores.forEach((conductor) => {
                 const nombreInput = document.createElement('input');
                 nombreInput.type = 'hidden';
                 nombreInput.name = 'nombres_conductores[]';
