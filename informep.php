@@ -320,6 +320,17 @@ $resultado = obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empres
 $datos_empresas = $resultado['datos'];
 $alertas = $resultado['alertas'];
 
+// Calcular totales para el resumen
+$total_puestos = 0;
+foreach ($datos_empresas as $empresa => $data) {
+    if ($data['tipo'] === 'multiple') {
+        $total_puestos += $data['total_general'];
+    } else {
+        $total_puestos += $data['total'];
+    }
+}
+$total_general = $total_puestos + $total_extras;
+
 // Si es exportación a Word
 if (isset($_POST['export_word'])) {
     header("Content-Type: application/msword");
@@ -344,6 +355,10 @@ if (isset($_POST['export_word'])) {
             .costo { text-align: right; }
             .extras-table { margin-top: 30px; border: 2px solid #ff9800; }
             .extras-title { background: #ff9800; color: white; padding: 8px 12px; font-size: 14pt; font-weight: bold; }
+            .resumen-table { margin-top: 30px; border: 2px solid #1a73e8; }
+            .resumen-title { background: #1a73e8; color: white; padding: 8px 12px; font-size: 14pt; font-weight: bold; }
+            .subtotal-row { background: #e3f2fd; font-weight: bold; }
+            .gran-total-row { background: #1a73e8; color: white; font-weight: bold; font-size: 12pt; }
         </style>
     </head>
     <body>
@@ -441,6 +456,46 @@ if (isset($_POST['export_word'])) {
                 </table>
             </div>
         <?php endif; ?>
+        
+        <!-- TABLA RESUMEN -->
+        <div class="resumen-table">
+            <div class="resumen-title">📋 RESUMEN GENERAL</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Puesto de Salud</th>
+                        <th style="text-align:right;">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($empresas_seleccionadas as $empresa): 
+                        if (!isset($datos_empresas[$empresa])) continue;
+                        $data = $datos_empresas[$empresa];
+                        $total_empresa = ($data['tipo'] === 'multiple') ? $data['total_general'] : $data['total'];
+                        if ($total_empresa == 0 && empty($data['rows']) && empty($data['tablas'])) continue;
+                    ?>
+                    <tr>
+                        <td>🏥 <?php echo htmlspecialchars($empresa); ?></td>
+                        <td class="costo">$ <?php echo number_format($total_empresa, 0, ',', '.'); ?></td>
+                    </tr>
+                    <?php endforeach; ?>
+                    <tr class="subtotal-row">
+                        <td style="text-align:right;"><strong>SUBTOTAL PUESTOS</strong></td>
+                        <td class="costo"><strong>$ <?php echo number_format($total_puestos, 0, ',', '.'); ?></strong></td>
+                    </tr>
+                    <?php if (!empty($_SESSION['extras'])): ?>
+                    <tr>
+                        <td>⭐ EXTRAS</td>
+                        <td class="costo">$ <?php echo number_format($total_extras, 0, ',', '.'); ?></td>
+                    </tr>
+                    <?php endif; ?>
+                    <tr class="gran-total-row">
+                        <td style="text-align:right;"><strong>TOTAL GENERAL</strong></td>
+                        <td class="costo"><strong>$ <?php echo number_format($total_general, 0, ',', '.'); ?></strong></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
     </body>
     </html>
     <?php
@@ -725,7 +780,6 @@ if (isset($_POST['export_word'])) {
             font-size: 11px;
         }
         
-        /* Estilos para el sistema de cambio de conductores */
         .cambio-conductores-section {
             background: #e3f2fd;
             border: 2px solid #1a73e8;
@@ -928,6 +982,53 @@ if (isset($_POST['export_word'])) {
             padding: 12px 20px;
             text-align: right;
             font-size: 14px;
+        }
+        
+        /* Estilos para la tabla resumen */
+        .resumen-table {
+            background: white;
+            border-radius: 12px;
+            margin-top: 30px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            border: 2px solid #1a73e8;
+        }
+        
+        .resumen-header {
+            background: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%);
+            color: white;
+            padding: 15px 25px;
+            font-size: 18px;
+            font-weight: 700;
+        }
+        
+        .resumen-table table {
+            min-width: 600px;
+        }
+        
+        .resumen-table th {
+            font-size: 13px;
+            padding: 14px 15px;
+            background: #f0f4ff;
+        }
+        
+        .resumen-table td {
+            font-size: 13px;
+            padding: 12px 15px;
+        }
+        
+        .subtotal-row td {
+            background: #e3f2fd;
+            font-weight: bold;
+            font-size: 13px;
+        }
+        
+        .gran-total-row td {
+            background: #1a73e8;
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+            padding: 14px 15px;
         }
         
         @media (max-width: 1200px) {
@@ -1645,16 +1746,54 @@ if (isset($_POST['export_word'])) {
         }
         $conn->close();
         ?>
+        
+        <!-- TABLA RESUMEN GENERAL -->
+        <div class="resumen-table">
+            <div class="resumen-header">📋 RESUMEN GENERAL</div>
+            <div style="overflow-x: auto; max-width: 100%;">
+                <table style="min-width: 600px;">
+                    <thead>
+                        <tr>
+                            <th>Puesto de Salud</th>
+                            <th style="text-align:right;">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($empresas_seleccionadas as $empresa): 
+                            if (!isset($datos_empresas[$empresa])) continue;
+                            $data = $datos_empresas[$empresa];
+                            $total_empresa = ($data['tipo'] === 'multiple') ? $data['total_general'] : $data['total'];
+                            if ($total_empresa == 0 && empty($data['rows']) && (isset($data['tablas']) && empty($data['tablas']))) continue;
+                        ?>
+                        <tr>
+                            <td>🏥 <?php echo htmlspecialchars($empresa); ?></td>
+                            <td class="costo">$ <?php echo number_format($total_empresa, 0, ',', '.'); ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                        <tr class="subtotal-row">
+                            <td style="text-align:right;"><strong>SUBTOTAL PUESTOS</strong></td>
+                            <td class="costo"><strong>$ <?php echo number_format($total_puestos, 0, ',', '.'); ?></strong></td>
+                        </tr>
+                        <?php if (!empty($_SESSION['extras'])): ?>
+                        <tr>
+                            <td>⭐ EXTRAS</td>
+                            <td class="costo">$ <?php echo number_format($total_extras, 0, ',', '.'); ?></td>
+                        </tr>
+                        <?php endif; ?>
+                        <tr class="gran-total-row">
+                            <td style="text-align:right;"><strong>TOTAL GENERAL</strong></td>
+                            <td class="costo"><strong>$ <?php echo number_format($total_general, 0, ',', '.'); ?></strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
     
     <script>
-        // Lista de todos los conductores desde PHP
         const todosLosConductores = <?php echo json_encode($todos_conductores); ?>;
-        
-        // Almacenar conductores seleccionados por empresa
         const conductoresSeleccionados = {};
         
-        // Inicializar conductores seleccionados desde PHP
         <?php foreach ($empresas_seleccionadas as $empresa): 
             $emp_id = 'emp_' . preg_replace('/[^a-zA-Z0-9]/', '_', $empresa);
             $nombres = isset($_SESSION['nombres_cambiados_empresa'][$empresa]) ? $_SESSION['nombres_cambiados_empresa'][$empresa] : array();
@@ -1697,7 +1836,6 @@ if (isset($_POST['export_word'])) {
                 
                 if (texto === '') return;
                 
-                // Agregar el texto como conductor libre
                 agregarConductorLibre(empresaId, texto);
                 input.value = '';
                 document.getElementById('autocomplete_' + empresaId).style.display = 'none';
@@ -1837,7 +1975,6 @@ if (isset($_POST['export_word'])) {
             }
         }
         
-        // Cerrar autocomplete al hacer clic fuera
         document.addEventListener('click', function(e) {
             const autocompleteLists = document.querySelectorAll('.autocomplete-list');
             autocompleteLists.forEach(lista => {
