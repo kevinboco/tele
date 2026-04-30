@@ -1,446 +1,418 @@
 <?php
-// ==============================================
-// INFORME DE VIAJES POR PUESTO DE SALUD
-// CON SELECCIÓN MÚLTIPLE DE PUESTOS
-// CORREGIDO: Detecta p.nazareth en mayúscula/minúscula
-// EXTRAS SEPARADOS CORRECTAMENTE
-// ==============================================
+// ACTIVAR MODO DEPURACIÓN
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 
-// Conexión a la base de datos
+require 'vendor/autoload.php';
+
+use PhpOffice\PhpWord\PhpWord;
+use PhpOffice\PhpWord\IOFactory;
+
+// EVITAR cualquier salida previa
+if (ob_get_level()) { ob_end_clean(); }
+header_remove();
+
+// Conexión BD
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
 if ($conn->connect_error) {
     die("Error conexión BD: " . $conn->connect_error);
 }
 $conn->set_charset('utf8mb4');
 
-// ==============================================
-// PROCESAR FORMULARIO (si se envió)
-// ==============================================
-$generar_informe = isset($_POST['generar']);
+// Función para obtener el tipo de vehículo formateado
+function obtenerTipoVehiculo($tipo) {
+    if (stripos($tipo, 'burbuja') !== false) {
+        return 'Camioneta Burbuja 4x4 Doble Cabina';
+    }
+    return $tipo ?: '-';
+}
 
-if ($generar_informe) {
-    $fecha_desde = $_POST['fecha_desde'];
-    $fecha_hasta = $_POST['fecha_hasta'];
-    $empresas_seleccionadas = $_POST['empresas'] ?? [];
-    $presupuesto = floatval($_POST['presupuesto'] ?? 13000000);
+// Función para obtener el área de cobertura según tipo de vehículo
+function obtenerAreaCobertura($tipo) {
+    $tipo = strtolower(trim($tipo ?: ''));
     
-    if (empty($empresas_seleccionadas)) {
-        die("Debe seleccionar al menos un puesto de salud.");
+    if (strpos($tipo, 'burbuja') !== false) {
+        return 'Maicao - Nazareth - Maicao';
+    } elseif (strpos($tipo, 'camión 350') !== false || strpos($tipo, 'camion 350') !== false) {
+        return 'Maicao - Nazareth - Maicao';
+    } elseif (strpos($tipo, 'carrotanque') !== false) {
+        return 'Nazareth';
+    } elseif (strpos($tipo, 'camión 750') !== false || strpos($tipo, 'camion 750') !== false) {
+        return 'Maicao - Nazareth - Maicao';
+    } elseif (strpos($tipo, 'copetrana') !== false) {
+        return 'Maicao - Nazareth - Maicao';
     }
     
-    // ==============================================
-    // 1. CARGAR TABLAS AUXILIARES A MEMORIA
-    // ==============================================
-    
-    // Cargar clasificación de rutas
-    $clasificacion = [];
-    $result = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
-    while ($row = $result->fetch_assoc()) {
-        $key = $row['ruta'] . '|' . $row['tipo_vehiculo'];
-        $clasificacion[$key] = $row['clasificacion'];
-    }
-    
-    // Cargar tarifas
-    $tarifas = [];
-    $result = $conn->query("SELECT empresa, tipo_vehiculo, completo, medio, extra, carrotanque, siapana, riohacha_completo, riohacha_medio, nazareth_siapana_maicao, nazareth_siapana_flor_de_la_guajira FROM tarifas");
-    while ($row = $result->fetch_assoc()) {
-        $emp = $row['empresa'];
-        $tipo = $row['tipo_vehiculo'];
-        if (!isset($tarifas[$emp])) $tarifas[$emp] = [];
-        if (!isset($tarifas[$emp][$tipo])) $tarifas[$emp][$tipo] = [];
-        $tarifas[$emp][$tipo]['completo'] = floatval($row['completo']);
-        $tarifas[$emp][$tipo]['medio'] = floatval($row['medio']);
-        $tarifas[$emp][$tipo]['extra'] = floatval($row['extra']);
-        $tarifas[$emp][$tipo]['carrotanque'] = floatval($row['carrotanque']);
-        $tarifas[$emp][$tipo]['siapana'] = floatval($row['siapana']);
-        $tarifas[$emp][$tipo]['riohacha_completo'] = floatval($row['riohacha_completo']);
-        $tarifas[$emp][$tipo]['riohacha_medio'] = floatval($row['riohacha_medio']);
-        $tarifas[$emp][$tipo]['nazareth_siapana_maicao'] = floatval($row['nazareth_siapana_maicao']);
-        $tarifas[$emp][$tipo]['nazareth_siapana_flor_de_la_guajira'] = floatval($row['nazareth_siapana_flor_de_la_guajira']);
-    }
-    
-    // ==============================================
-    // 2. FUNCIÓN PARA CALCULAR COSTO
-    // ==============================================
-    function calcularCosto($ruta, $tipo_vehiculo, $empresa, $clasificacion, $tarifas) {
-        $key = $ruta . '|' . $tipo_vehiculo;
-        $clase = $clasificacion[$key] ?? 'N/A';
-        
-        if ($clase === 'N/A') {
-            return ['costo' => 'N/A', 'clasificacion' => 'N/A'];
+    return 'Maicao - Nazareth - Maicao';
+}
+
+// Función para formatear valores monetarios
+function formatearMoneda($valor) {
+    if ($valor === null || $valor === '') return 'N/A';
+    return '$ ' . number_format(floatval($valor), 0, ',', '.');
+}
+
+// Si no se han enviado fechas, mostramos formulario
+if (empty($_POST['desde']) || empty($_POST['hasta'])) {
+    $empresas = [];
+    $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
+    if ($resEmp) while ($r = $resEmp->fetch_assoc()) { $empresas[] = $r['empresa']; }
+    ?>
+    <!doctype html><html lang="es"><head>
+    <meta charset="utf-8"><title>Generar Informe</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .empresas-container {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #dee2e6;
+            border-radius: 0.375rem;
+            padding: 0.75rem;
+            background-color: #f8f9fa;
         }
-        
-        if (!isset($tarifas[$empresa][$tipo_vehiculo][$clase])) {
-            return ['costo' => 'N/A', 'clasificacion' => $clase];
+        .empresa-checkbox {
+            margin-bottom: 0.5rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            transition: background-color 0.2s;
         }
-        
-        $costo = $tarifas[$empresa][$tipo_vehiculo][$clase];
-        return ['costo' => $costo, 'clasificacion' => $clase];
-    }
+        .empresa-checkbox:hover {
+            background-color: #e9ecef;
+        }
+        .empresa-checkbox label {
+            margin-left: 0.5rem;
+            cursor: pointer;
+            flex: 1;
+        }
+        .select-all-container {
+            margin-bottom: 0.75rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #dee2e6;
+            font-weight: bold;
+        }
+    </style>
+    </head><body class="bg-light p-4">
+    <div class="container">
+      <h3 class="mb-3">📅 Generar Informe de Viajes</h3>
+      <form method="post" class="card p-4 shadow-sm">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Desde</label>
+            <input type="date" name="desde" class="form-control" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Hasta</label>
+            <input type="date" name="hasta" class="form-control" required>
+          </div>
+          <div class="col-12">
+            <label class="form-label fw-bold">Seleccionar Empresas:</label>
+            <div class="empresas-container">
+                <div class="select-all-container">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="seleccionarTodos">
+                        <label class="form-check-label" for="seleccionarTodos">
+                            Seleccionar todas las empresas
+                        </label>
+                    </div>
+                </div>
+                <div class="empresas-list">
+                    <?php if (empty($empresas)): ?>
+                        <p class="text-muted mb-0">No hay empresas disponibles</p>
+                    <?php else: ?>
+                        <?php foreach($empresas as $index => $e): ?>
+                        <div class="empresa-checkbox form-check">
+                            <input class="form-check-input empresa-item" type="checkbox" 
+                                   name="empresas[]" value="<?= htmlspecialchars($e) ?>" 
+                                   id="empresa_<?= $index ?>">
+                            <label class="form-check-label" for="empresa_<?= $index ?>">
+                                <?= htmlspecialchars($e) ?>
+                            </label>
+                        </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <small class="text-muted">Seleccione una o más empresas. Si no selecciona ninguna, se incluirán todas.</small>
+          </div>
+        </div>
+        <div class="mt-3">
+          <button class="btn btn-primary">Generar Informe</button>
+          <a class="btn btn-secondary" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/index2.php">Ir a Inicio</a>
+        </div>
+      </form>
+    </div>
     
-    // ==============================================
-    // 3. PROCESAR CADA EMPRESA SELECCIONADA
-    // ==============================================
-    $empresas_con_viajes = [];
-    $todas_las_empresas_con_datos = [];
-    
-    foreach ($empresas_seleccionadas as $empresa) {
-        $sql = "SELECT id, nombre, cedula, fecha, ruta, tipo_vehiculo, empresa 
-                FROM viajes 
-                WHERE empresa = '$empresa'
-                AND fecha BETWEEN '$fecha_desde' AND '$fecha_hasta'
-                ORDER BY fecha ASC";
-        $result = $conn->query($sql);
-        $viajes = [];
-        while ($row = $result->fetch_assoc()) {
-            $viajes[] = $row;
-        }
-        
-        if (count($viajes) == 0) {
-            continue;
-        }
-        
-        // Calcular costo de cada viaje
-        foreach ($viajes as &$v) {
-            $calc = calcularCosto($v['ruta'], $v['tipo_vehiculo'], $v['empresa'], $clasificacion, $tarifas);
-            $v['costo'] = $calc['costo'];
-            $v['clasificacion'] = $calc['clasificacion'];
-            $v['fecha'] = date('d/m/Y', strtotime($v['fecha']));
-        }
-        
-        // === REGLA ESPECIAL PARA P.NAZARETH (cualquier variación mayúscula/minúscula) ===
-        if (strtolower($empresa) === 'p.nazareth') {
-            $normales = [];
-            $extras = [];
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const seleccionarTodos = document.getElementById('seleccionarTodos');
+            const checkboxesEmpresa = document.querySelectorAll('.empresa-item');
             
-            foreach ($viajes as $v) {
-                // Convertir ruta a minúsculas para comparar sin importar mayúsculas
-                $ruta_lower = strtolower($v['ruta']);
+            function actualizarSeleccionarTodos() {
+                const totalCheckboxes = checkboxesEmpresa.length;
+                const checkboxesSeleccionados = document.querySelectorAll('.empresa-item:checked').length;
                 
-                // Si contiene "maicao" o "riohacha" -> va a EXTRAS
-                if (strpos($ruta_lower, 'maicao') !== false || strpos($ruta_lower, 'riohacha') !== false) {
-                    $extras[] = $v;
+                if (checkboxesSeleccionados === 0) {
+                    seleccionarTodos.checked = false;
+                    seleccionarTodos.indeterminate = false;
+                } else if (checkboxesSeleccionados === totalCheckboxes) {
+                    seleccionarTodos.checked = true;
+                    seleccionarTodos.indeterminate = false;
                 } else {
-                    // Sino -> va a NORMALES
-                    $normales[] = $v;
+                    seleccionarTodos.indeterminate = true;
                 }
             }
             
-            $empresas_con_viajes[$empresa] = [
-                'tipo' => 'estrella',
-                'normales' => $normales,
-                'extras' => $extras
-            ];
-        } else {
-            // Puestos normales con presupuesto
-            $acumulado = 0;
-            $viajes_con_color = [];
-            foreach ($viajes as $v) {
-                if ($v['costo'] !== 'N/A') {
-                    $acumulado += $v['costo'];
-                }
-                $v['acumulado'] = $acumulado;
-                $v['color'] = ($acumulado <= $presupuesto && $v['costo'] !== 'N/A') ? 'Verde' : 'Rojo';
-                $viajes_con_color[] = $v;
-            }
-            $empresas_con_viajes[$empresa] = [
-                'tipo' => 'normal',
-                'viajes' => $viajes_con_color,
-                'total_general' => $acumulado
-            ];
-        }
-        
-        $todas_las_empresas_con_datos[] = $empresa;
-    }
-    
-    if (empty($empresas_con_viajes)) {
-        die("No hay viajes para los puestos seleccionados en el período indicado.");
-    }
-    
-    // ==============================================
-    // 4. GENERAR ARCHIVO WORD (.doc)
-    // ==============================================
-    $nombre_archivo = 'informe_viajes_' . date('Ymd_His') . '.doc';
-    header("Content-Type: application/msword");
-    header("Content-Disposition: attachment; filename=$nombre_archivo");
-    header("Cache-Control: no-cache, no-store, must-revalidate");
-    
-    echo '<!DOCTYPE html>';
-    echo '<html>';
-    echo '<head>';
-    echo '<meta charset="UTF-8">';
-    echo '<title>Informe de Viajes</title>';
-    echo '<style>
-            body { font-family: Arial, sans-serif; margin: 20px; }
-            h1 { color: #333; border-bottom: 2px solid #333; padding-bottom: 10px; }
-            h2 { color: #555; margin-top: 30px; background: #f0f0f0; padding: 10px; }
-            h3 { color: #777; margin-top: 20px; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-            th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-            th { background: #333; color: white; }
-            .verde { background-color: #d4edda; }
-            .rojo { background-color: #f8d7da; }
-            .total { font-weight: bold; margin-top: 10px; }
-            .presupuesto { font-weight: bold; margin: 10px 0; }
-            .extra-tabla { margin-top: 10px; }
-         </style>';
-    echo '</head>';
-    echo '<body>';
-    
-    echo "<h1>📋 INFORME DE VIAJES</h1>";
-    echo "<p><strong>Período:</strong> $fecha_desde al $fecha_hasta</p>";
-    echo "<p><strong>Puestos seleccionados:</strong> " . implode(', ', $todas_las_empresas_con_datos) . "</p>";
-    
-    if ($presupuesto > 0) {
-        echo "<p><strong>Presupuesto aplicado (solo puestos NO estrella):</strong> $" . number_format($presupuesto, 0, ',', '.') . "</p>";
-    }
-    
-    foreach ($empresas_con_viajes as $puesto => $data) {
-        echo "<h2>$puesto</h2>";
-        
-        if ($data['tipo'] === 'estrella') {
-            // ==========================================
-            // P.NAZARETH - TABLA DE VIAJES NORMALES
-            // ==========================================
-            echo "<h3>📌 VIAJES NORMALES</h3>";
-            if (count($data['normales']) > 0) {
-                echo "<table>";
-                echo "<tr><th>Fecha</th><th>Nombre</th><th>Cédula</th><th>Ruta</th><th>Tipo Vehículo</th><th>Valor</th></tr>";
-                foreach ($data['normales'] as $v) {
-                    $valor = ($v['costo'] === 'N/A') ? 'N/A' : '$ ' . number_format($v['costo'], 0, ',', '.');
-                    echo "<tr>";
-                    echo "<td>{$v['fecha']}</td>";
-                    echo "<td>{$v['nombre']}</td>";
-                    echo "<td>{$v['cedula']}</td>";
-                    echo "<td>{$v['ruta']}</td>";
-                    echo "<td>{$v['tipo_vehiculo']}</td>";
-                    echo "<td>$valor</td>";
-                    echo "</tr>";
-                }
-                echo "</table>";
-            } else {
-                echo "<p>No hay viajes normales</p>";
-            }
+            seleccionarTodos.addEventListener('change', function() {
+                checkboxesEmpresa.forEach(checkbox => {
+                    checkbox.checked = seleccionarTodos.checked;
+                });
+            });
             
-            // ==========================================
-            // P.NAZARETH - TABLA DE EXTRAS (Maicao o Riohacha)
-            // ==========================================
-            echo "<h3>⭐ EXTRAS (Rutas con Maicao o Riohacha)</h3>";
-            if (count($data['extras']) > 0) {
-                echo "<table class='extra-tabla'>";
-                echo "<tr><th>Fecha</th><th>Nombre</th><th>Cédula</th><th>Ruta</th><th>Tipo Vehículo</th><th>Valor</th></tr>";
-                foreach ($data['extras'] as $v) {
-                    $valor = ($v['costo'] === 'N/A') ? 'N/A' : '$ ' . number_format($v['costo'], 0, ',', '.');
-                    echo "<tr>";
-                    echo "<td>{$v['fecha']}</td>";
-                    echo "<td>{$v['nombre']}</td>";
-                    echo "<td>{$v['cedula']}</td>";
-                    echo "<td>{$v['ruta']}</td>";
-                    echo "<td>{$v['tipo_vehiculo']}</td>";
-                    echo "<td>$valor</td>";
-                    echo "</tr>";
-                }
-                echo "</table>";
-            } else {
-                echo "<p>No hay viajes extras</p>";
-            }
-        } else {
-            // ==========================================
-            // DEMÁS PUESTOS (con presupuesto)
-            // ==========================================
-            echo "<div class='presupuesto'>💰 Presupuesto para este puesto: $" . number_format($presupuesto, 0, ',', '.') . "</div>";
-            echo "<table>";
-            echo "<tr><th>Fecha</th><th>Nombre</th><th>Cédula</th><th>Ruta</th><th>Tipo Vehículo</th><th>Valor</th><th>Acumulado</th></tr>";
-            foreach ($data['viajes'] as $v) {
-                $valor = ($v['costo'] === 'N/A') ? 'N/A' : '$ ' . number_format($v['costo'], 0, ',', '.');
-                $acum = ($v['acumulado'] === 'N/A') ? 'N/A' : '$ ' . number_format($v['acumulado'], 0, ',', '.');
-                $clase = ($v['color'] === 'Verde') ? 'verde' : 'rojo';
-                echo "<tr class='$clase'>";
-                echo "<td>{$v['fecha']}</td>";
-                echo "<td>{$v['nombre']}</td>";
-                echo "<td>{$v['cedula']}</td>";
-                echo "<td>{$v['ruta']}</td>";
-                echo "<td>{$v['tipo_vehiculo']}</td>";
-                echo "<td>$valor</td>";
-                echo "<td>$acum</td>";
-                echo "</tr>";
-            }
-            echo "</table>";
-            echo "<div class='total'>💰 Total acumulado: $" . number_format($data['total_general'], 0, ',', '.') . "</div>";
-        }
-        echo "<br>";
-    }
-    
-    echo '</body>';
-    echo '</html>';
-    
-    $conn->close();
+            checkboxesEmpresa.forEach(checkbox => {
+                checkbox.addEventListener('change', actualizarSeleccionarTodos);
+            });
+            
+            actualizarSeleccionarTodos();
+        });
+    </script>
+    </body></html>
+    <?php
     exit;
 }
 
-// ==============================================
-// MOSTRAR FORMULARIO (si no se envió nada)
-// ==============================================
+// Parámetros
+$desde = $_POST['desde'];
+$hasta = $_POST['hasta'];
+$empresasSeleccionadas = $_POST['empresas'] ?? [];
 
-// Obtener lista de empresas que empiezan con "P."
-$empresas = [];
-$result = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa LIKE 'P.%' ORDER BY empresa");
-while ($row = $result->fetch_assoc()) {
-    $empresas[] = $row['empresa'];
+// Validar que las fechas no estén vacías
+if (empty($desde) || empty($hasta)) {
+    die("Error: Fechas no válidas");
 }
-$conn->close();
-?>
 
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <title>Generador de Informe de Viajes</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #f0f2f5;
-            margin: 0;
-            padding: 20px;
-        }
-        .container {
-            max-width: 700px;
-            margin: 0 auto;
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        h1 {
-            color: #333;
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        label {
-            display: block;
-            font-weight: bold;
-            margin-top: 15px;
-            margin-bottom: 5px;
-            color: #555;
-        }
-        input[type="date"], input[type="number"], select {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            font-size: 16px;
-            box-sizing: border-box;
-        }
-        .checkbox-group {
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            padding: 15px;
-            max-height: 250px;
-            overflow-y: auto;
-        }
-        .checkbox-item {
-            margin: 8px 0;
-        }
-        .checkbox-item input {
-            margin-right: 10px;
-            transform: scale(1.1);
-        }
-        .btn-group {
-            display: flex;
-            gap: 10px;
-            margin-top: 10px;
-            margin-bottom: 15px;
-        }
-        .btn-group button {
-            flex: 1;
-            padding: 8px;
-            background: #6c757d;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-        }
-        .btn-group button:hover {
-            background: #5a6268;
-        }
-        button[type="submit"] {
-            width: 100%;
-            margin-top: 25px;
-            padding: 12px;
-            background: #28a745;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            font-size: 18px;
-            cursor: pointer;
-        }
-        button[type="submit"]:hover {
-            background: #218838;
-        }
-        .info {
-            background: #e7f3ff;
-            padding: 15px;
-            border-radius: 5px;
-            margin-top: 20px;
-            font-size: 14px;
-            color: #0066cc;
-        }
-    </style>
-    <script>
-        function seleccionarTodos() {
-            var checkboxes = document.querySelectorAll('input[name="empresas[]"]');
-            checkboxes.forEach(function(cb) {
-                cb.checked = true;
-            });
-        }
+// Normaliza a todo el día
+$desdeIni = $conn->real_escape_string($desde . " 00:00:00");
+$hastaFin = $conn->real_escape_string($hasta . " 23:59:59");
+
+// Construir condición para múltiples empresas
+$condicionEmpresa = "";
+if (!empty($empresasSeleccionadas)) {
+    $empresasEscapadas = array_map(function($emp) use ($conn) {
+        return "'" . $conn->real_escape_string($emp) . "'";
+    }, $empresasSeleccionadas);
+    $condicionEmpresa = " AND v.empresa IN (" . implode(",", $empresasEscapadas) . ")";
+}
+
+// ========== CONSULTA PARA LISTA DE CONDUCTORES ==========
+$sqlConductores = "
+    SELECT 
+        v_periodo.nombre,
+        (
+            SELECT v2.cedula 
+            FROM viajes v2 
+            WHERE v2.nombre = v_periodo.nombre 
+              AND v2.cedula IS NOT NULL 
+              AND v2.cedula != ''
+            ORDER BY v2.fecha DESC 
+            LIMIT 1
+        ) as cedula,
+        (
+            SELECT v3.tipo_vehiculo 
+            FROM viajes v3 
+            WHERE v3.nombre = v_periodo.nombre 
+              AND v3.tipo_vehiculo IS NOT NULL
+            ORDER BY v3.fecha DESC 
+            LIMIT 1
+        ) as tipo_vehiculo
+    FROM (
+        SELECT DISTINCT nombre 
+        FROM viajes 
+        WHERE fecha >= '$desdeIni' 
+          AND fecha <= '$hastaFin'
+          AND nombre IS NOT NULL 
+          AND nombre <> ''
+    ) v_periodo
+    ORDER BY v_periodo.nombre ASC
+";
+
+$resConductores = $conn->query($sqlConductores);
+if (!$resConductores) {
+    die("Error en consulta conductores: " . $conn->error);
+}
+
+// ========== CONSULTA PRINCIPAL - CORREGIDA CON COLLATION ==========
+$sqlViajes = "
+    SELECT 
+        v.fecha,
+        v.nombre,
+        v.ruta,
+        v.tipo_vehiculo,
+        v.empresa,
+        rc.clasificacion,
+        CASE 
+            WHEN rc.clasificacion = 'completo' THEN t.completo
+            WHEN rc.clasificacion = 'medio' THEN t.medio
+            WHEN rc.clasificacion = 'extra' THEN t.extra
+            WHEN rc.clasificacion = 'carrotanque' THEN t.carrotanque
+            WHEN rc.clasificacion = 'siapana' THEN t.siapana
+            WHEN rc.clasificacion = 'prueba' THEN t.prueba
+            WHEN rc.clasificacion = 'riohacha_completo' THEN t.riohacha_completo
+            WHEN rc.clasificacion = 'riohacha_medio' THEN t.riohacha_medio
+            WHEN rc.clasificacion = 'nazareth_siapana_maicao' THEN t.nazareth_siapana_maicao
+            WHEN rc.clasificacion = 'nazareth_siapana_flor_de_la_guajira' THEN t.nazareth_siapana_flor_de_la_guajira
+            ELSE NULL
+        END as valor_viaje
+    FROM viajes v
+    LEFT JOIN ruta_clasificacion rc 
+        ON v.ruta COLLATE utf8mb4_general_ci = rc.ruta COLLATE utf8mb4_general_ci
+        AND v.tipo_vehiculo COLLATE utf8mb4_general_ci = rc.tipo_vehiculo COLLATE utf8mb4_general_ci
+    LEFT JOIN tarifas t 
+        ON v.empresa COLLATE utf8mb4_general_ci = t.empresa COLLATE utf8mb4_general_ci
+        AND v.tipo_vehiculo COLLATE utf8mb4_general_ci = t.tipo_vehiculo COLLATE utf8mb4_general_ci
+    WHERE v.fecha >= '$desdeIni' 
+      AND v.fecha <= '$hastaFin'
+      $condicionEmpresa
+    ORDER BY v.fecha ASC, v.id ASC
+";
+
+$resViajes = $conn->query($sqlViajes);
+if (!$resViajes) {
+    die("Error en consulta viajes: " . $conn->error . "<br>SQL: " . $sqlViajes);
+}
+
+// Documento
+$phpWord = new PhpWord();
+$section = $phpWord->addSection();
+
+// Encabezado
+$section->addText("INFORME DE FICHAS TÉCNICAS DE CONDUCTOR - VEHÍCULOS", ['bold' => true, 'size' => 14], ['align' => 'center']);
+$section->addTextBreak(1);
+$section->addText("SEGÚN ACTA DE INICIO AL CONTRATO DE PRESTACIÓN DE SERVICIOS NO. 1313-2025 SUSCRITO POR LA E.S.E. HOSPITAL SAN JOSÉ DE MAICAO Y LA ASOCIACIÓN DE TRANSPORTISTAS ZONA NORTE EXTREMA WUINPUMUIN.");
+$section->addText("OBJETO: TRASLADO DE PERSONAL ASISTENCIAL – SEDE NAZARETH.");
+$section->addTextBreak(1);
+$section->addText("Periodo: desde $desde hasta $hasta", ['italic' => true]);
+if (!empty($empresasSeleccionadas)) {
+    $section->addText("Empresas seleccionadas: " . implode(", ", $empresasSeleccionadas), ['italic' => true]);
+} else {
+    $section->addText("Empresas: TODAS", ['italic' => true]);
+}
+$section->addTextBreak(2);
+
+// ========== TABLA 1: LISTA DE CONDUCTORES ==========
+$section->addText("LISTA DE CONDUCTORES", ['bold' => true, 'size' => 12]);
+$section->addTextBreak(1);
+
+$tableConductores = $section->addTable([
+    'borderSize' => 6, 
+    'borderColor' => '000000', 
+    'cellMargin' => 80,
+    'alignment' => \PhpOffice\PhpWord\SimpleType\JcTable::CENTER
+]);
+
+// Encabezado tabla conductores
+$tableConductores->addRow();
+$tableConductores->addCell(3000)->addText("CONDUCTOR", ['bold' => true]);
+$tableConductores->addCell(2500)->addText("CÉDULA", ['bold' => true]);
+$tableConductores->addCell(2500)->addText("TIPO DE VEHÍCULO", ['bold' => true]);
+$tableConductores->addCell(2000)->addText("ÁREA DE COBERTURA", ['bold' => true]);
+
+if ($resConductores && $resConductores->num_rows > 0) {
+    while ($row = $resConductores->fetch_assoc()) {
+        $tableConductores->addRow();
+        $tableConductores->addCell(3000)->addText($row['nombre'] ?: '-');
+        $tableConductores->addCell(2500)->addText($row['cedula'] ?: 'N/A');
         
-        function deseleccionarTodos() {
-            var checkboxes = document.querySelectorAll('input[name="empresas[]"]');
-            checkboxes.forEach(function(cb) {
-                cb.checked = false;
-            });
+        $tipoVehiculo = obtenerTipoVehiculo($row['tipo_vehiculo']);
+        $tableConductores->addCell(2500)->addText($tipoVehiculo);
+        
+        $areaCobertura = obtenerAreaCobertura($row['tipo_vehiculo']);
+        $tableConductores->addCell(2000)->addText($areaCobertura);
+    }
+} else {
+    $tableConductores->addRow();
+    $cell = $tableConductores->addCell(10000, ['gridSpan' => 4]);
+    $cell->addText("📭 No hay conductores en este rango de fechas.");
+}
+
+$section->addTextBreak(3);
+
+// ========== TABLA 2: DETALLE DE VIAJES CON VEHÍCULO Y VALOR ==========
+$section->addText("DETALLE DE VIAJES POR FECHA", ['bold' => true, 'size' => 12]);
+$section->addTextBreak(1);
+
+$tableViajes = $section->addTable([
+    'borderSize' => 6, 
+    'borderColor' => '000000', 
+    'cellMargin' => 80,
+    'alignment' => \PhpOffice\PhpWord\SimpleType\JcTable::CENTER
+]);
+
+// Encabezado tabla viajes (AHORA CON 5 COLUMNAS)
+$tableViajes->addRow();
+$tableViajes->addCell(1500)->addText("FECHA", ['bold' => true]);
+$tableViajes->addCell(3000)->addText("CONDUCTOR", ['bold' => true]);
+$tableViajes->addCell(2500)->addText("VEHÍCULO", ['bold' => true]);
+$tableViajes->addCell(3000)->addText("RUTA", ['bold' => true]);
+$tableViajes->addCell(2000)->addText("VALOR", ['bold' => true]);
+
+$totalValores = 0;
+
+if ($resViajes && $resViajes->num_rows > 0) {
+    while ($row = $resViajes->fetch_assoc()) {
+        $tableViajes->addRow();
+        $tableViajes->addCell(1500)->addText(substr($row['fecha'], 0, 10));
+        $tableViajes->addCell(3000)->addText($row['nombre'] ?: '-');
+        
+        $tipoVehiculo = obtenerTipoVehiculo($row['tipo_vehiculo']);
+        $tableViajes->addCell(2500)->addText($tipoVehiculo);
+        
+        $tableViajes->addCell(3000)->addText($row['ruta'] ?: '-');
+        
+        $valor = $row['valor_viaje'];
+        if ($valor !== null && $valor > 0) {
+            $totalValores += floatval($valor);
+            $tableViajes->addCell(2000)->addText(formatearMoneda($valor));
+        } else {
+            $textoValor = "N/A";
+            if (!empty($row['clasificacion'])) {
+                $textoValor = "Sin tarifa (" . $row['clasificacion'] . ")";
+            } else {
+                $textoValor = "Sin clasificar";
+            }
+            $tableViajes->addCell(2000)->addText($textoValor);
         }
-    </script>
-</head>
-<body>
-    <div class="container">
-        <h1>📋 Generador de Informe de Viajes</h1>
-        
-        <form method="POST">
-            <label>📅 Fecha desde:</label>
-            <input type="date" name="fecha_desde" required value="<?php echo date('Y-m-01'); ?>">
-            
-            <label>📅 Fecha hasta:</label>
-            <input type="date" name="fecha_hasta" required value="<?php echo date('Y-m-t'); ?>">
-            
-            <label>🏥 Puestos de salud (puede seleccionar varios):</label>
-            <div class="btn-group">
-                <button type="button" onclick="seleccionarTodos()">✅ Seleccionar todos</button>
-                <button type="button" onclick="deseleccionarTodos()">❌ Deseleccionar todos</button>
-            </div>
-            <div class="checkbox-group">
-                <?php foreach ($empresas as $e): ?>
-                    <div class="checkbox-item">
-                        <input type="checkbox" name="empresas[]" value="<?php echo htmlspecialchars($e); ?>" id="chk_<?php echo md5($e); ?>">
-                        <label for="chk_<?php echo md5($e); ?>" style="display: inline; font-weight: normal;"><?php echo htmlspecialchars($e); ?></label>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-            
-            <label>💰 Presupuesto (solo para puestos que NO son P.nazareth):</label>
-            <input type="number" name="presupuesto" step="1000" value="13000000" style="font-family: monospace;">
-            
-            <button type="submit" name="generar">📄 Generar Informe Word</button>
-        </form>
-        
-        <div class="info">
-            <strong>ℹ️ Información:</strong><br>
-            • <strong>p.nazareth</strong> (cualquier variación mayúscula/minúscula): las rutas que contengan "Maicao" o "Riohacha" aparecen SOLO en la tabla llamada <strong>"EXTRAS"</strong>.<br>
-            • Las rutas que NO contengan "Maicao" ni "Riohacha" aparecen SOLO en la tabla <strong>"VIAJES NORMALES"</strong>.<br>
-            • <strong>Los demás puestos</strong>: se aplica el presupuesto. Los viajes se colorean en VERDE (acumulado ≤ presupuesto) o ROJO (acumulado > presupuesto).<br>
-            • Si una ruta no tiene clasificación o tarifa, el valor se muestra como <strong>N/A</strong>.<br>
-            • Puede seleccionar <strong>varios puestos</strong> a la vez y se generará un solo informe con todos.
-        </div>
-    </div>
-</body>
-</html>
+    }
+    
+    // Agregar fila de TOT
+    $tableViajes->addRow();
+    $cellTotal = $tableViajes->addCell(10000, ['gridSpan' => 4]);
+    $cellTotal->addText("TOTAL", ['bold' => true]);
+    $tableViajes->addCell(2000)->addText(formatearMoneda($totalValores), ['bold' => true]);
+    
+} else {
+    $tableViajes->addRow();
+    $cell = $tableViajes->addCell(12000, ['gridSpan' => 5]);
+    $cell->addText("📭 No hay viajes en este rango de fechas.");
+}
+
+// Pie
+$section->addTextBreak(2);
+date_default_timezone_set('America/Bogota');
+$section->addText("Maicao, " . date('d/m/Y'), [], ['align' => 'right']);
+$section->addText("Cordialmente,");
+$section->addTextBreak(2);
+$section->addText("NUMAS JOSÉ IGUARÁN IGUARÁN", ['bold' => true]);
+$section->addText("Representante Legal");
+
+// Envío directo al navegado
+$filename = "informe_viajes_{$desde}_a_{$hasta}.docx";
+header("Content-Description: File Transfer");
+header("Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+header("Content-Disposition: attachment; filename=\"$filename\"");
+header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+header("Pragma: public");
+
+$writer = IOFactory::createWriter($phpWord, 'Word2007');
+$writer->save('php://output');
+exit;
+?>
