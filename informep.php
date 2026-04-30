@@ -27,13 +27,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Obtener datos del viaje
             $sql = "SELECT v.*, rc.clasificacion 
                     FROM viajes v
-                    LEFT JOIN ruta_clasificacion rc ON v.ruta = rc.ruta AND v.tipo_vehiculo = rc.tipo_vehiculo
+                    LEFT JOIN ruta_clasificacion rc ON v.ruta COLLATE utf8mb4_general_ci = rc.ruta COLLATE utf8mb4_general_ci 
+                        AND v.tipo_vehiculo COLLATE utf8mb4_general_ci = rc.tipo_vehiculo COLLATE utf8mb4_general_ci
                     WHERE v.id = ? AND v.empresa = ?";
             $stmt = $conn->prepare($sql);
             $stmt->bind_param("is", $id, $empresa_origen);
             $stmt->execute();
             $result = $stmt->get_result();
             if ($row = $result->fetch_assoc()) {
+                $clasificacion = $row['clasificacion'];
+                $costo = obtener_tarifa($clasificacion, $row['tipo_vehiculo'], $row['empresa'], $conn);
+                $row['costo'] = $costo;
                 // Agregar a extras
                 $_SESSION['extras'][] = $row;
             }
@@ -72,12 +76,6 @@ function obtener_tarifa($clasificacion, $tipo_vehiculo, $empresa, $conn) {
         return 0;
     }
     
-    // Limpiar empresa para buscar en tarifas
-    $empresa_buscar = $empresa;
-    if (strpos($empresa_buscar, 'p.') === 0 || strpos($empresa_buscar, 'P.') === 0) {
-        // Mantener como está
-    }
-    
     $sql = "SELECT completo, medio, extra, carrotanque, siapana, 
                    riohacha_completo, riohacha_medio, nazareth_siapana_maicao, 
                    nazareth_siapana_flor_de_la_guajira
@@ -87,7 +85,7 @@ function obtener_tarifa($clasificacion, $tipo_vehiculo, $empresa, $conn) {
     if (!$stmt) {
         return 0;
     }
-    $stmt->bind_param("ss", $empresa_buscar, $tipo_vehiculo);
+    $stmt->bind_param("ss", $empresa, $tipo_vehiculo);
     $stmt->execute();
     $result = $stmt->get_result();
     $tarifa = $result->fetch_assoc();
@@ -141,6 +139,12 @@ function calcular_acumulado_extras($extras) {
 
 $extras_con_acumulado = calcular_acumulado_extras($_SESSION['extras']);
 $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
+
+// Generar mapa de IDs para JavaScript
+$empresa_ids_map = array();
+foreach ($empresas_seleccionadas as $emp) {
+    $empresa_ids_map[$emp] = 'emp_' . preg_replace('/[^a-zA-Z0-9]/', '_', $emp);
+}
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -172,7 +176,6 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
         .header h1 { font-size: 24px; margin-bottom: 5px; }
         .header p { opacity: 0.9; font-size: 14px; }
         
-        /* Filtros */
         .filtros-card {
             background: white;
             padding: 20px 25px;
@@ -278,7 +281,6 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
             font-size: 13px;
         }
         
-        /* Tabla de Extras (destacada) */
         .extras-table {
             background: linear-gradient(135deg, #fff8e7 0%, #fff3d6 100%);
             border-radius: 12px;
@@ -316,7 +318,6 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
             font-weight: 600;
         }
         
-        /* Tabla de empresa */
         .empresa-table {
             background: white;
             border-radius: 12px;
@@ -544,6 +545,8 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
         <?php
         if (!empty($empresas_seleccionadas)) {
             foreach ($empresas_seleccionadas as $empresa_actual) {
+                // Generar ID único para esta empresa
+                $empresa_id = 'emp_' . preg_replace('/[^a-zA-Z0-9]/', '_', $empresa_actual);
                 
                 $sql = "SELECT v.id, v.nombre, v.cedula, v.fecha, v.ruta, v.tipo_vehiculo, v.empresa, rc.clasificacion
                         FROM viajes v
@@ -566,7 +569,7 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
                     $types .= "s";
                 }
                 
-                // Excluir IDs que ya están en extras (mostrar solo los que NO están movidos)
+                // Excluir IDs que ya están en extras
                 $ids_en_extras = array_column($_SESSION['extras'], 'id');
                 if (!empty($ids_en_extras)) {
                     $placeholders = implode(',', array_fill(0, count($ids_en_extras), '?'));
@@ -612,20 +615,20 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
                                 <h2>🏥 <?php echo htmlspecialchars($empresa_actual); ?></h2>
                                 <div class="acciones-header">
                                     <button type="button" class="btn-mover-extras" 
-                                            onclick="moverSeleccionados('<?php echo htmlspecialchars($empresa_actual); ?>')"
-                                            id="btn-mover-<?php echo md5($empresa_actual); ?>">
+                                            onclick="moverSeleccionados('<?php echo $empresa_id; ?>')"
+                                            id="btn-mover-<?php echo $empresa_id; ?>">
                                         ➡️ Mover seleccionados a EXTRAS
                                     </button>
                                 </div>
                             </div>
-                            <form method="POST" id="form-<?php echo md5($empresa_actual); ?>">
+                            <form method="POST" id="form-<?php echo $empresa_id; ?>">
                                 <input type="hidden" name="action" value="mover_extras">
                                 <input type="hidden" name="empresa_origen" value="<?php echo htmlspecialchars($empresa_actual); ?>">
-                                <input type="hidden" name="ids_seleccionados" id="ids-<?php echo md5($empresa_actual); ?>">
-                                <table>
+                                <input type="hidden" name="ids_seleccionados" id="ids-<?php echo $empresa_id; ?>">
+                                </table>
                                     <thead>
                                         <tr>
-                                            <th class="checkbox-col"><input type="checkbox" id="select-all-<?php echo md5($empresa_actual); ?>" onclick="toggleSeleccionarTodos(this, '<?php echo md5($empresa_actual); ?>')"></th>
+                                            <th class="checkbox-col"><input type="checkbox" id="select-all-<?php echo $empresa_id; ?>" onchange="toggleSeleccionarTodos(this, '<?php echo $empresa_id; ?>')"></th>
                                             <th>#</th>
                                             <th>Fecha</th>
                                             <th>Conductor</th>
@@ -645,7 +648,7 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
                                         ?>
                                         <tr>
                                             <td class="checkbox-col">
-                                                <input type="checkbox" class="fila-check-<?php echo md5($empresa_actual); ?>" value="<?php echo $row['id']; ?>">
+                                                <input type="checkbox" class="fila-check-<?php echo $empresa_id; ?>" value="<?php echo $row['id']; ?>">
                                             </td>
                                             <td><?php echo $contador; ?></td>
                                             <td><?php echo date('d/m/Y', strtotime($row['fecha'])); ?></td>
@@ -715,12 +718,16 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
             const btn = document.getElementById(`btn-mover-${empresaId}`);
             if (btn) {
                 btn.disabled = checkeados.length === 0;
+                if (checkeados.length > 0) {
+                    btn.innerHTML = `➡️ Mover ${checkeados.length} seleccionado(s) a EXTRAS`;
+                } else {
+                    btn.innerHTML = `➡️ Mover seleccionados a EXTRAS`;
+                }
             }
         }
         
-        function moverSeleccionados(empresa) {
-            const empresaId = empresa.replace(/[^a-zA-Z0-9]/g, '');
-            const checkboxes = document.querySelectorAll(`.fila-check-${md5(empresa)}`);
+        function moverSeleccionados(empresaId) {
+            const checkboxes = document.querySelectorAll(`.fila-check-${empresaId}`);
             const idsSeleccionados = Array.from(checkboxes)
                 .filter(cb => cb.checked)
                 .map(cb => cb.value);
@@ -731,25 +738,17 @@ $total_extras = array_sum(array_column($_SESSION['extras'], 'costo'));
             }
             
             if (confirm(`¿Mover ${idsSeleccionados.length} registro(s) a la tabla EXTRAS?`)) {
-                document.getElementById(`ids-${md5(empresa)}`).value = idsSeleccionados.join(',');
-                document.getElementById(`form-${md5(empresa)}`).submit();
+                document.getElementById(`ids-${empresaId}`).value = idsSeleccionados.join(',');
+                document.getElementById(`form-${empresaId}`).submit();
             }
-        }
-        
-        function md5(str) {
-            // Simple hash para IDs
-            let hash = 0;
-            for (let i = 0; i < str.length; i++) {
-                hash = ((hash << 5) - hash) + str.charCodeAt(i);
-                hash |= 0;
-            }
-            return Math.abs(hash).toString(16);
         }
         
         // Inicializar listeners para cada empresa
-        <?php foreach ($empresas_seleccionadas as $emp): ?>
+        <?php foreach ($empresas_seleccionadas as $emp): 
+            $emp_id = 'emp_' . preg_replace('/[^a-zA-Z0-9]/', '_', $emp);
+        ?>
         (function() {
-            const empId = '<?php echo md5($emp); ?>';
+            const empId = '<?php echo $emp_id; ?>';
             const checkboxes = document.querySelectorAll(`.fila-check-${empId}`);
             checkboxes.forEach(cb => {
                 cb.addEventListener('change', () => actualizarBotonMover(empId));
