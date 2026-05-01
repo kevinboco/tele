@@ -51,11 +51,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         );
                     }
                     
-                    // Asegurar que la clave 'viajes' existe
-                    if (!isset($_SESSION['tablas_personalizadas'][$tabla_destino]['viajes'])) {
-                        $_SESSION['tablas_personalizadas'][$tabla_destino]['viajes'] = array();
-                    }
-                    
                     foreach ($ids as $id) {
                         $id = intval($id);
                         $sql = "SELECT v.*, rc.clasificacion 
@@ -103,7 +98,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
             case 'eliminar_tabla':
                 if (isset($_POST['tabla_nombre'])) {
-                    unset($_SESSION['tablas_personalizadas'][$_POST['tabla_nombre']]);
+                    $nombre_tabla = $_POST['tabla_nombre'];
+                    unset($_SESSION['tablas_personalizadas'][$nombre_tabla]);
+                    // También eliminar el total manual de esa tabla
+                    $key_tabla = 'tabla__' . $nombre_tabla;
+                    if (isset($_SESSION['totales_manuales'][$key_tabla])) {
+                        unset($_SESSION['totales_manuales'][$key_tabla]);
+                    }
                 }
                 header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
                 exit;
@@ -153,6 +154,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit;
                 break;
                 
+            case 'guardar_total_manual':
+                if (isset($_POST['total_key']) && isset($_POST['total_valor'])) {
+                    $key = $_POST['total_key'];
+                    $valor = floatval(str_replace(['.', ','], ['', '.'], $_POST['total_valor']));
+                    $_SESSION['totales_manuales'][$key] = $valor;
+                }
+                header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
+                exit;
+                break;
+                
+            case 'guardar_total_extras':
+                if (isset($_POST['total_extras_valor'])) {
+                    $valor = floatval(str_replace(['.', ','], ['', '.'], $_POST['total_extras_valor']));
+                    $_SESSION['totales_manuales']['__extras__'] = $valor;
+                }
+                header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
+                exit;
+                break;
+                
             case 'mover_extras':
                 if (isset($_POST['ids_seleccionados'])) {
                     $empresa_origen = $_POST['empresa_origen'];
@@ -190,6 +210,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
             case 'limpiar_extras':
                 $_SESSION['extras'] = array();
+                if (isset($_SESSION['totales_manuales']['__extras__'])) {
+                    unset($_SESSION['totales_manuales']['__extras__']);
+                }
                 header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
                 exit;
                 break;
@@ -201,13 +224,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         array_splice($_SESSION['extras'], $index, 1);
                     }
                 }
-                header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
-                exit;
-                break;
-                
-            case 'guardar_total_extras':
-                $valor = floatval(str_replace(['.', ','], ['', '.'], $_POST['total_extras_valor']));
-                $_SESSION['totales_manuales']['__extras__'] = $valor;
                 header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
                 exit;
                 break;
@@ -256,27 +272,6 @@ function obtener_tarifa($clasificacion, $tipo_vehiculo, $empresa, $conn) {
         return 0;
     }
     
-    // Mapear nombres de empresa antiguos a los nuevos con prefijo P.
-    $mapeo_empresas = array(
-        'Hospital' => 'p.nazareth'
-    );
-    
-    // Si la empresa no tiene prefijo P., intentar mapearla
-    $empresa_busqueda = $empresa;
-    if (stripos($empresa, 'P.') !== 0 && stripos($empresa, 'p.') !== 0) {
-        // Intentar encontrar una empresa con prefijo P. que coincida
-        $sql_emp = "SELECT DISTINCT empresa FROM tarifas WHERE LOWER(empresa) LIKE ? LIMIT 1";
-        $stmt_emp = $conn->prepare($sql_emp);
-        $like_empresa = '%' . strtolower($empresa) . '%';
-        $stmt_emp->bind_param("s", $like_empresa);
-        $stmt_emp->execute();
-        $res_emp = $stmt_emp->get_result();
-        if ($row_emp = $res_emp->fetch_assoc()) {
-            $empresa_busqueda = $row_emp['empresa'];
-        }
-        $stmt_emp->close();
-    }
-    
     $sql = "SELECT completo, medio, extra, carrotanque, siapana, 
                    riohacha_completo, riohacha_medio, nazareth_siapana_maicao, 
                    nazareth_siapana_flor_de_la_guajira
@@ -284,7 +279,7 @@ function obtener_tarifa($clasificacion, $tipo_vehiculo, $empresa, $conn) {
             WHERE empresa = ? AND tipo_vehiculo = ?";
     $stmt = $conn->prepare($sql);
     if (!$stmt) return 0;
-    $stmt->bind_param("ss", $empresa_busqueda, $tipo_vehiculo);
+    $stmt->bind_param("ss", $empresa, $tipo_vehiculo);
     $stmt->execute();
     $result = $stmt->get_result();
     $tarifa = $result->fetch_assoc();
@@ -344,28 +339,16 @@ function obtenerTotalEfectivo($key, $total_calculado) {
     return $total_calculado;
 }
 
-// Función para obtener datos de las tablas - CORREGIDA
+// Función para obtener datos de las tablas
 function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_seleccionadas, $extras, $PRESUPUESTO_BASE) {
     $datos = array();
-    
-    // CORRECCIÓN: Verificar que $extras sea un array antes de usar array_column
-    $ids_en_extras = array();
-    if (is_array($extras) && !empty($extras)) {
-        $ids_en_extras = array_column($extras, 'id');
-    }
+    $ids_en_extras = array_column($extras, 'id');
     
     // También excluir IDs que están en tablas personalizadas
     $ids_en_tablas = array();
-    if (isset($_SESSION['tablas_personalizadas']) && is_array($_SESSION['tablas_personalizadas'])) {
-        foreach ($_SESSION['tablas_personalizadas'] as $tabla) {
-            // CORRECCIÓN: Verificar que 'viajes' existe y es un array
-            if (isset($tabla['viajes']) && is_array($tabla['viajes'])) {
-                foreach ($tabla['viajes'] as $viaje) {
-                    if (isset($viaje['id'])) {
-                        $ids_en_tablas[] = $viaje['id'];
-                    }
-                }
-            }
+    foreach ($_SESSION['tablas_personalizadas'] as $tabla) {
+        foreach ($tabla['viajes'] as $viaje) {
+            $ids_en_tablas[] = $viaje['id'];
         }
     }
     
@@ -407,9 +390,7 @@ function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_s
         
         $stmt = $conn->prepare($sql);
         if ($stmt) {
-            if (!empty($params)) {
-                $stmt->bind_param($types, ...$params);
-            }
+            $stmt->bind_param($types, ...$params);
             $stmt->execute();
             $result = $stmt->get_result();
             
@@ -536,29 +517,23 @@ function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_s
     return array('datos' => $datos, 'alertas' => $alertas);
 }
 
-// CORRECCIÓN: Asegurar que $_SESSION['extras'] es un array antes de usarlo
-$extras_array = isset($_SESSION['extras']) && is_array($_SESSION['extras']) ? $_SESSION['extras'] : array();
-$extras_con_acumulado = calcular_acumulado_extras($extras_array);
-$total_extras_calculado = array_sum(array_column($extras_array, 'costo'));
+$extras_con_acumulado = calcular_acumulado_extras($_SESSION['extras']);
+$total_extras_calculado = array_sum(array_column($_SESSION['extras'], 'costo'));
 $total_extras = obtenerTotalEfectivo('__extras__', $total_extras_calculado);
 
 // Calcular totales de tablas personalizadas
 $totales_tablas = array();
-if (isset($_SESSION['tablas_personalizadas']) && is_array($_SESSION['tablas_personalizadas'])) {
-    foreach ($_SESSION['tablas_personalizadas'] as $nombre => $tabla) {
-        // CORRECCIÓN: Verificar que 'viajes' existe
-        $viajes_tabla = isset($tabla['viajes']) && is_array($tabla['viajes']) ? $tabla['viajes'] : array();
-        $total_calculado = array_sum(array_column($viajes_tabla, 'costo'));
-        $key_tabla = 'tabla__' . $nombre;
-        $total_efectivo = obtenerTotalEfectivo($key_tabla, $total_calculado);
-        $totales_tablas[$nombre] = array(
-            'calculado' => $total_calculado,
-            'efectivo' => $total_efectivo
-        );
-    }
+foreach ($_SESSION['tablas_personalizadas'] as $nombre => $tabla) {
+    $total_calculado = array_sum(array_column($tabla['viajes'], 'costo'));
+    $key_tabla = 'tabla__' . $nombre;
+    $total_efectivo = obtenerTotalEfectivo($key_tabla, $total_calculado);
+    $totales_tablas[$nombre] = array(
+        'calculado' => $total_calculado,
+        'efectivo' => $total_efectivo
+    );
 }
 
-$resultado = obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_seleccionadas, $extras_array, $PRESUPUESTO_BASE);
+$resultado = obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_seleccionadas, $_SESSION['extras'], $PRESUPUESTO_BASE);
 $datos_empresas = $resultado['datos'];
 $alertas = $resultado['alertas'];
 
@@ -615,6 +590,7 @@ if (isset($_POST['export_word'])) {
             .costo { text-align: right; }
             .tabla-personalizada { margin-top: 30px; border: 2px solid #9c27b0; }
             .tabla-personalizada-title { background: #9c27b0; color: white; padding: 8px 12px; font-size: 14pt; font-weight: bold; }
+            .extras-table { margin-top: 30px; border: 2px solid #ff9800; }
             .extras-title { background: #ff9800; color: white; padding: 8px 12px; font-size: 14pt; font-weight: bold; }
             .resumen-table { margin-top: 30px; border: 2px solid #1a73e8; }
             .resumen-title { background: #1a73e8; color: white; padding: 8px 12px; font-size: 14pt; font-weight: bold; }
@@ -688,8 +664,44 @@ if (isset($_POST['export_word'])) {
             <?php endif; ?>
         <?php endforeach; ?>
         
-        <?php if (!empty($extras_array)): ?>
+        <?php foreach ($_SESSION['tablas_personalizadas'] as $nombre => $tabla): ?>
+            <?php if (!empty($tabla['viajes'])): ?>
             <div class="tabla-personalizada">
+                <div class="tabla-personalizada-title">📋 <?php echo htmlspecialchars($nombre); ?></div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Conductor</th>
+                            <th>Ruta</th>
+                            <th>Valor</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php 
+                        $acum_tabla = 0;
+                        foreach($tabla['viajes'] as $viaje): 
+                            $acum_tabla += $viaje['costo'];
+                        ?>
+                        <tr>
+                            <td><?php echo date('d/m/Y', strtotime($viaje['fecha'])); ?></td>
+                            <td><?php echo htmlspecialchars($viaje['nombre'] ?? '-'); ?></td>
+                            <td><?php echo htmlspecialchars($viaje['ruta'] ?? '-'); ?></td>
+                            <td class="costo">$ <?php echo number_format($viaje['costo'], 0, ',', '.'); ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                        <tr class="total-row">
+                            <td colspan="3" style="text-align:right;">TOTAL <?php echo htmlspecialchars($nombre); ?>:</td>
+                            <td class="costo">$ <?php echo number_format($totales_tablas[$nombre]['efectivo'], 0, ',', '.'); ?></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <?php endif; ?>
+        <?php endforeach; ?>
+        
+        <?php if (!empty($_SESSION['extras'])): ?>
+            <div class="extras-table">
                 <div class="extras-title">⭐ EXTRAS ⭐</div>
                 <table>
                     <thead>
@@ -718,45 +730,6 @@ if (isset($_POST['export_word'])) {
             </div>
         <?php endif; ?>
         
-        <?php foreach ($_SESSION['tablas_personalizadas'] as $nombre => $tabla): ?>
-            <?php 
-            // CORRECCIÓN: Verificar que 'viajes' existe
-            $viajes_tabla = isset($tabla['viajes']) && is_array($tabla['viajes']) ? $tabla['viajes'] : array();
-            if (!empty($viajes_tabla)): ?>
-            <div class="tabla-personalizada">
-                <div class="tabla-personalizada-title">📋 <?php echo htmlspecialchars($nombre); ?></div>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Fecha</th>
-                            <th>Conductor</th>
-                            <th>Ruta</th>
-                            <th>Valor</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php 
-                        $acum_tabla = 0;
-                        foreach($viajes_tabla as $viaje): 
-                            $acum_tabla += $viaje['costo'];
-                        ?>
-                        <tr>
-                            <td><?php echo date('d/m/Y', strtotime($viaje['fecha'])); ?></td>
-                            <td><?php echo htmlspecialchars($viaje['nombre'] ?? '-'); ?></td>
-                            <td><?php echo htmlspecialchars($viaje['ruta'] ?? '-'); ?></td>
-                            <td class="costo">$ <?php echo number_format($viaje['costo'], 0, ',', '.'); ?></td>
-                        </tr>
-                        <?php endforeach; ?>
-                        <tr class="total-row">
-                            <td colspan="3" style="text-align:right;">TOTAL <?php echo htmlspecialchars($nombre); ?>:</td>
-                            <td class="costo">$ <?php echo number_format(isset($totales_tablas[$nombre]) ? $totales_tablas[$nombre]['efectivo'] : $total_calculado, 0, ',', '.'); ?></td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            <?php endif; ?>
-        <?php endforeach; ?>
-        
         <div class="resumen-table">
             <div class="resumen-title">📋 RESUMEN GENERAL</div>
             <table>
@@ -777,7 +750,7 @@ if (isset($_POST['export_word'])) {
                         <td style="text-align:right;"><strong>SUBTOTAL PUESTOS</strong></td>
                         <td class="costo"><strong>$ <?php echo number_format($total_puestos, 0, ',', '.'); ?></strong></td>
                     </tr>
-                    <?php if (!empty($extras_array)): ?>
+                    <?php if (!empty($_SESSION['extras'])): ?>
                     <tr>
                         <td>⭐ EXTRAS</td>
                         <td class="costo">$ <?php echo number_format($total_extras, 0, ',', '.'); ?></td>
@@ -1616,16 +1589,13 @@ if (isset($_POST['export_word'])) {
         </form>
         
         <!-- TABLAS PERSONALIZADAS -->
-        <?php 
-        if (isset($_SESSION['tablas_personalizadas']) && is_array($_SESSION['tablas_personalizadas'])):
-            foreach ($_SESSION['tablas_personalizadas'] as $nombre => $tabla): 
-                // CORRECCIÓN: Verificar que 'viajes' existe
-                $viajes_tabla = isset($tabla['viajes']) && is_array($tabla['viajes']) ? $tabla['viajes'] : array();
-                $tabla_id = preg_replace('/[^a-zA-Z0-9]/', '_', $nombre);
-                $total_calculado_tabla = array_sum(array_column($viajes_tabla, 'costo'));
-                $key_tabla = 'tabla__' . $nombre;
-                $total_efectivo_tabla = obtenerTotalEfectivo($key_tabla, $total_calculado_tabla);
-                $es_manual_tabla = isset($_SESSION['totales_manuales'][$key_tabla]);
+        <?php foreach ($_SESSION['tablas_personalizadas'] as $nombre => $tabla): 
+            $tabla_id = preg_replace('/[^a-zA-Z0-9]/', '_', $nombre);
+            $viajes_tabla = $tabla['viajes'];
+            $total_calculado_tabla = array_sum(array_column($viajes_tabla, 'costo'));
+            $key_tabla = 'tabla__' . $nombre;
+            $total_efectivo_tabla = obtenerTotalEfectivo($key_tabla, $total_calculado_tabla);
+            $es_manual_tabla = isset($_SESSION['totales_manuales'][$key_tabla]);
         ?>
         <div class="tabla-personalizada" id="tabla_pers_<?php echo $tabla_id; ?>">
             <div class="tabla-personalizada-header">
@@ -1696,16 +1666,15 @@ if (isset($_POST['export_word'])) {
                     <input type="hidden" name="action" value="guardar_total_tabla">
                     <input type="hidden" name="total_key" value="<?php echo htmlspecialchars($key_tabla); ?>">
                     <input type="number" name="total_valor" value="<?php echo $total_efectivo_tabla; ?>" step="1" style="width:110px;padding:4px 8px;border:1px solid #9c27b0;border-radius:6px;text-align:right;font-weight:600;font-size:12px;">
-                    <button type="submit" class="btn-guardar-total" style="background:#9c27b0;">💾</button>
+                    <button type="submit" class="btn-guardar-total" style="background:#9c27b0;">💾 Guardar</button>
                 </form>
             </div>
             <?php endif; ?>
         </div>
-        <?php endforeach; 
-        endif; ?>
+        <?php endforeach; ?>
         
         <!-- TABLA DE EXTRAS (mantenida por compatibilidad) -->
-        <?php if (!empty($extras_array)): ?>
+        <?php if (!empty($_SESSION['extras'])): ?>
         <div class="extras-table">
             <div class="extras-header">
                 <h2>⭐ EXTRAS ⭐</h2>
@@ -1787,10 +1756,7 @@ if (isset($_POST['export_word'])) {
                     $_SESSION['nombres_cambiados_empresa'][$empresa_actual] : array();
                 
                 // Lista de tablas personalizadas disponibles para mover
-                $tablas_disponibles = array();
-                if (isset($_SESSION['tablas_personalizadas']) && is_array($_SESSION['tablas_personalizadas'])) {
-                    $tablas_disponibles = array_keys($_SESSION['tablas_personalizadas']);
-                }
+                $tablas_disponibles = array_keys($_SESSION['tablas_personalizadas']);
                 
                 if ($data['tipo'] === 'multiple'):
                     $total_general = $data['total_general'];
@@ -1853,9 +1819,9 @@ if (isset($_POST['export_word'])) {
                             $rows_data = $tabla['rows'];
                             $total_calculado = $tabla['total_calculado'];
                             $total_efectivo = $tabla['total'];
-                            $key_tabla = $tabla['key'];
+                            $key_tabla_empresa = $tabla['key'];
                             $excede = $total_efectivo > $PRESUPUESTO_BASE;
-                            $es_manual = isset($_SESSION['totales_manuales'][$key_tabla]);
+                            $es_manual = isset($_SESSION['totales_manuales'][$key_tabla_empresa]);
                         ?>
                         <div class="sub-table-wrapper">
                             <div class="table-header-conductor" style="<?php echo $excede ? 'background: #f44336;' : ''; ?>">
@@ -1928,7 +1894,7 @@ if (isset($_POST['export_word'])) {
                                 <span style="font-weight:700;font-size:14px;color:#1a73e8;">$ <?php echo number_format($total_efectivo, 0, ',', '.'); ?></span>
                                 <form method="POST" style="display:inline-flex;align-items:center;gap:6px;">
                                     <input type="hidden" name="action" value="guardar_total_manual">
-                                    <input type="hidden" name="total_key" value="<?php echo htmlspecialchars($key_tabla); ?>">
+                                    <input type="hidden" name="total_key" value="<?php echo htmlspecialchars($key_tabla_empresa); ?>">
                                     <input type="number" name="total_valor" value="<?php echo $total_efectivo; ?>" step="1" style="width:110px;padding:4px 8px;border:1px solid #1a73e8;border-radius:6px;text-align:right;font-weight:600;font-size:12px;">
                                     <button type="submit" class="btn-guardar-total">💾</button>
                                 </form>
@@ -2152,12 +2118,9 @@ if (isset($_POST['export_word'])) {
                     $total_efectivo = $data['total_efectivo'];
                     $excede = $total_efectivo > $PRESUPUESTO_BASE;
                     $empresa_id = $empresa_id_base;
-                    $key_tabla = $data['key'];
-                    $es_manual = isset($_SESSION['totales_manuales'][$key_tabla]);
-                    $tablas_disponibles = array();
-                    if (isset($_SESSION['tablas_personalizadas']) && is_array($_SESSION['tablas_personalizadas'])) {
-                        $tablas_disponibles = array_keys($_SESSION['tablas_personalizadas']);
-                    }
+                    $key_tabla_empresa = $data['key'];
+                    $es_manual = isset($_SESSION['totales_manuales'][$key_tabla_empresa]);
+                    $tablas_disponibles = array_keys($_SESSION['tablas_personalizadas']);
                     
                     if (empty($rows_data)) {
                         ?>
@@ -2288,7 +2251,7 @@ if (isset($_POST['export_word'])) {
                         <span style="font-weight:700;font-size:14px;color:#1a73e8;">$ <?php echo number_format($total_efectivo, 0, ',', '.'); ?></span>
                         <form method="POST" style="display:inline-flex;align-items:center;gap:6px;">
                             <input type="hidden" name="action" value="guardar_total_manual">
-                            <input type="hidden" name="total_key" value="<?php echo htmlspecialchars($key_tabla); ?>">
+                            <input type="hidden" name="total_key" value="<?php echo htmlspecialchars($key_tabla_empresa); ?>">
                             <input type="number" name="total_valor" value="<?php echo $total_efectivo; ?>" step="1" style="width:110px;padding:4px 8px;border:1px solid #1a73e8;border-radius:6px;text-align:right;font-weight:600;font-size:12px;">
                             <button type="submit" class="btn-guardar-total">💾</button>
                         </form>
@@ -2519,7 +2482,7 @@ if (isset($_POST['export_word'])) {
                             <td style="text-align:right;"><strong>SUBTOTAL PUESTOS</strong></td>
                             <td class="costo"><strong>$ <?php echo number_format($total_puestos, 0, ',', '.'); ?></strong></td>
                         </tr>
-                        <?php if (!empty($extras_array)): ?>
+                        <?php if (!empty($_SESSION['extras'])): ?>
                         <tr>
                             <td>⭐ EXTRAS</td>
                             <td class="costo">$ <?php echo number_format($total_extras, 0, ',', '.'); ?></td>
