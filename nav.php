@@ -163,7 +163,7 @@ $hasta = date("Y-m-d");
     <span>Inicio</span>
   </a>
 
-  <a class="rail-item" href="informe.php">
+  <a class="rail-item" href="informep.php">
     <img src="https://img.icons8.com/color/48/combo-chart--v1.png">
     <span>Informe</span>
   </a>
