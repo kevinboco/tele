@@ -11,7 +11,12 @@ if ($conn->connect_error) {
 }
 $conn->set_charset('utf8mb4');
 
-// Inicializar sesión para extras
+// Inicializar sesión para tablas personalizadas
+if (!isset($_SESSION['tablas_personalizadas'])) {
+    $_SESSION['tablas_personalizadas'] = array();
+}
+
+// Mantener compatibilidad con 'extras' antiguo
 if (!isset($_SESSION['extras'])) {
     $_SESSION['extras'] = array();
 }
@@ -26,151 +31,162 @@ if (!isset($_SESSION['totales_manuales'])) {
     $_SESSION['totales_manuales'] = array();
 }
 
-// Inicializar sesión para tablas personalizadas
-if (!isset($_SESSION['tablas_personalizadas'])) {
-    $_SESSION['tablas_personalizadas'] = array();
-}
-
 // Procesar acciones POST
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['export_word'])) {
         // No hacer nada, solo exportar
-    } 
-    // Crear tabla personalizada
-    elseif (isset($_POST['action']) && $_POST['action'] === 'crear_tabla_personalizada') {
-        $nombre_tabla = trim($_POST['nombre_tabla']);
-        if (!empty($nombre_tabla)) {
-            $key_tabla = 'custom_' . time() . '_' . preg_replace('/[^a-zA-Z0-9]/', '_', $nombre_tabla);
-            $_SESSION['tablas_personalizadas'][$key_tabla] = array(
-                'nombre' => $nombre_tabla,
-                'viajes' => array(),
-                'creado' => date('Y-m-d H:i:s')
-            );
-        }
-        header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
-        exit;
-    }
-    // Eliminar tabla personalizada
-    elseif (isset($_POST['action']) && $_POST['action'] === 'eliminar_tabla_personalizada') {
-        $key_tabla = $_POST['tabla_key'];
-        if (isset($_SESSION['tablas_personalizadas'][$key_tabla])) {
-            unset($_SESSION['tablas_personalizadas'][$key_tabla]);
-        }
-        header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
-        exit;
-    }
-    // Mover viajes a tabla destino (extras o tabla personalizada)
-    elseif (isset($_POST['action']) && $_POST['action'] === 'mover_viajes' && isset($_POST['ids_seleccionados'])) {
-        $empresa_origen = $_POST['empresa_origen'];
-        $tabla_destino = $_POST['tabla_destino'];
-        $ids = explode(',', $_POST['ids_seleccionados']);
-        
-        foreach ($ids as $id) {
-            $id = intval($id);
-            $sql = "SELECT v.*, rc.clasificacion 
-                    FROM viajes v
-                    LEFT JOIN ruta_clasificacion rc ON v.ruta COLLATE utf8mb4_general_ci = rc.ruta COLLATE utf8mb4_general_ci 
-                        AND v.tipo_vehiculo COLLATE utf8mb4_general_ci = rc.tipo_vehiculo COLLATE utf8mb4_general_ci
-                    WHERE v.id = ? AND v.empresa = ?";
-            $stmt = $conn->prepare($sql);
-            if ($stmt) {
-                $stmt->bind_param("is", $id, $empresa_origen);
-                $stmt->execute();
-                $result = $stmt->get_result();
-                if ($row = $result->fetch_assoc()) {
-                    $clasificacion = $row['clasificacion'];
-                    $costo = obtener_tarifa($clasificacion, $row['tipo_vehiculo'], $row['empresa'], $conn);
-                    $row['costo'] = $costo;
+    } elseif (isset($_POST['action'])) {
+        switch($_POST['action']) {
+            case 'mover_a_tabla':
+                if (isset($_POST['ids_seleccionados']) && isset($_POST['tabla_destino'])) {
+                    $empresa_origen = $_POST['empresa_origen'];
+                    $tabla_destino = $_POST['tabla_destino'];
+                    $ids = explode(',', $_POST['ids_seleccionados']);
                     
-                    if (isset($_SESSION['nombres_cambiados'][$id])) {
-                        $row['nombre'] = $_SESSION['nombres_cambiados'][$id];
+                    if (!isset($_SESSION['tablas_personalizadas'][$tabla_destino])) {
+                        $_SESSION['tablas_personalizadas'][$tabla_destino] = array(
+                            'nombre' => $tabla_destino,
+                            'viajes' => array(),
+                            'fecha_creacion' => date('Y-m-d H:i:s')
+                        );
                     }
                     
-                    // Decidir destino
-                    if ($tabla_destino === 'extras') {
-                        $_SESSION['extras'][] = $row;
-                    } elseif (isset($_SESSION['tablas_personalizadas'][$tabla_destino])) {
-                        $_SESSION['tablas_personalizadas'][$tabla_destino]['viajes'][] = $row;
+                    foreach ($ids as $id) {
+                        $id = intval($id);
+                        $sql = "SELECT v.*, rc.clasificacion 
+                                FROM viajes v
+                                LEFT JOIN ruta_clasificacion rc ON v.ruta COLLATE utf8mb4_general_ci = rc.ruta COLLATE utf8mb4_general_ci 
+                                    AND v.tipo_vehiculo COLLATE utf8mb4_general_ci = rc.tipo_vehiculo COLLATE utf8mb4_general_ci
+                                WHERE v.id = ? AND v.empresa = ?";
+                        $stmt = $conn->prepare($sql);
+                        $stmt->bind_param("is", $id, $empresa_origen);
+                        $stmt->execute();
+                        $result = $stmt->get_result();
+                        if ($row = $result->fetch_assoc()) {
+                            $clasificacion = $row['clasificacion'];
+                            $costo = obtener_tarifa($clasificacion, $row['tipo_vehiculo'], $row['empresa'], $conn);
+                            $row['costo'] = $costo;
+                            
+                            if (isset($_SESSION['nombres_cambiados'][$id])) {
+                                $row['nombre'] = $_SESSION['nombres_cambiados'][$id];
+                            }
+                            
+                            $_SESSION['tablas_personalizadas'][$tabla_destino]['viajes'][] = $row;
+                        }
+                        $stmt->close();
+                    }
+                    
+                    header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
+                    exit;
+                }
+                break;
+                
+            case 'crear_tabla':
+                if (isset($_POST['nombre_tabla']) && !empty(trim($_POST['nombre_tabla']))) {
+                    $nombre_tabla = trim($_POST['nombre_tabla']);
+                    if (!isset($_SESSION['tablas_personalizadas'][$nombre_tabla])) {
+                        $_SESSION['tablas_personalizadas'][$nombre_tabla] = array(
+                            'nombre' => $nombre_tabla,
+                            'viajes' => array(),
+                            'fecha_creacion' => date('Y-m-d H:i:s')
+                        );
                     }
                 }
-                $stmt->close();
-            }
+                header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
+                exit;
+                break;
+                
+            case 'eliminar_tabla':
+                if (isset($_POST['tabla_nombre'])) {
+                    unset($_SESSION['tablas_personalizadas'][$_POST['tabla_nombre']]);
+                }
+                header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
+                exit;
+                break;
+                
+            case 'renombrar_tabla':
+                if (isset($_POST['tabla_original']) && isset($_POST['tabla_nuevo_nombre']) && !empty(trim($_POST['tabla_nuevo_nombre']))) {
+                    $original = $_POST['tabla_original'];
+                    $nuevo = trim($_POST['tabla_nuevo_nombre']);
+                    if (isset($_SESSION['tablas_personalizadas'][$original]) && !isset($_SESSION['tablas_personalizadas'][$nuevo])) {
+                        $_SESSION['tablas_personalizadas'][$nuevo] = $_SESSION['tablas_personalizadas'][$original];
+                        $_SESSION['tablas_personalizadas'][$nuevo]['nombre'] = $nuevo;
+                        unset($_SESSION['tablas_personalizadas'][$original]);
+                        
+                        // Actualizar totales manuales si existen
+                        $total_key_old = 'tabla__' . $original;
+                        $total_key_new = 'tabla__' . $nuevo;
+                        if (isset($_SESSION['totales_manuales'][$total_key_old])) {
+                            $_SESSION['totales_manuales'][$total_key_new] = $_SESSION['totales_manuales'][$total_key_old];
+                            unset($_SESSION['totales_manuales'][$total_key_old]);
+                        }
+                    }
+                }
+                header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
+                exit;
+                break;
+                
+            case 'eliminar_viaje_tabla':
+                if (isset($_POST['tabla_nombre']) && isset($_POST['viaje_index'])) {
+                    $tabla = $_POST['tabla_nombre'];
+                    $index = intval($_POST['viaje_index']);
+                    if (isset($_SESSION['tablas_personalizadas'][$tabla]['viajes'][$index])) {
+                        array_splice($_SESSION['tablas_personalizadas'][$tabla]['viajes'], $index, 1);
+                    }
+                }
+                header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
+                exit;
+                break;
+                
+            case 'guardar_total_tabla':
+                if (isset($_POST['total_key']) && isset($_POST['total_valor'])) {
+                    $key = $_POST['total_key'];
+                    $valor = floatval(str_replace(['.', ','], ['', '.'], $_POST['total_valor']));
+                    $_SESSION['totales_manuales'][$key] = $valor;
+                }
+                header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
+                exit;
+                break;
+                
+            case 'cambiar_conductores':
+                $empresa = $_POST['empresa_cambio'];
+                $nombres = isset($_POST['nombres_conductores']) ? $_POST['nombres_conductores'] : array();
+                $nombres = array_values(array_filter($nombres, function($n) { return !empty(trim($n)); }));
+                
+                if (!empty($nombres)) {
+                    $_SESSION['nombres_cambiados_empresa'][$empresa] = $nombres;
+                } else {
+                    unset($_SESSION['nombres_cambiados_empresa'][$empresa]);
+                }
+                
+                header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
+                exit;
+                break;
+                
+            case 'restaurar_nombres':
+                $_SESSION['nombres_cambiados'] = array();
+                $_SESSION['nombres_cambiados_empresa'] = array();
+                header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
+                exit;
+                break;
+                
+            case 'restaurar_totales':
+                $_SESSION['totales_manuales'] = array();
+                header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
+                exit;
+                break;
         }
-        
-        header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
-        exit;
-    }
-    // Eliminar viaje de tabla personalizada
-    elseif (isset($_POST['action']) && $_POST['action'] === 'eliminar_de_tabla_personalizada') {
-        $tabla_key = $_POST['tabla_key'];
-        $viaje_index = intval($_POST['viaje_index']);
-        if (isset($_SESSION['tablas_personalizadas'][$tabla_key])) {
-            array_splice($_SESSION['tablas_personalizadas'][$tabla_key]['viajes'], $viaje_index, 1);
-        }
-        header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
-        exit;
-    }
-    // Limpiar extras
-    elseif (isset($_POST['action']) && $_POST['action'] === 'limpiar_extras') {
-        $_SESSION['extras'] = array();
-        header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
-        exit;
-    }
-    // Eliminar extra
-    elseif (isset($_POST['action']) && $_POST['action'] === 'eliminar_extra' && isset($_POST['extra_index'])) {
-        $index = intval($_POST['extra_index']);
-        if (isset($_SESSION['extras'][$index])) {
-            array_splice($_SESSION['extras'], $index, 1);
-        }
-        header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
-        exit;
-    }
-    // Cambiar conductores
-    elseif (isset($_POST['action']) && $_POST['action'] === 'cambiar_conductores') {
-        $empresa = $_POST['empresa_cambio'];
-        $nombres = isset($_POST['nombres_conductores']) ? $_POST['nombres_conductores'] : array();
-        $nombres = array_values(array_filter($nombres, function($n) { return !empty(trim($n)); }));
-        
-        if (!empty($nombres)) {
-            $_SESSION['nombres_cambiados_empresa'][$empresa] = $nombres;
-        } else {
-            unset($_SESSION['nombres_cambiados_empresa'][$empresa]);
-        }
-        
-        header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
-        exit;
-    }
-    // Guardar total manual
-    elseif (isset($_POST['action']) && $_POST['action'] === 'guardar_total_manual') {
-        $key = $_POST['total_key'];
-        $valor = floatval(str_replace(['.', ','], ['', '.'], $_POST['total_valor']));
-        $_SESSION['totales_manuales'][$key] = $valor;
-        header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
-        exit;
-    }
-    // Guardar total extras
-    elseif (isset($_POST['action']) && $_POST['action'] === 'guardar_total_extras') {
-        $valor = floatval(str_replace(['.', ','], ['', '.'], $_POST['total_extras_valor']));
-        $_SESSION['totales_manuales']['__extras__'] = $valor;
-        header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
-        exit;
-    }
-    // Restaurar nombres
-    elseif (isset($_POST['action']) && $_POST['action'] === 'restaurar_nombres') {
-        $_SESSION['nombres_cambiados'] = array();
-        $_SESSION['nombres_cambiados_empresa'] = array();
-        header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
-        exit;
-    }
-    // Restaurar totales
-    elseif (isset($_POST['action']) && $_POST['action'] === 'restaurar_totales') {
-        $_SESSION['totales_manuales'] = array();
-        header("Location: " . $_SERVER['PHP_SELF'] . "?" . $_SERVER['QUERY_STRING']);
-        exit;
     }
 }
 
-// Función para obtener tarifa
+// Obtener parámetros
+$fecha_desde = isset($_GET['fecha_desde']) ? $_GET['fecha_desde'] : '';
+$fecha_hasta = isset($_GET['fecha_hasta']) ? $_GET['fecha_hasta'] : '';
+$empresas_seleccionadas = isset($_GET['empresas']) ? $_GET['empresas'] : array();
+
+// Presupuesto base
+$PRESUPUESTO_BASE = 13000000;
+
 function obtener_tarifa($clasificacion, $tipo_vehiculo, $empresa, $conn) {
     if (empty($clasificacion) || empty($empresa)) {
         return 0;
@@ -205,14 +221,6 @@ function obtener_tarifa($clasificacion, $tipo_vehiculo, $empresa, $conn) {
     }
 }
 
-// Obtener parámetros
-$fecha_desde = isset($_GET['fecha_desde']) ? $_GET['fecha_desde'] : '';
-$fecha_hasta = isset($_GET['fecha_hasta']) ? $_GET['fecha_hasta'] : '';
-$empresas_seleccionadas = isset($_GET['empresas']) ? $_GET['empresas'] : array();
-
-// Presupuesto base
-$PRESUPUESTO_BASE = 13000000;
-
 // Obtener empresas que empiezan con P.
 $empresas_disponibles = array();
 $sql_emp = "SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa != '' AND empresa LIKE 'P.%' ORDER BY empresa";
@@ -233,7 +241,6 @@ if ($res_cond) {
     }
 }
 
-// Función para calcular acumulado de extras
 function calcular_acumulado_extras($extras) {
     $acumulado = 0;
     $resultados = array();
@@ -252,24 +259,20 @@ function obtenerTotalEfectivo($key, $total_calculado) {
     return $total_calculado;
 }
 
-// Obtener IDs de viajes en extras y tablas personalizadas para excluir
-$ids_excluir = array();
-foreach ($_SESSION['extras'] as $extra) {
-    if (isset($extra['id'])) {
-        $ids_excluir[] = $extra['id'];
-    }
-}
-foreach ($_SESSION['tablas_personalizadas'] as $tabla) {
-    foreach ($tabla['viajes'] as $viaje) {
-        if (isset($viaje['id'])) {
-            $ids_excluir[] = $viaje['id'];
+// Función para obtener datos de las tablas
+function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_seleccionadas, $extras, $PRESUPUESTO_BASE) {
+    $datos = array();
+    $ids_en_extras = array_column($extras, 'id');
+    
+    // También excluir IDs que están en tablas personalizadas
+    $ids_en_tablas = array();
+    foreach ($_SESSION['tablas_personalizadas'] as $tabla) {
+        foreach ($tabla['viajes'] as $viaje) {
+            $ids_en_tablas[] = $viaje['id'];
         }
     }
-}
-
-// Función para obtener datos de las tablas
-function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_seleccionadas, $ids_excluir, $PRESUPUESTO_BASE) {
-    $datos = array();
+    
+    $ids_excluir = array_merge($ids_en_extras, $ids_en_tablas);
     $alertas = array();
     
     foreach ($empresas_seleccionadas as $empresa_actual) {
@@ -438,20 +441,21 @@ $extras_con_acumulado = calcular_acumulado_extras($_SESSION['extras']);
 $total_extras_calculado = array_sum(array_column($_SESSION['extras'], 'costo'));
 $total_extras = obtenerTotalEfectivo('__extras__', $total_extras_calculado);
 
-$resultado = obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_seleccionadas, $ids_excluir, $PRESUPUESTO_BASE);
-$datos_empresas = $resultado['datos'];
-$alertas = $resultado['alertas'];
-
 // Calcular totales de tablas personalizadas
-$totales_tablas_personalizadas = array();
-foreach ($_SESSION['tablas_personalizadas'] as $key => $tabla) {
-    $total = array_sum(array_column($tabla['viajes'], 'costo'));
-    $totales_tablas_personalizadas[$key] = array(
-        'nombre' => $tabla['nombre'],
-        'total' => $total,
-        'cantidad' => count($tabla['viajes'])
+$totales_tablas = array();
+foreach ($_SESSION['tablas_personalizadas'] as $nombre => $tabla) {
+    $total_calculado = array_sum(array_column($tabla['viajes'], 'costo'));
+    $key_tabla = 'tabla__' . $nombre;
+    $total_efectivo = obtenerTotalEfectivo($key_tabla, $total_calculado);
+    $totales_tablas[$nombre] = array(
+        'calculado' => $total_calculado,
+        'efectivo' => $total_efectivo
     );
 }
+
+$resultado = obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_seleccionadas, $_SESSION['extras'], $PRESUPUESTO_BASE);
+$datos_empresas = $resultado['datos'];
+$alertas = $resultado['alertas'];
 
 // Calcular totales para el resumen
 $total_puestos = 0;
@@ -474,7 +478,12 @@ foreach ($empresas_seleccionadas as $empresa) {
     $total_puestos += $total_empresa;
 }
 
-$total_tablas_personalizadas = array_sum(array_column($totales_tablas_personalizadas, 'total'));
+// Sumar totales de tablas personalizadas
+$total_tablas_personalizadas = 0;
+foreach ($totales_tablas as $total_tabla) {
+    $total_tablas_personalizadas += $total_tabla['efectivo'];
+}
+
 $total_general = $total_puestos + $total_extras + $total_tablas_personalizadas;
 
 // Si es exportación a Word
@@ -499,9 +508,8 @@ if (isset($_POST['export_word'])) {
             td { border: 1px solid #ccc; padding: 6px 8px; vertical-align: top; }
             .total-row { background: #e8f0fe; font-weight: bold; }
             .costo { text-align: right; }
-            .extras-table { margin-top: 30px; border: 2px solid #ff9800; }
-            .extras-title { background: #ff9800; color: white; padding: 8px 12px; font-size: 14pt; font-weight: bold; }
-            .tabla-personalizada-title { background: #6a1b9a; color: white; padding: 8px 12px; font-size: 14pt; font-weight: bold; }
+            .tabla-personalizada { margin-top: 30px; border: 2px solid #9c27b0; }
+            .tabla-personalizada-title { background: #9c27b0; color: white; padding: 8px 12px; font-size: 14pt; font-weight: bold; }
             .resumen-table { margin-top: 30px; border: 2px solid #1a73e8; }
             .resumen-title { background: #1a73e8; color: white; padding: 8px 12px; font-size: 14pt; font-weight: bold; }
             .subtotal-row { background: #e3f2fd; font-weight: bold; }
@@ -575,8 +583,8 @@ if (isset($_POST['export_word'])) {
         <?php endforeach; ?>
         
         <?php if (!empty($_SESSION['extras'])): ?>
-            <div class="extras-table">
-                <div class="extras-title">⭐ EXTRAS ⭐</div>
+            <div class="tabla-personalizada">
+                <div class="tabla-personalizada-title">⭐ EXTRAS ⭐</div>
                 <table>
                     <thead>
                         <tr>
@@ -604,9 +612,10 @@ if (isset($_POST['export_word'])) {
             </div>
         <?php endif; ?>
         
-        <?php foreach ($_SESSION['tablas_personalizadas'] as $key => $tabla): if (!empty($tabla['viajes'])): ?>
-            <div class="extras-table" style="border-color: #6a1b9a;">
-                <div class="tabla-personalizada-title">📋 <?php echo htmlspecialchars($tabla['nombre']); ?></div>
+        <?php foreach ($_SESSION['tablas_personalizadas'] as $nombre => $tabla): ?>
+            <?php if (!empty($tabla['viajes'])): ?>
+            <div class="tabla-personalizada">
+                <div class="tabla-personalizada-title">📋 <?php echo htmlspecialchars($nombre); ?></div>
                 <table>
                     <thead>
                         <tr>
@@ -617,7 +626,11 @@ if (isset($_POST['export_word'])) {
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach($tabla['viajes'] as $viaje): ?>
+                        <?php 
+                        $acum_tabla = 0;
+                        foreach($tabla['viajes'] as $viaje): 
+                            $acum_tabla += $viaje['costo'];
+                        ?>
                         <tr>
                             <td><?php echo date('d/m/Y', strtotime($viaje['fecha'])); ?></td>
                             <td><?php echo htmlspecialchars($viaje['nombre'] ?? '-'); ?></td>
@@ -626,13 +639,14 @@ if (isset($_POST['export_word'])) {
                         </tr>
                         <?php endforeach; ?>
                         <tr class="total-row">
-                            <td colspan="3" style="text-align:right;">TOTAL <?php echo htmlspecialchars($tabla['nombre']); ?>:</td>
-                            <td class="costo">$ <?php echo number_format(array_sum(array_column($tabla['viajes'], 'costo')), 0, ',', '.'); ?></td>
+                            <td colspan="3" style="text-align:right;">TOTAL <?php echo htmlspecialchars($nombre); ?>:</td>
+                            <td class="costo">$ <?php echo number_format($totales_tablas[$nombre]['efectivo'], 0, ',', '.'); ?></td>
                         </tr>
                     </tbody>
                 </table>
             </div>
-        <?php endif; endforeach; ?>
+            <?php endif; ?>
+        <?php endforeach; ?>
         
         <div class="resumen-table">
             <div class="resumen-title">📋 RESUMEN GENERAL</div>
@@ -650,12 +664,6 @@ if (isset($_POST['export_word'])) {
                         <td class="costo">$ <?php echo number_format($total, 0, ',', '.'); ?></td>
                     </tr>
                     <?php endforeach; ?>
-                    <?php foreach ($totales_tablas_personalizadas as $key => $info): ?>
-                    <tr>
-                        <td>📋 <?php echo htmlspecialchars($info['nombre']); ?></td>
-                        <td class="costo">$ <?php echo number_format($info['total'], 0, ',', '.'); ?></td>
-                    </tr>
-                    <?php endforeach; ?>
                     <tr class="subtotal-row">
                         <td style="text-align:right;"><strong>SUBTOTAL PUESTOS</strong></td>
                         <td class="costo"><strong>$ <?php echo number_format($total_puestos, 0, ',', '.'); ?></strong></td>
@@ -666,6 +674,12 @@ if (isset($_POST['export_word'])) {
                         <td class="costo">$ <?php echo number_format($total_extras, 0, ',', '.'); ?></td>
                     </tr>
                     <?php endif; ?>
+                    <?php foreach ($totales_tablas as $nombre => $total): ?>
+                    <tr>
+                        <td>📋 <?php echo htmlspecialchars($nombre); ?></td>
+                        <td class="costo">$ <?php echo number_format($total['efectivo'], 0, ',', '.'); ?></td>
+                    </tr>
+                    <?php endforeach; ?>
                     <tr class="gran-total-row">
                         <td style="text-align:right;"><strong>TOTAL GENERAL</strong></td>
                         <td class="costo"><strong>$ <?php echo number_format($total_general, 0, ',', '.'); ?></strong></td>
@@ -833,8 +847,6 @@ if (isset($_POST['export_word'])) {
             cursor: pointer;
             font-weight: 600;
             border: none;
-            text-decoration: none;
-            display: inline-block;
         }
         .btn-filtrar { background: #1a73e8; color: white; }
         .btn-filtrar:hover { background: #1557b0; }
@@ -884,6 +896,99 @@ if (isset($_POST['export_word'])) {
             font-size: 13px;
         }
         
+        .crear-tabla-section {
+            background: white;
+            padding: 20px 25px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border: 2px solid #9c27b0;
+        }
+        
+        .crear-tabla-section h3 {
+            color: #9c27b0;
+            margin-bottom: 15px;
+        }
+        
+        .crear-tabla-form {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+        }
+        
+        .crear-tabla-form input {
+            padding: 10px 15px;
+            border: 1px solid #dadce0;
+            border-radius: 8px;
+            font-size: 14px;
+            min-width: 250px;
+        }
+        
+        .btn-crear-tabla {
+            background: #9c27b0;
+            color: white;
+            border: none;
+            padding: 10px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .btn-crear-tabla:hover { background: #7b1fa2; }
+        
+        .tabla-personalizada {
+            background: white;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            border: 2px solid #9c27b0;
+        }
+        
+        .tabla-personalizada-header {
+            background: #9c27b0;
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .tabla-personalizada-header h2 { font-size: 18px; }
+        
+        .btn-eliminar-tabla {
+            background: #ea4335;
+            color: white;
+            border: none;
+            padding: 6px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 12px;
+        }
+        .btn-eliminar-tabla:hover { background: #c62828; }
+        
+        .btn-renombrar-tabla {
+            background: #ff9800;
+            color: white;
+            border: none;
+            padding: 6px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 12px;
+            margin-right: 10px;
+        }
+        .btn-renombrar-tabla:hover { background: #e65100; }
+        
+        .tabla-personalizada-header .acciones-header {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
         .extras-table {
             background: linear-gradient(135deg, #fff8e7 0%, #fff3d6 100%);
             border-radius: 12px;
@@ -913,38 +1018,6 @@ if (isset($_POST['export_word'])) {
             cursor: pointer;
             font-weight: 600;
         }
-        
-        .tabla-personalizada {
-            background: white;
-            border-radius: 12px;
-            margin-bottom: 30px;
-            overflow-x: auto;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            border: 2px solid #6a1b9a;
-        }
-        
-        .tabla-personalizada-header {
-            background: #6a1b9a;
-            color: white;
-            padding: 15px 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 15px;
-        }
-        
-        .btn-eliminar-tabla {
-            background: #ff5252;
-            color: white;
-            border: none;
-            padding: 8px 20px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-        }
-        
-        .btn-eliminar-tabla:hover { background: #d32f2f; }
         
         .empresa-table {
             background: white;
@@ -983,20 +1056,17 @@ if (isset($_POST['export_word'])) {
         
         .acciones-header { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
         
-        .selector-destino {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-        
-        .selector-destino select {
-            padding: 8px 12px;
+        .btn-mover-tabla {
+            background: #9c27b0;
+            color: white;
+            border: none;
+            padding: 8px 20px;
             border-radius: 8px;
-            border: 1px solid #dadce0;
-            font-size: 13px;
-            background: white;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 12px;
         }
+        .btn-mover-tabla:disabled { background: #ccc; cursor: not-allowed; }
         
         .btn-mover-extras {
             background: #ff9800;
@@ -1009,7 +1079,7 @@ if (isset($_POST['export_word'])) {
         }
         .btn-mover-extras:disabled { background: #ccc; cursor: not-allowed; }
         
-        .btn-eliminar-extra {
+        .btn-eliminar-viaje {
             background: #ea4335;
             color: white;
             border: none;
@@ -1018,6 +1088,15 @@ if (isset($_POST['export_word'])) {
             cursor: pointer;
             font-size: 11px;
         }
+        
+        .selector-tabla-destino {
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 1px solid #9c27b0;
+            font-size: 12px;
+        }
+        
+        select, input, button { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         
         .cambio-conductores-section {
             background: #e3f2fd;
@@ -1151,6 +1230,26 @@ if (isset($_POST['export_word'])) {
             margin-top: 3px;
         }
         
+        .renombrar-input {
+            padding: 6px 12px;
+            border: 1px solid white;
+            border-radius: 6px;
+            font-size: 12px;
+            width: 180px;
+            margin-right: 5px;
+        }
+        
+        .btn-confirmar-renombrar {
+            background: white;
+            color: #9c27b0;
+            border: none;
+            padding: 5px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        
         table {
             width: 100%;
             border-collapse: collapse;
@@ -1229,6 +1328,8 @@ if (isset($_POST['export_word'])) {
             align-items: center;
             gap: 8px;
             justify-content: flex-end;
+            padding: 10px 15px;
+            background: #f5f5f5;
         }
         
         .total-editable input {
@@ -1242,13 +1343,6 @@ if (isset($_POST['export_word'])) {
             color: #1a73e8;
         }
         
-        .total-editable .total-calculado-original {
-            font-size: 10px;
-            color: #999;
-            text-decoration: line-through;
-            margin-right: 5px;
-        }
-        
         .btn-guardar-total {
             background: #1a73e8;
             color: white;
@@ -1260,25 +1354,6 @@ if (isset($_POST['export_word'])) {
             font-weight: 600;
         }
         .btn-guardar-total:hover { background: #1557b0; }
-        
-        .extras-total-editable {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            justify-content: flex-end;
-            padding: 10px 15px;
-            background: #ffe0b2;
-        }
-        
-        .extras-total-editable input {
-            width: 130px;
-            padding: 5px 10px;
-            border: 1px solid #ff9800;
-            border-radius: 6px;
-            text-align: right;
-            font-weight: 600;
-            font-size: 13px;
-        }
         
         .resumen-table {
             background: white;
@@ -1331,6 +1406,7 @@ if (isset($_POST['export_word'])) {
             .acciones-header { justify-content: center; }
             .cambio-conductores-section { flex-direction: column; }
             .btn-header-group { justify-content: center; }
+            .crear-tabla-form { flex-direction: column; }
         }
     </style>
 </head>
@@ -1377,6 +1453,19 @@ if (isset($_POST['export_word'])) {
         </div>
         <?php endif; ?>
         
+        <!-- SECCIÓN CREAR TABLA PERSONALIZADA -->
+        <div class="crear-tabla-section">
+            <h3>📋 Crear Nueva Tabla Personalizada</h3>
+            <form method="POST" class="crear-tabla-form">
+                <input type="hidden" name="action" value="crear_tabla">
+                <div class="filtro-group">
+                    <label>Nombre de la tabla</label>
+                    <input type="text" name="nombre_tabla" placeholder="Ej: Gastos Urgencias, Viáticos Especiales..." required>
+                </div>
+                <button type="submit" class="btn-crear-tabla">➕ Crear Tabla</button>
+            </form>
+        </div>
+        
         <form method="GET" action="" id="filtroForm">
             <div class="filtros-card">
                 <div class="filtros-row">
@@ -1417,100 +1506,92 @@ if (isset($_POST['export_word'])) {
             </div>
         </form>
         
-        <!-- SECCIÓN: CREAR TABLAS PERSONALIZADAS -->
-        <div style="background: white; border-radius: 12px; margin-bottom: 30px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-            <div style="background: #6a1b9a; color: white; padding: 15px 25px; border-radius: 12px 12px 0 0;">
-                <h2 style="margin:0;">📋 Crear Nueva Tabla Personalizada</h2>
-            </div>
-            <div style="padding: 20px;">
-                <form method="POST" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
-                    <input type="hidden" name="action" value="crear_tabla_personalizada">
-                    <div class="filtro-group">
-                        <label>✏️ Nombre de la nueva tabla</label>
-                        <input type="text" name="nombre_tabla" placeholder="Ej: Viajes Urgentes, Pendientes..." required 
-                               style="padding: 10px 15px; border: 1px solid #dadce0; border-radius: 8px; font-size: 14px; min-width: 300px;">
-                    </div>
-                    <button type="submit" style="background: #6a1b9a; color: white; border: none; padding: 10px 25px; border-radius: 8px; cursor: pointer; font-weight: 600;">
-                        ➕ Crear Tabla
-                    </button>
-                </form>
-            </div>
-        </div>
-        
-        <!-- TABLAS PERSONALIZADAS EXISTENTES -->
-        <?php foreach ($_SESSION['tablas_personalizadas'] as $key => $tabla): ?>
-        <div class="tabla-personalizada">
+        <!-- TABLAS PERSONALIZADAS -->
+        <?php foreach ($_SESSION['tablas_personalizadas'] as $nombre => $tabla): 
+            $tabla_id = preg_replace('/[^a-zA-Z0-9]/', '_', $nombre);
+            $viajes_tabla = $tabla['viajes'];
+            $total_calculado_tabla = array_sum(array_column($viajes_tabla, 'costo'));
+            $key_tabla = 'tabla__' . $nombre;
+            $total_efectivo_tabla = obtenerTotalEfectivo($key_tabla, $total_calculado_tabla);
+            $es_manual_tabla = isset($_SESSION['totales_manuales'][$key_tabla]);
+        ?>
+        <div class="tabla-personalizada" id="tabla_pers_<?php echo $tabla_id; ?>">
             <div class="tabla-personalizada-header">
-                <h2>📋 <?php echo htmlspecialchars($tabla['nombre']); ?></h2>
-                <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
-                    <span style="background: rgba(255,255,255,0.2); padding: 5px 15px; border-radius: 20px; font-size: 14px;">
-                        <?php echo count($tabla['viajes']); ?> viajes
-                    </span>
-                    <form method="POST" style="display: inline;" onsubmit="return confirm('¿Eliminar esta tabla personalizada? Los viajes se perderán.')">
-                        <input type="hidden" name="action" value="eliminar_tabla_personalizada">
-                        <input type="hidden" name="tabla_key" value="<?php echo $key; ?>">
-                        <button type="submit" class="btn-eliminar-tabla">🗑️ Eliminar Tabla</button>
+                <h2>📋 <?php echo htmlspecialchars($nombre); ?></h2>
+                <div class="acciones-header">
+                    <button class="btn-renombrar-tabla" onclick="mostrarRenombrar('<?php echo $tabla_id; ?>')">✏️ Renombrar</button>
+                    <form method="POST" style="display: inline;">
+                        <input type="hidden" name="action" value="eliminar_tabla">
+                        <input type="hidden" name="tabla_nombre" value="<?php echo htmlspecialchars($nombre); ?>">
+                        <button type="submit" class="btn-eliminar-tabla" onclick="return confirm('¿Eliminar la tabla <?php echo htmlspecialchars($nombre); ?> y todos sus viajes?')">🗑️ Eliminar Tabla</button>
                     </form>
+                    <div id="renombrar_<?php echo $tabla_id; ?>" style="display:none;">
+                        <form method="POST" style="display: inline;">
+                            <input type="hidden" name="action" value="renombrar_tabla">
+                            <input type="hidden" name="tabla_original" value="<?php echo htmlspecialchars($nombre); ?>">
+                            <input type="text" name="tabla_nuevo_nombre" class="renombrar-input" placeholder="Nuevo nombre..." required>
+                            <button type="submit" class="btn-confirmar-renombrar">✓</button>
+                            <button type="button" class="btn-confirmar-renombrar" style="background:#ccc;color:#333;" onclick="ocultarRenombrar('<?php echo $tabla_id; ?>')">✕</button>
+                        </form>
+                    </div>
                 </div>
             </div>
             
-            <?php if (empty($tabla['viajes'])): ?>
-                <div class="sin-datos">📭 No hay viajes en esta tabla. Usa el selector de destino en las tablas de empresas para mover viajes aquí.</div>
+            <?php if (empty($viajes_tabla)): ?>
+            <div class="sin-datos">📭 No hay viajes en esta tabla. Usa los botones "Mover a..." en las tablas de empresas para agregar viajes aquí.</div>
             <?php else: ?>
-                <div style="overflow-x: auto;">
-                    <table style="min-width: 1000px;">
-                        <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>Fecha</th>
-                                <th>Conductor</th>
-                                <th>Cédula</th>
-                                <th>Ruta</th>
-                                <th>Tipo</th>
-                                <th>Empresa Original</th>
-                                <th>Clasificación</th>
-                                <th>Valor</th>
-                                <th>Acción</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php 
-                            $total_tabla = 0;
-                            foreach ($tabla['viajes'] as $index => $viaje): 
-                                $total_tabla += $viaje['costo'];
-                            ?>
-                            <tr>
-                                <td><?php echo $index + 1; ?></td>
-                                <td><?php echo $viaje['fecha'] ? date('d/m/Y', strtotime($viaje['fecha'])) : '-'; ?></td>
-                                <td><strong><?php echo htmlspecialchars($viaje['nombre'] ?? '-'); ?></strong></td>
-                                <td><?php echo htmlspecialchars($viaje['cedula'] ?? '-'); ?></td>
-                                <td class="ruta-cell"><?php echo htmlspecialchars($viaje['ruta'] ?? '-'); ?></td>
-                                <td><?php echo htmlspecialchars($viaje['tipo_vehiculo'] ?? '-'); ?></td>
-                                <td><?php echo htmlspecialchars($viaje['empresa'] ?? '-'); ?></td>
-                                <td><?php echo htmlspecialchars($viaje['clasificacion'] ?? '-'); ?></td>
-                                <td class="costo">$ <?php echo number_format($viaje['costo'], 0, ',', '.'); ?></td>
-                                <td>
-                                    <form method="POST" style="display: inline;">
-                                        <input type="hidden" name="action" value="eliminar_de_tabla_personalizada">
-                                        <input type="hidden" name="tabla_key" value="<?php echo $key; ?>">
-                                        <input type="hidden" name="viaje_index" value="<?php echo $index; ?>">
-                                        <button type="submit" class="btn-eliminar-extra">✖ Eliminar</button>
-                                    </form>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-                <div style="background: #f3e5f5; padding: 15px 20px; text-align: right; font-weight: bold; font-size: 14px;">
-                    TOTAL <?php echo htmlspecialchars($tabla['nombre']); ?>: 
-                    <span style="color: #6a1b9a;">$ <?php echo number_format($total_tabla, 0, ',', '.'); ?></span>
-                </div>
+            <div style="overflow-x: auto; max-width: 100%;">
+                <table style="min-width: 1000px;">
+                    <thead>
+                        <tr>
+                            <th>#</th><th>Fecha</th><th>Conductor</th><th>Cédula</th><th>Ruta</th><th>Tipo</th>
+                            <th>Empresa Origen</th><th>Clasificación</th><th>Valor</th><th>Acumulado</th><th>Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php $idx = 0; $acum = 0; foreach ($viajes_tabla as $index => $viaje): $idx++; $acum += $viaje['costo']; ?>
+                        <tr>
+                            <td style="text-align: center;"><?php echo $idx; ?></td>
+                            <td style="white-space: nowrap;"><?php echo $viaje['fecha'] ? date('d/m/Y', strtotime($viaje['fecha'])) : '-'; ?></td>
+                            <td><strong><?php echo htmlspecialchars($viaje['nombre'] ?? '-'); ?></strong></td>
+                            <td><?php echo htmlspecialchars($viaje['cedula'] ?? '-'); ?></td>
+                            <td class="ruta-cell"><?php echo htmlspecialchars($viaje['ruta'] ?? '-'); ?></td>
+                            <td><?php echo htmlspecialchars($viaje['tipo_vehiculo'] ?? '-'); ?></td>
+                            <td><?php echo htmlspecialchars($viaje['empresa'] ?? '-'); ?></td>
+                            <td><?php echo htmlspecialchars($viaje['clasificacion'] ?? '-'); ?></td>
+                            <td class="costo">$ <?php echo number_format($viaje['costo'], 0, ',', '.'); ?></td>
+                            <td class="acumulado">$ <?php echo number_format($acum, 0, ',', '.'); ?></td>
+                            <td>
+                                <form method="POST" style="display: inline;">
+                                    <input type="hidden" name="action" value="eliminar_viaje_tabla">
+                                    <input type="hidden" name="tabla_nombre" value="<?php echo htmlspecialchars($nombre); ?>">
+                                    <input type="hidden" name="viaje_index" value="<?php echo $index; ?>">
+                                    <button type="submit" class="btn-eliminar-viaje">✖</button>
+                                </form>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <div class="total-editable">
+                <strong>TOTAL <?php echo htmlspecialchars($nombre); ?>:</strong>
+                <?php if ($es_manual_tabla): ?>
+                <span style="font-size:11px;color:#999;text-decoration:line-through;">$ <?php echo number_format($total_calculado_tabla, 0, ',', '.'); ?></span>
+                <?php endif; ?>
+                <span style="font-weight:700;margin-right:10px;">$ <?php echo number_format($total_efectivo_tabla, 0, ',', '.'); ?></span>
+                <form method="POST" style="display: inline-flex; align-items: center; gap: 6px;">
+                    <input type="hidden" name="action" value="guardar_total_tabla">
+                    <input type="hidden" name="total_key" value="<?php echo htmlspecialchars($key_tabla); ?>">
+                    <input type="number" name="total_valor" value="<?php echo $total_efectivo_tabla; ?>" step="1" style="width:110px;padding:4px 8px;border:1px solid #9c27b0;border-radius:6px;text-align:right;font-weight:600;font-size:12px;">
+                    <button type="submit" class="btn-guardar-total" style="background:#9c27b0;">💾</button>
+                </form>
+            </div>
             <?php endif; ?>
         </div>
         <?php endforeach; ?>
         
-        <!-- TABLA DE EXTRAS -->
+        <!-- TABLA DE EXTRAS (mantenida por compatibilidad) -->
         <?php if (!empty($_SESSION['extras'])): ?>
         <div class="extras-table">
             <div class="extras-header">
@@ -1545,7 +1626,7 @@ if (isset($_POST['export_word'])) {
                                 <form method="POST" style="display: inline;">
                                     <input type="hidden" name="action" value="eliminar_extra">
                                     <input type="hidden" name="extra_index" value="<?php echo $extra['index']; ?>">
-                                    <button type="submit" class="btn-eliminar-extra">✖</button>
+                                    <button type="submit" class="btn-eliminar-viaje">✖</button>
                                 </form>
                             </td>
                         </tr>
@@ -1553,7 +1634,7 @@ if (isset($_POST['export_word'])) {
                     </tbody>
                 </table>
             </div>
-            <div class="extras-total-editable">
+            <div class="total-editable" style="background:#ffe0b2;">
                 <span style="font-weight: 700; margin-right: 10px;">TOTAL EXTRAS:</span>
                 <?php if ($total_extras != $total_extras_calculado): ?>
                 <span style="font-size:11px;color:#999;text-decoration:line-through;margin-right:5px;">$ <?php echo number_format($total_extras_calculado, 0, ',', '.'); ?></span>
@@ -1591,6 +1672,9 @@ if (isset($_POST['export_word'])) {
                 $es_nazareth = (strtolower(trim($empresa_actual)) === 'p.nazareth');
                 $nombres_seleccionados = isset($_SESSION['nombres_cambiados_empresa'][$empresa_actual]) ? 
                     $_SESSION['nombres_cambiados_empresa'][$empresa_actual] : array();
+                
+                // Lista de tablas personalizadas disponibles para mover
+                $tablas_disponibles = array_keys($_SESSION['tablas_personalizadas']);
                 
                 if ($data['tipo'] === 'multiple'):
                     $total_general = $data['total_general'];
@@ -1665,26 +1749,32 @@ if (isset($_POST['export_word'])) {
                                         <span class="badge-exceso">⚠️ Excede presupuesto</span>
                                     <?php endif; ?>
                                 </h3>
-                                <div class="selector-destino">
-                                    <select id="destino_<?php echo $empresa_id; ?>" style="padding: 8px; border-radius: 8px; border: 1px solid #fff; background: rgba(255,255,255,0.9);">
-                                        <option value="extras">⭐ EXTRAS</option>
-                                        <?php foreach ($_SESSION['tablas_personalizadas'] as $key => $tabla_pers): ?>
-                                        <option value="<?php echo $key; ?>">📋 <?php echo htmlspecialchars($tabla_pers['nombre']); ?></option>
+                                <div class="acciones-header">
+                                    <?php if (!empty($tablas_disponibles)): ?>
+                                    <select class="selector-tabla-destino" id="select_tabla_<?php echo $empresa_id; ?>">
+                                        <option value="">Mover a tabla...</option>
+                                        <?php foreach ($tablas_disponibles as $td): ?>
+                                        <option value="<?php echo htmlspecialchars($td); ?>"><?php echo htmlspecialchars($td); ?></option>
                                         <?php endforeach; ?>
                                     </select>
+                                    <button type="button" class="btn-mover-tabla" 
+                                            onclick="moverSeleccionadosATabla('<?php echo $empresa_id; ?>')"
+                                            id="btn-mover-tabla-<?php echo $empresa_id; ?>" disabled>
+                                        ➡️ Mover
+                                    </button>
+                                    <?php endif; ?>
                                     <button type="button" class="btn-mover-extras" 
                                             onclick="moverSeleccionados('<?php echo $empresa_id; ?>')"
                                             id="btn-mover-<?php echo $empresa_id; ?>">
-                                        ➡️ Mover seleccionados
+                                        ⭐ Mover a Extras
                                     </button>
                                 </div>
                             </div>
                             
                             <form method="POST" id="form-<?php echo $empresa_id; ?>">
-                                <input type="hidden" name="action" value="mover_viajes">
+                                <input type="hidden" name="action" value="mover_extras">
                                 <input type="hidden" name="empresa_origen" value="<?php echo htmlspecialchars($empresa_actual); ?>">
                                 <input type="hidden" name="ids_seleccionados" id="ids-<?php echo $empresa_id; ?>">
-                                <input type="hidden" name="tabla_destino" id="tabla-destino-<?php echo $empresa_id; ?>" value="extras">
                                 <div style="overflow-x: auto; max-width: 100%;">
                                     <table style="min-width: 1000px;">
                                         <thead>
@@ -1728,6 +1818,173 @@ if (isset($_POST['export_word'])) {
                                 </form>
                             </div>
                         </div>
+                        
+                        <script>
+                        (function() {
+                            const empresaId = '<?php echo $empresa_id; ?>';
+                            const checkboxes = document.querySelectorAll(`.fila-check-${empresaId}`);
+                            
+                            let isDragging = false;
+                            let lastToggledIndex = -1;
+                            
+                            checkboxes.forEach(checkbox => {
+                                checkbox.addEventListener('mousedown', (e) => {
+                                    isDragging = true;
+                                    lastToggledIndex = Array.from(checkboxes).indexOf(checkbox);
+                                    checkbox.checked = !checkbox.checked;
+                                    updateSelectAllCheckbox(empresaId);
+                                    actualizarBotones(empresaId);
+                                });
+                                
+                                checkbox.addEventListener('mouseenter', () => {
+                                    if (isDragging) {
+                                        const currentIndex = Array.from(checkboxes).indexOf(checkbox);
+                                        if (currentIndex !== lastToggledIndex) {
+                                            checkbox.checked = !checkbox.checked;
+                                            updateSelectAllCheckbox(empresaId);
+                                            actualizarBotones(empresaId);
+                                        }
+                                    }
+                                });
+                            });
+                            
+                            document.addEventListener('mouseup', () => {
+                                isDragging = false;
+                                lastToggledIndex = -1;
+                            });
+                            
+                            let lastChecked = null;
+                            checkboxes.forEach(checkbox => {
+                                checkbox.addEventListener('click', function(e) {
+                                    if (e.shiftKey && lastChecked !== null) {
+                                        const checkboxesArray = Array.from(checkboxes);
+                                        const currentIndex = checkboxesArray.indexOf(this);
+                                        const lastIndex = checkboxesArray.indexOf(lastChecked);
+                                        const start = Math.min(currentIndex, lastIndex);
+                                        const end = Math.max(currentIndex, lastIndex);
+                                        for (let i = start; i <= end; i++) {
+                                            checkboxesArray[i].checked = this.checked;
+                                        }
+                                        updateSelectAllCheckbox(empresaId);
+                                        actualizarBotones(empresaId);
+                                    }
+                                    lastChecked = this;
+                                });
+                            });
+                            
+                            function updateSelectAllCheckbox(empId) {
+                                const selectAll = document.getElementById(`select-all-${empId}`);
+                                if (!selectAll) return;
+                                const cbs = document.querySelectorAll(`.fila-check-${empId}`);
+                                const todosChecked = Array.from(cbs).every(cb => cb.checked);
+                                const algunosChecked = Array.from(cbs).some(cb => cb.checked);
+                                if (todosChecked) {
+                                    selectAll.checked = true;
+                                    selectAll.indeterminate = false;
+                                } else if (algunosChecked) {
+                                    selectAll.checked = false;
+                                    selectAll.indeterminate = true;
+                                } else {
+                                    selectAll.checked = false;
+                                    selectAll.indeterminate = false;
+                                }
+                            }
+                            
+                            function actualizarBotones(empId) {
+                                const cbs = document.querySelectorAll(`.fila-check-${empId}`);
+                                const checkeados = Array.from(cbs).filter(cb => cb.checked);
+                                const btnExtras = document.getElementById(`btn-mover-${empId}`);
+                                const btnTabla = document.getElementById(`btn-mover-tabla-${empId}`);
+                                const selectTabla = document.getElementById(`select_tabla_${empId}`);
+                                
+                                if (btnExtras) {
+                                    btnExtras.disabled = checkeados.length === 0;
+                                    btnExtras.innerHTML = checkeados.length > 0 ? 
+                                        `⭐ Mover ${checkeados.length} a Extras` : `⭐ Mover a Extras`;
+                                }
+                                
+                                if (btnTabla && selectTabla) {
+                                    btnTabla.disabled = checkeados.length === 0 || selectTabla.value === '';
+                                    btnTabla.innerHTML = checkeados.length > 0 && selectTabla.value !== '' ? 
+                                        `➡️ Mover ${checkeados.length} a "${selectTabla.value}"` : `➡️ Mover`;
+                                }
+                            }
+                            
+                            // Actualizar botón de tabla cuando cambia el select
+                            const selectTabla = document.getElementById(`select_tabla_${empresaId}`);
+                            if (selectTabla) {
+                                selectTabla.addEventListener('change', () => actualizarBotones(empresaId));
+                            }
+                            
+                            window.updateSelectAllCheckbox = updateSelectAllCheckbox;
+                            window.actualizarBotones = actualizarBotones;
+                            
+                            window.toggleSeleccionarTodos = function(checkbox, empId) {
+                                const cbs = document.querySelectorAll(`.fila-check-${empId}`);
+                                cbs.forEach(cb => cb.checked = checkbox.checked);
+                                updateSelectAllCheckbox(empId);
+                                actualizarBotones(empId);
+                            };
+                            
+                            window.moverSeleccionadosATabla = function(empId) {
+                                const select = document.getElementById(`select_tabla_${empId}`);
+                                if (!select || select.value === '') {
+                                    alert('Selecciona una tabla de destino');
+                                    return;
+                                }
+                                
+                                const cbs = document.querySelectorAll(`.fila-check-${empId}`);
+                                const idsSeleccionados = Array.from(cbs).filter(cb => cb.checked).map(cb => cb.value);
+                                if (idsSeleccionados.length === 0) return;
+                                
+                                const form = document.createElement('form');
+                                form.method = 'POST';
+                                
+                                const actionInput = document.createElement('input');
+                                actionInput.type = 'hidden';
+                                actionInput.name = 'action';
+                                actionInput.value = 'mover_a_tabla';
+                                form.appendChild(actionInput);
+                                
+                                const empresaInput = document.createElement('input');
+                                empresaInput.type = 'hidden';
+                                empresaInput.name = 'empresa_origen';
+                                empresaInput.value = '<?php echo htmlspecialchars($empresa_actual); ?>';
+                                form.appendChild(empresaInput);
+                                
+                                const tablaInput = document.createElement('input');
+                                tablaInput.type = 'hidden';
+                                tablaInput.name = 'tabla_destino';
+                                tablaInput.value = select.value;
+                                form.appendChild(tablaInput);
+                                
+                                const idsInput = document.createElement('input');
+                                idsInput.type = 'hidden';
+                                idsInput.name = 'ids_seleccionados';
+                                idsInput.value = idsSeleccionados.join(',');
+                                form.appendChild(idsInput);
+                                
+                                document.body.appendChild(form);
+                                form.submit();
+                            };
+                            
+                            window.moverSeleccionados = function(empId) {
+                                const cbs = document.querySelectorAll(`.fila-check-${empId}`);
+                                const idsSeleccionados = Array.from(cbs).filter(cb => cb.checked).map(cb => cb.value);
+                                if (idsSeleccionados.length === 0) return;
+                                document.getElementById(`ids-${empId}`).value = idsSeleccionados.join(',');
+                                document.getElementById(`form-${empId}`).submit();
+                            };
+                            
+                            checkboxes.forEach(cb => {
+                                cb.addEventListener('change', () => {
+                                    updateSelectAllCheckbox(empresaId);
+                                    actualizarBotones(empresaId);
+                                });
+                            });
+                            actualizarBotones(empresaId);
+                        })();
+                        </script>
                         <?php endforeach; ?>
                         
                         <div class="total-general-row">
@@ -1739,6 +1996,41 @@ if (isset($_POST['export_word'])) {
                         </div>
                     </div>
                     
+                    <?php if ($es_nazareth): ?>
+                    <script>
+                        window.seleccionarPorRuta = function(empId) {
+                            const inputBusqueda = document.getElementById(`buscar_ruta_${empId}`);
+                            const textoBusqueda = inputBusqueda.value.trim().toLowerCase();
+                            if (textoBusqueda === "") { alert("Escribe una palabra para buscar en las rutas"); return; }
+                            
+                            const subTablas = document.querySelectorAll(`[id^="tbody-${empId}_c"]`);
+                            let seleccionadas = 0;
+                            subTablas.forEach(tbody => {
+                                const filas = tbody.querySelectorAll('tr');
+                                filas.forEach(fila => {
+                                    const celdaRuta = fila.querySelector('.ruta-cell');
+                                    if (celdaRuta) {
+                                        const ruta = celdaRuta.textContent.toLowerCase();
+                                        const checkbox = fila.querySelector('input[type="checkbox"]');
+                                        if (checkbox && ruta.includes(textoBusqueda)) {
+                                            checkbox.checked = true;
+                                            seleccionadas++;
+                                        }
+                                    }
+                                });
+                            });
+                            
+                            subTablas.forEach(tbody => {
+                                const subId = tbody.id.replace('tbody-', '');
+                                if (typeof updateSelectAllCheckbox === 'function') updateSelectAllCheckbox(subId);
+                                if (typeof actualizarBotones === 'function') actualizarBotones(subId);
+                            });
+                            
+                            if (seleccionadas === 0) alert(`No se encontraron rutas que contengan "${textoBusqueda}"`);
+                        };
+                    </script>
+                    <?php endif; ?>
+                    
                 <?php else: 
                     $rows_data = $data['rows'];
                     $total_calculado = $data['total'];
@@ -1747,6 +2039,7 @@ if (isset($_POST['export_word'])) {
                     $empresa_id = $empresa_id_base;
                     $key_tabla = $data['key'];
                     $es_manual = isset($_SESSION['totales_manuales'][$key_tabla]);
+                    $tablas_disponibles = array_keys($_SESSION['tablas_personalizadas']);
                     
                     if (empty($rows_data)) {
                         ?>
@@ -1779,17 +2072,24 @@ if (isset($_POST['export_word'])) {
                             </div>
                             <?php endif; ?>
                             <div class="drag-instruction">🖱️ Arrastra sobre los checkboxes</div>
-                            <div class="selector-destino">
-                                <select id="destino_<?php echo $empresa_id; ?>" style="padding: 8px; border-radius: 8px; border: 1px solid #dadce0;">
-                                    <option value="extras">⭐ EXTRAS</option>
-                                    <?php foreach ($_SESSION['tablas_personalizadas'] as $key => $tabla_pers): ?>
-                                    <option value="<?php echo $key; ?>">📋 <?php echo htmlspecialchars($tabla_pers['nombre']); ?></option>
+                            <div class="acciones-header">
+                                <?php if (!empty($tablas_disponibles)): ?>
+                                <select class="selector-tabla-destino" id="select_tabla_<?php echo $empresa_id; ?>">
+                                    <option value="">Mover a tabla...</option>
+                                    <?php foreach ($tablas_disponibles as $td): ?>
+                                    <option value="<?php echo htmlspecialchars($td); ?>"><?php echo htmlspecialchars($td); ?></option>
                                     <?php endforeach; ?>
                                 </select>
+                                <button type="button" class="btn-mover-tabla" 
+                                        onclick="moverSeleccionadosATabla('<?php echo $empresa_id; ?>')"
+                                        id="btn-mover-tabla-<?php echo $empresa_id; ?>" disabled>
+                                    ➡️ Mover
+                                </button>
+                                <?php endif; ?>
                                 <button type="button" class="btn-mover-extras" 
                                         onclick="moverSeleccionados('<?php echo $empresa_id; ?>')"
                                         id="btn-mover-<?php echo $empresa_id; ?>">
-                                    ➡️ Mover seleccionados
+                                    ⭐ Mover a Extras
                                 </button>
                             </div>
                         </div>
@@ -1830,10 +2130,9 @@ if (isset($_POST['export_word'])) {
                     </div>
                     
                     <form method="POST" id="form-<?php echo $empresa_id; ?>">
-                        <input type="hidden" name="action" value="mover_viajes">
+                        <input type="hidden" name="action" value="mover_extras">
                         <input type="hidden" name="empresa_origen" value="<?php echo htmlspecialchars($empresa_actual); ?>">
                         <input type="hidden" name="ids_seleccionados" id="ids-<?php echo $empresa_id; ?>">
-                        <input type="hidden" name="tabla_destino" id="tabla-destino-<?php echo $empresa_id; ?>" value="extras">
                         <div style="overflow-x: auto; max-width: 100%;">
                             <table style="min-width: 1000px;">
                                 <thead>
@@ -1877,6 +2176,196 @@ if (isset($_POST['export_word'])) {
                         </form>
                     </div>
                 </div>
+                
+                <script>
+                (function() {
+                    const empresaId = '<?php echo $empresa_id; ?>';
+                    const checkboxes = document.querySelectorAll(`.fila-check-${empresaId}`);
+                    
+                    let isDragging = false;
+                    let lastToggledIndex = -1;
+                    
+                    checkboxes.forEach(checkbox => {
+                        checkbox.addEventListener('mousedown', (e) => {
+                            isDragging = true;
+                            lastToggledIndex = Array.from(checkboxes).indexOf(checkbox);
+                            checkbox.checked = !checkbox.checked;
+                            updateSelectAllCheckbox(empresaId);
+                            actualizarBotones(empresaId);
+                        });
+                        
+                        checkbox.addEventListener('mouseenter', () => {
+                            if (isDragging) {
+                                const currentIndex = Array.from(checkboxes).indexOf(checkbox);
+                                if (currentIndex !== lastToggledIndex) {
+                                    checkbox.checked = !checkbox.checked;
+                                    updateSelectAllCheckbox(empresaId);
+                                    actualizarBotones(empresaId);
+                                }
+                            }
+                        });
+                    });
+                    
+                    document.addEventListener('mouseup', () => {
+                        isDragging = false;
+                        lastToggledIndex = -1;
+                    });
+                    
+                    let lastChecked = null;
+                    checkboxes.forEach(checkbox => {
+                        checkbox.addEventListener('click', function(e) {
+                            if (e.shiftKey && lastChecked !== null) {
+                                const checkboxesArray = Array.from(checkboxes);
+                                const currentIndex = checkboxesArray.indexOf(this);
+                                const lastIndex = checkboxesArray.indexOf(lastChecked);
+                                const start = Math.min(currentIndex, lastIndex);
+                                const end = Math.max(currentIndex, lastIndex);
+                                for (let i = start; i <= end; i++) {
+                                    checkboxesArray[i].checked = this.checked;
+                                }
+                                updateSelectAllCheckbox(empresaId);
+                                actualizarBotones(empresaId);
+                            }
+                            lastChecked = this;
+                        });
+                    });
+                    
+                    function updateSelectAllCheckbox(empId) {
+                        const selectAll = document.getElementById(`select-all-${empId}`);
+                        if (!selectAll) return;
+                        const cbs = document.querySelectorAll(`.fila-check-${empId}`);
+                        const todosChecked = Array.from(cbs).every(cb => cb.checked);
+                        const algunosChecked = Array.from(cbs).some(cb => cb.checked);
+                        if (todosChecked) {
+                            selectAll.checked = true;
+                            selectAll.indeterminate = false;
+                        } else if (algunosChecked) {
+                            selectAll.checked = false;
+                            selectAll.indeterminate = true;
+                        } else {
+                            selectAll.checked = false;
+                            selectAll.indeterminate = false;
+                        }
+                    }
+                    
+                    function actualizarBotones(empId) {
+                        const cbs = document.querySelectorAll(`.fila-check-${empId}`);
+                        const checkeados = Array.from(cbs).filter(cb => cb.checked);
+                        const btnExtras = document.getElementById(`btn-mover-${empId}`);
+                        const btnTabla = document.getElementById(`btn-mover-tabla-${empId}`);
+                        const selectTabla = document.getElementById(`select_tabla_${empId}`);
+                        
+                        if (btnExtras) {
+                            btnExtras.disabled = checkeados.length === 0;
+                            btnExtras.innerHTML = checkeados.length > 0 ? 
+                                `⭐ Mover ${checkeados.length} a Extras` : `⭐ Mover a Extras`;
+                        }
+                        
+                        if (btnTabla && selectTabla) {
+                            btnTabla.disabled = checkeados.length === 0 || selectTabla.value === '';
+                            btnTabla.innerHTML = checkeados.length > 0 && selectTabla.value !== '' ? 
+                                `➡️ Mover ${checkeados.length} a "${selectTabla.value}"` : `➡️ Mover`;
+                        }
+                    }
+                    
+                    const selectTabla = document.getElementById(`select_tabla_${empresaId}`);
+                    if (selectTabla) {
+                        selectTabla.addEventListener('change', () => actualizarBotones(empresaId));
+                    }
+                    
+                    window.updateSelectAllCheckbox = updateSelectAllCheckbox;
+                    window.actualizarBotones = actualizarBotones;
+                    
+                    window.toggleSeleccionarTodos = function(checkbox, empId) {
+                        const cbs = document.querySelectorAll(`.fila-check-${empId}`);
+                        cbs.forEach(cb => cb.checked = checkbox.checked);
+                        updateSelectAllCheckbox(empId);
+                        actualizarBotones(empId);
+                    };
+                    
+                    window.moverSeleccionadosATabla = function(empId) {
+                        const select = document.getElementById(`select_tabla_${empId}`);
+                        if (!select || select.value === '') {
+                            alert('Selecciona una tabla de destino');
+                            return;
+                        }
+                        
+                        const cbs = document.querySelectorAll(`.fila-check-${empId}`);
+                        const idsSeleccionados = Array.from(cbs).filter(cb => cb.checked).map(cb => cb.value);
+                        if (idsSeleccionados.length === 0) return;
+                        
+                        const form = document.createElement('form');
+                        form.method = 'POST';
+                        
+                        const actionInput = document.createElement('input');
+                        actionInput.type = 'hidden';
+                        actionInput.name = 'action';
+                        actionInput.value = 'mover_a_tabla';
+                        form.appendChild(actionInput);
+                        
+                        const empresaInput = document.createElement('input');
+                        empresaInput.type = 'hidden';
+                        empresaInput.name = 'empresa_origen';
+                        empresaInput.value = '<?php echo htmlspecialchars($empresa_actual); ?>';
+                        form.appendChild(empresaInput);
+                        
+                        const tablaInput = document.createElement('input');
+                        tablaInput.type = 'hidden';
+                        tablaInput.name = 'tabla_destino';
+                        tablaInput.value = select.value;
+                        form.appendChild(tablaInput);
+                        
+                        const idsInput = document.createElement('input');
+                        idsInput.type = 'hidden';
+                        idsInput.name = 'ids_seleccionados';
+                        idsInput.value = idsSeleccionados.join(',');
+                        form.appendChild(idsInput);
+                        
+                        document.body.appendChild(form);
+                        form.submit();
+                    };
+                    
+                    window.moverSeleccionados = function(empId) {
+                        const cbs = document.querySelectorAll(`.fila-check-${empId}`);
+                        const idsSeleccionados = Array.from(cbs).filter(cb => cb.checked).map(cb => cb.value);
+                        if (idsSeleccionados.length === 0) return;
+                        document.getElementById(`ids-${empId}`).value = idsSeleccionados.join(',');
+                        document.getElementById(`form-${empId}`).submit();
+                    };
+                    
+                    checkboxes.forEach(cb => {
+                        cb.addEventListener('change', () => {
+                            updateSelectAllCheckbox(empresaId);
+                            actualizarBotones(empresaId);
+                        });
+                    });
+                    actualizarBotones(empresaId);
+                    
+                    <?php if ($es_nazareth): ?>
+                    window.seleccionarPorRuta = function(empId) {
+                        const inputBusqueda = document.getElementById(`buscar_ruta_${empId}`);
+                        const textoBusqueda = inputBusqueda.value.trim().toLowerCase();
+                        if (textoBusqueda === "") { alert("Escribe una palabra para buscar en las rutas"); return; }
+                        const filas = document.querySelectorAll(`#tbody-${empId} tr`);
+                        let seleccionadas = 0;
+                        filas.forEach(fila => {
+                            const celdaRuta = fila.querySelector('.ruta-cell');
+                            if (celdaRuta) {
+                                const ruta = celdaRuta.textContent.toLowerCase();
+                                const checkbox = fila.querySelector(`.fila-check-${empId}`);
+                                if (checkbox && ruta.includes(textoBusqueda)) {
+                                    checkbox.checked = true;
+                                    seleccionadas++;
+                                }
+                            }
+                        });
+                        updateSelectAllCheckbox(empId);
+                        actualizarBotones(empId);
+                        if (seleccionadas === 0) alert(`No se encontraron rutas que contengan "${textoBusqueda}"`);
+                    };
+                    <?php endif; ?>
+                })();
+                </script>
                 <?php endif; ?>
                 <?php
             }
@@ -1908,12 +2397,6 @@ if (isset($_POST['export_word'])) {
                             <td class="costo">$ <?php echo number_format($total, 0, ',', '.'); ?></td>
                         </tr>
                         <?php endforeach; ?>
-                        <?php foreach ($totales_tablas_personalizadas as $key => $info): ?>
-                        <tr>
-                            <td>📋 <?php echo htmlspecialchars($info['nombre']); ?></td>
-                            <td class="costo">$ <?php echo number_format($info['total'], 0, ',', '.'); ?></td>
-                        </tr>
-                        <?php endforeach; ?>
                         <tr class="subtotal-row">
                             <td style="text-align:right;"><strong>SUBTOTAL PUESTOS</strong></td>
                             <td class="costo"><strong>$ <?php echo number_format($total_puestos, 0, ',', '.'); ?></strong></td>
@@ -1924,6 +2407,12 @@ if (isset($_POST['export_word'])) {
                             <td class="costo">$ <?php echo number_format($total_extras, 0, ',', '.'); ?></td>
                         </tr>
                         <?php endif; ?>
+                        <?php foreach ($totales_tablas as $nombre => $total): ?>
+                        <tr>
+                            <td>📋 <?php echo htmlspecialchars($nombre); ?></td>
+                            <td class="costo">$ <?php echo number_format($total['efectivo'], 0, ',', '.'); ?></td>
+                        </tr>
+                        <?php endforeach; ?>
                         <tr class="gran-total-row">
                             <td style="text-align:right;"><strong>TOTAL GENERAL</strong></td>
                             <td class="costo"><strong>$ <?php echo number_format($total_general, 0, ',', '.'); ?></strong></td>
@@ -2107,8 +2596,17 @@ if (isset($_POST['export_word'])) {
         });
         
         function irATabla(empresa) {
-            const idTabla = 'tabla_' + empresa.replace(/[^a-zA-Z0-9]/g, '_');
-            const elemento = document.getElementById(idTabla);
+            let idTabla = 'tabla_' + empresa.replace(/[^a-zA-Z0-9]/g, '_');
+            // También buscar en tablas personalizadas
+            let elemento = document.getElementById(idTabla);
+            if (!elemento) {
+                const empresaParts = empresa.split(' - ');
+                if (empresaParts.length > 1) {
+                    const nombreTabla = empresaParts[1].trim();
+                    idTabla = 'tabla_pers_' + nombreTabla.replace(/[^a-zA-Z0-9]/g, '_');
+                    elemento = document.getElementById(idTabla);
+                }
+            }
             if (elemento) {
                 elemento.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 elemento.style.transition = 'box-shadow 0.3s';
@@ -2119,113 +2617,13 @@ if (isset($_POST['export_word'])) {
             }
         }
         
-        // Función global para mover seleccionados (con selector de destino)
-        window.moverSeleccionados = function(empId) {
-            const cbs = document.querySelectorAll(`.fila-check-${empId}`);
-            const idsSeleccionados = Array.from(cbs).filter(cb => cb.checked).map(cb => cb.value);
-            if (idsSeleccionados.length === 0) return;
-            
-            const destino = document.getElementById(`destino_${empId}`).value;
-            document.getElementById(`ids-${empId}`).value = idsSeleccionados.join(',');
-            document.getElementById(`tabla-destino-${empId}`).value = destino;
-            document.getElementById(`form-${empId}`).submit();
-        };
-        
-        // Funciones de selección por arrastre
-        function inicializarSeleccionArrastre(empresaId) {
-            const checkboxes = document.querySelectorAll(`.fila-check-${empresaId}`);
-            
-            let isDragging = false;
-            
-            checkboxes.forEach(checkbox => {
-                checkbox.addEventListener('mousedown', (e) => {
-                    isDragging = true;
-                    checkbox.checked = !checkbox.checked;
-                    updateSelectAllCheckbox(empresaId);
-                    actualizarBotonMoverLocal(empresaId);
-                });
-                
-                checkbox.addEventListener('mouseenter', () => {
-                    if (isDragging) {
-                        checkbox.checked = !checkbox.checked;
-                        updateSelectAllCheckbox(empresaId);
-                        actualizarBotonMoverLocal(empresaId);
-                    }
-                });
-            });
-            
-            document.addEventListener('mouseup', () => {
-                isDragging = false;
-            });
-            
-            let lastChecked = null;
-            checkboxes.forEach(checkbox => {
-                checkbox.addEventListener('click', function(e) {
-                    if (e.shiftKey && lastChecked !== null) {
-                        const checkboxesArray = Array.from(checkboxes);
-                        const currentIndex = checkboxesArray.indexOf(this);
-                        const lastIndex = checkboxesArray.indexOf(lastChecked);
-                        const start = Math.min(currentIndex, lastIndex);
-                        const end = Math.max(currentIndex, lastIndex);
-                        for (let i = start; i <= end; i++) {
-                            checkboxesArray[i].checked = this.checked;
-                        }
-                        updateSelectAllCheckbox(empresaId);
-                        actualizarBotonMoverLocal(empresaId);
-                    }
-                    lastChecked = this;
-                });
-            });
+        function mostrarRenombrar(tablaId) {
+            document.getElementById('renombrar_' + tablaId).style.display = 'inline-block';
         }
         
-        function updateSelectAllCheckbox(empId) {
-            const selectAll = document.getElementById(`select-all-${empId}`);
-            if (!selectAll) return;
-            const cbs = document.querySelectorAll(`.fila-check-${empId}`);
-            const todosChecked = Array.from(cbs).every(cb => cb.checked);
-            const algunosChecked = Array.from(cbs).some(cb => cb.checked);
-            if (todosChecked) {
-                selectAll.checked = true;
-                selectAll.indeterminate = false;
-            } else if (algunosChecked) {
-                selectAll.checked = false;
-                selectAll.indeterminate = true;
-            } else {
-                selectAll.checked = false;
-                selectAll.indeterminate = false;
-            }
+        function ocultarRenombrar(tablaId) {
+            document.getElementById('renombrar_' + tablaId).style.display = 'none';
         }
-        
-        function actualizarBotonMoverLocal(empId) {
-            const cbs = document.querySelectorAll(`.fila-check-${empId}`);
-            const checkeados = Array.from(cbs).filter(cb => cb.checked);
-            const btn = document.getElementById(`btn-mover-${empId}`);
-            if (btn) {
-                btn.disabled = checkeados.length === 0;
-                if (checkeados.length > 0) {
-                    btn.innerHTML = `➡️ Mover ${checkeados.length} seleccionado(s)`;
-                } else {
-                    btn.innerHTML = `➡️ Mover seleccionados`;
-                }
-            }
-        }
-        
-        window.toggleSeleccionarTodos = function(checkbox, empId) {
-            const cbs = document.querySelectorAll(`.fila-check-${empId}`);
-            cbs.forEach(cb => cb.checked = checkbox.checked);
-            updateSelectAllCheckbox(empId);
-            actualizarBotonMoverLocal(empId);
-        };
-        
-        // Inicializar todas las tablas existentes
-        document.addEventListener('DOMContentLoaded', function() {
-            document.querySelectorAll('[id^="form-emp_"]').forEach(form => {
-                const empId = form.id.replace('form-', '');
-                if (document.querySelector(`.fila-check-${empId}`)) {
-                    inicializarSeleccionArrastre(empId);
-                }
-            });
-        });
         
         document.addEventListener('click', function(e) {
             const autocompleteLists = document.querySelectorAll('.autocomplete-list');
