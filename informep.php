@@ -1,5 +1,4 @@
 <?php
-
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
@@ -569,16 +568,16 @@ $total_general = $total_puestos + $total_extras + $total_tablas_personalizadas;
 
 // Si es exportación a Word
 if (isset($_POST['export_word'])) {
-    header("Content-Type: application/msword");
-    header("Content-Disposition: attachment; filename=informe_viajes_" . date('Y-m-d') . ".doc");
-    header("Cache-Control: no-cache, must-revalidate");
-    ?>
-    <!DOCTYPE html>
-    <html>
+    // Generar contenido Word compatible con iOS (usando HTML que Safari puede abrir)
+    $word_content = '<!DOCTYPE html>
+    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
     <head>
         <meta charset="UTF-8">
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+        <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->
         <title>Informe de Viajes</title>
         <style>
+            @page { size: landscape; margin: 1cm; }
             body { font-family: Arial, Helvetica, sans-serif; margin: 20px; font-size: 11pt; }
             h1 { color: #1a73e8; font-size: 18pt; }
             h2 { background: #1a73e8; color: white; padding: 8px 12px; font-size: 14pt; margin-top: 20px; }
@@ -602,177 +601,135 @@ if (isset($_POST['export_word'])) {
     <body>
         <h1>📊 Informe de Viajes por Puesto de Salud</h1>
         <div class="info-filtros">
-            <strong>📅 Período:</strong> <?php echo $fecha_desde ? date('d/m/Y', strtotime($fecha_desde)) : 'Todo'; ?> - <?php echo $fecha_hasta ? date('d/m/Y', strtotime($fecha_hasta)) : 'Todo'; ?><br>
-            <strong>🏥 Empresas:</strong> <?php echo !empty($empresas_seleccionadas) ? implode(', ', $empresas_seleccionadas) : 'Ninguna'; ?>
-        </div>
+            <strong>📅 Período:</strong> ' . ($fecha_desde ? date('d/m/Y', strtotime($fecha_desde)) : 'Todo') . ' - ' . ($fecha_hasta ? date('d/m/Y', strtotime($fecha_hasta)) : 'Todo') . '<br>
+            <strong>🏥 Empresas:</strong> ' . (!empty($empresas_seleccionadas) ? implode(', ', $empresas_seleccionadas) : 'Ninguna') . '
+        </div>';
         
-        <?php foreach ($datos_empresas as $empresa => $data): ?>
-            <?php if ($data['tipo'] === 'multiple'): ?>
-                <?php foreach ($data['tablas'] as $tabla): if (empty($tabla['rows'])) continue; ?>
-                    <h3>🏥 <?php echo htmlspecialchars($empresa); ?> - <?php echo htmlspecialchars($tabla['nombre_conductor']); ?></h3>
+        foreach ($datos_empresas as $empresa => $data) {
+            if ($data['tipo'] === 'multiple') {
+                foreach ($data['tablas'] as $tabla) {
+                    if (empty($tabla['rows'])) continue;
+                    $word_content .= '<h3>🏥 ' . htmlspecialchars($empresa) . ' - ' . htmlspecialchars($tabla['nombre_conductor']) . '</h3>
                     <table>
                         <thead>
-                            <tr>
-                                <th>Fecha</th>
-                                <th>Conductor</th>
-                                <th>Ruta</th>
-                                <th>Valor</th>
-                            </tr>
+                            <tr><th>Fecha</th><th>Conductor</th><th>Ruta</th><th>Valor</th></tr>
                         </thead>
-                        <tbody>
-                            <?php foreach($tabla['rows'] as $row): ?>
-                            <tr>
-                                <td><?php echo date('d/m/Y', strtotime($row['fecha'])); ?></td>
-                                <td><?php echo htmlspecialchars($row['nombre'] ?? '-'); ?></td>
-                                <td><?php echo htmlspecialchars($row['ruta'] ?? '-'); ?></td>
-                                <td class="costo">$ <?php echo number_format($row['costo'], 0, ',', '.'); ?></td>
-                            </tr>
-                            <?php endforeach; ?>
-                            <tr class="total-row">
-                                <td colspan="3" style="text-align:right;">TOTAL:</td>
-                                <td class="costo">$ <?php echo number_format($tabla['total'], 0, ',', '.'); ?></td>
-                            </tr>
-                        </tbody>
-                    </table>
-                <?php endforeach; ?>
-            <?php else: ?>
-                <?php if (empty($data['rows'])) continue; ?>
-                <h2>🏥 <?php echo htmlspecialchars($empresa); ?></h2>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Fecha</th>
-                            <th>Conductor</th>
-                            <th>Ruta</th>
-                            <th>Valor</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach($data['rows'] as $row): ?>
-                        <tr>
-                            <td><?php echo date('d/m/Y', strtotime($row['fecha'])); ?></td>
-                            <td><?php echo htmlspecialchars($row['nombre'] ?? '-'); ?></td>
-                            <td><?php echo htmlspecialchars($row['ruta'] ?? '-'); ?></td>
-                            <td class="costo">$ <?php echo number_format($row['costo'], 0, ',', '.'); ?></td>
-                        </tr>
-                        <?php endforeach; ?>
-                        <tr class="total-row">
+                        <tbody>';
+                    foreach($tabla['rows'] as $row) {
+                        $word_content .= '<tr>
+                            <td>' . date('d/m/Y', strtotime($row['fecha'])) . '</td>
+                            <td>' . htmlspecialchars($row['nombre'] ?? '-') . '</td>
+                            <td>' . htmlspecialchars($row['ruta'] ?? '-') . '</td>
+                            <td class="costo">$ ' . number_format($row['costo'], 0, ',', '.') . '</td>
+                        </tr>';
+                    }
+                    $word_content .= '<tr class="total-row">
                             <td colspan="3" style="text-align:right;">TOTAL:</td>
-                            <td class="costo">$ <?php echo number_format($data['total_efectivo'], 0, ',', '.'); ?></td>
-                        </tr>
-                    </tbody>
-                </table>
-            <?php endif; ?>
-        <?php endforeach; ?>
-        
-        <?php foreach ($_SESSION['tablas_personalizadas'] as $nombre => $tabla): ?>
-            <?php if (!empty($tabla['viajes'])): ?>
-            <div class="tabla-personalizada">
-                <div class="tabla-personalizada-title">📋 <?php echo htmlspecialchars($nombre); ?></div>
+                            <td class="costo">$ ' . number_format($tabla['total'], 0, ',', '.') . '</td>
+                        </tr></tbody></table>';
+                }
+            } else {
+                if (empty($data['rows'])) continue;
+                $word_content .= '<h2>🏥 ' . htmlspecialchars($empresa) . '</h2>
                 <table>
                     <thead>
-                        <tr>
-                            <th>Fecha</th>
-                            <th>Conductor</th>
-                            <th>Ruta</th>
-                            <th>Valor</th>
-                        </tr>
+                        <tr><th>Fecha</th><th>Conductor</th><th>Ruta</th><th>Valor</th></tr>
                     </thead>
-                    <tbody>
-                        <?php 
-                        $acum_tabla = 0;
-                        foreach($tabla['viajes'] as $viaje): 
-                            $acum_tabla += $viaje['costo'];
-                        ?>
-                        <tr>
-                            <td><?php echo date('d/m/Y', strtotime($viaje['fecha'])); ?></td>
-                            <td><?php echo htmlspecialchars($viaje['nombre'] ?? '-'); ?></td>
-                            <td><?php echo htmlspecialchars($viaje['ruta'] ?? '-'); ?></td>
-                            <td class="costo">$ <?php echo number_format($viaje['costo'], 0, ',', '.'); ?></td>
-                        </tr>
-                        <?php endforeach; ?>
-                        <tr class="total-row">
-                            <td colspan="3" style="text-align:right;">TOTAL <?php echo htmlspecialchars($nombre); ?>:</td>
-                            <td class="costo">$ <?php echo number_format($totales_tablas[$nombre]['efectivo'], 0, ',', '.'); ?></td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            <?php endif; ?>
-        <?php endforeach; ?>
+                    <tbody>';
+                foreach($data['rows'] as $row) {
+                    $word_content .= '<tr>
+                        <td>' . date('d/m/Y', strtotime($row['fecha'])) . '</td>
+                        <td>' . htmlspecialchars($row['nombre'] ?? '-') . '</td>
+                        <td>' . htmlspecialchars($row['ruta'] ?? '-') . '</td>
+                        <td class="costo">$ ' . number_format($row['costo'], 0, ',', '.') . '</td>
+                    </tr>';
+                }
+                $word_content .= '<tr class="total-row">
+                        <td colspan="3" style="text-align:right;">TOTAL:</td>
+                        <td class="costo">$ ' . number_format($data['total_efectivo'], 0, ',', '.') . '</td>
+                    </tr></tbody></table>';
+            }
+        }
         
-        <?php if (!empty($_SESSION['extras'])): ?>
-            <div class="extras-table">
+        foreach ($_SESSION['tablas_personalizadas'] as $nombre => $tabla) {
+            if (empty($tabla['viajes'])) continue;
+            $word_content .= '<div class="tabla-personalizada">
+                <div class="tabla-personalizada-title">📋 ' . htmlspecialchars($nombre) . '</div>
+                <table>
+                    <thead>
+                        <tr><th>Fecha</th><th>Conductor</th><th>Ruta</th><th>Valor</th></tr>
+                    </thead>
+                    <tbody>';
+            $acum_tabla = 0;
+            foreach($tabla['viajes'] as $viaje) {
+                $acum_tabla += $viaje['costo'];
+                $word_content .= '<tr>
+                    <td>' . date('d/m/Y', strtotime($viaje['fecha'])) . '</td>
+                    <td>' . htmlspecialchars($viaje['nombre'] ?? '-') . '</td>
+                    <td>' . htmlspecialchars($viaje['ruta'] ?? '-') . '</td>
+                    <td class="costo">$ ' . number_format($viaje['costo'], 0, ',', '.') . '</td>
+                </tr>';
+            }
+            $word_content .= '<tr class="total-row">
+                    <td colspan="3" style="text-align:right;">TOTAL ' . htmlspecialchars($nombre) . ':</td>
+                    <td class="costo">$ ' . number_format($totales_tablas[$nombre]['efectivo'], 0, ',', '.') . '</td>
+                </tr></tbody></table></div>';
+        }
+        
+        if (!empty($_SESSION['extras'])) {
+            $word_content .= '<div class="extras-table">
                 <div class="extras-title">⭐ EXTRAS ⭐</div>
                 <table>
                     <thead>
-                        <tr>
-                            <th>Fecha</th>
-                            <th>Conductor</th>
-                            <th>Ruta</th>
-                            <th>Valor</th>
-                        </tr>
+                        <tr><th>Fecha</th><th>Conductor</th><th>Ruta</th><th>Valor</th></tr>
                     </thead>
-                    <tbody>
-                        <?php foreach($extras_con_acumulado as $ex): ?>
-                        <tr>
-                            <td><?php echo date('d/m/Y', strtotime($ex['data']['fecha'])); ?></td>
-                            <td><?php echo htmlspecialchars($ex['data']['nombre'] ?? '-'); ?></td>
-                            <td><?php echo htmlspecialchars($ex['data']['ruta'] ?? '-'); ?></td>
-                            <td class="costo">$ <?php echo number_format($ex['data']['costo'], 0, ',', '.'); ?></td>
-                        </tr>
-                        <?php endforeach; ?>
-                        <tr class="total-row">
-                            <td colspan="3" style="text-align:right;">TOTAL EXTRAS:</td>
-                            <td class="costo">$ <?php echo number_format($total_extras, 0, ',', '.'); ?></td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        <?php endif; ?>
+                    <tbody>';
+            foreach($extras_con_acumulado as $ex) {
+                $word_content .= '<tr>
+                    <td>' . date('d/m/Y', strtotime($ex['data']['fecha'])) . '</td>
+                    <td>' . htmlspecialchars($ex['data']['nombre'] ?? '-') . '</td>
+                    <td>' . htmlspecialchars($ex['data']['ruta'] ?? '-') . '</td>
+                    <td class="costo">$ ' . number_format($ex['data']['costo'], 0, ',', '.') . '</td>
+                </tr>';
+            }
+            $word_content .= '<tr class="total-row">
+                    <td colspan="3" style="text-align:right;">TOTAL EXTRAS:</td>
+                    <td class="costo">$ ' . number_format($total_extras, 0, ',', '.') . '</td>
+                </tr></tbody></table></div>';
+        }
         
-        <div class="resumen-table">
+        $word_content .= '<div class="resumen-table">
             <div class="resumen-title">📋 RESUMEN GENERAL</div>
             <table>
                 <thead>
-                    <tr>
-                        <th>Concepto</th>
-                        <th style="text-align:right;">Total</th>
-                    </tr>
+                    <tr><th>Concepto</th><th style="text-align:right;">Total</th></tr>
                 </thead>
-                <tbody>
-                    <?php foreach ($resumen_empresas as $empresa => $total): ?>
-                    <tr>
-                        <td>🏥 <?php echo htmlspecialchars($empresa); ?></td>
-                        <td class="costo">$ <?php echo number_format($total, 0, ',', '.'); ?></td>
-                    </tr>
-                    <?php endforeach; ?>
-                    <tr class="subtotal-row">
-                        <td style="text-align:right;"><strong>SUBTOTAL PUESTOS</strong></td>
-                        <td class="costo"><strong>$ <?php echo number_format($total_puestos, 0, ',', '.'); ?></strong></td>
-                    </tr>
-                    <?php if (!empty($_SESSION['extras'])): ?>
-                    <tr>
-                        <td>⭐ EXTRAS</td>
-                        <td class="costo">$ <?php echo number_format($total_extras, 0, ',', '.'); ?></td>
-                    </tr>
-                    <?php endif; ?>
-                    <?php foreach ($totales_tablas as $nombre => $total): ?>
-                    <tr>
-                        <td>📋 <?php echo htmlspecialchars($nombre); ?></td>
-                        <td class="costo">$ <?php echo number_format($total['efectivo'], 0, ',', '.'); ?></td>
-                    </tr>
-                    <?php endforeach; ?>
-                    <tr class="gran-total-row">
-                        <td style="text-align:right;"><strong>TOTAL GENERAL</strong></td>
-                        <td class="costo"><strong>$ <?php echo number_format($total_general, 0, ',', '.'); ?></strong></td>
-                    </tr>
+                <tbody>';
+        foreach ($resumen_empresas as $empresa => $total) {
+            $word_content .= '<tr><td>🏥 ' . htmlspecialchars($empresa) . '</td><td class="costo">$ ' . number_format($total, 0, ',', '.') . '</td></tr>';
+        }
+        $word_content .= '<tr class="subtotal-row"><td style="text-align:right;"><strong>SUBTOTAL PUESTOS</strong></td><td class="costo"><strong>$ ' . number_format($total_puestos, 0, ',', '.') . '</strong></td></tr>';
+        if (!empty($_SESSION['extras'])) {
+            $word_content .= '<tr><td>⭐ EXTRAS</td><td class="costo">$ ' . number_format($total_extras, 0, ',', '.') . '</td></tr>';
+        }
+        foreach ($totales_tablas as $nombre => $total) {
+            $word_content .= '<tr><td>📋 ' . htmlspecialchars($nombre) . '</td><td class="costo">$ ' . number_format($total['efectivo'], 0, ',', '.') . '</td></tr>';
+        }
+        $word_content .= '<tr class="gran-total-row"><td style="text-align:right;"><strong>TOTAL GENERAL</strong></td><td class="costo"><strong>$ ' . number_format($total_general, 0, ',', '.') . '</strong></td></tr>
                 </tbody>
             </table>
         </div>
     </body>
-    </html>
-    <?php
+    </html>';
+    
+    // Forzar descarga como .docx compatible con iOS
+    header('Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    header('Content-Disposition: attachment; filename="informe_viajes_' . date('Y-m-d') . '.docx"');
+    header('Content-Length: ' . strlen($word_content));
+    header('Cache-Control: no-cache, must-revalidate');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+    echo $word_content;
     exit;
 }
 ?>
@@ -780,15 +737,16 @@ if (isset($_POST['export_word'])) {
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
     <title>Informe de Viajes</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: #f0f2f5;
-            padding: 20px;
+            padding: 10px;
+            -webkit-text-size-adjust: 100%;
         }
         
         .container { max-width: 1600px; margin: 0 auto; }
@@ -796,28 +754,30 @@ if (isset($_POST['export_word'])) {
         .header {
             background: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%);
             color: white;
-            padding: 20px 25px;
+            padding: 15px 20px;
             border-radius: 12px 12px 0 0;
             margin-bottom: 20px;
             display: flex;
             justify-content: space-between;
             align-items: center;
             flex-wrap: wrap;
-            gap: 15px;
+            gap: 10px;
         }
         
-        .header h1 { font-size: 24px; margin-bottom: 5px; }
-        .header p { opacity: 0.9; font-size: 14px; }
+        .header h1 { font-size: clamp(18px, 4vw, 24px); margin-bottom: 5px; }
+        .header p { opacity: 0.9; font-size: clamp(11px, 2.5vw, 14px); }
         
         .btn-word {
             background: #2e7d32;
             color: white;
             border: none;
-            padding: 10px 25px;
+            padding: 10px 20px;
             border-radius: 8px;
             cursor: pointer;
             font-weight: 600;
-            font-size: 14px;
+            font-size: clamp(12px, 2.5vw, 14px);
+            white-space: nowrap;
+            -webkit-appearance: none;
         }
         .btn-word:hover { background: #1b5e20; }
         
@@ -825,12 +785,14 @@ if (isset($_POST['export_word'])) {
             background: #c62828;
             color: white;
             border: none;
-            padding: 10px 25px;
+            padding: 10px 20px;
             border-radius: 8px;
             cursor: pointer;
             font-weight: 600;
-            font-size: 14px;
-            margin-left: 10px;
+            font-size: clamp(12px, 2.5vw, 14px);
+            margin-left: 8px;
+            white-space: nowrap;
+            -webkit-appearance: none;
         }
         .btn-restaurar:hover { background: #b71c1c; }
         
@@ -838,32 +800,34 @@ if (isset($_POST['export_word'])) {
             background: #6a1b9a;
             color: white;
             border: none;
-            padding: 10px 25px;
+            padding: 10px 20px;
             border-radius: 8px;
             cursor: pointer;
             font-weight: 600;
-            font-size: 14px;
-            margin-left: 10px;
+            font-size: clamp(12px, 2.5vw, 14px);
+            margin-left: 8px;
+            white-space: nowrap;
+            -webkit-appearance: none;
         }
         .btn-restaurar-totales:hover { background: #4a148c; }
         
-        .alertas-container { margin-bottom: 25px; }
+        .alertas-container { margin-bottom: 20px; }
         .alerta-presupuesto {
             background: #ffebee;
             border-left: 4px solid #f44336;
             border-radius: 8px;
-            padding: 12px 20px;
+            padding: 12px 15px;
             margin-bottom: 10px;
             display: flex;
             align-items: center;
             justify-content: space-between;
             flex-wrap: wrap;
-            gap: 15px;
+            gap: 10px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        .alerta-mensaje { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-        .alerta-icono { font-size: 24px; }
-        .alerta-texto { font-size: 14px; color: #333; }
+        .alerta-mensaje { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .alerta-icono { font-size: 20px; }
+        .alerta-texto { font-size: clamp(12px, 2.5vw, 14px); color: #333; }
         .alerta-texto strong { color: #c62828; }
         .badge-exceso {
             display: inline-block;
@@ -871,92 +835,100 @@ if (isset($_POST['export_word'])) {
             color: white;
             padding: 2px 8px;
             border-radius: 12px;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: bold;
-            margin-left: 10px;
+            margin-left: 8px;
         }
         .btn-ir-tabla {
             background: #ff9800;
             color: white;
             border: none;
-            padding: 6px 16px;
+            padding: 6px 14px;
             border-radius: 20px;
             cursor: pointer;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 600;
+            -webkit-appearance: none;
         }
         .btn-ir-tabla:hover { background: #e65100; }
         
         .filtros-card {
             background: white;
-            padding: 20px 25px;
+            padding: 15px 20px;
             border-radius: 12px;
-            margin-bottom: 25px;
+            margin-bottom: 20px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
         
         .filtros-row {
             display: flex;
             flex-wrap: wrap;
-            gap: 20px;
+            gap: 12px;
             align-items: flex-end;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
         
         .filtro-group {
             display: flex;
             flex-direction: column;
-            gap: 6px;
+            gap: 4px;
         }
         
         .filtro-group label {
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 600;
             color: #5f6368;
             text-transform: uppercase;
         }
         
         .filtro-group input, .filtro-group select {
-            padding: 10px 15px;
+            padding: 8px 12px;
             border: 1px solid #dadce0;
             border-radius: 8px;
-            font-size: 14px;
-            min-width: 200px;
+            font-size: clamp(12px, 2.5vw, 14px);
+            min-width: 150px;
+            -webkit-appearance: none;
+            background: white;
         }
         
         .btn-filtrar, .btn-limpiar {
-            padding: 10px 25px;
+            padding: 8px 20px;
             border-radius: 8px;
             cursor: pointer;
             font-weight: 600;
             border: none;
+            font-size: clamp(12px, 2.5vw, 14px);
+            -webkit-appearance: none;
         }
         .btn-filtrar { background: #1a73e8; color: white; }
         .btn-filtrar:hover { background: #1557b0; }
-        .btn-limpiar { background: #5f6368; color: white; }
+        .btn-limpiar { background: #5f6368; color: white; text-decoration: none; display: inline-block; }
         
         .empresas-section {
             border-top: 1px solid #e8eaed;
-            padding-top: 20px;
+            padding-top: 15px;
         }
         
         .empresas-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 15px;
+            margin-bottom: 12px;
             flex-wrap: wrap;
-            gap: 15px;
+            gap: 10px;
         }
         
-        .btn-group { display: flex; gap: 10px; }
+        .empresas-header h3 { font-size: clamp(14px, 3vw, 16px); }
+        
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
         .btn-seleccion {
             background: #f1f3f4;
             border: none;
-            padding: 6px 16px;
+            padding: 6px 14px;
             border-radius: 20px;
             cursor: pointer;
-            font-size: 12px;
+            font-size: 11px;
+            -webkit-appearance: none;
         }
         .btn-seleccion.all { background: #34a853; color: white; }
         .btn-seleccion.none { background: #ea4335; color: white; }
@@ -964,33 +936,34 @@ if (isset($_POST['export_word'])) {
         .empresas-grid {
             display: flex;
             flex-wrap: wrap;
-            gap: 12px;
+            gap: 10px;
         }
         
         .empresa-checkbox {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
             background: #f8f9fa;
-            padding: 6px 14px;
+            padding: 6px 12px;
             border-radius: 25px;
             border: 1px solid #dadce0;
             cursor: pointer;
-            font-size: 13px;
+            font-size: 12px;
         }
         
         .crear-tabla-section {
             background: white;
-            padding: 20px 25px;
+            padding: 15px 20px;
             border-radius: 12px;
-            margin-bottom: 25px;
+            margin-bottom: 20px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
             border: 2px solid #9c27b0;
         }
         
         .crear-tabla-section h3 {
             color: #9c27b0;
-            margin-bottom: 15px;
+            margin-bottom: 12px;
+            font-size: clamp(14px, 3vw, 16px);
         }
         
         .crear-tabla-form {
@@ -1001,28 +974,31 @@ if (isset($_POST['export_word'])) {
         }
         
         .crear-tabla-form input {
-            padding: 10px 15px;
+            padding: 8px 12px;
             border: 1px solid #dadce0;
             border-radius: 8px;
             font-size: 14px;
-            min-width: 250px;
+            min-width: 200px;
+            -webkit-appearance: none;
         }
         
         .btn-crear-tabla {
             background: #9c27b0;
             color: white;
             border: none;
-            padding: 10px 25px;
+            padding: 8px 20px;
             border-radius: 8px;
             cursor: pointer;
             font-weight: 600;
+            font-size: 14px;
+            -webkit-appearance: none;
         }
         .btn-crear-tabla:hover { background: #7b1fa2; }
         
         .tabla-personalizada {
             background: white;
             border-radius: 12px;
-            margin-bottom: 30px;
+            margin-bottom: 25px;
             overflow: hidden;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
             border: 2px solid #9c27b0;
@@ -1031,25 +1007,26 @@ if (isset($_POST['export_word'])) {
         .tabla-personalizada-header {
             background: #9c27b0;
             color: white;
-            padding: 15px 20px;
+            padding: 12px 15px;
             display: flex;
             justify-content: space-between;
             align-items: center;
             flex-wrap: wrap;
-            gap: 15px;
+            gap: 10px;
         }
         
-        .tabla-personalizada-header h2 { font-size: 18px; }
+        .tabla-personalizada-header h2 { font-size: clamp(14px, 3vw, 18px); }
         
         .btn-eliminar-tabla {
             background: #ea4335;
             color: white;
             border: none;
-            padding: 6px 16px;
+            padding: 6px 14px;
             border-radius: 6px;
             cursor: pointer;
             font-weight: 600;
-            font-size: 12px;
+            font-size: 11px;
+            -webkit-appearance: none;
         }
         .btn-eliminar-tabla:hover { background: #c62828; }
         
@@ -1057,97 +1034,106 @@ if (isset($_POST['export_word'])) {
             background: #ff9800;
             color: white;
             border: none;
-            padding: 6px 16px;
+            padding: 6px 14px;
             border-radius: 6px;
             cursor: pointer;
             font-weight: 600;
-            font-size: 12px;
-            margin-right: 10px;
+            font-size: 11px;
+            margin-right: 8px;
+            -webkit-appearance: none;
         }
         .btn-renombrar-tabla:hover { background: #e65100; }
         
         .tabla-personalizada-header .acciones-header {
             display: flex;
-            gap: 10px;
+            gap: 8px;
             align-items: center;
+            flex-wrap: wrap;
         }
         
         .extras-table {
             background: linear-gradient(135deg, #fff8e7 0%, #fff3d6 100%);
             border-radius: 12px;
-            margin-bottom: 30px;
+            margin-bottom: 25px;
             overflow-x: auto;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
             border: 2px solid #ff9800;
+            -webkit-overflow-scrolling: touch;
         }
         
         .extras-header {
             background: #ff9800;
             color: white;
-            padding: 15px 20px;
+            padding: 12px 15px;
             display: flex;
             justify-content: space-between;
             align-items: center;
             flex-wrap: wrap;
-            gap: 15px;
+            gap: 10px;
         }
+        
+        .extras-header h2 { font-size: clamp(14px, 3vw, 18px); }
         
         .btn-limpiar-extras {
             background: #e65100;
             color: white;
             border: none;
-            padding: 8px 20px;
+            padding: 8px 16px;
             border-radius: 8px;
             cursor: pointer;
             font-weight: 600;
+            font-size: 12px;
+            -webkit-appearance: none;
         }
         
         .empresa-table {
             background: white;
             border-radius: 12px;
-            margin-bottom: 30px;
+            margin-bottom: 25px;
             overflow-x: auto;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
             scroll-margin-top: 100px;
+            -webkit-overflow-scrolling: touch;
         }
         
         .table-header {
             background: #1a73e8;
             color: white;
-            padding: 15px 20px;
+            padding: 12px 15px;
             display: flex;
             justify-content: space-between;
             align-items: center;
             flex-wrap: wrap;
-            gap: 15px;
+            gap: 10px;
         }
         
-        .table-header h2 { font-size: 18px; }
+        .table-header h2 { font-size: clamp(14px, 3vw, 18px); }
         
         .table-header-conductor {
             background: #455a64;
             color: white;
-            padding: 12px 20px;
+            padding: 10px 15px;
             display: flex;
             justify-content: space-between;
             align-items: center;
             flex-wrap: wrap;
-            gap: 15px;
+            gap: 10px;
         }
         
-        .table-header-conductor h3 { font-size: 16px; }
+        .table-header-conductor h3 { font-size: clamp(13px, 2.8vw, 16px); }
         
-        .acciones-header { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .acciones-header { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
         
         .btn-mover-tabla {
             background: #9c27b0;
             color: white;
             border: none;
-            padding: 8px 20px;
+            padding: 8px 16px;
             border-radius: 8px;
             cursor: pointer;
             font-weight: 600;
             font-size: 12px;
+            -webkit-appearance: none;
         }
         .btn-mover-tabla:disabled { background: #ccc; cursor: not-allowed; }
         
@@ -1155,10 +1141,12 @@ if (isset($_POST['export_word'])) {
             background: #ff9800;
             color: white;
             border: none;
-            padding: 8px 20px;
+            padding: 8px 16px;
             border-radius: 8px;
             cursor: pointer;
             font-weight: 600;
+            font-size: 12px;
+            -webkit-appearance: none;
         }
         .btn-mover-extras:disabled { background: #ccc; cursor: not-allowed; }
         
@@ -1166,36 +1154,40 @@ if (isset($_POST['export_word'])) {
             background: #ea4335;
             color: white;
             border: none;
-            padding: 4px 12px;
+            padding: 4px 10px;
             border-radius: 6px;
             cursor: pointer;
             font-size: 11px;
+            -webkit-appearance: none;
         }
         
         .selector-tabla-destino {
-            padding: 6px 12px;
+            padding: 8px 12px;
             border-radius: 6px;
             border: 1px solid #9c27b0;
             font-size: 12px;
+            background: white;
+            -webkit-appearance: auto;
+            min-width: 120px;
         }
         
-        select, input, button { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        select, input, button { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         
         .cambio-conductores-section {
             background: #e3f2fd;
             border: 2px solid #1a73e8;
             border-radius: 10px;
-            padding: 15px;
-            margin-bottom: 15px;
+            padding: 12px;
+            margin-bottom: 12px;
             display: flex;
             flex-wrap: wrap;
-            gap: 15px;
+            gap: 12px;
             align-items: flex-end;
         }
         
         .cambio-conductores-section .filtro-group {
             flex: 1;
-            min-width: 200px;
+            min-width: 180px;
         }
         
         .autocomplete-wrapper {
@@ -1205,10 +1197,11 @@ if (isset($_POST['export_word'])) {
         
         .autocomplete-wrapper input {
             width: 100%;
-            padding: 10px 15px;
+            padding: 8px 12px;
             border: 1px solid #dadce0;
             border-radius: 8px;
             font-size: 14px;
+            -webkit-appearance: none;
         }
         
         .autocomplete-list {
@@ -1220,17 +1213,19 @@ if (isset($_POST['export_word'])) {
             border: 1px solid #dadce0;
             border-top: none;
             border-radius: 0 0 8px 8px;
-            max-height: 200px;
+            max-height: 180px;
             overflow-y: auto;
             z-index: 1000;
             display: none;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            -webkit-overflow-scrolling: touch;
         }
         
         .autocomplete-list div {
-            padding: 10px 15px;
+            padding: 10px 12px;
             cursor: pointer;
             border-bottom: 1px solid #f0f0f0;
+            font-size: 14px;
         }
         
         .autocomplete-list div:hover {
@@ -1250,9 +1245,9 @@ if (isset($_POST['export_word'])) {
             gap: 5px;
             background: #1a73e8;
             color: white;
-            padding: 4px 12px;
+            padding: 4px 10px;
             border-radius: 20px;
-            font-size: 12px;
+            font-size: 11px;
         }
         
         .tag-conductor .remove-tag {
@@ -1269,92 +1264,103 @@ if (isset($_POST['export_word'])) {
             background: #1a73e8;
             color: white;
             border: none;
-            padding: 10px 25px;
+            padding: 8px 20px;
             border-radius: 8px;
             cursor: pointer;
             font-weight: 600;
+            font-size: 14px;
+            -webkit-appearance: none;
         }
         .btn-cambiar-conductores:hover { background: #1557b0; }
         .btn-cambiar-conductores:disabled { background: #90caf9; cursor: not-allowed; }
         
         .busqueda-ruta {
             display: flex;
-            gap: 10px;
+            gap: 8px;
             align-items: center;
             background: rgba(255,255,255,0.2);
-            padding: 5px 15px;
+            padding: 5px 12px;
             border-radius: 25px;
+            flex-wrap: wrap;
         }
         .busqueda-ruta input {
-            padding: 6px 12px;
+            padding: 6px 10px;
             border: none;
             border-radius: 20px;
             font-size: 12px;
-            width: 180px;
+            width: 140px;
             outline: none;
+            -webkit-appearance: none;
         }
         .busqueda-ruta button {
             background: white;
             color: #1a73e8;
             border: none;
-            padding: 5px 12px;
+            padding: 5px 10px;
             border-radius: 20px;
             cursor: pointer;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 600;
-        }
-        .busqueda-ruta button:hover {
-            background: #e8eaed;
+            -webkit-appearance: none;
         }
         
         .input-hint {
-            font-size: 11px;
+            font-size: 10px;
             color: #5f6368;
             margin-top: 3px;
         }
         
         .renombrar-input {
-            padding: 6px 12px;
+            padding: 6px 10px;
             border: 1px solid white;
             border-radius: 6px;
             font-size: 12px;
-            width: 180px;
+            width: 150px;
             margin-right: 5px;
+            -webkit-appearance: none;
         }
         
         .btn-confirmar-renombrar {
             background: white;
             color: #9c27b0;
             border: none;
-            padding: 5px 12px;
+            padding: 5px 10px;
             border-radius: 6px;
             cursor: pointer;
             font-size: 11px;
             font-weight: 600;
+            -webkit-appearance: none;
+        }
+        
+        .table-wrapper {
+            overflow-x: auto;
+            max-width: 100%;
+            -webkit-overflow-scrolling: touch;
         }
         
         table {
             width: 100%;
             border-collapse: collapse;
-            min-width: 1000px;
+            min-width: 800px;
+            font-size: clamp(10px, 2vw, 12px);
         }
         
         th {
             background: #f8f9fa;
-            padding: 12px 8px;
+            padding: 10px 6px;
             text-align: left;
             font-weight: 600;
             color: #5f6368;
             border-bottom: 2px solid #dadce0;
-            font-size: 12px;
+            font-size: clamp(10px, 2vw, 12px);
             white-space: nowrap;
         }
         
         td {
-            padding: 10px 8px;
+            padding: 8px 6px;
             border-bottom: 1px solid #e8eaed;
             color: #202124;
-            font-size: 12px;
+            font-size: clamp(10px, 2vw, 12px);
             vertical-align: middle;
         }
         
@@ -1363,29 +1369,29 @@ if (isset($_POST['export_word'])) {
         .acumulado { font-weight: 700; color: #34a853; text-align: right !important; }
         
         .ruta-cell {
-            max-width: 220px;
+            max-width: 180px;
             white-space: normal;
             word-break: break-word;
             line-height: 1.4;
         }
         
         .drag-instruction {
-            font-size: 11px;
+            font-size: 10px;
             background: rgba(255,255,255,0.2);
-            padding: 5px 12px;
+            padding: 5px 10px;
             border-radius: 20px;
             display: inline-flex;
             align-items: center;
-            gap: 6px;
+            gap: 5px;
         }
         
-        .sin-datos { text-align: center; padding: 40px; color: #5f6368; }
+        .sin-datos { text-align: center; padding: 30px; color: #5f6368; font-size: 14px; }
         
         html { scroll-behavior: smooth; }
         
         .btn-header-group {
             display: flex;
-            gap: 10px;
+            gap: 6px;
             align-items: center;
             flex-wrap: wrap;
         }
@@ -1393,7 +1399,7 @@ if (isset($_POST['export_word'])) {
         .sub-table-wrapper {
             border: 1px solid #e8eaed;
             border-radius: 8px;
-            margin-bottom: 15px;
+            margin-bottom: 12px;
             overflow: hidden;
         }
         
@@ -1401,47 +1407,50 @@ if (isset($_POST['export_word'])) {
             background: #1a73e8;
             color: white;
             font-weight: bold;
-            padding: 12px 20px;
+            padding: 10px 15px;
             text-align: right;
-            font-size: 14px;
+            font-size: clamp(12px, 2.5vw, 14px);
         }
         
         .total-editable {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
             justify-content: flex-end;
-            padding: 10px 15px;
+            padding: 8px 12px;
             background: #f5f5f5;
+            flex-wrap: wrap;
         }
         
         .total-editable input {
-            width: 120px;
+            width: 100px;
             padding: 4px 8px;
             border: 1px solid #1a73e8;
             border-radius: 6px;
             text-align: right;
             font-weight: 600;
-            font-size: 12px;
+            font-size: clamp(10px, 2vw, 12px);
             color: #1a73e8;
+            -webkit-appearance: none;
         }
         
         .btn-guardar-total {
             background: #1a73e8;
             color: white;
             border: none;
-            padding: 4px 10px;
+            padding: 4px 8px;
             border-radius: 6px;
             cursor: pointer;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 600;
+            -webkit-appearance: none;
         }
         .btn-guardar-total:hover { background: #1557b0; }
         
         .resumen-table {
             background: white;
             border-radius: 12px;
-            margin-top: 30px;
+            margin-top: 25px;
             overflow: hidden;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
             border: 2px solid #1a73e8;
@@ -1450,46 +1459,70 @@ if (isset($_POST['export_word'])) {
         .resumen-header {
             background: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%);
             color: white;
-            padding: 15px 25px;
-            font-size: 18px;
+            padding: 12px 20px;
+            font-size: clamp(14px, 3vw, 18px);
             font-weight: 700;
         }
         
         .resumen-table table {
-            min-width: 600px;
+            min-width: 400px;
         }
         
         .resumen-table th {
-            font-size: 13px;
-            padding: 14px 15px;
+            font-size: clamp(11px, 2.5vw, 13px);
+            padding: 12px 12px;
             background: #f0f4ff;
         }
         
         .resumen-table td {
-            font-size: 13px;
-            padding: 12px 15px;
+            font-size: clamp(11px, 2.5vw, 13px);
+            padding: 10px 12px;
         }
         
         .subtotal-row td {
             background: #e3f2fd;
             font-weight: bold;
-            font-size: 13px;
+            font-size: clamp(11px, 2.5vw, 13px);
         }
         
         .gran-total-row td {
             background: #1a73e8;
             color: white;
             font-weight: bold;
-            font-size: 14px;
-            padding: 14px 15px;
+            font-size: clamp(12px, 2.5vw, 14px);
+            padding: 12px 12px;
         }
         
-        @media (max-width: 1200px) {
-            .table-header { flex-direction: column; text-align: center; }
-            .acciones-header { justify-content: center; }
-            .cambio-conductores-section { flex-direction: column; }
+        /* Estilos específicos para iOS */
+        @supports (-webkit-touch-callout: none) {
+            select {
+                font-size: 16px !important; /* Evita zoom en iOS */
+            }
+            input[type="text"], input[type="number"], input[type="date"] {
+                font-size: 16px !important; /* Evita zoom en iOS */
+            }
+            .btn-mover-tabla, .btn-mover-extras, .btn-guardar-total, 
+            .btn-crear-tabla, .btn-word, .btn-restaurar, .btn-restaurar-totales,
+            .btn-eliminar-tabla, .btn-renombrar-tabla, .btn-limpiar-extras,
+            .btn-cambiar-conductores, .btn-filtrar, .btn-limpiar {
+                padding: 10px 18px;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .header { flex-direction: column; text-align: center; }
             .btn-header-group { justify-content: center; }
+            .filtros-row { flex-direction: column; }
+            .filtro-group input, .filtro-group select { min-width: 100%; }
             .crear-tabla-form { flex-direction: column; }
+            .crear-tabla-form input { min-width: 100%; }
+            .acciones-header { flex-direction: column; align-items: flex-start; }
+            .selector-tabla-destino { width: 100%; }
+            .btn-mover-tabla, .btn-mover-extras { width: 100%; text-align: center; }
+            .cambio-conductores-section { flex-direction: column; }
+            .busqueda-ruta { flex-direction: column; }
+            .busqueda-ruta input { width: 100%; }
+            .total-editable { flex-direction: column; align-items: flex-end; }
         }
     </style>
 </head>
@@ -1498,7 +1531,7 @@ if (isset($_POST['export_word'])) {
         <div class="header">
             <div>
                 <h1>📊 Informe de Viajes por Puesto de Salud</h1>
-                <p>✨ Arrastra el mouse sobre los checkboxes para seleccionar múltiples filas | Shift + Click para seleccionar rango</p>
+                <p>✨ Selecciona filas con checkboxes | Shift + Click para rango</p>
             </div>
             <div class="btn-header-group">
                 <form method="POST" style="display: inline;">
@@ -1507,11 +1540,11 @@ if (isset($_POST['export_word'])) {
                 </form>
                 <form method="POST" style="display: inline;">
                     <input type="hidden" name="action" value="restaurar_nombres">
-                    <button type="submit" class="btn-restaurar">🔄 Restaurar Nombres</button>
+                    <button type="submit" class="btn-restaurar">🔄 Nombres</button>
                 </form>
                 <form method="POST" style="display: inline;">
                     <input type="hidden" name="action" value="restaurar_totales">
-                    <button type="submit" class="btn-restaurar-totales">🔢 Restaurar Totales</button>
+                    <button type="submit" class="btn-restaurar-totales">🔢 Totales</button>
                 </form>
             </div>
         </div>
@@ -1530,7 +1563,7 @@ if (isset($_POST['export_word'])) {
                         <span class="badge-exceso">Total: $ <?php echo number_format($alerta['total'], 0, ',', '.'); ?></span>
                     </span>
                 </div>
-                <button class="btn-ir-tabla" onclick="irATabla('<?php echo htmlspecialchars($alerta['empresa']); ?>')">📍 Ir a la tabla</button>
+                <button class="btn-ir-tabla" onclick="irATabla('<?php echo htmlspecialchars($alerta['empresa']); ?>')">📍 Ir</button>
             </div>
             <?php endforeach; ?>
         </div>
@@ -1541,9 +1574,9 @@ if (isset($_POST['export_word'])) {
             <h3>📋 Crear Nueva Tabla Personalizada</h3>
             <form method="POST" class="crear-tabla-form">
                 <input type="hidden" name="action" value="crear_tabla">
-                <div class="filtro-group">
+                <div class="filtro-group" style="flex:1;">
                     <label>Nombre de la tabla</label>
-                    <input type="text" name="nombre_tabla" placeholder="Ej: Gastos Urgencias, Viáticos Especiales..." required>
+                    <input type="text" name="nombre_tabla" placeholder="Ej: Gastos Urgencias, Viáticos..." required>
                 </div>
                 <button type="submit" class="btn-crear-tabla">➕ Crear Tabla</button>
             </form>
@@ -1553,11 +1586,11 @@ if (isset($_POST['export_word'])) {
             <div class="filtros-card">
                 <div class="filtros-row">
                     <div class="filtro-group">
-                        <label>📅 Fecha desde</label>
+                        <label>📅 Desde</label>
                         <input type="date" name="fecha_desde" value="<?php echo htmlspecialchars($fecha_desde); ?>">
                     </div>
                     <div class="filtro-group">
-                        <label>📅 Fecha hasta</label>
+                        <label>📅 Hasta</label>
                         <input type="date" name="fecha_hasta" value="<?php echo htmlspecialchars($fecha_hasta); ?>">
                     </div>
                     <div class="filtro-group">
@@ -1572,8 +1605,8 @@ if (isset($_POST['export_word'])) {
                     <div class="empresas-header">
                         <h3>🏥 Puestos de Salud (P.)</h3>
                         <div class="btn-group">
-                            <button type="button" class="btn-seleccion all" onclick="seleccionarTodas(true)">✅ Seleccionar todas</button>
-                            <button type="button" class="btn-seleccion none" onclick="seleccionarTodas(false)">❌ Quitar todas</button>
+                            <button type="button" class="btn-seleccion all" onclick="seleccionarTodas(true)">✅ Todas</button>
+                            <button type="button" class="btn-seleccion none" onclick="seleccionarTodas(false)">❌ Ninguna</button>
                         </div>
                     </div>
                     <div class="empresas-grid" id="empresasGrid">
@@ -1606,7 +1639,7 @@ if (isset($_POST['export_word'])) {
                     <form method="POST" style="display: inline;">
                         <input type="hidden" name="action" value="eliminar_tabla">
                         <input type="hidden" name="tabla_nombre" value="<?php echo htmlspecialchars($nombre); ?>">
-                        <button type="submit" class="btn-eliminar-tabla" onclick="return confirm('¿Eliminar la tabla <?php echo htmlspecialchars($nombre); ?> y todos sus viajes?')">🗑️ Eliminar Tabla</button>
+                        <button type="submit" class="btn-eliminar-tabla" onclick="return confirm('¿Eliminar la tabla <?php echo htmlspecialchars($nombre); ?> y todos sus viajes?')">🗑️ Eliminar</button>
                     </form>
                     <div id="renombrar_<?php echo $tabla_id; ?>" style="display:none;">
                         <form method="POST" style="display: inline;">
@@ -1623,12 +1656,12 @@ if (isset($_POST['export_word'])) {
             <?php if (empty($viajes_tabla)): ?>
             <div class="sin-datos">📭 No hay viajes en esta tabla. Usa los botones "Mover a..." en las tablas de empresas para agregar viajes aquí.</div>
             <?php else: ?>
-            <div style="overflow-x: auto; max-width: 100%;">
-                <table style="min-width: 1000px;">
+            <div class="table-wrapper">
+                <table>
                     <thead>
                         <tr>
                             <th>#</th><th>Fecha</th><th>Conductor</th><th>Cédula</th><th>Ruta</th><th>Tipo</th>
-                            <th>Empresa Origen</th><th>Clasificación</th><th>Valor</th><th>Acumulado</th><th>Acción</th>
+                            <th>Empresa</th><th>Clasif.</th><th>Valor</th><th>Acum.</th><th>Acción</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1660,36 +1693,36 @@ if (isset($_POST['export_word'])) {
             <div class="total-editable">
                 <strong>TOTAL <?php echo htmlspecialchars($nombre); ?>:</strong>
                 <?php if ($es_manual_tabla): ?>
-                <span style="font-size:11px;color:#999;text-decoration:line-through;">$ <?php echo number_format($total_calculado_tabla, 0, ',', '.'); ?></span>
+                <span style="font-size:10px;color:#999;text-decoration:line-through;">$ <?php echo number_format($total_calculado_tabla, 0, ',', '.'); ?></span>
                 <?php endif; ?>
-                <span style="font-weight:700;margin-right:10px;">$ <?php echo number_format($total_efectivo_tabla, 0, ',', '.'); ?></span>
-                <form method="POST" style="display: inline-flex; align-items: center; gap: 6px;">
+                <span style="font-weight:700;margin-right:8px;">$ <?php echo number_format($total_efectivo_tabla, 0, ',', '.'); ?></span>
+                <form method="POST" style="display: inline-flex; align-items: center; gap: 4px;">
                     <input type="hidden" name="action" value="guardar_total_tabla">
                     <input type="hidden" name="total_key" value="<?php echo htmlspecialchars($key_tabla); ?>">
-                    <input type="number" name="total_valor" value="<?php echo $total_efectivo_tabla; ?>" step="1" style="width:110px;padding:4px 8px;border:1px solid #9c27b0;border-radius:6px;text-align:right;font-weight:600;font-size:12px;">
-                    <button type="submit" class="btn-guardar-total" style="background:#9c27b0;">💾 Guardar</button>
+                    <input type="number" name="total_valor" value="<?php echo $total_efectivo_tabla; ?>" step="1" style="width:90px;">
+                    <button type="submit" class="btn-guardar-total" style="background:#9c27b0;">💾</button>
                 </form>
             </div>
             <?php endif; ?>
         </div>
         <?php endforeach; ?>
         
-        <!-- TABLA DE EXTRAS (mantenida por compatibilidad) -->
+        <!-- TABLA DE EXTRAS -->
         <?php if (!empty($_SESSION['extras'])): ?>
         <div class="extras-table">
             <div class="extras-header">
                 <h2>⭐ EXTRAS ⭐</h2>
                 <form method="POST" style="display: inline;">
                     <input type="hidden" name="action" value="limpiar_extras">
-                    <button type="submit" class="btn-limpiar-extras">🗑️ Limpiar todas</button>
+                    <button type="submit" class="btn-limpiar-extras">🗑️ Limpiar</button>
                 </form>
             </div>
-            <div style="overflow-x: auto; max-width: 100%;">
-                <table style="min-width: 1200px;">
+            <div class="table-wrapper">
+                <table>
                     <thead>
                         <tr>
                             <th>#</th><th>Fecha</th><th>Conductor</th><th>Cédula</th><th>Ruta</th><th>Tipo</th>
-                            <th>Empresa Origen</th><th>Clasificación</th><th>Valor</th><th>Acumulado</th><th>Acción</th>
+                            <th>Empresa</th><th>Clasif.</th><th>Valor</th><th>Acum.</th><th>Acción</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1718,15 +1751,15 @@ if (isset($_POST['export_word'])) {
                 </table>
             </div>
             <div class="total-editable" style="background:#ffe0b2;">
-                <span style="font-weight: 700; margin-right: 10px;">TOTAL EXTRAS:</span>
+                <span style="font-weight: 700; margin-right: 8px;">TOTAL EXTRAS:</span>
                 <?php if ($total_extras != $total_extras_calculado): ?>
-                <span style="font-size:11px;color:#999;text-decoration:line-through;margin-right:5px;">$ <?php echo number_format($total_extras_calculado, 0, ',', '.'); ?></span>
+                <span style="font-size:10px;color:#999;text-decoration:line-through;margin-right:5px;">$ <?php echo number_format($total_extras_calculado, 0, ',', '.'); ?></span>
                 <?php endif; ?>
-                <span style="font-weight:700;margin-right:10px;">$ <?php echo number_format($total_extras, 0, ',', '.'); ?></span>
-                <form method="POST" style="display: inline-flex; align-items: center; gap: 6px;">
+                <span style="font-weight:700;margin-right:8px;">$ <?php echo number_format($total_extras, 0, ',', '.'); ?></span>
+                <form method="POST" style="display: inline-flex; align-items: center; gap: 4px;">
                     <input type="hidden" name="action" value="guardar_total_extras">
-                    <input type="number" name="total_extras_valor" value="<?php echo $total_extras; ?>" step="1" style="width:130px;padding:5px 10px;border:1px solid #ff9800;border-radius:6px;text-align:right;font-weight:600;font-size:13px;">
-                    <button type="submit" class="btn-guardar-total" style="background:#ff9800;">💾 Guardar</button>
+                    <input type="number" name="total_extras_valor" value="<?php echo $total_extras; ?>" step="1" style="width:110px;">
+                    <button type="submit" class="btn-guardar-total" style="background:#ff9800;">💾</button>
                 </form>
             </div>
         </div>
@@ -1767,33 +1800,32 @@ if (isset($_POST['export_word'])) {
                         <div class="table-header">
                             <h2>
                                 🏥 <?php echo htmlspecialchars($empresa_actual); ?>
-                                <span class="badge-exceso" style="background: #1a73e8;">✏️ 2 Conductores</span>
+                                <span class="badge-exceso" style="background: #1a73e8;">2 Conductores</span>
                             </h2>
-                            <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+                            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                                 <?php if ($es_nazareth): ?>
                                 <div class="busqueda-ruta">
-                                    <input type="text" id="buscar_ruta_<?php echo $empresa_id_base; ?>" placeholder="Ej: Riohacha, Maicao..." autocomplete="off">
-                                    <button type="button" onclick="seleccionarPorRuta('<?php echo $empresa_id_base; ?>')">🔍 Seleccionar rutas</button>
+                                    <input type="text" id="buscar_ruta_<?php echo $empresa_id_base; ?>" placeholder="Buscar ruta..." autocomplete="off">
+                                    <button type="button" onclick="seleccionarPorRuta('<?php echo $empresa_id_base; ?>')">🔍</button>
                                 </div>
                                 <?php endif; ?>
-                                <div class="drag-instruction">🖱️ Arrastra sobre los checkboxes</div>
+                                <div class="drag-instruction">🖱️ Arrastra checkboxes</div>
                             </div>
                         </div>
                         
                         <div class="cambio-conductores-section">
-                            <div class="filtro-group" style="flex: 2; min-width: 300px;">
-                                <label>👤 Buscar o escribir nombre del conductor (máx. 2) - Presiona Enter para agregar</label>
+                            <div class="filtro-group" style="flex: 2; min-width: 200px;">
+                                <label>👤 Conductor (máx. 2) - Enter para agregar</label>
                                 <div class="autocomplete-wrapper">
                                     <input type="text" 
                                            id="input_conductor_<?php echo $empresa_id_base; ?>" 
-                                           placeholder="Escribe y selecciona o presiona Enter..." 
+                                           placeholder="Escribe y selecciona..." 
                                            autocomplete="off"
                                            onkeyup="buscarConductores('<?php echo $empresa_id_base; ?>')"
                                            onfocus="buscarConductores('<?php echo $empresa_id_base; ?>')"
                                            onkeydown="manejarTeclaConductor(event, '<?php echo $empresa_id_base; ?>')">
                                     <div class="autocomplete-list" id="autocomplete_<?php echo $empresa_id_base; ?>"></div>
                                 </div>
-                                <div class="input-hint">💡 Escribe y selecciona de la lista o presiona Enter para agregar un nombre libre</div>
                                 <div class="tags-conductores" id="tags_<?php echo $empresa_id_base; ?>">
                                     <?php foreach ($nombres_seleccionados as $idx => $nombre): ?>
                                     <span class="tag-conductor">
@@ -1809,7 +1841,7 @@ if (isset($_POST['export_word'])) {
                                         id="btn_cambiar_<?php echo $empresa_id_base; ?>"
                                         onclick="cambiarConductores('<?php echo $empresa_id_base; ?>', '<?php echo htmlspecialchars($empresa_actual); ?>')"
                                         <?php echo empty($nombres_seleccionados) ? 'disabled' : ''; ?>>
-                                    ✏️ Cambiar Conductores
+                                    ✏️ Cambiar
                                 </button>
                             </div>
                         </div>
@@ -1829,7 +1861,7 @@ if (isset($_POST['export_word'])) {
                                 <h3>
                                     👤 <?php echo htmlspecialchars($conductor_nombre); ?>
                                     <?php if ($excede): ?>
-                                        <span class="badge-exceso">⚠️ Excede presupuesto</span>
+                                        <span class="badge-exceso">⚠️ Excede</span>
                                     <?php endif; ?>
                                 </h3>
                                 <div class="acciones-header">
@@ -1849,7 +1881,7 @@ if (isset($_POST['export_word'])) {
                                     <button type="button" class="btn-mover-extras" 
                                             onclick="moverSeleccionados('<?php echo $empresa_id; ?>')"
                                             id="btn-mover-<?php echo $empresa_id; ?>">
-                                        ⭐ Mover a Extras
+                                        ⭐ Extras
                                     </button>
                                 </div>
                             </div>
@@ -1858,12 +1890,12 @@ if (isset($_POST['export_word'])) {
                                 <input type="hidden" name="action" value="mover_extras">
                                 <input type="hidden" name="empresa_origen" value="<?php echo htmlspecialchars($empresa_actual); ?>">
                                 <input type="hidden" name="ids_seleccionados" id="ids-<?php echo $empresa_id; ?>">
-                                <div style="overflow-x: auto; max-width: 100%;">
-                                    <table style="min-width: 1000px;">
+                                <div class="table-wrapper">
+                                    <table>
                                         <thead>
                                             <tr>
                                                 <th><input type="checkbox" id="select-all-<?php echo $empresa_id; ?>" onchange="toggleSeleccionarTodos(this, '<?php echo $empresa_id; ?>')"></th>
-                                                <th>#</th><th>Fecha</th><th>Conductor</th><th>Cédula</th><th>Ruta</th><th>Tipo</th><th>Clasificación</th><th>Valor Viaje</th><th>Acumulado</th>
+                                                <th>#</th><th>Fecha</th><th>Conductor</th><th>Cédula</th><th>Ruta</th><th>Tipo</th><th>Clasif.</th><th>Valor</th><th>Acum.</th>
                                             </tr>
                                         </thead>
                                         <tbody id="tbody-<?php echo $empresa_id; ?>">
@@ -1886,17 +1918,16 @@ if (isset($_POST['export_word'])) {
                                 </div>
                             </form>
                             
-                            <div style="background:#e8f0fe;padding:12px 20px;display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap;">
+                            <div style="background:#e8f0fe;padding:10px 15px;display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;">
                                 <strong>TOTAL <?php echo htmlspecialchars($conductor_nombre); ?>:</strong>
                                 <?php if ($es_manual): ?>
-                                <span style="font-size:11px;color:#999;text-decoration:line-through;">$ <?php echo number_format($total_calculado, 0, ',', '.'); ?></span>
-                                <span style="color:#e65100;">➜</span>
+                                <span style="font-size:10px;color:#999;text-decoration:line-through;">$ <?php echo number_format($total_calculado, 0, ',', '.'); ?></span>
                                 <?php endif; ?>
-                                <span style="font-weight:700;font-size:14px;color:#1a73e8;">$ <?php echo number_format($total_efectivo, 0, ',', '.'); ?></span>
-                                <form method="POST" style="display:inline-flex;align-items:center;gap:6px;">
+                                <span style="font-weight:700;font-size:13px;color:#1a73e8;">$ <?php echo number_format($total_efectivo, 0, ',', '.'); ?></span>
+                                <form method="POST" style="display:inline-flex;align-items:center;gap:4px;">
                                     <input type="hidden" name="action" value="guardar_total_manual">
                                     <input type="hidden" name="total_key" value="<?php echo htmlspecialchars($key_tabla_empresa); ?>">
-                                    <input type="number" name="total_valor" value="<?php echo $total_efectivo; ?>" step="1" style="width:110px;padding:4px 8px;border:1px solid #1a73e8;border-radius:6px;text-align:right;font-weight:600;font-size:12px;">
+                                    <input type="number" name="total_valor" value="<?php echo $total_efectivo; ?>" step="1" style="width:90px;">
                                     <button type="submit" class="btn-guardar-total">💾</button>
                                 </form>
                             </div>
@@ -1905,39 +1936,39 @@ if (isset($_POST['export_word'])) {
                         <script>
                         (function() {
                             const empresaId = '<?php echo $empresa_id; ?>';
-                            const checkboxes = document.querySelectorAll(`.fila-check-${empresaId}`);
+                            const checkboxes = document.querySelectorAll('.fila-check-' + empresaId);
                             
                             let isDragging = false;
-                            let lastToggledIndex = -1;
                             
-                            checkboxes.forEach(checkbox => {
-                                checkbox.addEventListener('mousedown', (e) => {
+                            checkboxes.forEach(function(checkbox) {
+                                checkbox.addEventListener('mousedown', function(e) {
                                     isDragging = true;
-                                    lastToggledIndex = Array.from(checkboxes).indexOf(checkbox);
                                     checkbox.checked = !checkbox.checked;
                                     updateSelectAllCheckbox(empresaId);
                                     actualizarBotones(empresaId);
                                 });
                                 
-                                checkbox.addEventListener('mouseenter', () => {
+                                checkbox.addEventListener('mouseenter', function() {
                                     if (isDragging) {
-                                        const currentIndex = Array.from(checkboxes).indexOf(checkbox);
-                                        if (currentIndex !== lastToggledIndex) {
-                                            checkbox.checked = !checkbox.checked;
-                                            updateSelectAllCheckbox(empresaId);
-                                            actualizarBotones(empresaId);
-                                        }
+                                        checkbox.checked = !checkbox.checked;
+                                        updateSelectAllCheckbox(empresaId);
+                                        actualizarBotones(empresaId);
                                     }
+                                });
+                                
+                                checkbox.addEventListener('touchstart', function(e) {
+                                    isDragging = true;
+                                    checkbox.checked = !checkbox.checked;
+                                    updateSelectAllCheckbox(empresaId);
+                                    actualizarBotones(empresaId);
                                 });
                             });
                             
-                            document.addEventListener('mouseup', () => {
-                                isDragging = false;
-                                lastToggledIndex = -1;
-                            });
+                            document.addEventListener('mouseup', function() { isDragging = false; });
+                            document.addEventListener('touchend', function() { isDragging = false; });
                             
                             let lastChecked = null;
-                            checkboxes.forEach(checkbox => {
+                            checkboxes.forEach(function(checkbox) {
                                 checkbox.addEventListener('click', function(e) {
                                     if (e.shiftKey && lastChecked !== null) {
                                         const checkboxesArray = Array.from(checkboxes);
@@ -1956,11 +1987,11 @@ if (isset($_POST['export_word'])) {
                             });
                             
                             function updateSelectAllCheckbox(empId) {
-                                const selectAll = document.getElementById(`select-all-${empId}`);
+                                const selectAll = document.getElementById('select-all-' + empId);
                                 if (!selectAll) return;
-                                const cbs = document.querySelectorAll(`.fila-check-${empId}`);
-                                const todosChecked = Array.from(cbs).every(cb => cb.checked);
-                                const algunosChecked = Array.from(cbs).some(cb => cb.checked);
+                                const cbs = document.querySelectorAll('.fila-check-' + empId);
+                                const todosChecked = Array.from(cbs).every(function(cb) { return cb.checked; });
+                                const algunosChecked = Array.from(cbs).some(function(cb) { return cb.checked; });
                                 if (todosChecked) {
                                     selectAll.checked = true;
                                     selectAll.indeterminate = false;
@@ -1974,92 +2005,71 @@ if (isset($_POST['export_word'])) {
                             }
                             
                             function actualizarBotones(empId) {
-                                const cbs = document.querySelectorAll(`.fila-check-${empId}`);
-                                const checkeados = Array.from(cbs).filter(cb => cb.checked);
-                                const btnExtras = document.getElementById(`btn-mover-${empId}`);
-                                const btnTabla = document.getElementById(`btn-mover-tabla-${empId}`);
-                                const selectTabla = document.getElementById(`select_tabla_${empId}`);
+                                const cbs = document.querySelectorAll('.fila-check-' + empId);
+                                const checkeados = Array.from(cbs).filter(function(cb) { return cb.checked; });
+                                const btnExtras = document.getElementById('btn-mover-' + empId);
+                                const btnTabla = document.getElementById('btn-mover-tabla-' + empId);
+                                const selectTabla = document.getElementById('select_tabla_' + empId);
                                 
                                 if (btnExtras) {
                                     btnExtras.disabled = checkeados.length === 0;
-                                    btnExtras.innerHTML = checkeados.length > 0 ? 
-                                        `⭐ Mover ${checkeados.length} a Extras` : `⭐ Mover a Extras`;
+                                    btnExtras.innerHTML = checkeados.length > 0 ? '⭐ Extras (' + checkeados.length + ')' : '⭐ Extras';
                                 }
                                 
                                 if (btnTabla && selectTabla) {
                                     btnTabla.disabled = checkeados.length === 0 || selectTabla.value === '';
-                                    btnTabla.innerHTML = checkeados.length > 0 && selectTabla.value !== '' ? 
-                                        `➡️ Mover ${checkeados.length} a "${selectTabla.value}"` : `➡️ Mover`;
+                                    btnTabla.innerHTML = checkeados.length > 0 && selectTabla.value !== '' ? '➡️ Mover (' + checkeados.length + ')' : '➡️ Mover';
                                 }
                             }
                             
-                            const selectTabla = document.getElementById(`select_tabla_${empresaId}`);
+                            const selectTabla = document.getElementById('select_tabla_' + empresaId);
                             if (selectTabla) {
-                                selectTabla.addEventListener('change', () => actualizarBotones(empresaId));
+                                selectTabla.addEventListener('change', function() { actualizarBotones(empresaId); });
                             }
                             
                             window.updateSelectAllCheckbox = updateSelectAllCheckbox;
                             window.actualizarBotones = actualizarBotones;
                             
                             window.toggleSeleccionarTodos = function(checkbox, empId) {
-                                const cbs = document.querySelectorAll(`.fila-check-${empId}`);
-                                cbs.forEach(cb => cb.checked = checkbox.checked);
+                                const cbs = document.querySelectorAll('.fila-check-' + empId);
+                                cbs.forEach(function(cb) { cb.checked = checkbox.checked; });
                                 updateSelectAllCheckbox(empId);
                                 actualizarBotones(empId);
                             };
                             
                             window.moverSeleccionadosATabla = function(empId) {
-                                const select = document.getElementById(`select_tabla_${empId}`);
+                                const select = document.getElementById('select_tabla_' + empId);
                                 if (!select || select.value === '') {
                                     alert('Selecciona una tabla de destino');
                                     return;
                                 }
                                 
-                                const cbs = document.querySelectorAll(`.fila-check-${empId}`);
-                                const idsSeleccionados = Array.from(cbs).filter(cb => cb.checked).map(cb => cb.value);
+                                const cbs = document.querySelectorAll('.fila-check-' + empId);
+                                const idsSeleccionados = Array.from(cbs).filter(function(cb) { return cb.checked; }).map(function(cb) { return cb.value; });
                                 if (idsSeleccionados.length === 0) return;
                                 
                                 const form = document.createElement('form');
                                 form.method = 'POST';
                                 
-                                const actionInput = document.createElement('input');
-                                actionInput.type = 'hidden';
-                                actionInput.name = 'action';
-                                actionInput.value = 'mover_a_tabla';
-                                form.appendChild(actionInput);
-                                
-                                const empresaInput = document.createElement('input');
-                                empresaInput.type = 'hidden';
-                                empresaInput.name = 'empresa_origen';
-                                empresaInput.value = '<?php echo htmlspecialchars($empresa_actual); ?>';
-                                form.appendChild(empresaInput);
-                                
-                                const tablaInput = document.createElement('input');
-                                tablaInput.type = 'hidden';
-                                tablaInput.name = 'tabla_destino';
-                                tablaInput.value = select.value;
-                                form.appendChild(tablaInput);
-                                
-                                const idsInput = document.createElement('input');
-                                idsInput.type = 'hidden';
-                                idsInput.name = 'ids_seleccionados';
-                                idsInput.value = idsSeleccionados.join(',');
-                                form.appendChild(idsInput);
+                                form.innerHTML = '<input type="hidden" name="action" value="mover_a_tabla">' +
+                                    '<input type="hidden" name="empresa_origen" value="<?php echo htmlspecialchars($empresa_actual); ?>">' +
+                                    '<input type="hidden" name="tabla_destino" value="' + select.value + '">' +
+                                    '<input type="hidden" name="ids_seleccionados" value="' + idsSeleccionados.join(',') + '">';
                                 
                                 document.body.appendChild(form);
                                 form.submit();
                             };
                             
                             window.moverSeleccionados = function(empId) {
-                                const cbs = document.querySelectorAll(`.fila-check-${empId}`);
-                                const idsSeleccionados = Array.from(cbs).filter(cb => cb.checked).map(cb => cb.value);
+                                const cbs = document.querySelectorAll('.fila-check-' + empId);
+                                const idsSeleccionados = Array.from(cbs).filter(function(cb) { return cb.checked; }).map(function(cb) { return cb.value; });
                                 if (idsSeleccionados.length === 0) return;
-                                document.getElementById(`ids-${empId}`).value = idsSeleccionados.join(',');
-                                document.getElementById(`form-${empId}`).submit();
+                                document.getElementById('ids-' + empId).value = idsSeleccionados.join(',');
+                                document.getElementById('form-' + empId).submit();
                             };
                             
-                            checkboxes.forEach(cb => {
-                                cb.addEventListener('change', () => {
+                            checkboxes.forEach(function(cb) {
+                                cb.addEventListener('change', function() {
                                     updateSelectAllCheckbox(empresaId);
                                     actualizarBotones(empresaId);
                                 });
@@ -2073,7 +2083,7 @@ if (isset($_POST['export_word'])) {
                             💰 TOTAL <?php echo htmlspecialchars($empresa_actual); ?>: 
                             $ <?php echo number_format($total_general_efectivo, 0, ',', '.'); ?>
                             <?php if ($total_general_efectivo != $total_general): ?>
-                            <span style="font-size:10px;opacity:0.7;"> (calculado: $ <?php echo number_format($total_general, 0, ',', '.'); ?>)</span>
+                            <span style="font-size:9px;opacity:0.7;"> (calc: $ <?php echo number_format($total_general, 0, ',', '.'); ?>)</span>
                             <?php endif; ?>
                         </div>
                     </div>
@@ -2081,15 +2091,15 @@ if (isset($_POST['export_word'])) {
                     <?php if ($es_nazareth): ?>
                     <script>
                         window.seleccionarPorRuta = function(empId) {
-                            const inputBusqueda = document.getElementById(`buscar_ruta_${empId}`);
+                            const inputBusqueda = document.getElementById('buscar_ruta_' + empId);
                             const textoBusqueda = inputBusqueda.value.trim().toLowerCase();
-                            if (textoBusqueda === "") { alert("Escribe una palabra para buscar en las rutas"); return; }
+                            if (textoBusqueda === "") { alert("Escribe una palabra para buscar"); return; }
                             
-                            const subTablas = document.querySelectorAll(`[id^="tbody-${empId}_c"]`);
+                            const subTablas = document.querySelectorAll('[id^="tbody-' + empId + '_c"]');
                             let seleccionadas = 0;
-                            subTablas.forEach(tbody => {
+                            subTablas.forEach(function(tbody) {
                                 const filas = tbody.querySelectorAll('tr');
-                                filas.forEach(fila => {
+                                filas.forEach(function(fila) {
                                     const celdaRuta = fila.querySelector('.ruta-cell');
                                     if (celdaRuta) {
                                         const ruta = celdaRuta.textContent.toLowerCase();
@@ -2102,13 +2112,11 @@ if (isset($_POST['export_word'])) {
                                 });
                             });
                             
-                            subTablas.forEach(tbody => {
+                            subTablas.forEach(function(tbody) {
                                 const subId = tbody.id.replace('tbody-', '');
                                 if (typeof updateSelectAllCheckbox === 'function') updateSelectAllCheckbox(subId);
                                 if (typeof actualizarBotones === 'function') actualizarBotones(subId);
                             });
-                            
-                            if (seleccionadas === 0) alert(`No se encontraron rutas que contengan "${textoBusqueda}"`);
                         };
                     </script>
                     <?php endif; ?>
@@ -2140,20 +2148,20 @@ if (isset($_POST['export_word'])) {
                         <h2>
                             🏥 <?php echo htmlspecialchars($empresa_actual); ?>
                             <?php if ($excede): ?>
-                                <span class="badge-exceso">⚠️ Excede presupuesto</span>
+                                <span class="badge-exceso">⚠️ Excede</span>
                             <?php endif; ?>
                             <?php if (!empty($nombres_seleccionados)): ?>
-                                <span class="badge-exceso" style="background: #1a73e8;">✏️ Nombres cambiados</span>
+                                <span class="badge-exceso" style="background: #1a73e8;">✏️ Nombres</span>
                             <?php endif; ?>
                         </h2>
-                        <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+                        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                             <?php if ($es_nazareth): ?>
                             <div class="busqueda-ruta">
-                                <input type="text" id="buscar_ruta_<?php echo $empresa_id; ?>" placeholder="Ej: Riohacha, Maicao..." autocomplete="off">
-                                <button type="button" onclick="seleccionarPorRuta('<?php echo $empresa_id; ?>')">🔍 Seleccionar rutas</button>
+                                <input type="text" id="buscar_ruta_<?php echo $empresa_id; ?>" placeholder="Buscar ruta..." autocomplete="off">
+                                <button type="button" onclick="seleccionarPorRuta('<?php echo $empresa_id; ?>')">🔍</button>
                             </div>
                             <?php endif; ?>
-                            <div class="drag-instruction">🖱️ Arrastra sobre los checkboxes</div>
+                            <div class="drag-instruction">🖱️ Arrastra checkboxes</div>
                             <div class="acciones-header">
                                 <?php if (!empty($tablas_disponibles)): ?>
                                 <select class="selector-tabla-destino" id="select_tabla_<?php echo $empresa_id; ?>">
@@ -2171,26 +2179,25 @@ if (isset($_POST['export_word'])) {
                                 <button type="button" class="btn-mover-extras" 
                                         onclick="moverSeleccionados('<?php echo $empresa_id; ?>')"
                                         id="btn-mover-<?php echo $empresa_id; ?>">
-                                    ⭐ Mover a Extras
+                                    ⭐ Extras
                                 </button>
                             </div>
                         </div>
                     </div>
                     
                     <div class="cambio-conductores-section">
-                        <div class="filtro-group" style="flex: 2; min-width: 300px;">
-                            <label>👤 Buscar o escribir nombre del conductor (máx. 2) - Presiona Enter para agregar</label>
+                        <div class="filtro-group" style="flex: 2; min-width: 200px;">
+                            <label>👤 Conductor (máx. 2) - Enter para agregar</label>
                             <div class="autocomplete-wrapper">
                                 <input type="text" 
                                        id="input_conductor_<?php echo $empresa_id; ?>" 
-                                       placeholder="Escribe y selecciona o presiona Enter..." 
+                                       placeholder="Escribe y selecciona..." 
                                        autocomplete="off"
                                        onkeyup="buscarConductores('<?php echo $empresa_id; ?>')"
                                        onfocus="buscarConductores('<?php echo $empresa_id; ?>')"
                                        onkeydown="manejarTeclaConductor(event, '<?php echo $empresa_id; ?>')">
                                 <div class="autocomplete-list" id="autocomplete_<?php echo $empresa_id; ?>"></div>
                             </div>
-                            <div class="input-hint">💡 Escribe y selecciona de la lista o presiona Enter para agregar un nombre libre</div>
                             <div class="tags-conductores" id="tags_<?php echo $empresa_id; ?>">
                                 <?php foreach ($nombres_seleccionados as $idx => $nombre): ?>
                                 <span class="tag-conductor">
@@ -2206,7 +2213,7 @@ if (isset($_POST['export_word'])) {
                                     id="btn_cambiar_<?php echo $empresa_id; ?>"
                                     onclick="cambiarConductores('<?php echo $empresa_id; ?>', '<?php echo htmlspecialchars($empresa_actual); ?>')"
                                     <?php echo empty($nombres_seleccionados) ? 'disabled' : ''; ?>>
-                                ✏️ Cambiar Conductores
+                                ✏️ Cambiar
                             </button>
                         </div>
                     </div>
@@ -2215,12 +2222,12 @@ if (isset($_POST['export_word'])) {
                         <input type="hidden" name="action" value="mover_extras">
                         <input type="hidden" name="empresa_origen" value="<?php echo htmlspecialchars($empresa_actual); ?>">
                         <input type="hidden" name="ids_seleccionados" id="ids-<?php echo $empresa_id; ?>">
-                        <div style="overflow-x: auto; max-width: 100%;">
-                            <table style="min-width: 1000px;">
+                        <div class="table-wrapper">
+                            <table>
                                 <thead>
                                     <tr>
                                         <th><input type="checkbox" id="select-all-<?php echo $empresa_id; ?>" onchange="toggleSeleccionarTodos(this, '<?php echo $empresa_id; ?>')"></th>
-                                        <th>#</th><th>Fecha</th><th>Conductor</th><th>Cédula</th><th>Ruta</th><th>Tipo</th><th>Clasificación</th><th>Valor Viaje</th><th>Acumulado</th>
+                                        <th>#</th><th>Fecha</th><th>Conductor</th><th>Cédula</th><th>Ruta</th><th>Tipo</th><th>Clasif.</th><th>Valor</th><th>Acum.</th>
                                     </tr>
                                 </thead>
                                 <tbody id="tbody-<?php echo $empresa_id; ?>">
@@ -2243,17 +2250,16 @@ if (isset($_POST['export_word'])) {
                         </div>
                     </form>
                     
-                    <div style="background:#e8f0fe;padding:12px 20px;display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap;">
+                    <div style="background:#e8f0fe;padding:10px 15px;display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;">
                         <strong>TOTAL <?php echo htmlspecialchars($empresa_actual); ?>:</strong>
                         <?php if ($es_manual): ?>
-                        <span style="font-size:11px;color:#999;text-decoration:line-through;">$ <?php echo number_format($total_calculado, 0, ',', '.'); ?></span>
-                        <span style="color:#e65100;">➜</span>
+                        <span style="font-size:10px;color:#999;text-decoration:line-through;">$ <?php echo number_format($total_calculado, 0, ',', '.'); ?></span>
                         <?php endif; ?>
-                        <span style="font-weight:700;font-size:14px;color:#1a73e8;">$ <?php echo number_format($total_efectivo, 0, ',', '.'); ?></span>
-                        <form method="POST" style="display:inline-flex;align-items:center;gap:6px;">
+                        <span style="font-weight:700;font-size:13px;color:#1a73e8;">$ <?php echo number_format($total_efectivo, 0, ',', '.'); ?></span>
+                        <form method="POST" style="display:inline-flex;align-items:center;gap:4px;">
                             <input type="hidden" name="action" value="guardar_total_manual">
                             <input type="hidden" name="total_key" value="<?php echo htmlspecialchars($key_tabla_empresa); ?>">
-                            <input type="number" name="total_valor" value="<?php echo $total_efectivo; ?>" step="1" style="width:110px;padding:4px 8px;border:1px solid #1a73e8;border-radius:6px;text-align:right;font-weight:600;font-size:12px;">
+                            <input type="number" name="total_valor" value="<?php echo $total_efectivo; ?>" step="1" style="width:90px;">
                             <button type="submit" class="btn-guardar-total">💾</button>
                         </form>
                     </div>
@@ -2262,39 +2268,39 @@ if (isset($_POST['export_word'])) {
                 <script>
                 (function() {
                     const empresaId = '<?php echo $empresa_id; ?>';
-                    const checkboxes = document.querySelectorAll(`.fila-check-${empresaId}`);
+                    const checkboxes = document.querySelectorAll('.fila-check-' + empresaId);
                     
                     let isDragging = false;
-                    let lastToggledIndex = -1;
                     
-                    checkboxes.forEach(checkbox => {
-                        checkbox.addEventListener('mousedown', (e) => {
+                    checkboxes.forEach(function(checkbox) {
+                        checkbox.addEventListener('mousedown', function(e) {
                             isDragging = true;
-                            lastToggledIndex = Array.from(checkboxes).indexOf(checkbox);
                             checkbox.checked = !checkbox.checked;
                             updateSelectAllCheckbox(empresaId);
                             actualizarBotones(empresaId);
                         });
                         
-                        checkbox.addEventListener('mouseenter', () => {
+                        checkbox.addEventListener('mouseenter', function() {
                             if (isDragging) {
-                                const currentIndex = Array.from(checkboxes).indexOf(checkbox);
-                                if (currentIndex !== lastToggledIndex) {
-                                    checkbox.checked = !checkbox.checked;
-                                    updateSelectAllCheckbox(empresaId);
-                                    actualizarBotones(empresaId);
-                                }
+                                checkbox.checked = !checkbox.checked;
+                                updateSelectAllCheckbox(empresaId);
+                                actualizarBotones(empresaId);
                             }
+                        });
+                        
+                        checkbox.addEventListener('touchstart', function(e) {
+                            isDragging = true;
+                            checkbox.checked = !checkbox.checked;
+                            updateSelectAllCheckbox(empresaId);
+                            actualizarBotones(empresaId);
                         });
                     });
                     
-                    document.addEventListener('mouseup', () => {
-                        isDragging = false;
-                        lastToggledIndex = -1;
-                    });
+                    document.addEventListener('mouseup', function() { isDragging = false; });
+                    document.addEventListener('touchend', function() { isDragging = false; });
                     
                     let lastChecked = null;
-                    checkboxes.forEach(checkbox => {
+                    checkboxes.forEach(function(checkbox) {
                         checkbox.addEventListener('click', function(e) {
                             if (e.shiftKey && lastChecked !== null) {
                                 const checkboxesArray = Array.from(checkboxes);
@@ -2313,11 +2319,11 @@ if (isset($_POST['export_word'])) {
                     });
                     
                     function updateSelectAllCheckbox(empId) {
-                        const selectAll = document.getElementById(`select-all-${empId}`);
+                        const selectAll = document.getElementById('select-all-' + empId);
                         if (!selectAll) return;
-                        const cbs = document.querySelectorAll(`.fila-check-${empId}`);
-                        const todosChecked = Array.from(cbs).every(cb => cb.checked);
-                        const algunosChecked = Array.from(cbs).some(cb => cb.checked);
+                        const cbs = document.querySelectorAll('.fila-check-' + empId);
+                        const todosChecked = Array.from(cbs).every(function(cb) { return cb.checked; });
+                        const algunosChecked = Array.from(cbs).some(function(cb) { return cb.checked; });
                         if (todosChecked) {
                             selectAll.checked = true;
                             selectAll.indeterminate = false;
@@ -2331,92 +2337,71 @@ if (isset($_POST['export_word'])) {
                     }
                     
                     function actualizarBotones(empId) {
-                        const cbs = document.querySelectorAll(`.fila-check-${empId}`);
-                        const checkeados = Array.from(cbs).filter(cb => cb.checked);
-                        const btnExtras = document.getElementById(`btn-mover-${empId}`);
-                        const btnTabla = document.getElementById(`btn-mover-tabla-${empId}`);
-                        const selectTabla = document.getElementById(`select_tabla_${empId}`);
+                        const cbs = document.querySelectorAll('.fila-check-' + empId);
+                        const checkeados = Array.from(cbs).filter(function(cb) { return cb.checked; });
+                        const btnExtras = document.getElementById('btn-mover-' + empId);
+                        const btnTabla = document.getElementById('btn-mover-tabla-' + empId);
+                        const selectTabla = document.getElementById('select_tabla_' + empId);
                         
                         if (btnExtras) {
                             btnExtras.disabled = checkeados.length === 0;
-                            btnExtras.innerHTML = checkeados.length > 0 ? 
-                                `⭐ Mover ${checkeados.length} a Extras` : `⭐ Mover a Extras`;
+                            btnExtras.innerHTML = checkeados.length > 0 ? '⭐ Extras (' + checkeados.length + ')' : '⭐ Extras';
                         }
                         
                         if (btnTabla && selectTabla) {
                             btnTabla.disabled = checkeados.length === 0 || selectTabla.value === '';
-                            btnTabla.innerHTML = checkeados.length > 0 && selectTabla.value !== '' ? 
-                                `➡️ Mover ${checkeados.length} a "${selectTabla.value}"` : `➡️ Mover`;
+                            btnTabla.innerHTML = checkeados.length > 0 && selectTabla.value !== '' ? '➡️ Mover (' + checkeados.length + ')' : '➡️ Mover';
                         }
                     }
                     
-                    const selectTabla = document.getElementById(`select_tabla_${empresaId}`);
+                    const selectTabla = document.getElementById('select_tabla_' + empresaId);
                     if (selectTabla) {
-                        selectTabla.addEventListener('change', () => actualizarBotones(empresaId));
+                        selectTabla.addEventListener('change', function() { actualizarBotones(empresaId); });
                     }
                     
                     window.updateSelectAllCheckbox = updateSelectAllCheckbox;
                     window.actualizarBotones = actualizarBotones;
                     
                     window.toggleSeleccionarTodos = function(checkbox, empId) {
-                        const cbs = document.querySelectorAll(`.fila-check-${empId}`);
-                        cbs.forEach(cb => cb.checked = checkbox.checked);
+                        const cbs = document.querySelectorAll('.fila-check-' + empId);
+                        cbs.forEach(function(cb) { cb.checked = checkbox.checked; });
                         updateSelectAllCheckbox(empId);
                         actualizarBotones(empId);
                     };
                     
                     window.moverSeleccionadosATabla = function(empId) {
-                        const select = document.getElementById(`select_tabla_${empId}`);
+                        const select = document.getElementById('select_tabla_' + empId);
                         if (!select || select.value === '') {
                             alert('Selecciona una tabla de destino');
                             return;
                         }
                         
-                        const cbs = document.querySelectorAll(`.fila-check-${empId}`);
-                        const idsSeleccionados = Array.from(cbs).filter(cb => cb.checked).map(cb => cb.value);
+                        const cbs = document.querySelectorAll('.fila-check-' + empId);
+                        const idsSeleccionados = Array.from(cbs).filter(function(cb) { return cb.checked; }).map(function(cb) { return cb.value; });
                         if (idsSeleccionados.length === 0) return;
                         
                         const form = document.createElement('form');
                         form.method = 'POST';
                         
-                        const actionInput = document.createElement('input');
-                        actionInput.type = 'hidden';
-                        actionInput.name = 'action';
-                        actionInput.value = 'mover_a_tabla';
-                        form.appendChild(actionInput);
-                        
-                        const empresaInput = document.createElement('input');
-                        empresaInput.type = 'hidden';
-                        empresaInput.name = 'empresa_origen';
-                        empresaInput.value = '<?php echo htmlspecialchars($empresa_actual); ?>';
-                        form.appendChild(empresaInput);
-                        
-                        const tablaInput = document.createElement('input');
-                        tablaInput.type = 'hidden';
-                        tablaInput.name = 'tabla_destino';
-                        tablaInput.value = select.value;
-                        form.appendChild(tablaInput);
-                        
-                        const idsInput = document.createElement('input');
-                        idsInput.type = 'hidden';
-                        idsInput.name = 'ids_seleccionados';
-                        idsInput.value = idsSeleccionados.join(',');
-                        form.appendChild(idsInput);
+                        form.innerHTML = '<input type="hidden" name="action" value="mover_a_tabla">' +
+                            '<input type="hidden" name="empresa_origen" value="<?php echo htmlspecialchars($empresa_actual); ?>">' +
+                            '<input type="hidden" name="tabla_destino" value="' + select.value + '">' +
+                            '<input type="hidden" name="ids_seleccionados" value="' + idsSeleccionados.join(',') + '">';
                         
                         document.body.appendChild(form);
                         form.submit();
                     };
                     
                     window.moverSeleccionados = function(empId) {
-                        const cbs = document.querySelectorAll(`.fila-check-${empId}`);
-                        const idsSeleccionados = Array.from(cbs).filter(cb => cb.checked).map(cb => cb.value);
+                        const cbs = document.querySelectorAll('.fila-check-' + empId);
+                        const idsSeleccionados = Array.from(cbs).filter(function(cb) { return cb.checked; }).map(function(cb) { return cb.value; });
                         if (idsSeleccionados.length === 0) return;
-                        document.getElementById(`ids-${empId}`).value = idsSeleccionados.join(',');
-                        document.getElementById(`form-${empId}`).submit();
+                        document.getElementById('ids-' + empId).value = idsSeleccionados.join(',');
+                        document.getElementById('form-' + empId).submit();
                     };
                     
-                    checkboxes.forEach(cb => {
-                        cb.addEventListener('change', () => {
+                    checkboxes.forEach(function(cb) {
+                        cb.addEventListener('change', function() {
                             updateSelectAllCheckbox(empresaId);
                             actualizarBotones(empresaId);
                         });
@@ -2425,16 +2410,16 @@ if (isset($_POST['export_word'])) {
                     
                     <?php if ($es_nazareth): ?>
                     window.seleccionarPorRuta = function(empId) {
-                        const inputBusqueda = document.getElementById(`buscar_ruta_${empId}`);
+                        const inputBusqueda = document.getElementById('buscar_ruta_' + empId);
                         const textoBusqueda = inputBusqueda.value.trim().toLowerCase();
-                        if (textoBusqueda === "") { alert("Escribe una palabra para buscar en las rutas"); return; }
-                        const filas = document.querySelectorAll(`#tbody-${empId} tr`);
+                        if (textoBusqueda === "") { alert("Escribe una palabra para buscar"); return; }
+                        const filas = document.querySelectorAll('#tbody-' + empId + ' tr');
                         let seleccionadas = 0;
-                        filas.forEach(fila => {
+                        filas.forEach(function(fila) {
                             const celdaRuta = fila.querySelector('.ruta-cell');
                             if (celdaRuta) {
                                 const ruta = celdaRuta.textContent.toLowerCase();
-                                const checkbox = fila.querySelector(`.fila-check-${empId}`);
+                                const checkbox = fila.querySelector('.fila-check-' + empId);
                                 if (checkbox && ruta.includes(textoBusqueda)) {
                                     checkbox.checked = true;
                                     seleccionadas++;
@@ -2443,7 +2428,6 @@ if (isset($_POST['export_word'])) {
                         });
                         updateSelectAllCheckbox(empId);
                         actualizarBotones(empId);
-                        if (seleccionadas === 0) alert(`No se encontraron rutas que contengan "${textoBusqueda}"`);
                     };
                     <?php endif; ?>
                 })();
@@ -2464,8 +2448,8 @@ if (isset($_POST['export_word'])) {
         <!-- TABLA RESUMEN GENERAL -->
         <div class="resumen-table">
             <div class="resumen-header">📋 RESUMEN GENERAL</div>
-            <div style="overflow-x: auto; max-width: 100%;">
-                <table style="min-width: 600px;">
+            <div class="table-wrapper">
+                <table>
                     <thead>
                         <tr>
                             <th>Concepto</th>
@@ -2506,8 +2490,8 @@ if (isset($_POST['export_word'])) {
     </div>
     
     <script>
-        const todosLosConductores = <?php echo json_encode($todos_conductores); ?>;
-        const conductoresSeleccionados = {};
+        var todosLosConductores = <?php echo json_encode($todos_conductores); ?>;
+        var conductoresSeleccionados = {};
         
         <?php foreach ($empresas_seleccionadas as $empresa): 
             $emp_id = 'emp_' . preg_replace('/[^a-zA-Z0-9]/', '_', $empresa);
@@ -2517,37 +2501,37 @@ if (isset($_POST['export_word'])) {
         <?php endforeach; ?>
         
         function buscarConductores(empresaId) {
-            const input = document.getElementById('input_conductor_' + empresaId);
-            const lista = document.getElementById('autocomplete_' + empresaId);
-            const texto = input.value.trim();
+            var input = document.getElementById('input_conductor_' + empresaId);
+            var lista = document.getElementById('autocomplete_' + empresaId);
+            var texto = input.value.trim();
             
             if (texto === '') {
                 lista.style.display = 'none';
                 return;
             }
             
-            const textoLower = texto.toLowerCase();
-            const coincidencias = todosLosConductores.filter(conductor => 
-                conductor.toLowerCase().includes(textoLower)
-            );
+            var textoLower = texto.toLowerCase();
+            var coincidencias = todosLosConductores.filter(function(conductor) {
+                return conductor.toLowerCase().indexOf(textoLower) !== -1;
+            });
             
             if (coincidencias.length === 0) {
-                lista.innerHTML = '<div style="padding:10px;color:#999;">Sin coincidencias - Presiona Enter para agregar "' + texto + '"</div>';
+                lista.innerHTML = '<div style="padding:10px;color:#999;">Presiona Enter para agregar "' + texto + '"</div>';
                 lista.style.display = 'block';
                 return;
             }
             
-            lista.innerHTML = coincidencias.map(conductor => 
-                `<div onclick="seleccionarConductor('${empresaId}', '${conductor.replace(/'/g, "\\'")}')">${conductor}</div>`
-            ).join('') + '<div style="padding:8px 15px;background:#f0f0f0;color:#666;font-size:11px;border-top:1px solid #ddd;">💡 O presiona Enter para agregar: <strong>' + texto + '</strong></div>';
+            lista.innerHTML = coincidencias.map(function(conductor) {
+                return '<div onclick="seleccionarConductor(\'' + empresaId + '\', \'' + conductor.replace(/'/g, "\\'") + '\')">' + conductor + '</div>';
+            }).join('') + '<div style="padding:8px 12px;background:#f0f0f0;color:#666;font-size:10px;border-top:1px solid #ddd;">💡 Enter para: <strong>' + texto + '</strong></div>';
             lista.style.display = 'block';
         }
         
         function manejarTeclaConductor(event, empresaId) {
             if (event.key === 'Enter') {
                 event.preventDefault();
-                const input = document.getElementById('input_conductor_' + empresaId);
-                const texto = input.value.trim();
+                var input = document.getElementById('input_conductor_' + empresaId);
+                var texto = input.value.trim();
                 
                 if (texto === '') return;
                 
@@ -2563,11 +2547,11 @@ if (isset($_POST['export_word'])) {
             }
             
             if (conductoresSeleccionados[empresaId].length >= 2) {
-                alert('Máximo 2 conductores por tabla');
+                alert('Máximo 2 conductores');
                 return;
             }
             
-            if (conductoresSeleccionados[empresaId].includes(conductor)) {
+            if (conductoresSeleccionados[empresaId].indexOf(conductor) !== -1) {
                 alert('Este conductor ya está seleccionado');
                 return;
             }
@@ -2583,11 +2567,11 @@ if (isset($_POST['export_word'])) {
             }
             
             if (conductoresSeleccionados[empresaId].length >= 2) {
-                alert('Máximo 2 conductores por tabla');
+                alert('Máximo 2 conductores');
                 return;
             }
             
-            if (conductoresSeleccionados[empresaId].includes(conductor)) {
+            if (conductoresSeleccionados[empresaId].indexOf(conductor) !== -1) {
                 alert('Este conductor ya está seleccionado');
                 return;
             }
@@ -2596,8 +2580,7 @@ if (isset($_POST['export_word'])) {
             actualizarTags(empresaId);
             actualizarBotonCambiar(empresaId);
             
-            const input = document.getElementById('input_conductor_' + empresaId);
-            input.value = '';
+            document.getElementById('input_conductor_' + empresaId).value = '';
             document.getElementById('autocomplete_' + empresaId).style.display = 'none';
         }
         
@@ -2610,80 +2593,64 @@ if (isset($_POST['export_word'])) {
         }
         
         function actualizarTags(empresaId) {
-            const tagsContainer = document.getElementById('tags_' + empresaId);
+            var tagsContainer = document.getElementById('tags_' + empresaId);
             if (!tagsContainer) return;
             
-            const conductores = conductoresSeleccionados[empresaId] || [];
+            var conductores = conductoresSeleccionados[empresaId] || [];
             
-            tagsContainer.innerHTML = conductores.map((conductor, idx) => 
-                `<span class="tag-conductor">
-                    ${conductor}
-                    <span class="remove-tag" onclick="removerConductor('${empresaId}', ${idx})">✕</span>
-                </span>`
-            ).join('');
+            tagsContainer.innerHTML = conductores.map(function(conductor, idx) {
+                return '<span class="tag-conductor">' + conductor + '<span class="remove-tag" onclick="removerConductor(\'' + empresaId + '\', ' + idx + ')">✕</span></span>';
+            }).join('');
         }
         
         function actualizarBotonCambiar(empresaId) {
-            const btn = document.getElementById('btn_cambiar_' + empresaId);
+            var btn = document.getElementById('btn_cambiar_' + empresaId);
             if (!btn) return;
             
-            const conductores = conductoresSeleccionados[empresaId] || [];
+            var conductores = conductoresSeleccionados[empresaId] || [];
             btn.disabled = conductores.length === 0;
         }
         
         function cambiarConductores(empresaId, empresaNombre) {
-            const conductores = conductoresSeleccionados[empresaId] || [];
+            var conductores = conductoresSeleccionados[empresaId] || [];
             
             if (conductores.length === 0) {
                 alert('Selecciona al menos un conductor');
                 return;
             }
             
-            const form = document.createElement('form');
+            var form = document.createElement('form');
             form.method = 'POST';
             form.style.display = 'none';
             
-            const actionInput = document.createElement('input');
-            actionInput.type = 'hidden';
-            actionInput.name = 'action';
-            actionInput.value = 'cambiar_conductores';
-            form.appendChild(actionInput);
-            
-            const empresaInput = document.createElement('input');
-            empresaInput.type = 'hidden';
-            empresaInput.name = 'empresa_cambio';
-            empresaInput.value = empresaNombre;
-            form.appendChild(empresaInput);
-            
-            conductores.forEach((conductor) => {
-                const nombreInput = document.createElement('input');
-                nombreInput.type = 'hidden';
-                nombreInput.name = 'nombres_conductores[]';
-                nombreInput.value = conductor;
-                form.appendChild(nombreInput);
+            var html = '<input type="hidden" name="action" value="cambiar_conductores">';
+            html += '<input type="hidden" name="empresa_cambio" value="' + empresaNombre + '">';
+            conductores.forEach(function(conductor) {
+                html += '<input type="hidden" name="nombres_conductores[]" value="' + conductor + '">';
             });
+            form.innerHTML = html;
             
             document.body.appendChild(form);
             form.submit();
         }
         
         function seleccionarTodas(seleccionar) {
-            const checkboxes = document.querySelectorAll('#empresasGrid input[type="checkbox"]');
-            checkboxes.forEach(cb => cb.checked = seleccionar);
+            var checkboxes = document.querySelectorAll('#empresasGrid input[type="checkbox"]');
+            checkboxes.forEach(function(cb) { cb.checked = seleccionar; });
             document.getElementById('filtroForm').submit();
         }
         
-        document.querySelectorAll('#empresasGrid input[type="checkbox"]').forEach(cb => {
-            cb.addEventListener('change', () => document.getElementById('filtroForm').submit());
+        document.querySelectorAll('#empresasGrid input[type="checkbox"]').forEach(function(cb) {
+            cb.addEventListener('change', function() { document.getElementById('filtroForm').submit(); });
         });
         
         function irATabla(empresa) {
-            let idTabla = 'tabla_' + empresa.replace(/[^a-zA-Z0-9]/g, '_');
-            let elemento = document.getElementById(idTabla);
+            var idTabla = 'tabla_' + empresa.replace(/[^a-zA-Z0-9]/g, '_');
+            var elemento = document.getElementById(idTabla);
             if (!elemento) {
-                const empresaParts = empresa.split(' - ');
+                var empresaParts = empresa.split(' - ');
                 if (empresaParts.length > 1) {
-                    const nombreTabla = empresaParts[1].trim();
+                    var nombreTabla = empresaParts[1].trim();
                     idTabla = 'tabla_pers_' + nombreTabla.replace(/[^a-zA-Z0-9]/g, '_');
                     elemento = document.getElementById(idTabla);
                 }
@@ -2692,7 +2659,7 @@ if (isset($_POST['export_word'])) {
                 elemento.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 elemento.style.transition = 'box-shadow 0.3s';
                 elemento.style.boxShadow = '0 0 0 3px #ff9800, 0 4px 12px rgba(0,0,0,0.15)';
-                setTimeout(() => {
+                setTimeout(function() {
                     elemento.style.boxShadow = '';
                 }, 2000);
             }
@@ -2707,9 +2674,9 @@ if (isset($_POST['export_word'])) {
         }
         
         document.addEventListener('click', function(e) {
-            const autocompleteLists = document.querySelectorAll('.autocomplete-list');
-            autocompleteLists.forEach(lista => {
-                const wrapper = lista.parentElement;
+            var autocompleteLists = document.querySelectorAll('.autocomplete-list');
+            autocompleteLists.forEach(function(lista) {
+                var wrapper = lista.parentElement;
                 if (!wrapper.contains(e.target)) {
                     lista.style.display = 'none';
                 }
