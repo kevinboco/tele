@@ -5,6 +5,12 @@ ini_set('display_errors', 1);
 
 session_start();
 
+// Cargar PhpWord
+require_once 'vendor/autoload.php';
+
+use PhpOffice\PhpWord\PhpWord;
+use PhpOffice\PhpWord\IOFactory;
+
 // Conexión BD
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
 if ($conn->connect_error) {
@@ -35,7 +41,7 @@ if (!isset($_SESSION['totales_manuales'])) {
 // Procesar acciones POST
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['export_word'])) {
-        // No hacer nada, solo exportar
+        // Se procesa al final del archivo
     } elseif (isset($_POST['action'])) {
         switch($_POST['action']) {
             case 'mover_a_tabla':
@@ -101,7 +107,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (isset($_POST['tabla_nombre'])) {
                     $nombre_tabla = $_POST['tabla_nombre'];
                     unset($_SESSION['tablas_personalizadas'][$nombre_tabla]);
-                    // También eliminar el total manual de esa tabla
                     $key_tabla = 'tabla__' . $nombre_tabla;
                     if (isset($_SESSION['totales_manuales'][$key_tabla])) {
                         unset($_SESSION['totales_manuales'][$key_tabla]);
@@ -120,7 +125,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $_SESSION['tablas_personalizadas'][$nuevo]['nombre'] = $nuevo;
                         unset($_SESSION['tablas_personalizadas'][$original]);
                         
-                        // Actualizar totales manuales si existen
                         $total_key_old = 'tabla__' . $original;
                         $total_key_new = 'tabla__' . $nuevo;
                         if (isset($_SESSION['totales_manuales'][$total_key_old])) {
@@ -332,7 +336,6 @@ function calcular_acumulado_extras($extras) {
     return $resultados;
 }
 
-// Función para obtener el total efectivo (manual o calculado)
 function obtenerTotalEfectivo($key, $total_calculado) {
     if (isset($_SESSION['totales_manuales'][$key])) {
         return $_SESSION['totales_manuales'][$key];
@@ -340,12 +343,10 @@ function obtenerTotalEfectivo($key, $total_calculado) {
     return $total_calculado;
 }
 
-// Función para obtener datos de las tablas
 function obtenerDatosParaExportar($conn, $fecha_desde, $fecha_hasta, $empresas_seleccionadas, $extras, $PRESUPUESTO_BASE) {
     $datos = array();
     $ids_en_extras = array_column($extras, 'id');
     
-    // También excluir IDs que están en tablas personalizadas
     $ids_en_tablas = array();
     foreach ($_SESSION['tablas_personalizadas'] as $tabla) {
         foreach ($tabla['viajes'] as $viaje) {
@@ -559,7 +560,6 @@ foreach ($empresas_seleccionadas as $empresa) {
     $total_puestos += $total_empresa;
 }
 
-// Sumar totales de tablas personalizadas
 $total_tablas_personalizadas = 0;
 foreach ($totales_tablas as $total_tabla) {
     $total_tablas_personalizadas += $total_tabla['efectivo'];
@@ -567,212 +567,247 @@ foreach ($totales_tablas as $total_tabla) {
 
 $total_general = $total_puestos + $total_extras + $total_tablas_personalizadas;
 
-// Si es exportación a Word
+// ============================================================
+// EXPORTACIÓN A WORD (DOCX) CON PHPWORD
+// ============================================================
 if (isset($_POST['export_word'])) {
-    header("Content-Type: application/msword");
-    header("Content-Disposition: attachment; filename=informe_viajes_" . date('Y-m-d') . ".doc");
-    header("Cache-Control: no-cache, must-revalidate");
-    ?>
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <title>Informe de Viajes</title>
-        <style>
-            body { font-family: Arial, Helvetica, sans-serif; margin: 20px; font-size: 11pt; }
-            h1 { color: #1a73e8; font-size: 18pt; }
-            h2 { background: #1a73e8; color: white; padding: 8px 12px; font-size: 14pt; margin-top: 20px; }
-            h3 { background: #455a64; color: white; padding: 6px 10px; font-size: 12pt; margin-top: 15px; }
-            .info-filtros { margin-bottom: 20px; padding: 10px; background: #f0f2f5; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-            th { background: #f8f9fa; border: 1px solid #ccc; padding: 8px; font-weight: bold; }
-            td { border: 1px solid #ccc; padding: 6px 8px; vertical-align: top; }
-            .total-row { background: #e8f0fe; font-weight: bold; }
-            .costo { text-align: right; }
-            .tabla-personalizada { margin-top: 30px; border: 2px solid #9c27b0; }
-            .tabla-personalizada-title { background: #9c27b0; color: white; padding: 8px 12px; font-size: 14pt; font-weight: bold; }
-            .extras-table { margin-top: 30px; border: 2px solid #ff9800; }
-            .extras-title { background: #ff9800; color: white; padding: 8px 12px; font-size: 14pt; font-weight: bold; }
-            .resumen-table { margin-top: 30px; border: 2px solid #1a73e8; }
-            .resumen-title { background: #1a73e8; color: white; padding: 8px 12px; font-size: 14pt; font-weight: bold; }
-            .subtotal-row { background: #e3f2fd; font-weight: bold; }
-            .gran-total-row { background: #1a73e8; color: white; font-weight: bold; font-size: 12pt; }
-        </style>
-    </head>
-    <body>
-        <h1>📊 Informe de Viajes por Puesto de Salud</h1>
-        <div class="info-filtros">
-            <strong>📅 Período:</strong> <?php echo $fecha_desde ? date('d/m/Y', strtotime($fecha_desde)) : 'Todo'; ?> - <?php echo $fecha_hasta ? date('d/m/Y', strtotime($fecha_hasta)) : 'Todo'; ?><br>
-            <strong>🏥 Empresas:</strong> <?php echo !empty($empresas_seleccionadas) ? implode(', ', $empresas_seleccionadas) : 'Ninguna'; ?>
-        </div>
+    $phpWord = new PhpWord();
+    $phpWord->setDefaultFontName('Arial');
+    $phpWord->setDefaultFontSize(10);
+    
+    $section = $phpWord->addSection([
+        'marginLeft' => 1134,
+        'marginRight' => 1134,
+        'marginTop' => 1134,
+        'marginBottom' => 1134,
+    ]);
+    
+    // Título principal
+    $section->addTitle('Informe de Viajes por Puesto de Salud', 1);
+    
+    // Información de filtros
+    $section->addText(
+        'Periodo: ' . ($fecha_desde ? date('d/m/Y', strtotime($fecha_desde)) : 'Todo') . 
+        ' - ' . ($fecha_hasta ? date('d/m/Y', strtotime($fecha_hasta)) : 'Todo') .
+        ' | Empresas: ' . (!empty($empresas_seleccionadas) ? implode(', ', $empresas_seleccionadas) : 'Ninguna'),
+        ['bold' => true, 'size' => 10],
+        ['spaceAfter' => 240]
+    );
+    
+    $tableStyle = [
+        'borderSize' => 6,
+        'borderColor' => '999999',
+        'cellMargin' => 60,
+        'width' => 100 * 50,
+        'unit' => \PhpOffice\PhpWord\SimpleType\TblWidth::PERCENT,
+    ];
+    
+    $firstRowStyle = [
+        'bgColor' => '1a73e8',
+        'bold' => true,
+        'color' => 'FFFFFF',
+        'size' => 9,
+    ];
+    
+    $totalRowStyle = [
+        'bgColor' => 'e8f0fe',
+        'bold' => true,
+        'size' => 10,
+    ];
+    
+    // Tablas de empresas
+    foreach ($datos_empresas as $empresa => $data) {
+        if ($data['tipo'] === 'multiple') {
+            foreach ($data['tablas'] as $tabla) {
+                if (empty($tabla['rows'])) continue;
+                
+                $section->addTitle($empresa . ' - ' . $tabla['nombre_conductor'], 2);
+                
+                $table = $section->addTable($tableStyle);
+                
+                $table->addRow();
+                $table->addCell(1500, $firstRowStyle)->addText('Fecha');
+                $table->addCell(2500, $firstRowStyle)->addText('Conductor');
+                $table->addCell(4000, $firstRowStyle)->addText('Ruta');
+                $table->addCell(1500, array_merge($firstRowStyle, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END]))->addText('Valor');
+                
+                foreach ($tabla['rows'] as $row) {
+                    $table->addRow();
+                    $table->addCell(1500)->addText(date('d/m/Y', strtotime($row['fecha'])), ['size' => 9]);
+                    $table->addCell(2500)->addText($row['nombre'] ?? '-', ['size' => 9]);
+                    $table->addCell(4000)->addText($row['ruta'] ?? '-', ['size' => 9]);
+                    $table->addCell(1500, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END])->addText(
+                        '$ ' . number_format($row['costo'], 0, ',', '.'),
+                        ['size' => 9]
+                    );
+                }
+                
+                $table->addRow();
+                $table->addCell(8000, array_merge($totalRowStyle, ['gridSpan' => 3, 'alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END]))->addText('TOTAL:');
+                $table->addCell(1500, array_merge($totalRowStyle, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END]))->addText(
+                    '$ ' . number_format($tabla['total'], 0, ',', '.')
+                );
+            }
+        } else {
+            if (empty($data['rows'])) continue;
+            
+            $section->addTitle($empresa, 2);
+            
+            $table = $section->addTable($tableStyle);
+            
+            $table->addRow();
+            $table->addCell(1500, $firstRowStyle)->addText('Fecha');
+            $table->addCell(2500, $firstRowStyle)->addText('Conductor');
+            $table->addCell(4000, $firstRowStyle)->addText('Ruta');
+            $table->addCell(1500, array_merge($firstRowStyle, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END]))->addText('Valor');
+            
+            foreach ($data['rows'] as $row) {
+                $table->addRow();
+                $table->addCell(1500)->addText(date('d/m/Y', strtotime($row['fecha'])), ['size' => 9]);
+                $table->addCell(2500)->addText($row['nombre'] ?? '-', ['size' => 9]);
+                $table->addCell(4000)->addText($row['ruta'] ?? '-', ['size' => 9]);
+                $table->addCell(1500, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END])->addText(
+                    '$ ' . number_format($row['costo'], 0, ',', '.'),
+                    ['size' => 9]
+                );
+            }
+            
+            $table->addRow();
+            $table->addCell(8000, array_merge($totalRowStyle, ['gridSpan' => 3, 'alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END]))->addText('TOTAL:');
+            $table->addCell(1500, array_merge($totalRowStyle, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END]))->addText(
+                '$ ' . number_format($data['total_efectivo'], 0, ',', '.')
+            );
+        }
+    }
+    
+    // Tablas personalizadas
+    foreach ($_SESSION['tablas_personalizadas'] as $nombre => $tabla) {
+        if (empty($tabla['viajes'])) continue;
         
-        <?php foreach ($datos_empresas as $empresa => $data): ?>
-            <?php if ($data['tipo'] === 'multiple'): ?>
-                <?php foreach ($data['tablas'] as $tabla): if (empty($tabla['rows'])) continue; ?>
-                    <h3>🏥 <?php echo htmlspecialchars($empresa); ?> - <?php echo htmlspecialchars($tabla['nombre_conductor']); ?></h3>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Fecha</th>
-                                <th>Conductor</th>
-                                <th>Ruta</th>
-                                <th>Valor</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach($tabla['rows'] as $row): ?>
-                            <tr>
-                                <td><?php echo date('d/m/Y', strtotime($row['fecha'])); ?></td>
-                                <td><?php echo htmlspecialchars($row['nombre'] ?? '-'); ?></td>
-                                <td><?php echo htmlspecialchars($row['ruta'] ?? '-'); ?></td>
-                                <td class="costo">$ <?php echo number_format($row['costo'], 0, ',', '.'); ?></td>
-                            </tr>
-                            <?php endforeach; ?>
-                            <tr class="total-row">
-                                <td colspan="3" style="text-align:right;">TOTAL:</td>
-                                <td class="costo">$ <?php echo number_format($tabla['total'], 0, ',', '.'); ?></td>
-                            </tr>
-                        </tbody>
-                    </table>
-                <?php endforeach; ?>
-            <?php else: ?>
-                <?php if (empty($data['rows'])) continue; ?>
-                <h2>🏥 <?php echo htmlspecialchars($empresa); ?></h2>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Fecha</th>
-                            <th>Conductor</th>
-                            <th>Ruta</th>
-                            <th>Valor</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach($data['rows'] as $row): ?>
-                        <tr>
-                            <td><?php echo date('d/m/Y', strtotime($row['fecha'])); ?></td>
-                            <td><?php echo htmlspecialchars($row['nombre'] ?? '-'); ?></td>
-                            <td><?php echo htmlspecialchars($row['ruta'] ?? '-'); ?></td>
-                            <td class="costo">$ <?php echo number_format($row['costo'], 0, ',', '.'); ?></td>
-                        </tr>
-                        <?php endforeach; ?>
-                        <tr class="total-row">
-                            <td colspan="3" style="text-align:right;">TOTAL:</td>
-                            <td class="costo">$ <?php echo number_format($data['total_efectivo'], 0, ',', '.'); ?></td>
-                        </tr>
-                    </tbody>
-                </table>
-            <?php endif; ?>
-        <?php endforeach; ?>
+        $section->addTitle($nombre, 2);
         
-        <?php foreach ($_SESSION['tablas_personalizadas'] as $nombre => $tabla): ?>
-            <?php if (!empty($tabla['viajes'])): ?>
-            <div class="tabla-personalizada">
-                <div class="tabla-personalizada-title">📋 <?php echo htmlspecialchars($nombre); ?></div>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Fecha</th>
-                            <th>Conductor</th>
-                            <th>Ruta</th>
-                            <th>Valor</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php 
-                        $acum_tabla = 0;
-                        foreach($tabla['viajes'] as $viaje): 
-                            $acum_tabla += $viaje['costo'];
-                        ?>
-                        <tr>
-                            <td><?php echo date('d/m/Y', strtotime($viaje['fecha'])); ?></td>
-                            <td><?php echo htmlspecialchars($viaje['nombre'] ?? '-'); ?></td>
-                            <td><?php echo htmlspecialchars($viaje['ruta'] ?? '-'); ?></td>
-                            <td class="costo">$ <?php echo number_format($viaje['costo'], 0, ',', '.'); ?></td>
-                        </tr>
-                        <?php endforeach; ?>
-                        <tr class="total-row">
-                            <td colspan="3" style="text-align:right;">TOTAL <?php echo htmlspecialchars($nombre); ?>:</td>
-                            <td class="costo">$ <?php echo number_format($totales_tablas[$nombre]['efectivo'], 0, ',', '.'); ?></td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            <?php endif; ?>
-        <?php endforeach; ?>
+        $table = $section->addTable($tableStyle);
         
-        <?php if (!empty($_SESSION['extras'])): ?>
-            <div class="extras-table">
-                <div class="extras-title">⭐ EXTRAS ⭐</div>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Fecha</th>
-                            <th>Conductor</th>
-                            <th>Ruta</th>
-                            <th>Valor</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach($extras_con_acumulado as $ex): ?>
-                        <tr>
-                            <td><?php echo date('d/m/Y', strtotime($ex['data']['fecha'])); ?></td>
-                            <td><?php echo htmlspecialchars($ex['data']['nombre'] ?? '-'); ?></td>
-                            <td><?php echo htmlspecialchars($ex['data']['ruta'] ?? '-'); ?></td>
-                            <td class="costo">$ <?php echo number_format($ex['data']['costo'], 0, ',', '.'); ?></td>
-                        </tr>
-                        <?php endforeach; ?>
-                        <tr class="total-row">
-                            <td colspan="3" style="text-align:right;">TOTAL EXTRAS:</td>
-                            <td class="costo">$ <?php echo number_format($total_extras, 0, ',', '.'); ?></td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        <?php endif; ?>
+        $table->addRow();
+        $table->addCell(1500, $firstRowStyle)->addText('Fecha');
+        $table->addCell(2500, $firstRowStyle)->addText('Conductor');
+        $table->addCell(4000, $firstRowStyle)->addText('Ruta');
+        $table->addCell(1500, array_merge($firstRowStyle, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END]))->addText('Valor');
         
-        <div class="resumen-table">
-            <div class="resumen-title">📋 RESUMEN GENERAL</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Concepto</th>
-                        <th style="text-align:right;">Total</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($resumen_empresas as $empresa => $total): ?>
-                    <tr>
-                        <td>🏥 <?php echo htmlspecialchars($empresa); ?></td>
-                        <td class="costo">$ <?php echo number_format($total, 0, ',', '.'); ?></td>
-                    </tr>
-                    <?php endforeach; ?>
-                    <tr class="subtotal-row">
-                        <td style="text-align:right;"><strong>SUBTOTAL PUESTOS</strong></td>
-                        <td class="costo"><strong>$ <?php echo number_format($total_puestos, 0, ',', '.'); ?></strong></td>
-                    </tr>
-                    <?php if (!empty($_SESSION['extras'])): ?>
-                    <tr>
-                        <td>⭐ EXTRAS</td>
-                        <td class="costo">$ <?php echo number_format($total_extras, 0, ',', '.'); ?></td>
-                    </tr>
-                    <?php endif; ?>
-                    <?php foreach ($totales_tablas as $nombre => $total): ?>
-                    <tr>
-                        <td>📋 <?php echo htmlspecialchars($nombre); ?></td>
-                        <td class="costo">$ <?php echo number_format($total['efectivo'], 0, ',', '.'); ?></td>
-                    </tr>
-                    <?php endforeach; ?>
-                    <tr class="gran-total-row">
-                        <td style="text-align:right;"><strong>TOTAL GENERAL</strong></td>
-                        <td class="costo"><strong>$ <?php echo number_format($total_general, 0, ',', '.'); ?></strong></td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-    </body>
-    </html>
-    <?php
+        $acum_tabla = 0;
+        foreach ($tabla['viajes'] as $viaje) {
+            $acum_tabla += $viaje['costo'];
+            $table->addRow();
+            $table->addCell(1500)->addText(date('d/m/Y', strtotime($viaje['fecha'])), ['size' => 9]);
+            $table->addCell(2500)->addText($viaje['nombre'] ?? '-', ['size' => 9]);
+            $table->addCell(4000)->addText($viaje['ruta'] ?? '-', ['size' => 9]);
+            $table->addCell(1500, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END])->addText(
+                '$ ' . number_format($viaje['costo'], 0, ',', '.'),
+                ['size' => 9]
+            );
+        }
+        
+        $table->addRow();
+        $table->addCell(8000, array_merge($totalRowStyle, ['gridSpan' => 3, 'alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END]))->addText('TOTAL ' . $nombre . ':');
+        $table->addCell(1500, array_merge($totalRowStyle, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END]))->addText(
+            '$ ' . number_format($totales_tablas[$nombre]['efectivo'], 0, ',', '.')
+        );
+    }
+    
+    // Extras
+    if (!empty($_SESSION['extras'])) {
+        $section->addTitle('EXTRAS', 2);
+        
+        $table = $section->addTable($tableStyle);
+        
+        $table->addRow();
+        $table->addCell(1500, $firstRowStyle)->addText('Fecha');
+        $table->addCell(2500, $firstRowStyle)->addText('Conductor');
+        $table->addCell(4000, $firstRowStyle)->addText('Ruta');
+        $table->addCell(1500, array_merge($firstRowStyle, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END]))->addText('Valor');
+        
+        foreach ($extras_con_acumulado as $ex) {
+            $table->addRow();
+            $table->addCell(1500)->addText(date('d/m/Y', strtotime($ex['data']['fecha'])), ['size' => 9]);
+            $table->addCell(2500)->addText($ex['data']['nombre'] ?? '-', ['size' => 9]);
+            $table->addCell(4000)->addText($ex['data']['ruta'] ?? '-', ['size' => 9]);
+            $table->addCell(1500, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END])->addText(
+                '$ ' . number_format($ex['data']['costo'], 0, ',', '.'),
+                ['size' => 9]
+            );
+        }
+        
+        $table->addRow();
+        $table->addCell(8000, array_merge($totalRowStyle, ['gridSpan' => 3, 'alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END]))->addText('TOTAL EXTRAS:');
+        $table->addCell(1500, array_merge($totalRowStyle, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END]))->addText(
+            '$ ' . number_format($total_extras, 0, ',', '.')
+        );
+    }
+    
+    // Resumen General
+    $section->addTitle('RESUMEN GENERAL', 1);
+    
+    $table = $section->addTable($tableStyle);
+    
+    $table->addRow();
+    $table->addCell(7500, $firstRowStyle)->addText('Concepto');
+    $table->addCell(2000, array_merge($firstRowStyle, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END]))->addText('Total');
+    
+    foreach ($resumen_empresas as $empresa => $total) {
+        $table->addRow();
+        $table->addCell(7500)->addText($empresa, ['size' => 9]);
+        $table->addCell(2000, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END])->addText(
+            '$ ' . number_format($total, 0, ',', '.'),
+            ['size' => 9]
+        );
+    }
+    
+    $table->addRow();
+    $table->addCell(7500, array_merge($totalRowStyle, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END]))->addText('SUBTOTAL PUESTOS');
+    $table->addCell(2000, array_merge($totalRowStyle, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END]))->addText(
+        '$ ' . number_format($total_puestos, 0, ',', '.')
+    );
+    
+    if (!empty($_SESSION['extras'])) {
+        $table->addRow();
+        $table->addCell(7500)->addText('EXTRAS', ['size' => 9]);
+        $table->addCell(2000, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END])->addText(
+            '$ ' . number_format($total_extras, 0, ',', '.'),
+            ['size' => 9]
+        );
+    }
+    
+    foreach ($totales_tablas as $nombre => $total) {
+        $table->addRow();
+        $table->addCell(7500)->addText($nombre, ['size' => 9]);
+        $table->addCell(2000, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END])->addText(
+            '$ ' . number_format($total['efectivo'], 0, ',', '.'),
+            ['size' => 9]
+        );
+    }
+    
+    $granTotalStyle = [
+        'bgColor' => '1a73e8',
+        'bold' => true,
+        'color' => 'FFFFFF',
+        'size' => 11,
+    ];
+    
+    $table->addRow();
+    $table->addCell(7500, array_merge($granTotalStyle, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END]))->addText('TOTAL GENERAL');
+    $table->addCell(2000, array_merge($granTotalStyle, ['alignment' => \PhpOffice\PhpWord\SimpleType\Jc::END]))->addText(
+        '$ ' . number_format($total_general, 0, ',', '.')
+    );
+    
+    // Descargar archivo
+    $filename = 'informe_viajes_' . date('Y-m-d') . '.docx';
+    
+    header('Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Cache-Control: max-age=0');
+    
+    $writer = IOFactory::createWriter($phpWord, 'Word2007');
+    $writer->save('php://output');
     exit;
 }
 ?>
@@ -1503,7 +1538,7 @@ if (isset($_POST['export_word'])) {
             <div class="btn-header-group">
                 <form method="POST" style="display: inline;">
                     <input type="hidden" name="export_word" value="1">
-                    <button type="submit" class="btn-word">📄 Generar Word</button>
+                    <button type="submit" class="btn-word">📄 Generar Word (DOCX)</button>
                 </form>
                 <form method="POST" style="display: inline;">
                     <input type="hidden" name="action" value="restaurar_nombres">
@@ -1564,7 +1599,7 @@ if (isset($_POST['export_word'])) {
                         <button type="submit" class="btn-filtrar">🔍 Filtrar</button>
                     </div>
                     <div class="filtro-group">
-                        <a href="?" class="btn-limpiar">🗑️ Limpiar</a>
+                        <a href="?" class="btn-limpiar" style="display:inline-block;text-decoration:none;color:white;">🗑️ Limpiar</a>
                     </div>
                 </div>
                 
@@ -1674,7 +1709,7 @@ if (isset($_POST['export_word'])) {
         </div>
         <?php endforeach; ?>
         
-        <!-- TABLA DE EXTRAS (mantenida por compatibilidad) -->
+        <!-- TABLA DE EXTRAS -->
         <?php if (!empty($_SESSION['extras'])): ?>
         <div class="extras-table">
             <div class="extras-header">
@@ -1756,7 +1791,6 @@ if (isset($_POST['export_word'])) {
                 $nombres_seleccionados = isset($_SESSION['nombres_cambiados_empresa'][$empresa_actual]) ? 
                     $_SESSION['nombres_cambiados_empresa'][$empresa_actual] : array();
                 
-                // Lista de tablas personalizadas disponibles para mover
                 $tablas_disponibles = array_keys($_SESSION['tablas_personalizadas']);
                 
                 if ($data['tipo'] === 'multiple'):
@@ -2454,7 +2488,7 @@ if (isset($_POST['export_word'])) {
         } else {
             ?>
             <div class="empresa-table">
-                <div class="sin-datos">🔍 Selecciona al menosuna empresa en los filtros para ver el informe</div>
+                <div class="sin-datos">🔍 Selecciona al menos una empresa en los filtros para ver el informe</div>
             </div>
             <?php
         }
