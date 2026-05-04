@@ -2454,7 +2454,7 @@ if (isset($_POST['export_word'])) {
         } else {
             ?>
             <div class="empresa-table">
-                <div class="sin-datos">🔍 Selecciona al menos una empresa en los filtros para ver el informe</div>
+                <div class="sin-datos">🔍 Selecciona al menosuna empresa en los filtros para ver el informe</div>
             </div>
             <?php
         }
