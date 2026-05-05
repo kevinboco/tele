@@ -2495,7 +2495,7 @@ if (isset($_POST['export_word'])) {
         $conn->close();
         ?>
         
-        <!-- TABLA RESUMEN GENERAL -->
+        <!-- TABLA RESUME GENERAL -->
         <div class="resumen-table">
             <div class="resumen-header">📋 RESUMEN GENERAL</div>
             <div style="overflow-x: auto; max-width: 100%;">
@@ -2735,6 +2735,7 @@ if (isset($_POST['export_word'])) {
         function mostrarRenombrar(tablaId) {
             document.getElementById('renombrar_' + tablaId).style.display = 'inline-block';
         }
+        
         
         function ocultarRenombrar(tablaId) {
             document.getElementById('renombrar_' + tablaId).style.display = 'none';
