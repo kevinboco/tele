@@ -273,7 +273,7 @@ $empresas_seleccionadas = isset($_GET['empresas']) ? $_GET['empresas'] : array()
 $PRESUPUESTO_BASE = 13000000;
 
 // Ruta de imágenes (misma carpeta que el script)
-$RUTA_IMAGENES = __DIR__ . '/';
+$RUTA_IMAGENES = __DIR__ . '/uploads/';
 
 function obtener_tarifa($clasificacion, $tipo_vehiculo, $empresa, $conn) {
     if (empty($clasificacion) || empty($empresa)) {
