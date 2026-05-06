@@ -163,10 +163,25 @@ $hasta = date("Y-m-d");
     <span>Inicio</span>
   </a>
 
-  <a class="rail-item" href="informep.php">
+
+  
+  <!-- BOTÓN informe CON SUBMENÚ -->
+  <div class="rail-item liquidacion-btn">
     <img src="https://img.icons8.com/color/48/combo-chart--v1.png">
-    <span>Informe</span>
-  </a>
+    <span>informe</span>
+    
+    <div class="submenu">
+      <!-- Hospital Maicao (usa fecha de hospital) -->
+      <a class="rail-item" href="informe.php">
+        🏥 informe Maicao
+      </a>
+      
+      <!-- Puestos de Salud (usa fecha de puestos) -->
+      <a class="rail-item" href="informep.php">
+        💊 Puestos de Salud
+      </a>
+    </div>
+  </div>
 
   <!-- BOTÓN LIQUIDACIÓN CON SUBMENÚ -->
   <div class="rail-item liquidacion-btn">
