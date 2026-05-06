@@ -21,7 +21,7 @@ $conn->set_charset('utf8mb4');
 
 // Ruta de imágenes (misma que usa index2.php)
 $RUTA_IMAGENES = __DIR__ . '/uploads/';
-include("nav.php");  // <--- COLOCADO AQUÍ
+
 
 // Función para obtener el tipo de vehículo formateado
 function obtenerTipoVehiculo($tipo) {
@@ -144,7 +144,7 @@ function agregarImagenCelda($cell, $imagen, $RUTA_IMAGENES) {
 
 // Si no se han enviado parámetros, mostramos formulario
 if (empty($_POST['desde']) || empty($_POST['hasta']) || !isset($_POST['tipo_informe'])) {
-    
+    include("nav.php");  // <--- COLOCADO EXACTAMENTE AQUÍ
     // Obtener lista de empresas
     $empresas = [];
     $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
