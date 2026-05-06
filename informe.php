@@ -2,7 +2,7 @@
 // ACTIVAR MODO DEPURACIÓN
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
-include("nav.php");
+
 require 'vendor/autoload.php';
 
 use PhpOffice\PhpWord\PhpWord;
@@ -21,6 +21,7 @@ $conn->set_charset('utf8mb4');
 
 // Ruta de imágenes (misma que usa index2.php)
 $RUTA_IMAGENES = __DIR__ . '/uploads/';
+include("nav.php");  // <--- COLOCADO AQUÍ
 
 // Función para obtener el tipo de vehículo formateado
 function obtenerTipoVehiculo($tipo) {
