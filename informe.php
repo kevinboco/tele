@@ -2,7 +2,7 @@
 // ACTIVAR MODO DEPURACIÓN
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
-
+include("nav.php");
 require 'vendor/autoload.php';
 
 use PhpOffice\PhpWord\PhpWord;
