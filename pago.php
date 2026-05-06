@@ -5,7 +5,7 @@ $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011
 if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); }
 $conn->set_charset('utf8mb4');
 
-/* = Helpers================= */
+/* = Helpers ================= */
 function strip_accents($s){
   $t = @iconv('UTF-8','ASCII//TRANSLIT//IGNORE',$s);
   if ($t !== false) return $t;
@@ -69,6 +69,125 @@ CREATE TABLE IF NOT EXISTS cuentas_guardadas_empresas (
 ");
 
 /* ================= AJAX HANDLERS ================= */
+
+// Endpoint para exportar Excel
+if (isset($_GET['exportar_excel'])) {
+    header('Content-Type: application/vnd.ms-excel; charset=utf-8');
+    header('Content-Disposition: attachment; filename="ajuste_pago_' . $_GET['desde'] . '_a_' . $_GET['hasta'] . '.xls"');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+    
+    // Obtener los datos enviados por POST
+    $filasData = isset($_POST['filas']) ? json_decode($_POST['filas'], true) : [];
+    $totales = isset($_POST['totales']) ? json_decode($_POST['totales'], true) : [];
+    $empresas = isset($_POST['empresas']) ? $_POST['empresas'] : '';
+    $fechas = isset($_POST['fechas']) ? $_POST['fechas'] : '';
+    
+    // Iniciar output HTML para Excel
+    echo '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">';
+    echo '<head><meta charset="UTF-8">';
+    echo '<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>';
+    echo '<x:Name>Ajuste de Pago</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet>';
+    echo '</x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->';
+    echo '<style>
+        table { border-collapse: collapse; }
+        th { background-color: #2563eb; color: white; font-weight: bold; padding: 8px; border: 1px solid #000; text-align: center; }
+        td { padding: 6px 8px; border: 1px solid #ccc; }
+        .num { text-align: right; }
+        .text-center { text-align: center; }
+        .text-right { text-align: right; }
+        .text-left { text-align: left; }
+        .total-row { font-weight: bold; background-color: #f1f5f9; }
+        .header-info { font-size: 14px; margin-bottom: 10px; }
+        .estado-pagado { background-color: #f0fdf4; }
+        .estado-pendiente { background-color: #fef2f2; }
+        .estado-procesando { background-color: #fffbeb; }
+        .estado-parcial { background-color: #eff6ff; }
+    </style>';
+    echo '</head><body>';
+    
+    // Información del encabezado
+    echo '<div class="header-info">';
+    echo '<h2>Ajuste de Pago</h2>';
+    echo '<p><strong>Rango:</strong> ' . htmlspecialchars($fechas) . '</p>';
+    if (!empty($empresas)) {
+        echo '<p><strong>Empresas:</strong> ' . htmlspecialchars(implode(', ', json_decode($empresas, true) ?: [])) . '</p>';
+    }
+    echo '<p><strong>Fecha de exportación:</strong> ' . date('d/m/Y H:i:s') . '</p>';
+    echo '</div>';
+    
+    // Tabla principal
+    echo '<table>';
+    echo '<thead>';
+    echo '<tr>';
+    echo '<th>#</th>';
+    echo '<th>Conductor</th>';
+    echo '<th>Base</th>';
+    echo '<th>Ajuste</th>';
+    echo '<th>Llegó</th>';
+    echo '<th>Ret 3.5%</th>';
+    echo '<th>4×1000</th>';
+    echo '<th>Aporte 10%</th>';
+    echo '<th>Seg Social</th>';
+    echo '<th>Préstamos</th>';
+    echo '<th>N° Cuenta</th>';
+    echo '<th>A Pagar</th>';
+    echo '<th>Estado</th>';
+    echo '</tr>';
+    echo '</thead>';
+    echo '<tbody>';
+    
+    $num = 0;
+    foreach ($filasData as $fila) {
+        $num++;
+        $estadoClass = '';
+        switch($fila['estado']) {
+            case 'pagado': $estadoClass = 'estado-pagado'; break;
+            case 'pendiente': $estadoClass = 'estado-pendiente'; break;
+            case 'procesando': $estadoClass = 'estado-procesando'; break;
+            case 'parcial': $estadoClass = 'estado-parcial'; break;
+        }
+        
+        echo '<tr class="' . $estadoClass . '">';
+        echo '<td class="text-center">' . $num . '</td>';
+        echo '<td class="text-left">' . htmlspecialchars($fila['conductor']) . '</td>';
+        echo '<td class="num">' . htmlspecialchars($fila['base']) . '</td>';
+        echo '<td class="num">' . htmlspecialchars($fila['ajuste']) . '</td>';
+        echo '<td class="num">' . htmlspecialchars($fila['llego']) . '</td>';
+        echo '<td class="num">' . htmlspecialchars($fila['ret']) . '</td>';
+        echo '<td class="num">' . htmlspecialchars($fila['mil4']) . '</td>';
+        echo '<td class="num">' . htmlspecialchars($fila['apor']) . '</td>';
+        echo '<td class="num">' . htmlspecialchars($fila['ss']) . '</td>';
+        echo '<td class="num">' . htmlspecialchars($fila['prest']) . '</td>';
+        echo '<td class="text-left">' . htmlspecialchars($fila['cuenta']) . '</td>';
+        echo '<td class="num">' . htmlspecialchars($fila['pagar']) . '</td>';
+        echo '<td class="text-center">' . htmlspecialchars($fila['estado']) . '</td>';
+        echo '</tr>';
+    }
+    
+    // Fila de totales
+    if (!empty($totales)) {
+        echo '<tr class="total-row">';
+        echo '<td class="text-center" colspan="2"><strong>TOTALES</strong></td>';
+        echo '<td class="num"><strong>' . htmlspecialchars($totales['llego'] ?? '0') . '</strong></td>';
+        echo '<td></td>';
+        echo '<td class="num"><strong>' . htmlspecialchars($totales['llego'] ?? '0') . '</strong></td>';
+        echo '<td class="num"><strong>' . htmlspecialchars($totales['ret'] ?? '0') . '</strong></td>';
+        echo '<td class="num"><strong>' . htmlspecialchars($totales['mil4'] ?? '0') . '</strong></td>';
+        echo '<td class="num"><strong>' . htmlspecialchars($totales['apor'] ?? '0') . '</strong></td>';
+        echo '<td class="num"><strong>' . htmlspecialchars($totales['ss'] ?? '0') . '</strong></td>';
+        echo '<td class="num"><strong>' . htmlspecialchars($totales['prest'] ?? '0') . '</strong></td>';
+        echo '<td></td>';
+        echo '<td class="num"><strong>' . htmlspecialchars($totales['pagar'] ?? '0') . '</strong></td>';
+        echo '<td></td>';
+        echo '</tr>';
+    }
+    
+    echo '</tbody>';
+    echo '</table>';
+    echo '</body></html>';
+    exit;
+}
 
 // Endpoint para subir comprobante temporal
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'subir_comprobante') {
@@ -972,6 +1091,18 @@ $CONDUCTORES_LIST = array_column($filas, 'nombre');
             object-fit: contain;
         }
         
+        .btn-excel {
+            background: linear-gradient(135deg, #217346 0%, #185a2d 100%);
+            border: 1px solid #166534;
+            color: white;
+            transition: all 0.2s;
+        }
+        .btn-excel:hover {
+            background: linear-gradient(135deg, #1e6e3e 0%, #144d25 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        
         @media (max-width: 640px) {
             .prest-modal-content {
                 width: 95% !important;
@@ -1012,6 +1143,9 @@ $CONDUCTORES_LIST = array_column($filas, 'nombre');
                 <span class="bg-purple-600 text-white text-xs px-2 py-1 rounded-full ml-1">Múltiples Empresas</span>
             </h2>
             <div class="flex items-center gap-2">
+                <button id="btnExportExcel" class="btn-excel rounded-lg px-3 py-2 text-sm font-medium flex items-center gap-2">
+                    <span>📥</span> Descargar Excel
+                </button>
                 <button id="btnShowSaveCuenta" class="rounded-lg border border-amber-300 px-3 py-2 text-sm bg-amber-50 hover:bg-amber-100">⭐ Guardar cuenta</button>
                 <button id="btnShowGestorCuentas" class="rounded-lg border border-blue-300 px-3 py-2 text-sm bg-blue-50 hover:bg-blue-100">📚 Cuentas guardadas</button>
             </div>
@@ -1114,7 +1248,7 @@ $CONDUCTORES_LIST = array_column($filas, 'nombre');
         </div>
 
         <div class="overflow-auto max-h-[70vh] rounded-xl border border-slate-200 table-sticky">
-            <table class="min-w-[1400px] w-full text-sm">
+            <table class="min-w-[1400px] w-full text-sm" id="tablaPrincipal">
                 <thead class="bg-blue-600 text-white">
                     <tr>
                         <th class="px-3 py-2 text-left">Conductor</th>
@@ -1581,7 +1715,7 @@ let prestSel = getLS(PREST_SEL_KEY) || {};
 let estadoPagoMap = getLS(ESTADO_PAGO_KEY) || {};
 let manualRows = JSON.parse(localStorage.getItem(MANUAL_ROWS_KEY) || '[]');
 let selectedConductors = JSON.parse(localStorage.getItem(SELECTED_CONDUCTORS_KEY) || '[]');
-let comprobantesMap = {}; // Ya no usamos localStorage, se cargarán desde BD
+let comprobantesMap = {};
 
 const tbody = document.getElementById('tbody');
 const btnAddManual = document.getElementById('btnAddManual');
@@ -1594,6 +1728,88 @@ const clearBuscar = document.getElementById('clearBuscar');
 const contadorConductores = document.getElementById('contador-conductores');
 const filtroEstado = document.getElementById('filtroEstado');
 
+// ===== FUNCIÓN DE EXPORTACIÓN A EXCEL =====
+function exportarAExcel() {
+    // Recopilar datos de todas las filas visibles
+    const filas = [];
+    const filasVisibles = document.querySelectorAll('#tbody tr:not([style*="display: none"])');
+    
+    filasVisibles.forEach(tr => {
+        const conductor = obtenerNombreConductorDeFila(tr);
+        const base = tr.querySelector('.base')?.textContent || tr.querySelector('.base-manual')?.value || '0';
+        const ajuste = tr.querySelector('.ajuste')?.textContent || '0';
+        const llego = tr.querySelector('.llego')?.textContent || '0';
+        const ret = tr.querySelector('.ret')?.textContent || '0';
+        const mil4 = tr.querySelector('.mil4')?.textContent || '0';
+        const apor = tr.querySelector('.apor')?.textContent || '0';
+        const ss = tr.querySelector('.ss')?.value || '0';
+        const prest = tr.querySelector('.prest')?.textContent || '0';
+        const cuenta = tr.querySelector('.cta')?.value || '';
+        const pagar = tr.querySelector('.pagar')?.textContent || '0';
+        const estado = tr.querySelector('.estado-pago')?.value || '';
+        
+        filas.push({
+            conductor: conductor,
+            base: base,
+            ajuste: ajuste,
+            llego: llego,
+            ret: ret,
+            mil4: mil4,
+            apor: apor,
+            ss: ss,
+            prest: prest,
+            cuenta: cuenta,
+            pagar: pagar,
+            estado: estado
+        });
+    });
+    
+    // Recopilar totales
+    const totales = {
+        llego: document.getElementById('tot_llego')?.textContent || '0',
+        ret: document.getElementById('tot_ret')?.textContent || '0',
+        mil4: document.getElementById('tot_mil4')?.textContent || '0',
+        apor: document.getElementById('tot_apor')?.textContent || '0',
+        ss: document.getElementById('tot_ss')?.textContent || '0',
+        prest: document.getElementById('tot_prest')?.textContent || '0',
+        pagar: document.getElementById('tot_pagar')?.textContent || '0'
+    };
+    
+    // Crear formulario para envío POST
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '?exportar_excel=1&desde=<?= htmlspecialchars($desde) ?>&hasta=<?= htmlspecialchars($hasta) ?>';
+    form.target = '_blank';
+    
+    // Agregar campos
+    const addField = (name, value) => {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = name;
+        input.value = value;
+        form.appendChild(input);
+    };
+    
+    addField('filas', JSON.stringify(filas));
+    addField('totales', JSON.stringify(totales));
+    addField('empresas', JSON.stringify(EMPRESAS_SELECCIONADAS));
+    addField('fechas', '<?= $desde ?> → <?= $hasta ?>');
+    
+    document.body.appendChild(form);
+    
+    Swal.fire({
+        title: '📥 Exportando...',
+        text: 'El archivo Excel comenzará a descargarse',
+        icon: 'success',
+        timer: 2000,
+        showConfirmButton: true,
+        confirmButtonText: 'Continuar'
+    }).then(() => {
+        form.submit();
+        setTimeout(() => form.remove(), 100);
+    });
+}
+
 // Cargar comprobantes desde la base de datos al iniciar
 async function cargarComprobantesDesdeBD() {
     try {
@@ -1601,7 +1817,6 @@ async function cargarComprobantesDesdeBD() {
         const data = await response.json();
         comprobantesMap = data;
         
-        // Actualizar todas las previsualizaciones
         document.querySelectorAll('#tbody tr').forEach(tr => {
             let conductor = obtenerNombreConductorDeFila(tr);
             if (conductor && comprobantesMap[conductor]) {
@@ -2622,7 +2837,6 @@ btnDoSaveCuenta.addEventListener('click', async () => {
         }
     });
     
-    // Recoger todos los comprobantes actuales de la sesión
     const comprobantesParaGuardar = {};
     for (const [conductor, base64] of Object.entries(comprobantesMap)) {
         if (base64) {
@@ -3228,6 +3442,9 @@ document.getElementById('prestValorManual').addEventListener('input', () => {
 });
 
 document.addEventListener('DOMContentLoaded', function() {
+    // Evento del botón de exportación
+    document.getElementById('btnExportExcel').addEventListener('click', exportarAExcel);
+    
     document.getElementById('btnSeleccionarTodas')?.addEventListener('click', () => {
         document.querySelectorAll('.empresa-checkbox input').forEach(cb => cb.checked = true);
     });
