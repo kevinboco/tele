@@ -1590,6 +1590,7 @@ if (isset($_POST['export_word'])) {
     </style>
 </head>
 <body>
+    <?php include("nav.php"); ?>
     <div class="container">
         <div class="header">
             <div>
