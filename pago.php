@@ -5,7 +5,7 @@ $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011
 if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); }
 $conn->set_charset('utf8mb4');
 
-/* = Helpers ================= */
+/* = Helpers================= */
 function strip_accents($s){
   $t = @iconv('UTF-8','ASCII//TRANSLIT//IGNORE',$s);
   if ($t !== false) return $t;
