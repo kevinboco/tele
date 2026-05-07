@@ -1,94 +1,109 @@
 <?php
 // Conexión
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
+if ($conn->connect_error) { die("Error conexión: " . $conn->connect_error); }
 $conn->set_charset('utf8mb4');
 
-// Crear tabla conductores si no existe
+// Crear tabla conductores
 $conn->query("CREATE TABLE IF NOT EXISTS conductores (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nombre VARCHAR(100),
-    cedula VARCHAR(20),
-    cuenta_banco VARCHAR(50)
+    cedula VARCHAR(20) DEFAULT '',
+    cuenta_banco VARCHAR(50) DEFAULT ''
 )");
 
-// Guardar datos cuando se envía el formulario
-if(isset($_POST['guardar'])) {
-    $id = $_POST['id'];
-    $cedula = $_POST['cedula'];
-    $cuenta = $_POST['cuenta_banco'];
-    $conn->query("UPDATE conductores SET cedula='$cedula', cuenta_banco='$cuenta' WHERE id=$id");
-    echo "<p style='color:green'>✅ Guardado</p>";
+// Insertar nombres desde viajes si está vacía
+$check = $conn->query("SELECT COUNT(*) as total FROM conductores");
+if($check->fetch_assoc()['total'] == 0) {
+    $conn->query("INSERT INTO conductores (nombre) SELECT DISTINCT nombre FROM viajes WHERE nombre IS NOT NULL AND nombre != ''");
 }
 
-// Buscar conductores según filtro
-$filtro = isset($_GET['filtro']) ? $_GET['filtro'] : '';
-if($filtro != '') {
-    $result = $conn->query("SELECT * FROM conductores WHERE nombre LIKE '%$filtro%' ORDER BY nombre");
-} else {
-    $result = $conn->query("SELECT * FROM conductores ORDER BY nombre");
+// Guardar
+$mensaje = '';
+if(isset($_POST['guardar'])) {
+    $id = intval($_POST['guardar']);
+    $cedula = $conn->real_escape_string($_POST['cedula'][$id]);
+    $cuenta = $conn->real_escape_string($_POST['cuenta_banco'][$id]);
+    
+    if($conn->query("UPDATE conductores SET cedula='$cedula', cuenta_banco='$cuenta' WHERE id=$id")) {
+        $mensaje = "<p style='color:green;background:#d4edda;padding:10px;border-radius:5px;'>✅ Guardado correctamente</p>";
+    } else {
+        $mensaje = "<p style='color:red;background:#f8d7da;padding:10px;border-radius:5px;'>❌ Error: " . $conn->error . "</p>";
+    }
 }
+
+// Filtro
+$filtro = isset($_GET['filtro']) ? $conn->real_escape_string($_GET['filtro']) : '';
+$sql = "SELECT * FROM conductores";
+if($filtro != '') {
+    $sql .= " WHERE nombre LIKE '%$filtro%'";
+}
+$sql .= " ORDER BY nombre";
+$result = $conn->query($sql);
 ?>
 
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <title>Conductores</title>
     <style>
-        body { font-family: Arial; padding: 20px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th { background: #333; color: white; padding: 10px; }
+        body { font-family: Arial; padding: 20px; background: #f5f5f5; }
+        .contenedor { max-width: 1000px; margin: auto; background: white; padding: 25px; border-radius: 10px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th { background: #333; color: white; padding: 12px; text-align: left; }
         td { padding: 10px; border-bottom: 1px solid #ddd; }
-        input, button { padding: 10px; margin: 5px; }
-        .btn { background: blue; color: white; border: none; cursor: pointer; }
+        input[type=text] { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        button { padding: 8px 18px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0052a3; }
+        .filtro input { width: 250px; padding: 10px; }
+        .sin-dato { color: #999; font-style: italic; }
     </style>
 </head>
 <body>
 
-<h2>Gestión de Conductores</h2>
-
-<!-- BUSCADOR SIMPLE -->
-<form method="GET">
-    <input type="text" name="filtro" placeholder="Buscar conductor..." value="<?php echo $filtro; ?>" style="width:300px;">
-    <button type="submit" class="btn">🔍 Buscar</button>
-    <a href="?"><button type="button">Ver todos</button></a>
-</form>
-
-<!-- TABLA DE CONDUCTORES -->
-<table>
-    <tr>
-        <th>Nombre</th>
-        <th>Cédula</th>
-        <th>Cuenta Banco</th>
-        <th>Acción</th>
-    </tr>
-    <?php 
-    // Si no hay conductores, insertar desde viajes
-    $check = $conn->query("SELECT COUNT(*) as total FROM conductores");
-    $row = $check->fetch_assoc();
-    if($row['total'] == 0) {
-        $conn->query("INSERT INTO conductores (nombre) SELECT DISTINCT nombre FROM viajes WHERE nombre IS NOT NULL AND nombre != ''");
-        $result = $conn->query("SELECT * FROM conductores ORDER BY nombre");
-    }
+<div class="contenedor">
+    <h2>🚛 Gestión de Conductores</h2>
     
-    while($conductor = $result->fetch_assoc()): 
-    ?>
-    <tr>
-        <form method="POST">
-            <td><?php echo $conductor['nombre']; ?></td>
+    <?php echo $mensaje; ?>
+    
+    <!-- Buscador -->
+    <form method="GET" class="filtro" style="margin-bottom:20px;">
+        <input type="text" name="filtro" placeholder="🔍 Buscar conductor..." value="<?php echo htmlspecialchars($filtro); ?>">
+        <button type="submit">Buscar</button>
+        <a href="?"><button type="button" style="background:#666;">Ver todos</button></a>
+    </form>
+    
+    <!-- Tabla -->
+    <form method="POST">
+    <table>
+        <tr>
+            <th>Nombre</th>
+            <th>Cédula</th>
+            <th>Cuenta de Banco</th>
+            <th></th>
+        </tr>
+        <?php while($c = $result->fetch_assoc()): ?>
+        <tr>
+            <td><strong><?php echo htmlspecialchars($c['nombre']); ?></strong></td>
             <td>
-                <input type="text" name="cedula" value="<?php echo $conductor['cedula']; ?>" style="width:120px;">
+                <input type="text" name="cedula[<?php echo $c['id']; ?>]" 
+                       value="<?php echo htmlspecialchars($c['cedula']); ?>" 
+                       placeholder="Ingresar cédula" style="width:140px;">
             </td>
             <td>
-                <input type="text" name="cuenta_banco" value="<?php echo $conductor['cuenta_banco']; ?>" style="width:180px;">
+                <input type="text" name="cuenta_banco[<?php echo $c['id']; ?>]" 
+                       value="<?php echo htmlspecialchars($c['cuenta_banco']); ?>" 
+                       placeholder="Ingresar cuenta" style="width:200px;">
             </td>
             <td>
-                <input type="hidden" name="id" value="<?php echo $conductor['id']; ?>">
-                <button type="submit" name="guardar" class="btn">💾 Guardar</button>
+                <button type="submit" name="guardar" value="<?php echo $c['id']; ?>">💾 Guardar</button>
             </td>
-        </form>
-    </tr>
-    <?php endwhile; ?>
-</table>
+        </tr>
+        <?php endwhile; ?>
+    </table>
+    </form>
+</div>
 
 </body>
 </html>
