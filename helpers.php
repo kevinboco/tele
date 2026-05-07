@@ -105,6 +105,7 @@ function obtenerRutasUsuario($conn, $conductor_id) {
     if ($res=$conn->query($sql)) while($row=$res->fetch_assoc()) $rutas[]=$row['ruta'];
     return $rutas;
 }
+
 function obtenerConductoresAdmin($conn, $owner) {
     $rows=[]; if(!$conn) return $rows;
     $owner=(int)$owner;
@@ -112,6 +113,24 @@ function obtenerConductoresAdmin($conn, $owner) {
     if ($res=$conn->query($sql)) while($r=$res->fetch_assoc()) $rows[]=$r;
     return $rows;
 }
+
+/**
+ * Obtener conductores que empiezan por una letra (case-insensitive)
+ */
+function obtenerConductoresPorLetra($conn, $owner, $letra) {
+    $rows = []; 
+    if (!$conn) return $rows;
+    $owner = (int)$owner;
+    $letra = $conn->real_escape_string($letra);
+    $sql = "SELECT id, nombre FROM conductores_admin WHERE owner_chat_id=$owner AND LOWER(nombre) LIKE LOWER('$letra%') ORDER BY nombre ASC LIMIT 100";
+    if ($res = $conn->query($sql)) {
+        while ($r = $res->fetch_assoc()) {
+            $rows[] = $r;
+        }
+    }
+    return $rows;
+}
+
 function crearConductorAdmin($conn, $owner, $nombre) {
     if(!$conn) return false; $owner=(int)$owner;
     $stmt=$conn->prepare("INSERT IGNORE INTO conductores_admin (owner_chat_id, nombre) VALUES (?, ?)");
@@ -123,12 +142,31 @@ function obtenerConductorAdminPorId($conn, $id, $owner) {
     $res=$conn->query("SELECT id, nombre FROM conductores_admin WHERE id=$id AND owner_chat_id=$owner LIMIT 1");
     return ($res && $res->num_rows)? $res->fetch_assoc():null;
 }
+
 function obtenerRutasAdmin($conn, $owner) {
     $rows=[]; if(!$conn) return $rows;
     $owner=(int)$owner;
     $res=$conn->query("SELECT id, ruta FROM rutas_admin WHERE owner_chat_id=$owner ORDER BY id DESC LIMIT 100");
     if($res) while($r=$res->fetch_assoc()) $rows[]=$r; return $rows;
 }
+
+/**
+ * Obtener rutas que empiezan por una letra (case-insensitive)
+ */
+function obtenerRutasPorLetra($conn, $owner, $letra) {
+    $rows = []; 
+    if (!$conn) return $rows;
+    $owner = (int)$owner;
+    $letra = $conn->real_escape_string($letra);
+    $sql = "SELECT id, ruta FROM rutas_admin WHERE owner_chat_id=$owner AND LOWER(ruta) LIKE LOWER('$letra%') ORDER BY ruta ASC LIMIT 100";
+    if ($res = $conn->query($sql)) {
+        while ($r = $res->fetch_assoc()) {
+            $rows[] = $r;
+        }
+    }
+    return $rows;
+}
+
 function crearRutaAdmin($conn, $owner, $ruta) {
     if(!$conn) return false; $owner=(int)$owner;
     $stmt=$conn->prepare("INSERT IGNORE INTO rutas_admin (owner_chat_id, ruta) VALUES (?, ?)");
