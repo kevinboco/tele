@@ -10,23 +10,13 @@ function manual_entrypoint($chat_id, $estado) {
     // Nuevo flujo
     $estado = [
         "flujo" => "manual",
-        "paso" => "manual_menu",
+        "paso" => "manual_filtro_conductor",
         "manual_page" => 0
     ];
     saveState($chat_id, $estado);
 
-    // Cargar conductores frescos desde BD
-    $conn = db();
-    $conductores = $conn ? obtenerConductoresAdmin($conn, $chat_id) : [];
-    $conn?->close();
-
-    if ($conductores) {
-        $kb = manual_kb_grid_paginado($conductores, 'manual_sel_', 0);
-        sendMessage($chat_id, "Elige un *conductor* o crea uno nuevo:", $kb);
-    } else {
-        $estado['paso'] = 'manual_nombre_nuevo'; saveState($chat_id, $estado);
-        sendMessage($chat_id, "No tienes conductores guardados.\n✍️ Escribe el *nombre* del nuevo conductor:");
-    }
+    // Pedir letra para filtrar conductor
+    sendMessage($chat_id, "✍️ Escribe la *primera letra* del nombre del conductor para filtrar:");
 }
 
 /* ========= GRID LAYOUT CON PAGINACIÓN MEJORADA ========= */
@@ -94,6 +84,69 @@ function manual_kb_grid_paginado(array $items, string $callback_prefix, int $pag
     return $kb;
 }
 
+/* ========= GRID PARA RUTAS FILTRADAS (con botón volver) ========= */
+function manual_kb_grid_rutas_filtradas(array $items, string $callback_prefix, int $pagina = 0): array {
+    $kb = ["inline_keyboard" => []];
+    $row = [];
+    
+    // ORDENAR ALFABÉTICAMENTE
+    usort($items, function($a, $b) {
+        $nombreA = $a['ruta'] ?? $a;
+        $nombreB = $b['ruta'] ?? $b;
+        return strcasecmp($nombreA, $nombreB);
+    });
+    
+    $items_por_pagina = 15;
+    $total_paginas = ceil(count($items) / $items_por_pagina);
+    $items_pagina = array_slice($items, $pagina * $items_por_pagina, $items_por_pagina);
+    
+    foreach ($items_pagina as $item) {
+        $id = $item['id'] ?? $item;
+        $text = $item['ruta'] ?? $item['nombre'] ?? $item;
+        
+        if (mb_strlen($text) > 15) {
+            $text = mb_substr($text, 0, 12) . '...';
+        }
+        
+        $row[] = [
+            "text" => $text,
+            "callback_data" => $callback_prefix . $id
+        ];
+        
+        if (count($row) === 3) {
+            $kb["inline_keyboard"][] = $row;
+            $row = [];
+        }
+    }
+    
+    if (!empty($row)) {
+        $kb["inline_keyboard"][] = $row;
+    }
+    
+    // Botones de navegación
+    $nav_buttons = [];
+    if ($pagina > 0) {
+        $nav_buttons[] = ["text" => "⬅️ Anterior", "callback_data" => "manual_page_ruta_" . ($pagina - 1)];
+    }
+    
+    if ($total_paginas > 1) {
+        $nav_buttons[] = ["text" => "📄 " . ($pagina + 1) . "/" . $total_paginas, "callback_data" => "manual_info_ruta"];
+    }
+    
+    if ($pagina < $total_paginas - 1) {
+        $nav_buttons[] = ["text" => "Siguiente ➡️", "callback_data" => "manual_page_ruta_" . ($pagina + 1)];
+    }
+    
+    if (!empty($nav_buttons)) {
+        $kb["inline_keyboard"][] = $nav_buttons;
+    }
+    
+    $kb["inline_keyboard"][] = [[ "text"=>"➕ Nueva ruta", "callback_data"=>"manual_ruta_nueva" ]];
+    $kb["inline_keyboard"][] = [[ "text"=>"🔙 Volver a filtrar", "callback_data"=>"manual_volver_filtro_ruta" ]];
+    
+    return $kb;
+}
+
 /* ========= FUNCIÓN PARA AGREGAR BOTÓN VOLVER ========= */
 function manual_add_back_button(array $kb, string $back_step): array {
     $kb["inline_keyboard"][] = [[ 
@@ -115,52 +168,86 @@ function manual_add_skip_button(array $kb, string $callback_data = "manual_skip_
 function manual_resend_current_step($chat_id, $estado) {
     $conn = db();
     switch ($estado['paso']) {
+        case 'manual_filtro_conductor':
+            sendMessage($chat_id, "✍️ Escribe la *primera letra* del nombre del conductor para filtrar:");
+            break;
+            
+        case 'manual_filtro_conductor_sin_resultados':
+            $letra = $estado['manual_filtro_letra'] ?? '';
+            $kb = [
+                "inline_keyboard" => [
+                    [
+                        ["text" => "➕ Crear nuevo conductor", "callback_data" => "manual_nuevo"],
+                        ["text" => "🔙 Volver a intentar", "callback_data" => "manual_volver_filtro_conductor"]
+                    ]
+                ]
+            ];
+            sendMessage($chat_id, "⚠️ No se encontraron conductores que empiecen con *" . strtoupper($letra) . "*.\n\n¿Qué deseas hacer?", $kb);
+            break;
+            
         case 'manual_menu':
-            $conductores = $conn ? obtenerConductoresAdmin($conn, $chat_id) : [];
-            if ($conductores) {
-                $pagina = $estado['manual_page'] ?? 0;
-                $kb = manual_kb_grid_paginado($conductores, 'manual_sel_', $pagina);
-                sendMessage($chat_id, "Elige un *conductor* o crea uno nuevo:", $kb);
-            } else {
-                sendMessage($chat_id, "No tienes conductores guardados.\n✍️ Escribe el *nombre* del nuevo conductor:");
-                $estado['paso']='manual_nombre_nuevo'; saveState($chat_id,$estado);
-            }
+            // Paso antiguo - redirigir a filtro
+            $estado['paso'] = 'manual_filtro_conductor';
+            saveState($chat_id, $estado);
+            sendMessage($chat_id, "✍️ Escribe la *primera letra* del nombre del conductor para filtrar:");
             break;
+            
         case 'manual_nombre_nuevo':
-            sendMessage($chat_id, "✍️ Escribe el *nombre* del nuevo conductor:"); break;
-        case 'manual_ruta_menu':
-            $rutas = $conn ? obtenerRutasAdmin($conn, $chat_id) : [];
-            if ($rutas) {
-                $kb = manual_kb_grid($rutas, 'manual_ruta_sel_');
-                $kb["inline_keyboard"][] = [[ "text"=>"➕ Nueva ruta", "callback_data"=>"manual_ruta_nueva" ]];
-                $kb = manual_add_back_button($kb, 'menu');
-                sendMessage($chat_id, "Selecciona una *ruta* o crea una nueva:", $kb);
-            } else {
-                sendMessage($chat_id, "No tienes rutas guardadas.\n✍️ Escribe la *ruta del viaje*:");
-                $estado['paso']='manual_ruta_nueva_texto'; saveState($chat_id,$estado);
-            }
+            sendMessage($chat_id, "✍️ Escribe el *nombre* del nuevo conductor:"); 
             break;
+            
+        case 'manual_filtro_ruta':
+            sendMessage($chat_id, "✍️ Escribe la *primera letra* de la ruta para filtrar:");
+            break;
+            
+        case 'manual_filtro_ruta_sin_resultados':
+            $letra = $estado['manual_filtro_ruta_letra'] ?? '';
+            $kb = [
+                "inline_keyboard" => [
+                    [
+                        ["text" => "➕ Crear nueva ruta", "callback_data" => "manual_ruta_nueva"],
+                        ["text" => "🔙 Volver a intentar", "callback_data" => "manual_volver_filtro_ruta"]
+                    ]
+                ]
+            ];
+            sendMessage($chat_id, "⚠️ No se encontraron rutas que empiecen con *" . strtoupper($letra) . "*.\n\n¿Qué deseas hacer?", $kb);
+            break;
+            
+        case 'manual_ruta_menu':
+            // Paso antiguo - redirigir a filtro
+            $estado['paso'] = 'manual_filtro_ruta';
+            saveState($chat_id, $estado);
+            sendMessage($chat_id, "✍️ Escribe la *primera letra* de la ruta para filtrar:");
+            break;
+            
         case 'manual_ruta_nueva_texto':
-            sendMessage($chat_id, "✍️ Escribe la *ruta del viaje*:"); break;
+            sendMessage($chat_id, "✍️ Escribe la *ruta del viaje*:"); 
+            break;
+            
         case 'manual_ruta':
-            sendMessage($chat_id, "🛣️ Ingresa la *ruta del viaje*:"); break;
+            sendMessage($chat_id, "🛣️ Ingresa la *ruta del viaje*:"); 
+            break;
+            
         case 'manual_fecha':
             $kb = kbFechaManual();
-            $kb = manual_add_back_button($kb, 'ruta_menu');
+            $kb = manual_add_back_button($kb, 'filtro_ruta');
             sendMessage($chat_id, "📅 Selecciona la *fecha*:", $kb); 
             break;
+            
         case 'manual_fecha_mes':
             $anio=$estado["anio"] ?? date("Y");
             $kb = kbMeses($anio);
             $kb = manual_add_back_button($kb, 'fecha');
             sendMessage($chat_id, "📆 Selecciona el *mes*:", $kb); 
             break;
+            
         case 'manual_fecha_dia_input':
             $anio=(int)($estado["anio"] ?? date("Y"));
             $mes =(int)($estado["mes"]  ?? date("m"));
             $maxDias=cal_days_in_month(CAL_GREGORIAN, $mes, $anio);
             sendMessage($chat_id, "✍️ Escribe el *día* del mes (1–$maxDias):"); 
             break;
+            
         case 'manual_vehiculo_menu':
             $vehiculos = $conn ? obtenerVehiculosAdmin($conn, $chat_id) : [];
             if ($vehiculos) {
@@ -173,8 +260,11 @@ function manual_resend_current_step($chat_id, $estado) {
                 $estado['paso']='manual_vehiculo_nuevo_texto'; saveState($chat_id,$estado);
             }
             break;
+            
         case 'manual_vehiculo_nuevo_texto':
-            sendMessage($chat_id, "✍️ Escribe el *tipo de vehículo*:"); break;
+            sendMessage($chat_id, "✍️ Escribe el *tipo de vehículo*:"); 
+            break;
+            
         case 'manual_empresa_menu':
             $empresas = $conn ? obtenerEmpresasAdmin($conn, $chat_id) : [];
             if ($empresas) {
@@ -187,8 +277,11 @@ function manual_resend_current_step($chat_id, $estado) {
                 $estado['paso']='manual_empresa_nuevo_texto'; saveState($chat_id,$estado);
             }
             break;
+            
         case 'manual_empresa_nuevo_texto':
-            sendMessage($chat_id, "✍️ Escribe el *nombre de la empresa*:"); break;
+            sendMessage($chat_id, "✍️ Escribe el *nombre de la empresa*:"); 
+            break;
+            
         case 'manual_pago_parcial_pregunta':
             $kb = [
                 "inline_keyboard" => [
@@ -203,11 +296,13 @@ function manual_resend_current_step($chat_id, $estado) {
             ];
             sendMessage($chat_id, "💵 ¿Hay *pago parcial* para este viaje?", $kb);
             break;
+            
         case 'manual_pago_parcial_monto':
             sendMessage($chat_id, "💰 Escribe el *monto del pago parcial* (ej: 1500000):"); 
             break;
+            
         case 'manual_imagen':
-            // ----- EVIDENCIA (OBLIGATORIA) -----
+            // EVIDENCIA (OBLIGATORIA)
             $kb = [
                 "inline_keyboard" => [
                     [
@@ -215,11 +310,11 @@ function manual_resend_current_step($chat_id, $estado) {
                     ]
                 ]
             ];
-            // NOTA: En evidencia NO hay botón omitir porque es OBLIGATORIA
             sendMessage($chat_id, "📸 *Envía la foto/factura* del viaje (OBLIGATORIA).\n\nDebes enviar una imagen para continuar.", $kb);
             break;
+            
         case 'manual_epicrisis':
-            // ----- EPICRISIS (OPCIONAL) -----
+            // EPICRISIS (OPCIONAL)
             $kb = [
                 "inline_keyboard" => [
                     [
@@ -230,6 +325,7 @@ function manual_resend_current_step($chat_id, $estado) {
             $kb = manual_add_skip_button($kb, "manual_skip_epicrisis");
             sendMessage($chat_id, "📋 *Epicrisis* (OPCIONAL)\n\nEnvía la foto de la epicrisis o usa *Omitir* para continuar sin ella.", $kb);
             break;
+            
         default:
             sendMessage($chat_id, "Continuamos donde ibas. Escribe /cancel para reiniciar.");
     }
@@ -266,27 +362,83 @@ function manual_kb_grid(array $items, string $callback_prefix): array {
 function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
     if (($estado["flujo"] ?? "") !== "manual") return;
 
-    // ========= PAGINACIÓN =========
-    if (strpos($cb_data, 'manual_page_') === 0) {
+    // ========= VOLVER A FILTRAR CONDUCTOR =========
+    if ($cb_data === 'manual_volver_filtro_conductor') {
+        $estado['paso'] = 'manual_filtro_conductor';
+        $estado['manual_page'] = 0;
+        unset($estado['manual_filtro_letra']);
+        saveState($chat_id, $estado);
+        sendMessage($chat_id, "✍️ Escribe la *primera letra* del nombre del conductor para filtrar:");
+        if ($cb_id) answerCallbackQuery($cb_id);
+        return;
+    }
+
+    // ========= VOLVER A FILTRAR RUTA =========
+    if ($cb_data === 'manual_volver_filtro_ruta') {
+        $estado['paso'] = 'manual_filtro_ruta';
+        $estado['manual_page_ruta'] = 0;
+        unset($estado['manual_filtro_ruta_letra']);
+        saveState($chat_id, $estado);
+        sendMessage($chat_id, "✍️ Escribe la *primera letra* de la ruta para filtrar:");
+        if ($cb_id) answerCallbackQuery($cb_id);
+        return;
+    }
+
+    // ========= PAGINACIÓN CONDUCTORES =========
+    if (strpos($cb_data, 'manual_page_') === 0 && strpos($cb_data, 'manual_page_ruta_') === false) {
         $pagina = (int)substr($cb_data, strlen('manual_page_'));
         $estado['manual_page'] = $pagina;
         saveState($chat_id, $estado);
         
+        $letra = $estado['manual_filtro_letra'] ?? '';
         $conn = db();
-        $conductores = $conn ? obtenerConductoresAdmin($conn, $chat_id) : [];
+        $conductores = $conn ? obtenerConductoresPorLetra($conn, $chat_id, $letra) : [];
         $conn?->close();
         
         if ($conductores) {
             $kb = manual_kb_grid_paginado($conductores, 'manual_sel_', $pagina);
-            sendMessage($chat_id, "Elige un *conductor* o crea uno nuevo:", $kb);
+            sendMessage($chat_id, "Conductores que empiezan con *" . strtoupper($letra) . "*:\nElige uno o crea uno nuevo:", $kb);
         }
         if ($cb_id) answerCallbackQuery($cb_id);
         return;
     }
 
-    // ========= INFO PAGINACIÓN =========
+    // ========= PAGINACIÓN RUTAS =========
+    if (strpos($cb_data, 'manual_page_ruta_') === 0) {
+        $pagina = (int)substr($cb_data, strlen('manual_page_ruta_'));
+        $estado['manual_page_ruta'] = $pagina;
+        saveState($chat_id, $estado);
+        
+        $letra = $estado['manual_filtro_ruta_letra'] ?? '';
+        $conn = db();
+        $rutas = $conn ? obtenerRutasPorLetra($conn, $chat_id, $letra) : [];
+        $conn?->close();
+        
+        if ($rutas) {
+            $kb = manual_kb_grid_rutas_filtradas($rutas, 'manual_ruta_sel_', $pagina);
+            sendMessage($chat_id, "Rutas que empiezan con *" . strtoupper($letra) . "*:\nSelecciona una o crea una nueva:", $kb);
+        }
+        if ($cb_id) answerCallbackQuery($cb_id);
+        return;
+    }
+
+    // ========= INFO PAGINACIÓN CONDUCTORES =========
     if ($cb_data === 'manual_info') {
-        if ($cb_id) answerCallbackQuery($cb_id, "Página " . ($estado['manual_page'] + 1) . " de " . ceil(count(obtenerConductoresAdmin(db(), $chat_id)) / 15));
+        $letra = $estado['manual_filtro_letra'] ?? '';
+        $conn = db();
+        $conductores = $conn ? obtenerConductoresPorLetra($conn, $chat_id, $letra) : [];
+        $conn?->close();
+        if ($cb_id) answerCallbackQuery($cb_id, "Página " . ($estado['manual_page'] + 1) . " de " . ceil(count($conductores) / 15));
+        return;
+    }
+
+    // ========= INFO PAGINACIÓN RUTAS =========
+    if ($cb_data === 'manual_info_ruta') {
+        $letra = $estado['manual_filtro_ruta_letra'] ?? '';
+        $conn = db();
+        $rutas = $conn ? obtenerRutasPorLetra($conn, $chat_id, $letra) : [];
+        $conn?->close();
+        if ($cb_id) answerCallbackQuery($cb_id, "Página " . ($estado['manual_page_ruta'] + 1) . " de " . ceil(count($rutas) / 15));
         return;
     }
 
@@ -313,19 +465,10 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
         if (!$row) { sendMessage($chat_id, "⚠️ Conductor no encontrado. Vuelve a intentarlo con /manual."); }
         else {
             $estado['manual_nombre'] = $row['nombre'];
-            $estado['paso'] = 'manual_ruta_menu'; 
+            $estado['paso'] = 'manual_filtro_ruta'; 
             saveState($chat_id,$estado);
 
-            $conn = db(); $rutas = $conn ? obtenerRutasAdmin($conn, $chat_id) : []; $conn?->close();
-            if ($rutas) {
-                $kb = manual_kb_grid($rutas, 'manual_ruta_sel_');
-                $kb["inline_keyboard"][] = [[ "text"=>"➕ Nueva ruta", "callback_data"=>"manual_ruta_nueva" ]];
-                $kb = manual_add_back_button($kb, 'menu');
-                sendMessage($chat_id, "👤 Conductor: *{$row['nombre']}*\n\nSelecciona una *ruta* o crea una nueva:", $kb);
-            } else {
-                $estado['paso']='manual_ruta_nueva_texto'; saveState($chat_id,$estado);
-                sendMessage($chat_id, "👤 Conductor: *{$row['nombre']}*\n\n✍️ Escribe la *ruta del viaje*:");
-            }
+            sendMessage($chat_id, "👤 Conductor: *{$row['nombre']}*\n\n✍️ Escribe la *primera letra* de la ruta para filtrar:");
         }
     }
 
@@ -344,7 +487,7 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
             $estado['manual_ruta'] = $r['ruta'];
             $estado['paso'] = 'manual_fecha'; saveState($chat_id,$estado);
             $kb = kbFechaManual();
-            $kb = manual_add_back_button($kb, 'ruta_menu');
+            $kb = manual_add_back_button($kb, 'filtro_ruta');
             sendMessage($chat_id, "🛣️ Ruta: *{$r['ruta']}*\n\n📅 Selecciona la *fecha*:", $kb);
         }
     }
@@ -453,7 +596,7 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
     
     if ($cb_data === 'manual_pago_no') {
         $estado['manual_pago_parcial'] = null;
-        $estado['paso'] = 'manual_imagen';  // Va a evidencia (OBLIGATORIA)
+        $estado['paso'] = 'manual_imagen';
         saveState($chat_id, $estado);
         
         $kb = [
@@ -463,7 +606,6 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
                 ]
             ]
         ];
-        // Sin botón omitir - la evidencia es OBLIGATORIA
         sendMessage($chat_id, "📸 *Envía la foto/factura* del viaje (OBLIGATORIA).\n\nDebes enviar una imagen para continuar.", $kb);
     }
 
@@ -473,14 +615,24 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
 /* ========= MANEJO DEL BOTÓN VOLVER ========= */
 function manual_handle_back($chat_id, &$estado, $back_step) {
     switch ($back_step) {
+        case 'filtro_conductor':
+            $estado['paso'] = 'manual_filtro_conductor';
+            unset($estado['manual_nombre'], $estado['manual_filtro_letra']);
+            break;
+            
+        case 'filtro_ruta':
+            $estado['paso'] = 'manual_filtro_ruta';
+            unset($estado['manual_ruta'], $estado['manual_filtro_ruta_letra']);
+            break;
+            
         case 'menu':
-            $estado['paso'] = 'manual_menu';
-            unset($estado['manual_nombre']);
+            $estado['paso'] = 'manual_filtro_conductor';
+            unset($estado['manual_nombre'], $estado['manual_filtro_letra']);
             break;
             
         case 'ruta_menu':
-            $estado['paso'] = 'manual_ruta_menu';
-            unset($estado['manual_ruta']);
+            $estado['paso'] = 'manual_filtro_ruta';
+            unset($estado['manual_ruta'], $estado['manual_filtro_ruta_letra']);
             break;
             
         case 'fecha':
@@ -504,13 +656,12 @@ function manual_handle_back($chat_id, &$estado, $back_step) {
             break;
 
         case 'imagen':
-            // Volver desde epicrisis a evidencia
             $estado['paso'] = 'manual_imagen';
             unset($estado['manual_epicrisis']);
             break;
             
         default:
-            $estado['paso'] = 'manual_menu';
+            $estado['paso'] = 'manual_filtro_conductor';
             break;
     }
     
@@ -522,6 +673,76 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
     if (($estado["flujo"] ?? "") !== "manual") return;
 
     switch ($estado["paso"]) {
+        // ========= FILTRO CONDUCTOR =========
+        case "manual_filtro_conductor":
+            $letra = mb_substr(trim($text), 0, 1);
+            if ($letra === "" || !preg_match('/[a-zA-ZáéíóúÁÉÍÓÚñÑ]/u', $letra)) {
+                sendMessage($chat_id, "⚠️ Debes escribir una letra válida. Escribe la *primera letra* del nombre del conductor:");
+                break;
+            }
+            
+            $estado['manual_filtro_letra'] = $letra;
+            $estado['manual_page'] = 0;
+            
+            $conn = db();
+            $conductores = $conn ? obtenerConductoresPorLetra($conn, $chat_id, $letra) : [];
+            $conn?->close();
+            
+            if (!empty($conductores)) {
+                $estado['paso'] = 'manual_sel_conductor';
+                saveState($chat_id, $estado);
+                $kb = manual_kb_grid_paginado($conductores, 'manual_sel_', 0);
+                sendMessage($chat_id, "Conductores que empiezan con *" . strtoupper($letra) . "*:\nElige uno o crea uno nuevo:", $kb);
+            } else {
+                $estado['paso'] = 'manual_filtro_conductor_sin_resultados';
+                saveState($chat_id, $estado);
+                $kb = [
+                    "inline_keyboard" => [
+                        [
+                            ["text" => "➕ Crear nuevo conductor", "callback_data" => "manual_nuevo"],
+                            ["text" => "🔙 Volver a intentar", "callback_data" => "manual_volver_filtro_conductor"]
+                        ]
+                    ]
+                ];
+                sendMessage($chat_id, "⚠️ No se encontraron conductores que empiecen con *" . strtoupper($letra) . "*.\n\n¿Qué deseas hacer?", $kb);
+            }
+            break;
+
+        // ========= FILTRO RUTA =========
+        case "manual_filtro_ruta":
+            $letra = mb_substr(trim($text), 0, 1);
+            if ($letra === "" || !preg_match('/[a-zA-ZáéíóúÁÉÍÓÚñÑ0-9]/u', $letra)) {
+                sendMessage($chat_id, "⚠️ Debes escribir una letra o número válido. Escribe la *primera letra* de la ruta:");
+                break;
+            }
+            
+            $estado['manual_filtro_ruta_letra'] = $letra;
+            $estado['manual_page_ruta'] = 0;
+            
+            $conn = db();
+            $rutas = $conn ? obtenerRutasPorLetra($conn, $chat_id, $letra) : [];
+            $conn?->close();
+            
+            if (!empty($rutas)) {
+                $estado['paso'] = 'manual_sel_ruta';
+                saveState($chat_id, $estado);
+                $kb = manual_kb_grid_rutas_filtradas($rutas, 'manual_ruta_sel_', 0);
+                sendMessage($chat_id, "Rutas que empiezan con *" . strtoupper($letra) . "*:\nSelecciona una o crea una nueva:", $kb);
+            } else {
+                $estado['paso'] = 'manual_filtro_ruta_sin_resultados';
+                saveState($chat_id, $estado);
+                $kb = [
+                    "inline_keyboard" => [
+                        [
+                            ["text" => "➕ Crear nueva ruta", "callback_data" => "manual_ruta_nueva"],
+                            ["text" => "🔙 Volver a intentar", "callback_data" => "manual_volver_filtro_ruta"]
+                        ]
+                    ]
+                ];
+                sendMessage($chat_id, "⚠️ No se encontraron rutas que empiecen con *" . strtoupper($letra) . "*.\n\n¿Qué deseas hacer?", $kb);
+            }
+            break;
+
         case "manual_nombre":
         case "manual_nombre_nuevo":
             $nombre = trim($text);
@@ -534,19 +755,10 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
             }
             
             $estado["manual_nombre"] = $nombre;
-            $estado["paso"] = "manual_ruta_menu"; 
+            $estado["paso"] = "manual_filtro_ruta"; 
             saveState($chat_id,$estado);
 
-            $conn = db(); $rutas = $conn ? obtenerRutasAdmin($conn, $chat_id) : []; $conn?->close();
-            if ($rutas) {
-                $kb = manual_kb_grid($rutas, 'manual_ruta_sel_');
-                $kb["inline_keyboard"][] = [[ "text"=>"➕ Nueva ruta", "callback_data"=>"manual_ruta_nueva" ]];
-                $kb = manual_add_back_button($kb, 'menu');
-                sendMessage($chat_id, "👤 Conductor guardado: *{$nombre}*\n\nSelecciona una *ruta* o crea una nueva:", $kb);
-            } else {
-                $estado['paso']='manual_ruta_nueva_texto'; saveState($chat_id,$estado);
-                sendMessage($chat_id, "👤 Conductor guardado: *{$nombre}*\n\n✍️ Escribe la *ruta del viaje*:");
-            }
+            sendMessage($chat_id, "👤 Conductor guardado: *{$nombre}*\n\n✍️ Escribe la *primera letra* de la ruta para filtrar:");
             break;
 
         case "manual_ruta":
@@ -563,7 +775,7 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
             $estado["manual_ruta"] = $rutaTxt;
             $estado["paso"] = "manual_fecha"; saveState($chat_id,$estado);
             $kb = kbFechaManual();
-            $kb = manual_add_back_button($kb, 'ruta_menu');
+            $kb = manual_add_back_button($kb, 'filtro_ruta');
             sendMessage($chat_id, "🛣️ Ruta guardada: *{$rutaTxt}*\n\n📅 Selecciona la *fecha*:", $kb);
             break;
 
@@ -654,7 +866,6 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
             
             $estado["manual_pago_parcial"] = (int)$monto;
             
-            // Ir a evidencia (OBLIGATORIA)
             $estado['paso'] = 'manual_imagen';
             saveState($chat_id, $estado);
             
@@ -665,17 +876,14 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
                     ]
                 ]
             ];
-            // Sin botón omitir - la evidencia es OBLIGATORIA
             sendMessage($chat_id, "📸 *Envía la foto/factura* del viaje (OBLIGATORIA).\n\nDebes enviar una imagen para continuar.", $kb);
             break;
 
         case "manual_imagen":
-            // Procesar imagen de EVIDENCIA (OBLIGATORIA)
             manual_process_evidencia($chat_id, $estado, $photo);
             break;
 
         case "manual_epicrisis":
-            // Procesar imagen de EPICRISIS (OPCIONAL)
             manual_process_epicrisis($chat_id, $estado, $photo);
             break;
 
@@ -711,7 +919,6 @@ function manual_process_evidencia($chat_id, &$estado, $photo) {
                 ]
             ]
         ];
-        // Sin omitir - ES OBLIGATORIA
         sendMessage($chat_id, "⚠️ La foto de evidencia es *OBLIGATORIA*. Debes enviar una imagen para continuar.", $kb);
         return;
     }
@@ -759,12 +966,10 @@ function manual_process_evidencia($chat_id, &$estado, $photo) {
         return;
     }
 
-    // Guardar evidencia yavanzar a epicrisis (OPCIONAL)
     $estado['manual_imagen'] = $nombreArchivo;
     $estado['paso'] = 'manual_epicrisis';
     saveState($chat_id, $estado);
     
-    // Preguntar por epicrisis
     $kb = [
         "inline_keyboard" => [
             [
@@ -849,7 +1054,6 @@ function manual_process_epicrisis($chat_id, &$estado, $photo) {
         return;
     }
 
-    // Guardar epicrisis y finalizar
     $estado['manual_epicrisis'] = $nombreArchivo;
     manual_insert_viaje_and_close($chat_id, $estado);
 }
@@ -863,7 +1067,6 @@ function manual_insert_viaje_and_close($chat_id, &$estado) {
         return; 
     }
     
-    // Preparar consulta con ambos campos de imagen
     $stmt = $conn->prepare("INSERT INTO viajes (nombre, ruta, fecha, cedula, tipo_vehiculo, empresa, imagen, epicrisis, pago_parcial) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)");
     $pago_parcial = $estado["manual_pago_parcial"] ?? null;
     $imagen = $estado["manual_imagen"] ?? null;
@@ -888,16 +1091,13 @@ function manual_insert_viaje_and_close($chat_id, &$estado) {
                    "🚐 *Vehículo:* " . $estado["manual_vehiculo"] . "\n" .
                    "🏢 *Empresa:* " . $estado["manual_empresa"];
         
-        // Pago parcial
         if (isset($estado["manual_pago_parcial"])) {
             $monto_formateado = number_format($estado["manual_pago_parcial"], 0, ',', '.');
             $mensaje .= "\n💰 *Pago parcial:* $" . $monto_formateado;
         }
         
-        // Evidencia (siempre debe estar)
         $mensaje .= "\n📸 *Evidencia:* ✅ Adjuntada";
         
-        // Epicrisis
         if (isset($estado["manual_epicrisis"])) {
             $mensaje .= "\n📋 *Epicrisis:* ✅ Adjuntada";
         } else {
