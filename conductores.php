@@ -19,19 +19,20 @@ if($row['total'] == 0) {
 }
 
 // Guardar datos
+$mensaje = '';
 if(isset($_POST['guardar'])) {
     $id = (int)$_POST['id'];
     $cedula = $conn->real_escape_string($_POST['cedula']);
     $cuenta = $conn->real_escape_string($_POST['cuenta_banco']);
     $conn->query("UPDATE conductores SET cedula='$cedula', cuenta_banco='$cuenta' WHERE id=$id");
-    echo "<p style='color:green; font-weight:bold;'>✅ Datos guardados correctamente</p>";
+    $mensaje = "<p style='color:green; font-weight:bold;'>✅ Guardado correctamente</p>";
 }
 
-// Cargar todos los conductores para el JavaScript
-$todos = $conn->query("SELECT * FROM conductores ORDER BY nombre");
-$conductores_json = [];
-while($c = $todos->fetch_assoc()) {
-    $conductores_json[] = $c;
+// Cargar todos los conductores
+$result = $conn->query("SELECT * FROM conductores ORDER BY nombre");
+$conductores = [];
+while($c = $result->fetch_assoc()) {
+    $conductores[] = $c;
 }
 ?>
 
@@ -54,12 +55,8 @@ while($c = $todos->fetch_assoc()) {
             padding: 25px;
             border-radius: 10px;
         }
-        h2 {
-            margin-top: 0;
-        }
-        .search-box {
-            margin-bottom: 20px;
-        }
+        h2 { margin-top: 0; }
+        .search-box { margin-bottom: 20px; }
         .search-box input {
             padding: 12px;
             width: 100%;
@@ -69,9 +66,7 @@ while($c = $todos->fetch_assoc()) {
             font-size: 16px;
             outline: none;
         }
-        .search-box input:focus {
-            border-color: #007bff;
-        }
+        .search-box input:focus { border-color: #007bff; }
         .btn-save {
             background: #28a745;
             color: white;
@@ -81,9 +76,7 @@ while($c = $todos->fetch_assoc()) {
             cursor: pointer;
             font-weight: bold;
         }
-        .btn-save:hover {
-            background: #218838;
-        }
+        .btn-save:hover { background: #218838; }
         table {
             width: 100%;
             border-collapse: collapse;
@@ -99,24 +92,14 @@ while($c = $todos->fetch_assoc()) {
             padding: 10px;
             border-bottom: 1px solid #dee2e6;
         }
-        tr:hover {
-            background: #f8f9fa;
-        }
+        tr:hover { background: #f8f9fa; }
         td input[type="text"] {
             padding: 8px;
             border: 1px solid #ddd;
             border-radius: 4px;
             width: 90%;
         }
-        td input[type="text"]:focus {
-            border-color: #007bff;
-            outline: none;
-        }
-        .no-results {
-            text-align: center;
-            padding: 20px;
-            color: #999;
-        }
+        .fila-oculta { display: none; }
     </style>
 </head>
 <body>
@@ -124,9 +107,11 @@ while($c = $todos->fetch_assoc()) {
 <div class="container">
     <h2>🚛 Gestión de Conductores</h2>
     
+    <?php echo $mensaje; ?>
+    
     <!-- Buscador -->
     <div class="search-box">
-        <input type="text" id="buscador" placeholder="🔍 Escribe para filtrar conductores..." autocomplete="off">
+        <input type="text" id="buscador" placeholder="🔍 Escribe para filtrar..." autocomplete="off">
     </div>
 
     <!-- Tabla -->
@@ -139,60 +124,43 @@ while($c = $todos->fetch_assoc()) {
                 <th>Acción</th>
             </tr>
         </thead>
-        <tbody id="tabla-body">
-            <!-- Se llena con JavaScript -->
+        <tbody>
+            <?php foreach($conductores as $c): ?>
+            <tr class="fila-conductor" data-nombre="<?php echo strtolower(htmlspecialchars($c['nombre'])); ?>">
+                <form method="POST" action="">
+                    <td class="nombre-celda"><?php echo htmlspecialchars($c['nombre']); ?></td>
+                    <td>
+                        <input type="text" name="cedula" value="<?php echo htmlspecialchars($c['cedula']); ?>" placeholder="Cédula">
+                    </td>
+                    <td>
+                        <input type="text" name="cuenta_banco" value="<?php echo htmlspecialchars($c['cuenta_banco']); ?>" placeholder="Cuenta bancaria">
+                    </td>
+                    <td>
+                        <input type="hidden" name="id" value="<?php echo $c['id']; ?>">
+                        <button type="submit" name="guardar" class="btn-save">💾 Guardar</button>
+                    </td>
+                </form>
+            </tr>
+            <?php endforeach; ?>
         </tbody>
     </table>
 </div>
 
 <script>
-// Datos de conductores desde PHP
-const conductores = <?php echo json_encode($conductores_json, JSON_UNESCAPED_UNICODE); ?>;
-
-// Función para mostrar conductores
-function mostrarConductores(filtro = '') {
-    const tbody = document.getElementById('tabla-body');
-    const filtroLower = filtro.toLowerCase();
-    
-    // Filtrar conductores
-    const filtrados = conductores.filter(c => 
-        c.nombre.toLowerCase().includes(filtroLower) ||
-        (c.cedula && c.cedula.toLowerCase().includes(filtroLower)) ||
-        (c.cuenta_banco && c.cuenta_banco.toLowerCase().includes(filtroLower))
-    );
-    
-    // Generar HTML
-    if (filtrados.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="no-results">No se encontraron conductores</td></tr>';
-        return;
-    }
-    
-    tbody.innerHTML = filtrados.map(c => `
-        <tr>
-            <form method="POST" action="">
-                <td>${c.nombre}</td>
-                <td>
-                    <input type="text" name="cedula" value="${c.cedula || ''}" placeholder="Cédula">
-                </td>
-                <td>
-                    <input type="text" name="cuenta_banco" value="${c.cuenta_banco || ''}" placeholder="Cuenta bancaria">
-                </td>
-                <td>
-                    <input type="hidden" name="id" value="${c.id}">
-                    <button type="submit" name="guardar" class="btn-save">💾 Guardar</button>
-                </td>
-            </form>
-        </tr>
-    `).join('');
-}
-
-// Escuchar el input del buscador
+// Filtrar mientras escribes
 document.getElementById('buscador').addEventListener('input', function() {
-    mostrarConductores(this.value);
+    const filtro = this.value.toLowerCase();
+    const filas = document.querySelectorAll('.fila-conductor');
+    
+    filas.forEach(function(fila) {
+        const nombre = fila.getAttribute('data-nombre');
+        if (nombre.includes(filtro)) {
+            fila.style.display = '';
+        } else {
+            fila.style.display = 'none';
+        }
+    });
 });
-
-// Mostrar todos al cargar
-mostrarConductores();
 </script>
 
 </body>
