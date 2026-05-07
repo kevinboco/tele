@@ -678,7 +678,7 @@ if ($accion == 'informe') {
             </button>
         </div>
         
-        <h1>🚗 Informe de Viajes</h1>
+        
         
         <div class="info-filtros">
             <strong>📊 Columnas mostradas:</strong> 
