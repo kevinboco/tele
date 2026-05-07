@@ -1,133 +1,172 @@
 <?php
-// Activar logs
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
-
-$log_file = 'log_conductores.txt';
-
-function escribirLog($mensaje) {
-    global $log_file;
-    $fecha = date('Y-m-d H:i:s');
-    file_put_contents($log_file, "[$fecha] $mensaje\n", FILE_APPEND);
-}
-
-escribirLog("=== INICIO ===");
-
 // Conexión
 $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
-if ($conn->connect_error) { 
-    escribirLog("ERROR CONEXIÓN: " . $conn->connect_error);
-    die("Error conexión"); 
-}
 $conn->set_charset('utf8mb4');
-escribirLog("Conexión OK");
 
-// Crear tabla si no existe
+// Crear tabla conductores si no existe
 $conn->query("CREATE TABLE IF NOT EXISTS conductores (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    nombre VARCHAR(100)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-escribirLog("Tabla base verificada");
+    nombre VARCHAR(100),
+    cedula VARCHAR(20),
+    cuenta_banco VARCHAR(50)
+)");
 
-// Verificar y agregar columna cedula si no existe
-$columna = $conn->query("SHOW COLUMNS FROM conductores LIKE 'cedula'");
-if($columna->num_rows == 0) {
-    $conn->query("ALTER TABLE conductores ADD COLUMN cedula VARCHAR(20) DEFAULT '' AFTER nombre");
-    escribirLog("Columna 'cedula' agregada");
-}
-
-// Verificar y agregar columna cuenta_banco si no existe
-$columna = $conn->query("SHOW COLUMNS FROM conductores LIKE 'cuenta_banco'");
-if($columna->num_rows == 0) {
-    $conn->query("ALTER TABLE conductores ADD COLUMN cuenta_banco VARCHAR(50) DEFAULT '' AFTER cedula");
-    escribirLog("Columna 'cuenta_banco' agregada");
-}
-
-// Insertar nombres desde viajes si está vacía
+// Insertar conductores desde viajes si la tabla está vacía
 $check = $conn->query("SELECT COUNT(*) as total FROM conductores");
-$total = $check->fetch_assoc()['total'];
-escribirLog("Conductores: $total");
-
-if($total == 0) {
+$row = $check->fetch_assoc();
+if($row['total'] == 0) {
     $conn->query("INSERT INTO conductores (nombre) SELECT DISTINCT nombre FROM viajes WHERE nombre IS NOT NULL AND nombre != ''");
-    escribirLog("Insertados: " . $conn->affected_rows);
 }
 
-// Guardar
-$mensaje = '';
+// Guardar datos
 if(isset($_POST['guardar'])) {
-    escribirLog("=== GUARDAR ===");
-    $id = intval($_POST['guardar']);
-    $cedula = $conn->real_escape_string($_POST['cedula'][$_POST['guardar']] ?? '');
-    $cuenta = $conn->real_escape_string($_POST['cuenta_banco'][$_POST['guardar']] ?? '');
-    
-    escribirLog("ID: $id | Cédula: $cedula | Cuenta: $cuenta");
-    
-    $sql = "UPDATE conductores SET cedula='$cedula', cuenta_banco='$cuenta' WHERE id=$id";
-    escribirLog("SQL: $sql");
-    
-    if($conn->query($sql)) {
-        $mensaje = "<p style='color:green;background:#d4edda;padding:10px;border-radius:5px;'>✅ Guardado correctamente</p>";
-        escribirLog("✅ OK");
-    } else {
-        $mensaje = "<p style='color:red;background:#f8d7da;padding:10px;border-radius:5px;'>❌ Error: " . $conn->error . "</p>";
-        escribirLog("❌ ERROR: " . $conn->error);
-    }
+    $id = (int)$_POST['id'];
+    $cedula = $conn->real_escape_string($_POST['cedula']);
+    $cuenta = $conn->real_escape_string($_POST['cuenta_banco']);
+    $conn->query("UPDATE conductores SET cedula='$cedula', cuenta_banco='$cuenta' WHERE id=$id");
+    echo "<p style='color:green; font-weight:bold;'>✅ Datos guardados correctamente</p>";
 }
 
-// Filtro
+// Filtrar búsqueda
 $filtro = isset($_GET['filtro']) ? $conn->real_escape_string($_GET['filtro']) : '';
-$sql = "SELECT * FROM conductores";
-if($filtro != '') $sql .= " WHERE nombre LIKE '%$filtro%'";
-$sql .= " ORDER BY nombre";
-$result = $conn->query($sql);
-$num = $result ? $result->num_rows : 0;
-escribirLog("Resultados: $num");
+if($filtro != '') {
+    $result = $conn->query("SELECT * FROM conductores WHERE nombre LIKE '%$filtro%' ORDER BY nombre");
+} else {
+    $result = $conn->query("SELECT * FROM conductores ORDER BY nombre");
+}
 ?>
 
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Conductores</title>
     <style>
-        body { font-family: Arial; padding: 20px; background: #f5f5f5; }
-        .contenedor { max-width: 1000px; margin: auto; background: white; padding: 25px; border-radius: 10px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-        th { background: #333; color: white; padding: 12px; text-align: left; }
-        td { padding: 10px; border-bottom: 1px solid #ddd; }
-        input[type=text] { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
-        button { padding: 8px 18px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; }
-        button:hover { background: #0052a3; }
-        .filtro input { width: 250px; padding: 10px; }
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+        }
+        h2 {
+            margin-top: 0;
+        }
+        .search-box {
+            margin-bottom: 20px;
+        }
+        .search-box input {
+            padding: 10px;
+            width: 300px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        .search-box button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        .btn-search {
+            background: #007bff;
+            color: white;
+        }
+        .btn-all {
+            background: #6c757d;
+            color: white;
+        }
+        .btn-save {
+            background: #28a745;
+            color: white;
+            padding: 8px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th {
+            background: #343a40;
+            color: white;
+            padding: 12px;
+            text-align: left;
+        }
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        tr:hover {
+            background: #f8f9fa;
+        }
+        td input[type="text"] {
+            padding: 6px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            width: 90%;
+        }
+        .message {
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+        }
     </style>
 </head>
 <body>
 
-<div class="contenedor">
+<div class="container">
     <h2>🚛 Gestión de Conductores</h2>
-    <?php echo $mensaje; ?>
     
-    <form method="GET" class="filtro" style="margin-bottom:20px;">
-        <input type="text" name="filtro" placeholder="🔍 Buscar conductor..." value="<?php echo htmlspecialchars($filtro); ?>">
-        <button type="submit">Buscar</button>
-        <a href="?"><button type="button" style="background:#666;">Ver todos</button></a>
-    </form>
-    
-    <form method="POST">
+    <!-- Buscador -->
+    <div class="search-box">
+        <form method="GET" action="">
+            <input type="text" name="filtro" placeholder="Buscar conductor..." value="<?php echo htmlspecialchars($filtro); ?>">
+            <button type="submit" class="btn-search">🔍 Buscar</button>
+            <a href="?"><button type="button" class="btn-all">Ver todos</button></a>
+        </form>
+    </div>
+
+    <!-- Tabla -->
     <table>
-        <tr><th>Nombre</th><th>Cédula</th><th>Cuenta de Banco</th><th></th></tr>
-        <?php while($c = $result->fetch_assoc()): ?>
-        <tr>
-            <td><strong><?php echo htmlspecialchars($c['nombre']); ?></strong></td>
-            <td><input type="text" name="cedula[<?php echo $c['id']; ?>]" value="<?php echo htmlspecialchars($c['cedula']); ?>" placeholder="Cédula" style="width:140px;"></td>
-            <td><input type="text" name="cuenta_banco[<?php echo $c['id']; ?>]" value="<?php echo htmlspecialchars($c['cuenta_banco']); ?>" placeholder="Cuenta bancaria" style="width:200px;"></td>
-            <td><button type="submit" name="guardar" value="<?php echo $c['id']; ?>">💾 Guardar</button></td>
-        </tr>
-        <?php endwhile; ?>
+        <thead>
+            <tr>
+                <th>Nombre</th>
+                <th>Cédula</th>
+                <th>Cuenta de Banco</th>
+                <th>Acción</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php while($c = $result->fetch_assoc()): ?>
+            <tr>
+                <form method="POST" action="">
+                    <td><?php echo htmlspecialchars($c['nombre']); ?></td>
+                    <td>
+                        <input type="text" name="cedula" value="<?php echo htmlspecialchars($c['cedula']); ?>" placeholder="Cédula">
+                    </td>
+                    <td>
+                        <input type="text" name="cuenta_banco" value="<?php echo htmlspecialchars($c['cuenta_banco']); ?>" placeholder="Cuenta bancaria">
+                    </td>
+                    <td>
+                        <input type="hidden" name="id" value="<?php echo $c['id']; ?>">
+                        <button type="submit" name="guardar" class="btn-save">💾 Guardar</button>
+                    </td>
+                </form>
+            </tr>
+            <?php endwhile; ?>
+        </tbody>
     </table>
-    </form>
 </div>
 
 </body>
