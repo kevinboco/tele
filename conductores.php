@@ -27,12 +27,11 @@ if(isset($_POST['guardar'])) {
     echo "<p style='color:green; font-weight:bold;'>✅ Datos guardados correctamente</p>";
 }
 
-// Filtrar búsqueda
-$filtro = isset($_GET['filtro']) ? $conn->real_escape_string($_GET['filtro']) : '';
-if($filtro != '') {
-    $result = $conn->query("SELECT * FROM conductores WHERE nombre LIKE '%$filtro%' ORDER BY nombre");
-} else {
-    $result = $conn->query("SELECT * FROM conductores ORDER BY nombre");
+// Cargar todos los conductores para el JavaScript
+$todos = $conn->query("SELECT * FROM conductores ORDER BY nombre");
+$conductores_json = [];
+while($c = $todos->fetch_assoc()) {
+    $conductores_json[] = $c;
 }
 ?>
 
@@ -62,27 +61,16 @@ if($filtro != '') {
             margin-bottom: 20px;
         }
         .search-box input {
-            padding: 10px;
-            width: 300px;
+            padding: 12px;
+            width: 100%;
+            max-width: 500px;
             border: 2px solid #ddd;
-            border-radius: 5px;
-            font-size: 14px;
+            border-radius: 8px;
+            font-size: 16px;
+            outline: none;
         }
-        .search-box button {
-            padding: 10px 20px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: bold;
-        }
-        .btn-search {
-            background: #007bff;
-            color: white;
-        }
-        .btn-all {
-            background: #6c757d;
-            color: white;
+        .search-box input:focus {
+            border-color: #007bff;
         }
         .btn-save {
             background: #28a745;
@@ -91,6 +79,10 @@ if($filtro != '') {
             border: none;
             border-radius: 4px;
             cursor: pointer;
+            font-weight: bold;
+        }
+        .btn-save:hover {
+            background: #218838;
         }
         table {
             width: 100%;
@@ -111,15 +103,19 @@ if($filtro != '') {
             background: #f8f9fa;
         }
         td input[type="text"] {
-            padding: 6px;
+            padding: 8px;
             border: 1px solid #ddd;
-            border-radius: 3px;
+            border-radius: 4px;
             width: 90%;
         }
-        .message {
-            padding: 10px;
-            margin-bottom: 15px;
-            border-radius: 5px;
+        td input[type="text"]:focus {
+            border-color: #007bff;
+            outline: none;
+        }
+        .no-results {
+            text-align: center;
+            padding: 20px;
+            color: #999;
         }
     </style>
 </head>
@@ -130,11 +126,7 @@ if($filtro != '') {
     
     <!-- Buscador -->
     <div class="search-box">
-        <form method="GET" action="">
-            <input type="text" name="filtro" placeholder="Buscar conductor..." value="<?php echo htmlspecialchars($filtro); ?>">
-            <button type="submit" class="btn-search">🔍 Buscar</button>
-            <a href="?"><button type="button" class="btn-all">Ver todos</button></a>
-        </form>
+        <input type="text" id="buscador" placeholder="🔍 Escribe para filtrar conductores..." autocomplete="off">
     </div>
 
     <!-- Tabla -->
@@ -147,27 +139,61 @@ if($filtro != '') {
                 <th>Acción</th>
             </tr>
         </thead>
-        <tbody>
-            <?php while($c = $result->fetch_assoc()): ?>
-            <tr>
-                <form method="POST" action="">
-                    <td><?php echo htmlspecialchars($c['nombre']); ?></td>
-                    <td>
-                        <input type="text" name="cedula" value="<?php echo htmlspecialchars($c['cedula']); ?>" placeholder="Cédula">
-                    </td>
-                    <td>
-                        <input type="text" name="cuenta_banco" value="<?php echo htmlspecialchars($c['cuenta_banco']); ?>" placeholder="Cuenta bancaria">
-                    </td>
-                    <td>
-                        <input type="hidden" name="id" value="<?php echo $c['id']; ?>">
-                        <button type="submit" name="guardar" class="btn-save">💾 Guardar</button>
-                    </td>
-                </form>
-            </tr>
-            <?php endwhile; ?>
+        <tbody id="tabla-body">
+            <!-- Se llena con JavaScript -->
         </tbody>
     </table>
 </div>
+
+<script>
+// Datos de conductores desde PHP
+const conductores = <?php echo json_encode($conductores_json, JSON_UNESCAPED_UNICODE); ?>;
+
+// Función para mostrar conductores
+function mostrarConductores(filtro = '') {
+    const tbody = document.getElementById('tabla-body');
+    const filtroLower = filtro.toLowerCase();
+    
+    // Filtrar conductores
+    const filtrados = conductores.filter(c => 
+        c.nombre.toLowerCase().includes(filtroLower) ||
+        (c.cedula && c.cedula.toLowerCase().includes(filtroLower)) ||
+        (c.cuenta_banco && c.cuenta_banco.toLowerCase().includes(filtroLower))
+    );
+    
+    // Generar HTML
+    if (filtrados.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="no-results">No se encontraron conductores</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = filtrados.map(c => `
+        <tr>
+            <form method="POST" action="">
+                <td>${c.nombre}</td>
+                <td>
+                    <input type="text" name="cedula" value="${c.cedula || ''}" placeholder="Cédula">
+                </td>
+                <td>
+                    <input type="text" name="cuenta_banco" value="${c.cuenta_banco || ''}" placeholder="Cuenta bancaria">
+                </td>
+                <td>
+                    <input type="hidden" name="id" value="${c.id}">
+                    <button type="submit" name="guardar" class="btn-save">💾 Guardar</button>
+                </td>
+            </form>
+        </tr>
+    `).join('');
+}
+
+// Escuchar el input del buscador
+document.getElementById('buscador').addEventListener('input', function() {
+    mostrarConductores(this.value);
+});
+
+// Mostrar todos al cargar
+mostrarConductores();
+</script>
 
 </body>
 </html>
