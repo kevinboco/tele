@@ -759,7 +759,7 @@ function manual_process_evidencia($chat_id, &$estado, $photo) {
         return;
     }
 
-    // Guardar evidencia y avanzar a epicrisis (OPCIONAL)
+    // Guardar evidencia yavanzar a epicrisis (OPCIONAL)
     $estado['manual_imagen'] = $nombreArchivo;
     $estado['paso'] = 'manual_epicrisis';
     saveState($chat_id, $estado);
