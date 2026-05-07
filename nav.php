@@ -234,9 +234,9 @@ $hasta = date("Y-m-d");
     <span>liquidacion prestamistas</span>
   </a>
 
-  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/ver_foto_cuenta.php">
+  <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/conductores.php?">
     <img src="https://img.icons8.com/color/48/picture.png">
-    <span>Cuentas de cobro guardadas</span>
+    <span>info conductores</span>
   </a>
 
   <a class="rail-item" href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/tatiana.php">
