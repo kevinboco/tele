@@ -18,14 +18,14 @@ if($row['total'] == 0) {
     $conn->query("INSERT INTO conductores (nombre) SELECT DISTINCT nombre FROM viajes WHERE nombre IS NOT NULL AND nombre != ''");
 }
 
-// Guardar datos
-$mensaje = '';
-if(isset($_POST['guardar'])) {
+// Guardar datos vía AJAX
+if(isset($_POST['guardar_ajax'])) {
     $id = (int)$_POST['id'];
     $cedula = $conn->real_escape_string($_POST['cedula']);
     $cuenta = $conn->real_escape_string($_POST['cuenta_banco']);
     $conn->query("UPDATE conductores SET cedula='$cedula', cuenta_banco='$cuenta' WHERE id=$id");
-    $mensaje = "<p style='color:green; font-weight:bold;'>✅ Guardado correctamente</p>";
+    echo "ok";
+    exit;
 }
 
 // Cargar todos los conductores
@@ -56,6 +56,17 @@ while($c = $result->fetch_assoc()) {
             border-radius: 10px;
         }
         h2 { margin-top: 0; }
+        .mensaje {
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            display: none;
+        }
+        .mensaje.success {
+            background: #d4edda;
+            color: #155724;
+            display: block;
+        }
         .search-box { margin-bottom: 20px; }
         .search-box input {
             padding: 12px;
@@ -77,6 +88,7 @@ while($c = $result->fetch_assoc()) {
             font-weight: bold;
         }
         .btn-save:hover { background: #218838; }
+        .btn-save:disabled { background: #6c757d; cursor: not-allowed; }
         table {
             width: 100%;
             border-collapse: collapse;
@@ -99,7 +111,10 @@ while($c = $result->fetch_assoc()) {
             border-radius: 4px;
             width: 90%;
         }
-        .fila-oculta { display: none; }
+        .guardado-ok {
+            background: #d4edda !important;
+            transition: background 0.3s;
+        }
     </style>
 </head>
 <body>
@@ -107,7 +122,7 @@ while($c = $result->fetch_assoc()) {
 <div class="container">
     <h2>🚛 Gestión de Conductores</h2>
     
-    <?php echo $mensaje; ?>
+    <div id="mensaje" class="mensaje"></div>
     
     <!-- Buscador -->
     <div class="search-box">
@@ -126,20 +141,17 @@ while($c = $result->fetch_assoc()) {
         </thead>
         <tbody>
             <?php foreach($conductores as $c): ?>
-            <tr class="fila-conductor" data-nombre="<?php echo strtolower(htmlspecialchars($c['nombre'])); ?>">
-                <form method="POST" action="">
-                    <td class="nombre-celda"><?php echo htmlspecialchars($c['nombre']); ?></td>
-                    <td>
-                        <input type="text" name="cedula" value="<?php echo htmlspecialchars($c['cedula']); ?>" placeholder="Cédula">
-                    </td>
-                    <td>
-                        <input type="text" name="cuenta_banco" value="<?php echo htmlspecialchars($c['cuenta_banco']); ?>" placeholder="Cuenta bancaria">
-                    </td>
-                    <td>
-                        <input type="hidden" name="id" value="<?php echo $c['id']; ?>">
-                        <button type="submit" name="guardar" class="btn-save">💾 Guardar</button>
-                    </td>
-                </form>
+            <tr class="fila-conductor" data-id="<?php echo $c['id']; ?>" data-nombre="<?php echo strtolower(htmlspecialchars($c['nombre'])); ?>">
+                <td class="nombre-celda"><?php echo htmlspecialchars($c['nombre']); ?></td>
+                <td>
+                    <input type="text" class="input-cedula" value="<?php echo htmlspecialchars($c['cedula']); ?>" placeholder="Cédula">
+                </td>
+                <td>
+                    <input type="text" class="input-cuenta" value="<?php echo htmlspecialchars($c['cuenta_banco']); ?>" placeholder="Cuenta bancaria">
+                </td>
+                <td>
+                    <button type="button" class="btn-save btn-guardar" onclick="guardarConductor(this)">💾 Guardar</button>
+                </td>
             </tr>
             <?php endforeach; ?>
         </tbody>
@@ -161,6 +173,61 @@ document.getElementById('buscador').addEventListener('input', function() {
         }
     });
 });
+
+// Guardar sin recargar
+function guardarConductor(boton) {
+    const fila = boton.closest('tr');
+    const id = fila.getAttribute('data-id');
+    const cedula = fila.querySelector('.input-cedula').value;
+    const cuenta = fila.querySelector('.input-cuenta').value;
+    const mensajeDiv = document.getElementById('mensaje');
+    
+    // Deshabilitar botón mientras guarda
+    boton.disabled = true;
+    boton.textContent = 'Guardando...';
+    
+    // Enviar datos
+    const formData = new FormData();
+    formData.append('guardar_ajax', '1');
+    formData.append('id', id);
+    formData.append('cedula', cedula);
+    formData.append('cuenta_banco', cuenta);
+    
+    fetch('', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.text())
+    .then(data => {
+        if(data === 'ok') {
+            // Mostrar mensaje
+            mensajeDiv.textContent = '✅ Datos guardados correctamente';
+            mensajeDiv.className = 'mensaje success';
+            
+            // Efecto visual en la fila
+            fila.classList.add('guardado-ok');
+            setTimeout(() => {
+                fila.classList.remove('guardado-ok');
+                mensajeDiv.style.display = 'none';
+            }, 2000);
+        } else {
+            mensajeDiv.textContent = '❌ Error al guardar';
+            mensajeDiv.className = 'mensaje success';
+            mensajeDiv.style.background = '#f8d7da';
+            mensajeDiv.style.color = '#721c24';
+        }
+        
+        // Restaurar botón
+        boton.disabled = false;
+        boton.textContent = '💾 Guardar';
+    })
+    .catch(error => {
+        mensajeDiv.textContent = '❌ Error de conexión';
+        mensajeDiv.className = 'mensaje success';
+        boton.disabled = false;
+        boton.textContent = '💾 Guardar';
+    });
+}
 </script>
 
 </body>
