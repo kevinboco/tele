@@ -119,6 +119,8 @@ while($c = $result->fetch_assoc()) {
 </head>
 <body>
 
+<?php include("nav.php"); ?>
+
 <div class="container">
     <h2>🚛 Gestión de Conductores</h2>
     
