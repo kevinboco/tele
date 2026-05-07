@@ -27,7 +27,8 @@ $columnas_disponibles = [
     'tipo_vehiculo' => ['nombre' => 'Vehículo', 'visible' => true, 'orden' => 6],
     'empresa' => ['nombre' => 'Empresa', 'visible' => true, 'orden' => 7],
     'pago_parcial' => ['nombre' => 'Pago Parcial', 'visible' => true, 'orden' => 8],
-    'imagen' => ['nombre' => 'Imagen', 'visible' => true, 'orden' => 9]
+    'imagen' => ['nombre' => 'Evidencia', 'visible' => true, 'orden' => 9],
+    'epicrisis' => ['nombre' => 'Epicrisis', 'visible' => true, 'orden' => 10]
 ];
 
 // Inicializar configuración de columnas en sesión
@@ -174,6 +175,22 @@ function normalizarPagoParcial($conexion, $valorRaw) {
     return (string)$n;
 }
 
+// Helper: procesar subida de archivo
+function procesarSubidaArchivo($campo) {
+    if (isset($_FILES[$campo]) && $_FILES[$campo]['error'] === UPLOAD_ERR_OK) {
+        $nombre = basename($_FILES[$campo]['name']);
+        $temp = $_FILES[$campo]['tmp_name'];
+        $destino = "uploads/" . $nombre;
+        
+        if (!is_dir('uploads')) mkdir('uploads', 0777, true);
+        
+        if (move_uploaded_file($temp, $destino)) {
+            return $nombre;
+        }
+    }
+    return null;
+}
+
 // ================== PROCESAR ACCIONES ==================
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
@@ -192,28 +209,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
         $pago_parcial = normalizarPagoParcial($conexion, $_POST['pago_parcial'] ?? null);
 
-        // Manejo de imagen
-        $imagen_nombre = "NULL";
-        if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
-            $imagen_nombre = basename($_FILES['imagen']['name']);
-            $imagen_temp = $_FILES['imagen']['tmp_name'];
-            $ruta_destino = "uploads/" . $imagen_nombre;
-            
-            if (!is_dir('uploads')) mkdir('uploads', 0777, true);
-            
-            if (move_uploaded_file($imagen_temp, $ruta_destino)) {
-                $imagen_nombre = "'" . $conexion->real_escape_string($imagen_nombre) . "'";
-            } else {
-                $imagen_nombre = "NULL";
-            }
-        }
+        // Manejo de imagen (evidencia)
+        $imagen_nombre = procesarSubidaArchivo('imagen');
+        $imagen_valor = $imagen_nombre ? "'" . $conexion->real_escape_string($imagen_nombre) . "'" : "NULL";
+        
+        // Manejo de epicrisis
+        $epicrisis_nombre = procesarSubidaArchivo('epicrisis');
+        $epicrisis_valor = $epicrisis_nombre ? "'" . $conexion->real_escape_string($epicrisis_nombre) . "'" : "NULL";
         
         if (empty($nombre) || empty($fecha) || empty($ruta) || empty($tipo_vehiculo)) {
             $_SESSION['error'] = "Los campos Nombre, Fecha, Ruta y Vehículo son obligatorios.";
             $accion = 'crear';
         } else {
-            $sql = "INSERT INTO viajes (nombre, cedula, fecha, ruta, tipo_vehiculo, empresa, imagen, pago_parcial) 
-                    VALUES ('$nombre', $cedula, '$fecha', '$ruta', '$tipo_vehiculo', $empresa, $imagen_nombre, $pago_parcial)";
+            $sql = "INSERT INTO viajes (nombre, cedula, fecha, ruta, tipo_vehiculo, empresa, imagen, epicrisis, pago_parcial) 
+                    VALUES ('$nombre', $cedula, '$fecha', '$ruta', '$tipo_vehiculo', $empresa, $imagen_valor, $epicrisis_valor, $pago_parcial)";
             
             if ($conexion->query($sql)) {
                 header("Location: ?msg=creado");
@@ -273,20 +282,22 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
         }
         
-        // Manejo de imagen
+        // Manejo de imagen (evidencia)
         $imagen_campo = '';
-        if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
-            $imagen_nombre = basename($_FILES['imagen']['name']);
-            $imagen_temp = $_FILES['imagen']['tmp_name'];
-            $ruta_destino = "uploads/" . $imagen_nombre;
-            
-            if (!is_dir('uploads')) mkdir('uploads', 0777, true);
-            
-            if (move_uploaded_file($imagen_temp, $ruta_destino)) {
-                $imagen_campo = ", imagen = '" . $conexion->real_escape_string($imagen_nombre) . "'";
-            }
+        $imagen_subida = procesarSubidaArchivo('imagen');
+        if ($imagen_subida) {
+            $imagen_campo = ", imagen = '" . $conexion->real_escape_string($imagen_subida) . "'";
         } elseif (isset($_POST['eliminar_imagen']) && $_POST['eliminar_imagen'] == '1') {
             $imagen_campo = ", imagen = NULL";
+        }
+        
+        // Manejo de epicrisis
+        $epicrisis_campo = '';
+        $epicrisis_subida = procesarSubidaArchivo('epicrisis');
+        if ($epicrisis_subida) {
+            $epicrisis_campo = ", epicrisis = '" . $conexion->real_escape_string($epicrisis_subida) . "'";
+        } elseif (isset($_POST['eliminar_epicrisis']) && $_POST['eliminar_epicrisis'] == '1') {
+            $epicrisis_campo = ", epicrisis = NULL";
         }
         
         if (empty($nombre) || empty($fecha) || empty($ruta) || empty($tipo_vehiculo)) {
@@ -302,6 +313,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     empresa = $empresa,
                     pago_parcial = $pago_parcial
                     $imagen_campo
+                    $epicrisis_campo
                     WHERE id = $id";
             
             if ($conexion->query($sql)) {
@@ -678,7 +690,7 @@ if ($accion == 'informe') {
             </button>
         </div>
         
-        
+        <h1>🚗 Informe de Viajes</h1>
         
         <div class="info-filtros">
             <strong>📊 Columnas mostradas:</strong> 
@@ -765,10 +777,23 @@ if ($accion == 'informe') {
                                             <?php if(!empty($row['imagen'])): ?>
                                                 <img src="uploads/<?= htmlspecialchars($row['imagen']) ?>" 
                                                      class="img-informe" 
-                                                     alt="Imagen"
+                                                     alt="Evidencia"
                                                      onerror="this.style.display='none'">
                                             <?php else: ?>
-                                                <span class="no-imagen">Sin imagen</span>
+                                                <span class="no-imagen">Sin evidencia</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <?php break; ?>
+                                    
+                                    <?php case 'epicrisis': ?>
+                                        <td>
+                                            <?php if(!empty($row['epicrisis'])): ?>
+                                                <img src="uploads/<?= htmlspecialchars($row['epicrisis']) ?>" 
+                                                     class="img-informe" 
+                                                     alt="Epicrisis"
+                                                     onerror="this.style.display='none'">
+                                            <?php else: ?>
+                                                <span class="no-imagen">Sin epicrisis</span>
                                             <?php endif; ?>
                                         </td>
                                         <?php break; ?>
@@ -1052,9 +1077,10 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                 </select>
                             </div>
                             
+                            <!-- IMAGEN EVIDENCIA -->
                             <?php if ($accion == 'editar' && isset($viaje['imagen']) && !empty($viaje['imagen'])): ?>
                                 <div class="mb-3">
-                                    <label class="form-label">Imagen actual</label>
+                                    <label class="form-label">📸 Evidencia actual</label>
                                     <div class="mb-2">
                                         <img src="uploads/<?= htmlspecialchars($viaje['imagen']) ?>" 
                                              class="img-thumbnail img-thumb">
@@ -1062,7 +1088,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                             <input class="form-check-input" type="checkbox" 
                                                    name="eliminar_imagen" value="1" id="eliminarImg">
                                             <label class="form-check-label" for="eliminarImg">
-                                                Eliminar imagen actual
+                                                Eliminar evidencia actual
                                             </label>
                                         </div>
                                     </div>
@@ -1071,11 +1097,39 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                             
                             <div class="mb-3">
                                 <label class="form-label">
-                                    <?= $accion == 'crear' ? 'Imagen (opcional)' : 'Nueva imagen (opcional)' ?>
+                                    📸 <?= $accion == 'crear' ? 'Evidencia (opcional)' : 'Nueva evidencia (opcional)' ?>
                                 </label>
                                 <input type="file" name="imagen" class="form-control" accept="image/*">
                                 <small class="text-muted">
-                                    <?= $accion == 'editar' ? 'Dejar en blanco para mantener la imagen actual' : '' ?>
+                                    <?= $accion == 'editar' ? 'Dejar en blanco para mantener la evidencia actual' : 'Foto/factura del viaje' ?>
+                                </small>
+                            </div>
+                            
+                            <!-- EPICRISIS -->
+                            <?php if ($accion == 'editar' && isset($viaje['epicrisis']) && !empty($viaje['epicrisis'])): ?>
+                                <div class="mb-3">
+                                    <label class="form-label">📋 Epicrisis actual</label>
+                                    <div class="mb-2">
+                                        <img src="uploads/<?= htmlspecialchars($viaje['epicrisis']) ?>" 
+                                             class="img-thumbnail img-thumb">
+                                        <div class="form-check mt-2">
+                                            <input class="form-check-input" type="checkbox" 
+                                                   name="eliminar_epicrisis" value="1" id="eliminarEpicrisis">
+                                            <label class="form-check-label" for="eliminarEpicrisis">
+                                                Eliminar epicrisis actual
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
+                            
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    📋 <?= $accion == 'crear' ? 'Epicrisis (opcional)' : 'Nueva epicrisis (opcional)' ?>
+                                </label>
+                                <input type="file" name="epicrisis" class="form-control" accept="image/*">
+                                <small class="text-muted">
+                                    <?= $accion == 'editar' ? 'Dejar en blanco para mantener la epicrisis actual' : 'Documento de epicrisis (opcional)' ?>
                                 </small>
                             </div>
                             
@@ -1189,7 +1243,8 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                             <th>Vehículo</th>
                                             <th>Empresa</th>
                                             <th>Pago parcial</th>
-                                            <th>Imagen</th>
+                                            <th>Evidencia</th>
+                                            <th>Epicrisis</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -1262,6 +1317,15 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                         <span class="text-muted">—</span>
                                                     <?php endif; ?>
                                                 </td>
+                                                <td class="text-center">
+                                                    <?php if(!empty($viaje_multi['epicrisis'])): ?>
+                                                        <img src="uploads/<?= htmlspecialchars($viaje_multi['epicrisis']) ?>" 
+                                                             width="50" class="rounded img-thumb"
+                                                             data-bs-toggle="tooltip" title="<?= htmlspecialchars($viaje_multi['epicrisis']) ?>">
+                                                    <?php else: ?>
+                                                        <span class="text-muted">—</span>
+                                                    <?php endif; ?>
+                                                </td>
                                             </tr>
                                         <?php endforeach; ?>
                                     </tbody>
@@ -1302,7 +1366,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
 
         <!-- BOTONES DE INFORME Y CONFIGURACIÓN DE COLUMNAS -->
         <div class="d-flex justify-content-end mb-3 gap-2">
-            <!-- BOTÓN GENERAR INFORME (NUEVO) -->
+            <!-- BOTÓN GENERAR INFORME -->
             <form method="GET" action="" target="_blank">
                 <?php
                 // Preservar todos los filtros actuales
@@ -1642,6 +1706,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                     switch($key) {
                                         case 'id': $width = 'width: 60px;'; break;
                                         case 'imagen': $width = 'width: 100px;'; break;
+                                        case 'epicrisis': $width = 'width: 100px;'; break;
                                     }
                                 ?>
                                     <th style="<?= $width ?>"><?= htmlspecialchars($columna['nombre']) ?></th>
@@ -1717,13 +1782,34 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                 <td>
                                                     <?php if(!empty($row['imagen'])): ?>
                                                         <a href="#" data-bs-toggle="modal" data-bs-target="#imgModal<?= $id_registro; ?>">
-                                                            <img src="uploads/<?= htmlspecialchars($row['imagen']); ?>" width="70" class="rounded img-thumb">
+                                                            <img src="uploads/<?= htmlspecialchars($row['imagen']); ?>" width="70" class="rounded img-thumb" alt="Evidencia">
                                                         </a>
                                                         <div class="modal fade" id="imgModal<?= $id_registro; ?>" tabindex="-1">
                                                             <div class="modal-dialog modal-dialog-centered">
                                                                 <div class="modal-content">
                                                                     <div class="modal-body text-center">
-                                                                        <img src="uploads/<?= htmlspecialchars($row['imagen']); ?>" class="img-fluid rounded">
+                                                                        <img src="uploads/<?= htmlspecialchars($row['imagen']); ?>" class="img-fluid rounded" alt="Evidencia">
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    <?php else: ?>
+                                                        <span class="text-muted">—</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <?php break;
+                                                
+                                            case 'epicrisis': ?>
+                                                <td>
+                                                    <?php if(!empty($row['epicrisis'])): ?>
+                                                        <a href="#" data-bs-toggle="modal" data-bs-target="#epiModal<?= $id_registro; ?>">
+                                                            <img src="uploads/<?= htmlspecialchars($row['epicrisis']); ?>" width="70" class="rounded img-thumb" alt="Epicrisis">
+                                                        </a>
+                                                        <div class="modal fade" id="epiModal<?= $id_registro; ?>" tabindex="-1">
+                                                            <div class="modal-dialog modal-dialog-centered">
+                                                                <div class="modal-content">
+                                                                    <div class="modal-body text-center">
+                                                                        <img src="uploads/<?= htmlspecialchars($row['epicrisis']); ?>" class="img-fluid rounded" alt="Epicrisis">
                                                                     </div>
                                                                 </div>
                                                             </div>
