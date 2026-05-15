@@ -100,7 +100,7 @@ $modo_pagados = isset($_POST['modo_pagados']) && $_POST['modo_pagados'] == '1';
 $fecha_pago_seleccionada = $_POST['fecha_pago'] ?? '';
 
 // ============================================
-// 6. FUNCIÓN PARA CALCULAR MESES
+// 6. FUNCIÓN PARA CALCULAR MESES (MODIFICADA PARA SOPORTAR DÍAS)
 // ============================================
 function calcularMesesAutomaticos($fecha_prestamo) {
     $hoy = new DateTime();
@@ -112,12 +112,47 @@ function calcularMesesAutomaticos($fecha_prestamo) {
     
     $diferencia = $fecha_prestamo_obj->diff($hoy);
     $meses = $diferencia->y * 12 + $diferencia->m;
+    $dias = $diferencia->d;
     
-    if ($diferencia->d > 0 || $meses == 0) {
+    // Si hay días o no hay meses, consideramos al menos 1 mes
+    if ($dias > 0 || $meses == 0) {
         $meses++;
     }
     
     return max(1, $meses);
+}
+
+/**
+ * Convierte un valor decimal tipo 1.15 a meses fraccionados
+ * Ejemplo: 1.15 = 1 + (15/30) = 1.5 meses
+ * Ejemplo: 2.10 = 2 + (10/30) = 2.333... meses
+ */
+function convertirMesesDiasADecimal($valor) {
+    $parte_entera = floor($valor);
+    $parte_decimal = round(($valor - $parte_entera) * 100); // Obtiene 15 de 1.15
+    $dias = min($parte_decimal, 30); // Máximo 30 días
+    return $parte_entera + ($dias / 30);
+}
+
+/**
+ * Formatea un valor decimal de meses para mostrar "X mes(es) y Y día(s)"
+ */
+function formatearMesesDias($valor) {
+    $parte_entera = floor($valor);
+    $parte_decimal = round(($valor - $parte_entera) * 100);
+    $dias = min($parte_decimal, 30);
+    
+    $texto = '';
+    if ($parte_entera > 0) {
+        $texto .= $parte_entera . ' mes' . ($parte_entera > 1 ? 'es' : '');
+    }
+    if ($dias > 0) {
+        if ($texto != '') $texto .= ' y ';
+        $texto .= $dias . ' día' . ($dias > 1 ? 's' : '');
+    }
+    if ($texto == '') $texto = '0 días';
+    
+    return $texto;
 }
 
 // Variables para mantener los valores del formulario
@@ -440,14 +475,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
             
             $es_prestamo_viejo = ($fecha_prestamo_dt < $FECHA_CORTE);
             
+            // Usar la función convertirMesesDiasADecimal para el cálculo
+            $meses_para_calculo = convertirMesesDiasADecimal($meses);
+            
             if ($es_prestamo_viejo) {
-                $interes_prestamista_monto = $fila['monto'] * (10 / 100) * $meses;
+                $interes_prestamista_monto = $fila['monto'] * (10 / 100) * $meses_para_calculo;
                 $comision_personal_monto = 0;
                 $tasa_interes = 10;
                 $total_prestamo = $fila['monto'] + $interes_prestamista_monto;
             } else {
-                $interes_prestamista_monto = $fila['monto'] * ($config_actual['interes'] / 100) * $meses;
-                $comision_personal_monto = $fila['monto'] * ($config_actual['comision'] / 100) * $meses;
+                $interes_prestamista_monto = $fila['monto'] * ($config_actual['interes'] / 100) * $meses_para_calculo;
+                $comision_personal_monto = $fila['monto'] * ($config_actual['comision'] / 100) * $meses_para_calculo;
                 $tasa_interes = $config_actual['interes'];
                 $total_prestamo = $fila['monto'] + $interes_prestamista_monto;
             }
@@ -554,13 +592,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
             $fecha_prestamo_dt = new DateTime($fila['fecha']);
             $es_prestamo_viejo = ($fecha_prestamo_dt < $FECHA_CORTE);
 
+            // Usar la función convertirMesesDiasADecimal para el cálculo
+            $meses_para_calculo = convertirMesesDiasADecimal($meses);
+
             if ($es_prestamo_viejo) {
-                $interes_prestamista_monto = $fila['monto'] * (10 / 100) * $meses;
+                $interes_prestamista_monto = $fila['monto'] * (10 / 100) * $meses_para_calculo;
                 $comision_personal_monto = 0;
                 $total_prestamo = $fila['monto'] + $interes_prestamista_monto;
             } else {
-                $interes_prestamista_monto = $fila['monto'] * ($config_actual['interes'] / 100) * $meses;
-                $comision_personal_monto = $fila['monto'] * ($config_actual['comision'] / 100) * $meses;
+                $interes_prestamista_monto = $fila['monto'] * ($config_actual['interes'] / 100) * $meses_para_calculo;
+                $comision_personal_monto = $fila['monto'] * ($config_actual['comision'] / 100) * $meses_para_calculo;
                 $total_prestamo = $fila['monto'] + $interes_prestamista_monto;
             }
 
@@ -1011,12 +1052,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
         }
 
         .meses-input{
-            width:60px;
+            width:80px;
             padding:4px;
             font-size:0.78rem;
             text-align:center;
             border-radius:8px;
             background:#020617;
+        }
+
+        .meses-display {
+            display: inline-block;
+            font-size: 0.7rem;
+            color: #38bdf8;
+            margin-left: 4px;
+            background: rgba(56,189,248,0.15);
+            padding: 2px 6px;
+            border-radius: 8px;
+            border: 1px solid rgba(56,189,248,0.3);
         }
 
         .checkbox-excluir{
@@ -1038,6 +1090,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
             padding:10px 12px;
             margin:10px 0 16px;
             border:1px solid rgba(245,158,11,0.4);
+        }
+
+        .info-meses-dias {
+            background: rgba(56, 189, 248, 0.08);
+            border-radius: 14px;
+            padding: 10px 12px;
+            margin: 10px 0 16px;
+            border: 1px solid rgba(56, 189, 248, 0.4);
         }
 
         .buscador-container{
@@ -1375,6 +1435,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
                 <strong>📅 REGLA DE FECHA DE CORTE:</strong><br>
                 • <span class="badge-tipo badge-viejo">Préstamos VIEJOS</span> (antes del 29-10-2025): <strong>10% todo para el prestamista, 0% comisión para ti</strong><br>
                 • <span class="badge-tipo badge-nuevo">Préstamos NUEVOS</span> (después del 29-10-2025): <strong>Total 13% (configurado abajo)</strong>
+            </div>
+            
+            <div class="info-meses-dias">
+                <strong>🕐 NUEVO - Cálculo con Meses y Días:</strong><br>
+                • Ahora puedes ajustar los meses con decimales para incluir días: <strong>1.15 = 1 mes y 15 días</strong><br>
+                • Los intereses se calculan proporcionalmente: <strong>1.15 equivale a 1.5 meses para el cálculo</strong>
             </div>
             
             <table class="config-table">
@@ -1715,6 +1781,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
                 • <span class="badge-tipo badge-nuevo">Préstamos NUEVOS</span> (después del 29-10-2025): <strong><?php echo number_format($config_actual['interes'], 1); ?>% para <?php echo htmlspecialchars($prestamista_seleccionado); ?> + <?php echo number_format($config_actual['comision'], 1); ?>% comisión para ti</strong>
             </div>
 
+            <div class="info-meses-dias">
+                <strong>🕐 CÁLCULO PROPORCIONAL CON MESES Y DÍAS:</strong><br>
+                • El valor de meses ahora acepta decimales: <strong>1.15 = 1 mes y 15 días</strong><br>
+                • Para el cálculo de intereses: <strong>1.15 equivale a 1.5 meses (1 + 15/30)</strong><br>
+                • Ejemplo: $1,000,000 × 13% × 1.5 = $195,000 (en lugar de $260,000 por 2 meses)
+            </div>
+
             <!-- CUADRO 1 -->
             <div class="subtitulo-cuadro">
                 Cuadro 1: Préstamos <?php echo $modo_pagados ? 'pagados' : 'de conductores y otros deudores seleccionados'; ?>
@@ -1823,11 +1896,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
                                         </td>
                                         <?php if (!$modo_pagados): ?>
                                         <td class="acciones">
-                                            <input type="number" class="meses-input" value="<?php echo $detalle['meses']; ?>" 
-                                                   min="1" max="36" onchange="recalcularPrestamo(this)"
+                                            <input type="number" class="meses-input" 
+                                                   value="<?php echo $detalle['meses']; ?>" 
+                                                   min="0.01" max="36" step="0.01" 
+                                                   onchange="recalcularPrestamo(this)"
                                                    data-monto="<?php echo $detalle['monto']; ?>"
                                                    data-tipo="<?php echo $detalle['tipo']; ?>"
                                                    <?php echo ($detalle['conductor_excluido'] ?? false) ? 'disabled' : ''; ?>>
+                                            <span class="meses-display">
+                                                <?php echo formatearMesesDias($detalle['meses']); ?>
+                                            </span>
                                         </td>
                                         <?php endif; ?>
                                         <td class="moneda interes-prestamista-prestamo">$ <?php echo number_format($detalle['interes_prestamista'], 0, ',', '.'); ?></td>
@@ -1903,12 +1981,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
         let modoPagados = <?php echo $modo_pagados ? 'true' : 'false'; ?>;
         let abonos = {};
         let empresasSeleccionadas = <?php echo json_encode($empresas_seleccionadas_array); ?>;
+        let mesesPersonalizados = {};
 
         document.addEventListener('DOMContentLoaded', function() {
             actualizarListaDeudores();
             actualizarContador();
             actualizarCampoExcluidos();
             inicializarAbonos();
+            inicializarMesesPersonalizados();
             actualizarListaEmpresas();
             
             const empresaSelect = document.getElementById('empresa');
@@ -2084,6 +2164,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
             const deudorId = fila.dataset.deudor;
             actualizarTotalesDeudor(deudorId);
         }
+
+        /**
+         * Convierte un valor decimal tipo 1.15 a meses fraccionados
+         * Ejemplo: 1.15 = 1 + (15/30) = 1.5 meses
+         */
+        function convertirMesesDiasADecimal(valor) {
+            const parteEntera = Math.floor(valor);
+            const parteDecimal = Math.round((valor - parteEntera) * 100);
+            const dias = Math.min(parteDecimal, 30);
+            return parteEntera + (dias / 30);
+        }
+
+        /**
+         * Formatea un valor decimal para mostrar "X mes(es) y Y día(s)"
+         */
+        function formatearMesesDias(valor) {
+            const parteEntera = Math.floor(valor);
+            const parteDecimal = Math.round((valor - parteEntera) * 100);
+            const dias = Math.min(parteDecimal, 30);
+            
+            let texto = '';
+            if (parteEntera > 0) {
+                texto += parteEntera + ' mes' + (parteEntera > 1 ? 'es' : '');
+            }
+            if (dias > 0) {
+                if (texto !== '') texto += ' y ';
+                texto += dias + ' día' + (dias > 1 ? 's' : '');
+            }
+            if (texto === '') texto = '0 días';
+            
+            return texto;
+        }
         
         function recalcularPrestamo(input) {
             if (modoPagados) {
@@ -2092,12 +2204,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
             }
             
             const fila = input.closest('.fila-prestamo');
+            const prestamoId = fila.getAttribute('data-id');
             const monto = parseFloat(fila.getAttribute('data-monto'));
-            const meses = parseInt(input.value);
+            const valorMeses = parseFloat(input.value) || 0;
             const tipo = input.getAttribute('data-tipo');
             
+            // Guardar el valor personalizado
+            mesesPersonalizados[prestamoId] = valorMeses;
+            
+            // Convertir el valor decimal a fracción de meses
+            const mesesCalculo = convertirMesesDiasADecimal(valorMeses);
+            
             if (tipo === 'viejo') {
-                const interesPrestamistaMonto = monto * (10 / 100) * meses;
+                const interesPrestamistaMonto = monto * (10 / 100) * mesesCalculo;
                 const comisionPersonalMonto = 0;
                 const total = monto + interesPrestamistaMonto;
                 
@@ -2113,8 +2232,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
                 const interesPrestamista = parseFloat(selectedOption.getAttribute('data-interes') || 0);
                 const comisionPersonal = parseFloat(selectedOption.getAttribute('data-comision') || 0);
                 
-                const interesPrestamistaMonto = monto * (interesPrestamista / 100) * meses;
-                const comisionPersonalMonto = monto * (comisionPersonal / 100) * meses;
+                const interesPrestamistaMonto = monto * (interesPrestamista / 100) * mesesCalculo;
+                const comisionPersonalMonto = monto * (comisionPersonal / 100) * mesesCalculo;
                 const total = monto + interesPrestamistaMonto;
                 
                 fila.querySelector('.interes-prestamista-prestamo').textContent = '$ ' + formatNumber(interesPrestamistaMonto);
@@ -2123,6 +2242,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
                 
                 fila.setAttribute('data-interes', interesPrestamistaMonto);
                 fila.setAttribute('data-comision', comisionPersonalMonto);
+            }
+            
+            // Actualizar el texto descriptivo de meses y días
+            const displaySpan = fila.querySelector('.meses-display');
+            if (displaySpan) {
+                displaySpan.textContent = formatearMesesDias(valorMeses);
             }
             
             const checkbox = fila.querySelector('.checkbox-excluir');
@@ -2137,7 +2262,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
             }
         }
         
-        // FUNCIÓN DE ABONO (CORREGIDA)
+        // FUNCIÓN DE ABONO
         function calcularAbono(input) {
             const fila = input.closest('.fila-prestamo');
             const prestamoId = fila.getAttribute('data-id');
@@ -2181,7 +2306,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
                     }
                 }
             } else {
-                // Si no hay abono, restaurar valore originales
+                // Si no hay abono, restaurar valores originales
                 const spanPendiente = document.getElementById('pendiente-' + prestamoId);
                 if (spanPendiente) {
                     spanPendiente.textContent = 'Faltan: $' + formatNumber(monto);
@@ -2214,8 +2339,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
                 }
             });
         }
+
+        function inicializarMesesPersonalizados() {
+            document.querySelectorAll('.fila-prestamo').forEach(fila => {
+                const prestamoId = fila.getAttribute('data-id');
+                const mesesInput = fila.querySelector('.meses-input');
+                if (mesesInput && !mesesPersonalizados[prestamoId]) {
+                    mesesPersonalizados[prestamoId] = parseFloat(mesesInput.value);
+                }
+            });
+        }
         
-        // FUNCIÓN RESTAURADA: actualizarTotalesDeudor
+        // FUNCIÓN: actualizarTotalesDeudor
         function actualizarTotalesDeudor(deudorId) {
             const filasPrestamos = document.querySelectorAll('.fila-prestamo[data-deudor="' + deudorId + '"]');
             let totalCapital = 0;
@@ -2268,7 +2403,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
             actualizarTotalesGenerales();
         }
         
-        // FUNCIÓN RESTAURADA: actualizarTotalesGeneral
+        // FUNCIÓN: actualizarTotalesGeneral
         function actualizarTotalesGenerales() {
             let totalCapital = 0;
             let totalGeneral = 0;
