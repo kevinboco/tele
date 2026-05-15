@@ -2181,7 +2181,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['guardar_config']) &&
                     }
                 }
             } else {
-                // Si no hay abono, restaurar valores originales
+                // Si no hay abono, restaurar valore originales
                 const spanPendiente = document.getElementById('pendiente-' + prestamoId);
                 if (spanPendiente) {
                     spanPendiente.textContent = 'Faltan: $' + formatNumber(monto);
