@@ -659,7 +659,12 @@ if (isset($_GET['viajes_conductor'])) {
                 '<span class="inline-block px-2 py-0.5 rounded text-xs bg-green-100 text-green-700 border border-green-300 ml-2">✓ Pagado</span>' : 
                 '<span class="inline-block px-2 py-0.5 rounded text-xs bg-red-100 text-red-700 border border-red-300 ml-2">○ Pendiente</span>';
 
-            $rowsHTML .= "<tr class='viaje-item cat-$cat'>
+            $rowClass = $r['pagado'] ? 'viaje-pagado bg-green-50' : '';
+
+            $rowsHTML .= "<tr class='viaje-item cat-$cat $rowClass' data-viaje-id='{$r['id']}'>
+                    <td class='px-3 py-2 text-center'>
+                        <input type='checkbox' class='viaje-checkbox w-4 h-4 rounded border-slate-300 text-blue-600' data-viaje-id='{$r['id']}'>
+                    </td>
                     <td class='px-3 py-2'>".htmlspecialchars($r['fecha'])."</td>
                     <td class='px-3 py-2'>
                         <span class='inline-block px-2 py-1 rounded text-xs font-medium border $color_class'>
@@ -680,7 +685,7 @@ if (isset($_GET['viajes_conductor'])) {
                  </tr>";
         }
     } else {
-        $rowsHTML .= "<tr><td colspan='4' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresas seleccionadas.</td></tr>";
+        $rowsHTML .= "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresas seleccionadas.</td></tr>";
     }
 
     ?>
@@ -729,10 +734,28 @@ if (isset($_GET['viajes_conductor'])) {
             ?>
         </div>
 
+        <!-- Acciones del modal de viajes -->
+        <div class="flex flex-wrap items-center gap-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
+            <span class="text-xs font-medium text-blue-700">⚡ Acciones en viajes:</span>
+            <button type="button" class="btn-pagar-viajes-modal px-3 py-1.5 rounded-lg text-xs font-medium bg-green-500 text-white hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                ✅ Pagar seleccionados
+            </button>
+            <button type="button" class="btn-despagar-viajes-modal px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                ↩️ Desmarcar seleccionados
+            </button>
+            <button type="button" class="btn-select-all-viajes px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-300 hover:bg-slate-50">
+                ☑️ Seleccionar todos
+            </button>
+            <span class="text-xs text-slate-500 ml-auto viajes-seleccionados-count">0 seleccionados</span>
+        </div>
+
         <div class='overflow-x-auto'>
-            <table class='min-w-full text-sm text-left'>
+            <table class='min-w-full text-sm text-left' id="viajesModalTable">
                 <thead class='bg-blue-600 text-white'>
                     <tr>
+                        <th class='px-3 py-2 text-center w-10'>
+                            <input type="checkbox" id="selectAllViajesModal" class="w-4 h-4 rounded border-white">
+                        </th>
                         <th class='px-3 py-2'>Fecha</th>
                         <th class='px-3 py-2'>Ruta</th>
                         <th class='px-3 py-2'>Empresa</th>
@@ -834,7 +857,7 @@ if (!empty($empresasSeleccionadasEsc)) {
 $resV = $conn->query($sqlV);
 
 $viajesPorConductor = [];
-$viajesIdsPorConductor = []; // NUEVO: guardar IDs de viajes por conductor
+$viajesIdsPorConductor = [];
 $contadores = [];
 
 if ($resV) {
@@ -847,15 +870,15 @@ if ($resV) {
         
         if (!isset($viajesPorConductor[$nombre])) {
             $viajesPorConductor[$nombre] = [];
-            $viajesIdsPorConductor[$nombre] = []; // NUEVO
+            $viajesIdsPorConductor[$nombre] = [];
         }
         $viajesPorConductor[$nombre][] = [
-            'id' => $id, // NUEVO
+            'id' => $id,
             'empresa' => $empresa,
             'ruta' => $ruta,
             'vehiculo' => $vehiculo
         ];
-        $viajesIdsPorConductor[$nombre][] = $id; // NUEVO
+        $viajesIdsPorConductor[$nombre][] = $id;
         
         if (!isset($contadores[$nombre])) {
             $contadores[$nombre] = [];
@@ -998,7 +1021,7 @@ $viajesIdsJSON = json_encode($viajesIdsPorConductor, JSON_UNESCAPED_UNICODE);
         .table-sticky thead th { position: sticky; top: 0; z-index: 31; background-color: #2563eb !important; color: #fff !important; }
         .viajes-backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:10000; }
         .viajes-backdrop.show{ display:flex; }
-        .viajes-card{ width:min(720px,94vw); max-height:90vh; overflow:hidden; border-radius:16px; background:#fff; box-shadow:0 20px 60px rgba(0,0,0,.25); border:1px solid #e5e7eb; }
+        .viajes-card{ width:min(850px,94vw); max-height:90vh; overflow:hidden; border-radius:16px; background:#fff; box-shadow:0 20px 60px rgba(0,0,0,.25); border:1px solid #e5e7eb; }
         .viajes-header{padding:14px 16px;border-bottom:1px solid #eef2f7}
         .viajes-body{padding:14px 16px;overflow:auto; max-height:70vh}
         .conductor-link{cursor:pointer; color:#0d6efd; text-decoration:underline;}
@@ -1013,6 +1036,7 @@ $viajesIdsJSON = json_encode($viajesIdsPorConductor, JSON_UNESCAPED_UNICODE);
         #panelDragHandle { cursor: move; }
         .fila-seleccionada { background-color: #f0f9ff !important; }
         .fila-pagada { background-color: #f0fdf4 !important; border-left: 4px solid #22c55e !important; }
+        .viaje-pagado { background-color: #f0fdf4 !important; }
         .empresas-container { max-height: 150px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 0.75rem; padding: 0.75rem; background: white; }
         .empresa-checkbox { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; }
         .switch-pagado { position: relative; display: inline-block; width: 50px; height: 24px; }
@@ -1051,16 +1075,6 @@ $viajesIdsJSON = json_encode($viajesIdsPorConductor, JSON_UNESCAPED_UNICODE);
             background: #eff6ff;
             border-color: #3b82f6;
         }
-        .empresa-item input[type="checkbox"] {
-            width: 1rem;
-            height: 1rem;
-            border-radius: 0.25rem;
-            border: 1px solid #cbd5e1;
-        }
-        .empresa-item input[type="checkbox"]:checked {
-            background-color: #3b82f6;
-            border-color: #3b82f6;
-        }
         .badge-empresa {
             background: #e2e8f0;
             color: #475569;
@@ -1086,12 +1100,6 @@ $viajesIdsJSON = json_encode($viajesIdsPorConductor, JSON_UNESCAPED_UNICODE);
         .prest-item:hover {
             background-color: #f0f9ff;
             border-left-color: #3b82f6;
-        }
-        .resumen-seleccion {
-            background: #f0fdf4;
-            border: 1px solid #86efac;
-            border-radius: 0.75rem;
-            padding: 0.75rem;
         }
         .badge-historico {
             background: #fef3c7;
@@ -1165,12 +1173,8 @@ $viajesIdsJSON = json_encode($viajesIdsPorConductor, JSON_UNESCAPED_UNICODE);
             padding: 0.15rem 0;
             color: #92400e;
         }
-        .prestamista-nombre {
-            font-weight: 500;
-        }
-        .prestamista-monto {
-            font-weight: 600;
-        }
+        .prestamista-nombre { font-weight: 500; }
+        .prestamista-monto { font-weight: 600; }
         
         .comprobante-preview {
             background-size: cover;
@@ -1179,10 +1183,7 @@ $viajesIdsJSON = json_encode($viajesIdsPorConductor, JSON_UNESCAPED_UNICODE);
         }
         .modal-comprobante {
             position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
+            top: 0; left: 0; right: 0; bottom: 0;
             background: rgba(0,0,0,0.9);
             z-index: 20000;
             display: flex;
@@ -1213,35 +1214,6 @@ $viajesIdsJSON = json_encode($viajesIdsPorConductor, JSON_UNESCAPED_UNICODE);
             border: 1px solid #e2e8f0;
             border-radius: 0.75rem;
             padding: 0.75rem 1rem;
-        }
-        
-        @media (max-width: 640px) {
-            .prest-modal-content {
-                width: 95% !important;
-                margin: 0.5rem auto !important;
-                max-height: 98vh !important;
-            }
-            .prest-list-container {
-                max-height: 50vh !important;
-            }
-            .empresas-grid {
-                grid-template-columns: 1fr !important;
-            }
-        }
-        
-        @media (min-width: 641px) and (max-width: 1024px) {
-            .prest-modal-content {
-                width: 90% !important;
-            }
-            .prest-list-container {
-                max-height: 55vh !important;
-            }
-        }
-        
-        @media (min-width: 1025px) {
-            .prest-list-container {
-                max-height: 65vh !important;
-            }
         }
     </style>
 </head>
@@ -1822,7 +1794,7 @@ const MANUAL_ROWS_KEY = 'filas_manuales_temp:'+COMPANY_SCOPE;
 const SELECTED_CONDUCTORS_KEY = 'conductores_seleccionados_temp:'+COMPANY_SCOPE;
 const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 
-// NUEVO: IDs de viajes por conductor desde PHP
+// IDs de viajes por conductor desde PHP
 const VIAJES_IDS_POR_CONDUCTOR = <?= $viajesIdsJSON ?>;
 
 let modoHistoricoActivo = false;
@@ -1868,7 +1840,6 @@ const clearBuscar = document.getElementById('clearBuscar');
 const contadorConductores = document.getElementById('contador-conductores');
 const filtroEstado = document.getElementById('filtroEstado');
 
-// NUEVO: Botones de pagar/despagar
 const btnPagarSeleccionados = document.getElementById('btnPagarSeleccionados');
 const btnDespagarSeleccionados = document.getElementById('btnDespagarSeleccionados');
 const viajesCountInfo = document.getElementById('viajesCountInfo');
@@ -1885,7 +1856,7 @@ function obtenerViajesIdsDeSeleccionados() {
             ids.push(...VIAJES_IDS_POR_CONDUCTOR[nombre]);
         }
     });
-    return [...new Set(ids)]; // Eliminar duplicados
+    return [...new Set(ids)];
 }
 
 function obtenerViajesCountDeSeleccionados() {
@@ -1911,13 +1882,11 @@ function actualizarInfoViajesSeleccionados() {
         viajesCountInfo.textContent = count > 0 ? `${count} viajes (${ids.length} IDs únicos)` : '';
     }
     
-    // Panel flotante
     const panelViajesCount = document.getElementById('panelViajesCount');
     if (panelViajesCount) {
         panelViajesCount.textContent = count;
     }
     
-    // Habilitar/deshabilitar botones
     if (btnPagarSeleccionados) {
         btnPagarSeleccionados.disabled = ids.length === 0;
     }
@@ -1927,29 +1896,23 @@ function actualizarInfoViajesSeleccionados() {
 }
 
 // ===== FUNCIÓN PARA MARCAR VIAJES COMO PAGADOS =====
-async function pagarViajesSeleccionados() {
-    const viajeIds = obtenerViajesIdsDeSeleccionados();
-    
+async function pagarViajes(viajeIds, descripcion) {
     if (viajeIds.length === 0) {
         Swal.fire({
             title: '⚠️ Sin viajes',
-            text: 'Los conductores seleccionados no tienen viajes en este rango/empresas',
+            text: 'No hay viajes seleccionados',
             icon: 'warning'
         });
         return;
     }
-    
-    const countConductores = document.querySelectorAll('#tbody .selector-conductor:checked').length;
-    const countViajes = obtenerViajesCountDeSeleccionados();
     
     const confirmacion = await Swal.fire({
         title: '✅ ¿Marcar como PAGADOS?',
         html: `
             <p>Se marcarán como <strong>PAGADOS</strong>:</p>
             <div class="text-left mt-3 space-y-1">
-                <p>👤 <strong>${countConductores}</strong> conductor(es)</p>
-                <p>🚛 <strong>${countViajes}</strong> viajes</p>
-                <p>🆔 <strong>${viajeIds.length}</strong> registros en BD</p>
+                <p>🆔 <strong>${viajeIds.length}</strong> viajes</p>
+                ${descripcion ? `<p class="text-xs text-slate-500">${descripcion}</p>` : ''}
             </div>
             <p class="text-xs text-slate-500 mt-3">Esto actualizará la tabla <code>viajes</code> directamente</p>
         `,
@@ -1982,15 +1945,11 @@ async function pagarViajesSeleccionados() {
         if (resultado.success) {
             Swal.fire({
                 title: '✅ ¡Viajes pagados!',
-                html: `
-                    <p>Se marcaron <strong>${resultado.afectados}</strong> viajes como pagados</p>
-                    <p class="text-sm text-slate-500 mt-2">👤 ${countConductores} conductor(es) actualizado(s)</p>
-                `,
+                html: `<p>Se marcaron <strong>${resultado.afectados}</strong> viajes como pagados</p>`,
                 icon: 'success',
                 confirmButtonText: 'Continuar'
             });
             
-            // Recargar la página para reflejar cambios
             setTimeout(() => location.reload(), 1500);
         } else {
             throw new Error(resultado.message);
@@ -2000,32 +1959,25 @@ async function pagarViajesSeleccionados() {
     }
 }
 
-// ===== FUNCIÓN PARA DESMARCAR VIAJES COMO PAGADOS =====
-async function despagarViajesSeleccionados() {
-    const viajeIds = obtenerViajesIdsDeSeleccionados();
-    
+async function despagarViajes(viajeIds, descripcion) {
     if (viajeIds.length === 0) {
         Swal.fire({
             title: '⚠️ Sin viajes',
-            text: 'Los conductores seleccionados no tienen viajes en este rango/empresas',
+            text: 'No hay viajes seleccionados',
             icon: 'warning'
         });
         return;
     }
-    
-    const countConductores = document.querySelectorAll('#tbody .selector-conductor:checked').length;
-    const countViajes = obtenerViajesCountDeSeleccionados();
     
     const confirmacion = await Swal.fire({
         title: '↩️ ¿Desmarcar como NO PAGADOS?',
         html: `
             <p>Se desmarcarán (volverán a <strong>NO PAGADOS</strong>):</p>
             <div class="text-left mt-3 space-y-1">
-                <p>👤 <strong>${countConductores}</strong> conductor(es)</p>
-                <p>🚛 <strong>${countViajes}</strong> viajes</p>
-                <p>🆔 <strong>${viajeIds.length}</strong> registros en BD</p>
+                <p>🆔 <strong>${viajeIds.length}</strong> viajes</p>
+                ${descripcion ? `<p class="text-xs text-slate-500">${descripcion}</p>` : ''}
             </div>
-            <p class="text-xs text-amber-600 mt-3">⚠️ Esto revertirá el estado de pago en la tabla <code>viajes</code></p>
+            <p class="text-xs text-amber-600 mt-3">⚠️ Esto revertirá el estado de pago</p>
         `,
         icon: 'warning',
         showCancelButton: true,
@@ -2056,10 +2008,7 @@ async function despagarViajesSeleccionados() {
         if (resultado.success) {
             Swal.fire({
                 title: '↩️ Viajes desmarcados',
-                html: `
-                    <p>Se desmarcaron <strong>${resultado.afectados}</strong> viajes (ahora no pagados)</p>
-                    <p class="text-sm text-slate-500 mt-2">👤 ${countConductores} conductor(es) actualizado(s)</p>
-                `,
+                html: `<p>Se desmarcaron <strong>${resultado.afectados}</strong> viajes (ahora no pagados)</p>`,
                 icon: 'success',
                 confirmButtonText: 'Continuar'
             });
@@ -2070,6 +2019,103 @@ async function despagarViajesSeleccionados() {
         }
     } catch (error) {
         Swal.fire('❌ Error', error.message, 'error');
+    }
+}
+
+// ===== FUNCIONES PARA EL MODAL DE VIAJES =====
+let viajesSeleccionadosEnModal = new Set();
+let nombreConductorModal = '';
+
+function actualizarContadorViajesModal() {
+    const count = viajesSeleccionadosEnModal.size;
+    const countSpan = document.querySelector('.viajes-seleccionados-count');
+    const btnPagar = document.querySelector('.btn-pagar-viajes-modal');
+    const btnDespagar = document.querySelector('.btn-despagar-viajes-modal');
+    
+    if (countSpan) countSpan.textContent = `${count} seleccionados`;
+    if (btnPagar) btnPagar.disabled = count === 0;
+    if (btnDespagar) btnDespagar.disabled = count === 0;
+}
+
+function configurarEventosModalViajes() {
+    viajesSeleccionadosEnModal = new Set();
+    
+    // Checkbox "Seleccionar todos" del modal
+    const selectAllViajesModal = document.getElementById('selectAllViajesModal');
+    if (selectAllViajesModal) {
+        selectAllViajesModal.checked = false;
+        selectAllViajesModal.addEventListener('change', function() {
+            const checkboxes = document.querySelectorAll('#viajesTableBody .viaje-checkbox');
+            checkboxes.forEach(cb => {
+                cb.checked = this.checked;
+                const viajeId = parseInt(cb.dataset.viajeId);
+                if (this.checked) {
+                    viajesSeleccionadosEnModal.add(viajeId);
+                } else {
+                    viajesSeleccionadosEnModal.delete(viajeId);
+                }
+            });
+            actualizarContadorViajesModal();
+        });
+    }
+    
+    // Checkboxes individuales
+    document.querySelectorAll('#viajesTableBody .viaje-checkbox').forEach(cb => {
+        cb.addEventListener('change', function() {
+            const viajeId = parseInt(this.dataset.viajeId);
+            if (this.checked) {
+                viajesSeleccionadosEnModal.add(viajeId);
+            } else {
+                viajesSeleccionadosEnModal.delete(viajeId);
+                if (selectAllViajesModal) selectAllViajesModal.checked = false;
+            }
+            actualizarContadorViajesModal();
+        });
+    });
+    
+    // Botón "Seleccionar todos"
+    const btnSelectAll = document.querySelector('.btn-select-all-viajes');
+    if (btnSelectAll) {
+        btnSelectAll.addEventListener('click', () => {
+            const checkboxes = document.querySelectorAll('#viajesTableBody .viaje-checkbox');
+            const allChecked = [...checkboxes].every(cb => cb.checked);
+            
+            checkboxes.forEach(cb => {
+                cb.checked = !allChecked;
+                const viajeId = parseInt(cb.dataset.viajeId);
+                if (!allChecked) {
+                    viajesSeleccionadosEnModal.add(viajeId);
+                } else {
+                    viajesSeleccionadosEnModal.delete(viajeId);
+                }
+            });
+            
+            if (selectAllViajesModal) selectAllViajesModal.checked = !allChecked;
+            btnSelectAll.textContent = allChecked ? '☑️ Seleccionar todos' : '☐ Deseleccionar todos';
+            actualizarContadorViajesModal();
+        });
+    }
+    
+    // Botón "Pagar seleccionados" del modal
+    const btnPagarModal = document.querySelector('.btn-pagar-viajes-modal');
+    if (btnPagarModal) {
+        btnPagarModal.addEventListener('click', async () => {
+            const ids = [...viajesSeleccionadosEnModal];
+            if (ids.length > 0) {
+                await pagarViajes(ids, `Conductor: ${nombreConductorModal}`);
+            }
+        });
+    }
+    
+    // Botón "Desmarcar seleccionados" del modal
+    const btnDespagarModal = document.querySelector('.btn-despagar-viajes-modal');
+    if (btnDespagarModal) {
+        btnDespagarModal.addEventListener('click', async () => {
+            const ids = [...viajesSeleccionadosEnModal];
+            if (ids.length > 0) {
+                await despagarViajes(ids, `Conductor: ${nombreConductorModal}`);
+            }
+        });
     }
 }
 
@@ -2504,7 +2550,7 @@ function configurarEventosFila(tr) {
             else tr.classList.remove('fila-seleccionada');
             actualizarPanelFlotante();
             guardarSeleccionCheckboxes();
-            actualizarInfoViajesSeleccionados(); // NUEVO
+            actualizarInfoViajesSeleccionados();
         });
     }
 
@@ -2585,7 +2631,6 @@ function configurarEventosFila(tr) {
             const newBaseName = conductorSelect.value;
             tr.dataset.conductor = normalizarTexto(newBaseName);
             
-            // Actualizar info de viajes para fila manual
             if (newBaseName && VIAJES_IDS_POR_CONDUCTOR[newBaseName]) {
                 tr.dataset.tieneViajes = '1';
                 tr.dataset.viajesCount = VIAJES_IDS_POR_CONDUCTOR[newBaseName].length;
@@ -2668,7 +2713,7 @@ function actualizarPanelFlotante() {
     document.getElementById('panelSS').textContent = fmt(totalSS);
     document.getElementById('panelPrest').textContent = fmt(totalPrest);
     
-    actualizarInfoViajesSeleccionados(); // NUEVO
+    actualizarInfoViajesSeleccionados();
 }
 
 function guardarSeleccionCheckboxes() {
@@ -2680,7 +2725,7 @@ function guardarSeleccionCheckboxes() {
     });
     selectedConductors = seleccionados;
     localStorage.setItem(SELECTED_CONDUCTORS_KEY, JSON.stringify(selectedConductors));
-    actualizarInfoViajesSeleccionados(); // NUEVO
+    actualizarInfoViajesSeleccionados();
 }
 
 function restaurarSeleccionCheckbox(tr) {
@@ -2822,6 +2867,7 @@ function hacerPanelArrastrable() {
     document.addEventListener('mouseup', () => isDragging = false);
 }
 
+// ===== MODAL DE PRÉSTAMOS =====
 let currentRow = null;
 let selectedIds = new Set();
 let conductorActual = '';
@@ -2970,11 +3016,7 @@ function actualizarDesglosePrestamistas() {
     seleccionados.forEach(p => {
         const key = p.prestamista;
         if (!prestamistasMap.has(key)) {
-            prestamistasMap.set(key, {
-                nombre: key,
-                total: 0,
-                cantidad: 0
-            });
+            prestamistasMap.set(key, { nombre: key, total: 0, cantidad: 0 });
         }
         const prestamista = prestamistasMap.get(key);
         prestamista.total += p.total;
@@ -3086,6 +3128,7 @@ function closePrestModal() {
     conductorActual = '';
 }
 
+// ===== GESTOR DE CUENTAS =====
 const saveCuentaModal = document.getElementById('saveCuentaModal');
 const btnShowSaveCuenta = document.getElementById('btnShowSaveCuenta');
 const btnCloseSaveCuenta = document.getElementById('btnCloseSaveCuenta');
@@ -3262,11 +3305,8 @@ function manejarSeleccionCuenta(id, checked) {
     
     const fila = document.querySelector(`tr[data-cuenta-id="${id}"]`);
     if (fila) {
-        if (checked) {
-            fila.classList.add('fila-cuenta-seleccionada');
-        } else {
-            fila.classList.remove('fila-cuenta-seleccionada');
-        }
+        if (checked) fila.classList.add('fila-cuenta-seleccionada');
+        else fila.classList.remove('fila-cuenta-seleccionada');
     }
     
     actualizarBotonFusion();
@@ -3292,15 +3332,7 @@ async function renderCuentasBD() {
         totalCuentasInfo.textContent = `${cuentasFiltradas.length} cuentas`;
         
         if (cuentasFiltradas.length === 0) {
-            tbodyCuentasBD.innerHTML = `
-                <tr>
-                    <td colspan="8" class="px-3 py-8 text-center text-slate-500">
-                        <div class="flex flex-col items-center gap-2">
-                            <div class="text-3xl">📭</div>
-                            <div>No hay cuentas guardadas</div>
-                        </div>
-                    </td>
-                </tr>`;
+            tbodyCuentasBD.innerHTML = `<tr><td colspan="8" class="px-3 py-8 text-center text-slate-500">No hay cuentas guardadas</td></tr>`;
             return;
         }
         
@@ -3316,48 +3348,26 @@ async function renderCuentasBD() {
             html += `
             <tr data-cuenta-id="${cuenta.id}" class="hover:bg-slate-50 ${claseSeleccionada}">
                 <td class="px-3 py-3 text-center">
-                    <input type="checkbox" 
-                           class="cuenta-checkbox cuenta-seleccion" 
-                           value="${cuenta.id}" 
-                           ${seleccionada}>
+                    <input type="checkbox" class="cuenta-checkbox cuenta-seleccion" value="${cuenta.id}" ${seleccionada}>
                 </td>
                 <td class="px-3 py-3">
                     <div class="font-medium">${cuenta.nombre}</div>
                     <div class="text-xs text-slate-500">👤 ${cuenta.usuario || 'Sistema'}</div>
                 </td>
-                <td class="px-3 py-3">
-                    <div class="text-xs max-w-[200px] truncate" title="${(cuenta.empresas || []).join(', ')}">
-                        ${empresasStr || '—'}
-                    </div>
-                </td>
-                <td class="px-3 py-3 text-xs">
-                    ${cuenta.desde} → ${cuenta.hasta}
-                </td>
+                <td class="px-3 py-3"><div class="text-xs max-w-[200px] truncate">${empresasStr || '—'}</div></td>
+                <td class="px-3 py-3 text-xs">${cuenta.desde} → ${cuenta.hasta}</td>
                 <td class="px-3 py-3 text-right num font-semibold">${fmt(cuenta.facturado || 0)}</td>
                 <td class="px-3 py-3 text-center">
-                    <div class="flex justify-center">
-                        <label class="switch-pagado switch-small" style="width: 40px; height: 20px;">
-                            <input type="checkbox" 
-                                   class="switch-estado-cuenta" 
-                                   data-id="${cuenta.id}" 
-                                   ${estaPagado ? 'checked' : ''}>
-                            <span class="switch-slider" style="background-color: ${estaPagado ? '#22c55e' : '#ef4444'};"></span>
-                        </label>
-                    </div>
+                    <label class="switch-pagado switch-small" style="width:40px;height:20px;">
+                        <input type="checkbox" class="switch-estado-cuenta" data-id="${cuenta.id}" ${estaPagado ? 'checked' : ''}>
+                        <span class="switch-slider" style="background-color:${estaPagado ? '#22c55e' : '#ef4444'};"></span>
+                    </label>
                 </td>
-                <td class="px-3 py-3 text-center text-xs text-slate-500">
-                    ${new Date(cuenta.fecha_creacion).toLocaleDateString('es-CO')}
-                </td>
+                <td class="px-3 py-3 text-center text-xs text-slate-500">${new Date(cuenta.fecha_creacion).toLocaleDateString('es-CO')}</td>
                 <td class="px-3 py-3 text-right">
                     <div class="inline-flex gap-2">
-                        <button class="btnCargarCuenta border px-3 py-2 rounded bg-blue-50 hover:bg-blue-100 text-xs text-blue-700" 
-                                data-id="${cuenta.id}" title="Cargar esta cuenta">
-                            📂 Cargar
-                        </button>
-                        <button class="btnEliminarCuenta border px-3 py-2 rounded bg-rose-50 hover:bg-rose-100 text-xs text-rose-700" 
-                                data-id="${cuenta.id}" title="Eliminar">
-                            🗑️
-                        </button>
+                        <button class="btnCargarCuenta border px-3 py-2 rounded bg-blue-50 hover:bg-blue-100 text-xs text-blue-700" data-id="${cuenta.id}">📂 Cargar</button>
+                        <button class="btnEliminarCuenta border px-3 py-2 rounded bg-rose-50 hover:bg-rose-100 text-xs text-rose-700" data-id="${cuenta.id}">🗑️</button>
                     </div>
                 </td>
             </tr>`;
@@ -3380,23 +3390,16 @@ async function renderCuentasBD() {
         });
         
         document.querySelectorAll('.switch-estado-cuenta').forEach(switchInput => {
-            if (switchInput._handler) {
-                switchInput.removeEventListener('change', switchInput._handler);
-            }
+            if (switchInput._handler) switchInput.removeEventListener('change', switchInput._handler);
             
             switchInput._handler = async function(e) {
                 e.stopPropagation();
-                
                 const id = this.dataset.id;
                 const nuevoEstado = this.checked;
-                
                 this.disabled = true;
-                
                 const slider = this.nextElementSibling;
                 slider.style.backgroundColor = nuevoEstado ? '#22c55e' : '#ef4444';
-                
                 await actualizarEstadoCuenta(id, nuevoEstado, this);
-                
                 this.disabled = false;
             };
             
@@ -3406,13 +3409,7 @@ async function renderCuentasBD() {
         actualizarBotonFusion();
         
     } catch (error) {
-        console.error('Error:', error);
-        tbodyCuentasBD.innerHTML = `
-            <tr>
-                <td colspan="8" class="px-3 py-8 text-center text-rose-600">
-                    <div>❌ Error al cargar cuentas: ${error.message}</div>
-                </td>
-            </tr>`;
+        tbodyCuentasBD.innerHTML = `<tr><td colspan="8" class="px-3 py-8 text-center text-rose-600">❌ Error: ${error.message}</td></tr>`;
     }
 }
 
@@ -3441,12 +3438,7 @@ async function actualizarEstadoCuenta(id, nuevoEstado, switchElement) {
         }
     } catch (error) {
         switchElement.checked = !nuevoEstado;
-        Swal.fire({
-            title: '❌ Error',
-            text: error.message,
-            icon: 'error',
-            timer: 2000
-        });
+        Swal.fire({ title: '❌ Error', text: error.message, icon: 'error', timer: 2000 });
     }
 }
 
@@ -3531,20 +3523,11 @@ async function cargarCuentaCompletaBD(id) {
             document.querySelectorAll('#tbody tr').forEach(tr => {
                 const nombre = obtenerNombreConductorDeFila(tr);
                 if (nombre) {
-                    if (accMap[nombre]) {
-                        const cta = tr.querySelector('.cta');
-                        if (cta) cta.value = accMap[nombre];
-                    }
-                    if (ssMap[nombre]) {
-                        const ss = tr.querySelector('.ss');
-                        if (ss) ss.value = fmt(ssMap[nombre]).replace('$', '');
-                    }
+                    if (accMap[nombre]) { const cta = tr.querySelector('.cta'); if (cta) cta.value = accMap[nombre]; }
+                    if (ssMap[nombre]) { const ss = tr.querySelector('.ss'); if (ss) ss.value = fmt(ssMap[nombre]).replace('$', ''); }
                     if (estadoPagoMap[nombre]) {
                         const estado = tr.querySelector('.estado-pago');
-                        if (estado) {
-                            estado.value = estadoPagoMap[nombre];
-                            aplicarEstadoFila(tr, estadoPagoMap[nombre]);
-                        }
+                        if (estado) { estado.value = estadoPagoMap[nombre]; aplicarEstadoFila(tr, estadoPagoMap[nombre]); }
                     }
                     if (comprobantesMap[nombre]) {
                         actualizarPreviewComprobante(nombre, comprobantesMap[nombre]);
@@ -3565,7 +3548,7 @@ async function cargarCuentaCompletaBD(id) {
             
             Swal.fire({
                 title: '✅ Cuenta cargada',
-                text: `"${cuenta.nombre}" cargada exitosamente con ${Object.keys(comprobantesGuardados).length} comprobantes`,
+                text: `"${cuenta.nombre}" cargada exitosamente`,
                 icon: 'success',
                 timer: 3000,
                 showConfirmButton: true,
@@ -3616,21 +3599,13 @@ async function fusionarCuentasSeleccionadas() {
     const ids = Array.from(cuentasSeleccionadas);
     
     if (ids.length < 2) {
-        Swal.fire({
-            title: '⚠️ Selecciona al menos 2 cuentas',
-            text: 'Debes seleccionar dos o más cuentas para fusionar',
-            icon: 'warning'
-        });
+        Swal.fire({ title: '⚠️ Selecciona al menos 2 cuentas', text: 'Debes seleccionar dos o más cuentas para fusionar', icon: 'warning' });
         return;
     }
     
     const confirmacion = await Swal.fire({
         title: '🔗 Fusionar cuentas',
-        html: `
-            <p>Vas a fusionar <strong>${ids.length} cuentas</strong>.</p>
-            <p class="text-sm text-slate-600 mt-2">Los conductores que se repitan tendrán sus valores base <strong>SUMADOS</strong>.</p>
-            <p class="text-xs text-blue-600 mt-3">✅ Los préstamos, seguridad social, cuentas bancarias y comprobantes se dejarán <strong>VACÍOS</strong> para que los asignes manualmente.</p>
-        `,
+        html: `<p>Vas a fusionar <strong>${ids.length} cuentas</strong>.</p><p class="text-sm text-slate-600 mt-2">Los conductores que se repitan tendrán sus valores base <strong>SUMADOS</strong>.</p>`,
         icon: 'question',
         showCancelButton: true,
         confirmButtonText: '✅ Sí, fusionar',
@@ -3641,12 +3616,7 @@ async function fusionarCuentasSeleccionadas() {
     if (!confirmacion.isConfirmed) return;
     
     try {
-        Swal.fire({
-            title: 'Fusionando cuentas...',
-            text: 'Por favor espera',
-            allowOutsideClick: false,
-            didOpen: () => Swal.showLoading()
-        });
+        Swal.fire({ title: 'Fusionando cuentas...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
         
         const formData = new FormData();
         formData.append('accion', 'fusionar_cuentas');
@@ -3657,7 +3627,6 @@ async function fusionarCuentasSeleccionadas() {
         
         if (resultado.success) {
             const cuentaFusionada = resultado.cuenta_fusionada;
-            
             cuentasSeleccionadas.clear();
             closeGestor();
             
@@ -3668,16 +3637,8 @@ async function fusionarCuentasSeleccionadas() {
                 cb.checked = cuentaFusionada.empresas.includes(cb.value);
             });
             
-            prestSel = {};
-            ssMap = {};
-            accMap = {};
-            estadoPagoMap = {};
-            comprobantesMap = {};
-            
-            setLS(PREST_SEL_KEY, prestSel);
-            setLS(SS_KEY, ssMap);
-            setLS(ACC_KEY, accMap);
-            setLS(ESTADO_PAGO_KEY, estadoPagoMap);
+            prestSel = {}; ssMap = {}; accMap = {}; estadoPagoMap = {}; comprobantesMap = {};
+            setLS(PREST_SEL_KEY, prestSel); setLS(SS_KEY, ssMap); setLS(ACC_KEY, accMap); setLS(ESTADO_PAGO_KEY, estadoPagoMap);
             
             document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => tr.remove());
             manualRows = [];
@@ -3689,7 +3650,6 @@ async function fusionarCuentasSeleccionadas() {
                     if (ultimaFila) {
                         const select = ultimaFila.querySelector('.conductor-select');
                         const baseInput = ultimaFila.querySelector('.base-manual');
-                        
                         if (select) select.value = fila.conductor;
                         if (baseInput) baseInput.value = fmt(fila.base).replace('$', '');
                     }
@@ -3698,21 +3658,9 @@ async function fusionarCuentasSeleccionadas() {
             }
             
             document.getElementById('inp_porcentaje_ajuste').value = cuentaFusionada.porcentaje_ajuste;
-            
             recalcularTodo();
             
-            Swal.fire({
-                title: '✅ Cuentas fusionadas',
-                html: `
-                    <p>Se han fusionado <strong>${ids.length} cuentas</strong> exitosamente.</p>
-                    <p class="text-sm mt-2">Los valores base de conductores repetidos se han <strong>SUMADO</strong>.</p>
-                    <p class="text-sm text-emerald-600">✓ Los cálculos se han aplicado automáticamente.</p>
-                    <p class="text-xs text-blue-600 mt-3">⚠️ <strong>IMPORTANTE:</strong> Los préstamos, seguridad social, cuentas bancarias y comprobantes están VACÍOS.</p>
-                `,
-                icon: 'success',
-                confirmButtonText: 'Continuar'
-            });
-            
+            Swal.fire({ title: '✅ Cuentas fusionadas', html: `<p>Se han fusionado <strong>${ids.length} cuentas</strong> exitosamente.</p>`, icon: 'success', confirmButtonText: 'Continuar' });
         } else {
             throw new Error(resultado.message);
         }
@@ -3729,7 +3677,6 @@ function openGestor() {
         .then(cuentas => {
             const empresasUnicas = new Set();
             cuentas.forEach(c => (c.empresas || []).forEach(e => empresasUnicas.add(e)));
-            
             filtroEmpresaCuentas.innerHTML = '<option value="">Todas las empresas</option>';
             [...empresasUnicas].sort().forEach(emp => {
                 filtroEmpresaCuentas.innerHTML += `<option value="${emp}">${emp}</option>`;
@@ -3755,16 +3702,8 @@ btnRecargarCuentas.addEventListener('click', renderCuentasBD);
 filtroEmpresaCuentas.addEventListener('change', renderCuentasBD);
 filtroEstadoPagado.addEventListener('change', renderCuentasBD);
 buscaCuentaBD.addEventListener('input', renderCuentasBD);
-clearBuscarBD.addEventListener('click', () => {
-    buscaCuentaBD.value = '';
-    renderCuentasBD();
-    buscaCuentaBD.focus();
-});
-
-btnAddDesdeFiltro.addEventListener('click', () => {
-    closeGestor();
-    setTimeout(() => openSaveCuenta(), 300);
-});
+clearBuscarBD.addEventListener('click', () => { buscaCuentaBD.value = ''; renderCuentasBD(); buscaCuentaBD.focus(); });
+btnAddDesdeFiltro.addEventListener('click', () => { closeGestor(); setTimeout(() => openSaveCuenta(), 300); });
 
 selectAllCuentas?.addEventListener('change', function() {
     document.querySelectorAll('.cuenta-seleccion').forEach(cb => {
@@ -3777,23 +3716,10 @@ btnFusionarSeleccionadas?.addEventListener('click', fusionarCuentasSeleccionadas
 
 document.getElementById('btnDeseleccionarTodos').addEventListener('click', () => {
     selectedIds.clear();
-    
-    document.querySelectorAll('.prest-checkbox').forEach(cb => {
-        cb.checked = false;
-    });
-    
+    document.querySelectorAll('.prest-checkbox').forEach(cb => cb.checked = false);
     actualizarResumenSeleccion();
     actualizarDesglosePrestamistas();
-    
-    Swal.fire({
-        title: '✓ Deseleccionados',
-        text: 'Todos los préstamos han sido deseleccionados',
-        icon: 'success',
-        timer: 1000,
-        showConfirmButton: false,
-        toast: true,
-        position: 'top-end'
-    });
+    Swal.fire({ title: '✓ Deseleccionados', text: 'Todos los préstamos han sido deseleccionados', icon: 'success', timer: 1000, showConfirmButton: false, toast: true, position: 'top-end' });
 });
 
 document.getElementById('prestValorManual').addEventListener('input', () => {
@@ -3801,13 +3727,21 @@ document.getElementById('prestValorManual').addEventListener('input', () => {
     actualizarDesglosePrestamistas();
 });
 
+// ===== INICIALIZACIÓN =====
 document.addEventListener('DOMContentLoaded', function() {
-    // Evento del botón de exportación
     document.getElementById('btnExportExcel').addEventListener('click', exportarAExcel);
     
-    // NUEVO: Eventos de botones Pagar/Despagar
-    btnPagarSeleccionados?.addEventListener('click', pagarViajesSeleccionados);
-    btnDespagarSeleccionados?.addEventListener('click', despagarViajesSeleccionados);
+    btnPagarSeleccionados?.addEventListener('click', async () => {
+        const ids = obtenerViajesIdsDeSeleccionados();
+        const countConductores = document.querySelectorAll('#tbody .selector-conductor:checked').length;
+        await pagarViajes(ids, `${countConductores} conductor(es) seleccionado(s)`);
+    });
+    
+    btnDespagarSeleccionados?.addEventListener('click', async () => {
+        const ids = obtenerViajesIdsDeSeleccionados();
+        const countConductores = document.querySelectorAll('#tbody .selector-conductor:checked').length;
+        await despagarViajes(ids, `${countConductores} conductor(es) seleccionado(s)`);
+    });
     
     document.getElementById('btnSeleccionarTodas')?.addEventListener('click', () => {
         document.querySelectorAll('.empresa-checkbox input').forEach(cb => cb.checked = true);
@@ -3818,15 +3752,11 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     document.querySelectorAll('#tbody tr').forEach(tr => {
-        if (!tr.classList.contains('fila-manual')) {
-            configurarEventosFila(tr);
-        }
+        if (!tr.classList.contains('fila-manual')) configurarEventosFila(tr);
     });
     
     manualRows.forEach(id => agregarFilaManual(id));
-    
     asignarPrestamosAFilas(false);
-    
     hacerPanelArrastrable();
     
     filtroEstado.addEventListener('change', filtrarConductores);
@@ -3839,7 +3769,6 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     btnAddManual.addEventListener('click', () => agregarFilaManual());
-    
     closePanel.addEventListener('click', () => floatingPanel.classList.add('hidden'));
     
     if (selectAllCheckbox) {
@@ -3856,7 +3785,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     document.getElementById('inp_porcentaje_ajuste').addEventListener('input', recalcularTodo);
-    
     document.getElementById('btnCloseModal').addEventListener('click', closePrestModal);
     document.getElementById('btnCancel').addEventListener('click', closePrestModal);
     
@@ -3866,9 +3794,7 @@ document.addEventListener('DOMContentLoaded', function() {
         renderizarListaPrestamos(PRESTAMOS_LIST);
     });
     
-    document.getElementById('prestSearch').addEventListener('input', () => {
-        filtrarPrestamosMultiempresa();
-    });
+    document.getElementById('prestSearch').addEventListener('input', () => filtrarPrestamosMultiempresa());
     
     document.getElementById('btnAssign').addEventListener('click', () => {
         if (!currentRow) return;
@@ -3879,26 +3805,17 @@ document.addEventListener('DOMContentLoaded', function() {
         const valorManual = toInt(document.getElementById('prestValorManual').value);
         
         if (valorManual > 0) {
-            prestSel[baseName] = [{
-                esManual: true,
-                valorManual: valorManual,
-                descripcion: 'Valor manual ingresado'
-            }];
+            prestSel[baseName] = [{ esManual: true, valorManual: valorManual, descripcion: 'Valor manual ingresado' }];
         } else {
             const prestamosSeleccionados = PRESTAMOS_LIST.filter(it => selectedIds.has(it.id));
             prestSel[baseName] = prestamosSeleccionados.map(it => ({
-                id: it.id,
-                name: it.name,
-                totalActual: it.total,
-                empresa: it.empresa,
-                prestamista: it.prestamista,
-                esManual: false,
-                valorManual: null
+                id: it.id, name: it.name, totalActual: it.total,
+                empresa: it.empresa, prestamista: it.prestamista,
+                esManual: false, valorManual: null
             }));
         }
         
         setLS(PREST_SEL_KEY, prestSel);
-        
         asignarPrestamosAFilas(modoHistoricoActivo);
         recalcularTodo();
         closePrestModal();
@@ -3917,6 +3834,7 @@ document.addEventListener('DOMContentLoaded', function() {
     actualizarInfoViajesSeleccionados();
     
     window.abrirModalViajes = function(nombre) {
+        nombreConductorModal = nombre;
         document.getElementById('viajesTitle').textContent = nombre;
         document.getElementById('viajesModal').classList.add('show');
         
@@ -3929,7 +3847,11 @@ document.addEventListener('DOMContentLoaded', function() {
         
         fetch('<?= basename(__FILE__) ?>?' + qs.toString())
             .then(r => r.text())
-            .then(html => document.getElementById('viajesContent').innerHTML = html)
+            .then(html => {
+                document.getElementById('viajesContent').innerHTML = html;
+                // Configurar eventos después de cargar el contenido
+                setTimeout(configurarEventosModalViajes, 50);
+            })
             .catch(() => document.getElementById('viajesContent').innerHTML = '<p class="text-center text-red-600">Error cargando viajes</p>');
     };
 });
