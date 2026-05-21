@@ -5,7 +5,7 @@ $conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011
 if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); }
 $conn->set_charset('utf8mb4');
 
-/* = Helpers ================ */
+/* = Helpers ================= */
 function strip_accents($s){
   $t = @iconv('UTF-8','ASCII//TRANSLIT//IGNORE',$s);
   if ($t !== false) return $t;
@@ -39,6 +39,13 @@ if ($result->num_rows == 0) {
     $conn->query("ALTER TABLE cuentas_guardadas ADD COLUMN comprobantes_json LONGTEXT NULL AFTER datos_json");
 }
 
+// Verificar si la columna pagado existe en viajes, si no, crearla
+$result = $conn->query("SHOW COLUMNS FROM viajes LIKE 'pagado'");
+if ($result->num_rows == 0) {
+    $conn->query("ALTER TABLE viajes ADD COLUMN pagado TINYINT(1) NOT NULL DEFAULT 0");
+    $conn->query("ALTER TABLE viajes ADD INDEX idx_pagado (pagado)");
+}
+
 /* ================= CREAR TABLAS CUENTAS GUARDADAS ================= */
 $conn->query("
 CREATE TABLE IF NOT EXISTS cuentas_guardadas (
@@ -70,6 +77,64 @@ CREATE TABLE IF NOT EXISTS cuentas_guardadas_empresas (
 
 /* ================= AJAX HANDLERS ================= */
 
+// Endpoint para marcar viajes como pagados
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'pagar_viajes') {
+    header('Content-Type: application/json');
+    
+    $viaje_ids = isset($_POST['viaje_ids']) ? json_decode($_POST['viaje_ids'], true) : [];
+    
+    if (empty($viaje_ids)) {
+        echo json_encode(['success' => false, 'message' => 'No se proporcionaron IDs de viajes']);
+        exit;
+    }
+    
+    $ids_esc = array_map('intval', $viaje_ids);
+    $ids_str = implode(',', $ids_esc);
+    
+    $sql = "UPDATE viajes SET pagado = 1 WHERE id IN ($ids_str)";
+    
+    if ($conn->query($sql)) {
+        $afectados = $conn->affected_rows;
+        echo json_encode([
+            'success' => true, 
+            'message' => "Se marcaron $afectados viajes como pagados",
+            'afectados' => $afectados
+        ]);
+    } else {
+        echo json_encode(['success' => false, 'message' => $conn->error]);
+    }
+    exit;
+}
+
+// Endpoint para desmarcar viajes como pagados
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'despagar_viajes') {
+    header('Content-Type: application/json');
+    
+    $viaje_ids = isset($_POST['viaje_ids']) ? json_decode($_POST['viaje_ids'], true) : [];
+    
+    if (empty($viaje_ids)) {
+        echo json_encode(['success' => false, 'message' => 'No se proporcionaron IDs de viajes']);
+        exit;
+    }
+    
+    $ids_esc = array_map('intval', $viaje_ids);
+    $ids_str = implode(',', $ids_esc);
+    
+    $sql = "UPDATE viajes SET pagado = 0 WHERE id IN ($ids_str)";
+    
+    if ($conn->query($sql)) {
+        $afectados = $conn->affected_rows;
+        echo json_encode([
+            'success' => true, 
+            'message' => "Se desmarcaron $afectados viajes como no pagados",
+            'afectados' => $afectados
+        ]);
+    } else {
+        echo json_encode(['success' => false, 'message' => $conn->error]);
+    }
+    exit;
+}
+
 // Endpoint para exportar Excel
 if (isset($_GET['exportar_excel'])) {
     header('Content-Type: application/vnd.ms-excel; charset=utf-8');
@@ -77,13 +142,11 @@ if (isset($_GET['exportar_excel'])) {
     header('Pragma: no-cache');
     header('Expires: 0');
     
-    // Obtener los datos enviados por POST
     $filasData = isset($_POST['filas']) ? json_decode($_POST['filas'], true) : [];
     $totales = isset($_POST['totales']) ? json_decode($_POST['totales'], true) : [];
     $empresas = isset($_POST['empresas']) ? $_POST['empresas'] : '';
     $fechas = isset($_POST['fechas']) ? $_POST['fechas'] : '';
     
-    // Iniciar output HTML para Excel
     echo '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">';
     echo '<head><meta charset="UTF-8">';
     echo '<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>';
@@ -106,7 +169,6 @@ if (isset($_GET['exportar_excel'])) {
     </style>';
     echo '</head><body>';
     
-    // Información del encabezado
     echo '<div class="header-info">';
     echo '<h2>Ajuste de Pago</h2>';
     echo '<p><strong>Rango:</strong> ' . htmlspecialchars($fechas) . '</p>';
@@ -116,7 +178,6 @@ if (isset($_GET['exportar_excel'])) {
     echo '<p><strong>Fecha de exportación:</strong> ' . date('d/m/Y H:i:s') . '</p>';
     echo '</div>';
     
-    // Tabla principal
     echo '<table>';
     echo '<thead>';
     echo '<tr>';
@@ -165,7 +226,6 @@ if (isset($_GET['exportar_excel'])) {
         echo '</tr>';
     }
     
-    // Fila de totales
     if (!empty($totales)) {
         echo '<tr class="total-row">';
         echo '<td class="text-center" colspan="2"><strong>TOTALES</strong></td>';
@@ -202,10 +262,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
         exit;
     }
     
-    // Eliminar comprobante anterior del mismo conductor en esta sesión
     $conn->query("DELETE FROM comprobantes_temporales WHERE conductor = '$conductor' AND session_id = '$session_id'");
     
-    // Guardar nuevo comprobante
     $sql = "INSERT INTO comprobantes_temporales (conductor, imagen_base64, session_id) 
             VALUES ('$conductor', '$imagen_base64', '$session_id')";
     
@@ -337,7 +395,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
             }
         }
         
-        // Limpiar comprobantes temporales después de guardar
         $session_id = session_id();
         $conn->query("DELETE FROM comprobantes_temporales WHERE session_id = '$session_id'");
         
@@ -396,7 +453,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     exit;
 }
 
-/* ================= FUNCIÓN DE FUSIÓN ================= */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'fusionar_cuentas') {
     header('Content-Type: application/json');
     $ids = isset($_POST['ids']) ? json_decode($_POST['ids'], true) : [];
@@ -549,7 +605,7 @@ if (isset($_GET['viajes_conductor'])) {
     $hasta   = $conn->real_escape_string($_GET['hasta'] ?? '');
     $empresas = isset($_GET['empresas']) ? json_decode($_GET['empresas'], true) : [];
 
-    $sql = "SELECT fecha, ruta, empresa, tipo_vehiculo
+    $sql = "SELECT id, fecha, ruta, empresa, tipo_vehiculo, pagado
             FROM viajes
             WHERE nombre = '$nombre'
               AND fecha BETWEEN '$desde' AND '$hasta'";
@@ -599,12 +655,17 @@ if (isset($_GET['viajes_conductor'])) {
                 default: $color_class = 'bg-gray-100 text-gray-700 border-gray-200';
             }
 
+            $pagadoBadge = $r['pagado'] ? 
+                '<span class="inline-block px-2 py-0.5 rounded text-xs bg-green-100 text-green-700 border border-green-300 ml-2">✓ Pagado</span>' : 
+                '<span class="inline-block px-2 py-0.5 rounded text-xs bg-red-100 text-red-700 border border-red-300 ml-2">○ Pendiente</span>';
+
             $rowsHTML .= "<tr class='viaje-item cat-$cat'>
                     <td class='px-3 py-2'>".htmlspecialchars($r['fecha'])."</td>
                     <td class='px-3 py-2'>
                         <span class='inline-block px-2 py-1 rounded text-xs font-medium border $color_class'>
                             ".htmlspecialchars($ruta)."
                         </span>
+                        $pagadoBadge
                     </td>
                     <td class='px-3 py-2'>
                         <span class='inline-block px-2 py-1 rounded text-xs bg-blue-50 text-blue-700 border border-blue-200'>
@@ -762,8 +823,8 @@ if (!empty($empresasSeleccionadasEsc)) {
     }
 }
 
-/* ================= Viajes del rango ================= */
-$sqlV = "SELECT nombre, ruta, empresa, tipo_vehiculo
+/* ================= Viajes del rango (AHORA CON IDs) ================= */
+$sqlV = "SELECT id, nombre, ruta, empresa, tipo_vehiculo
          FROM viajes
          WHERE fecha BETWEEN '$desde' AND '$hasta'";
 if (!empty($empresasSeleccionadasEsc)) {
@@ -773,10 +834,12 @@ if (!empty($empresasSeleccionadasEsc)) {
 $resV = $conn->query($sqlV);
 
 $viajesPorConductor = [];
+$viajesIdsPorConductor = []; // NUEVO: guardar IDs de viajes por conductor
 $contadores = [];
 
 if ($resV) {
     while ($row = $resV->fetch_assoc()) {
+        $id = $row['id'];
         $nombre = $row['nombre'];
         $empresa = $row['empresa'];
         $ruta = $row['ruta'];
@@ -784,12 +847,15 @@ if ($resV) {
         
         if (!isset($viajesPorConductor[$nombre])) {
             $viajesPorConductor[$nombre] = [];
+            $viajesIdsPorConductor[$nombre] = []; // NUEVO
         }
         $viajesPorConductor[$nombre][] = [
+            'id' => $id, // NUEVO
             'empresa' => $empresa,
             'ruta' => $ruta,
             'vehiculo' => $vehiculo
         ];
+        $viajesIdsPorConductor[$nombre][] = $id; // NUEVO
         
         if (!isset($contadores[$nombre])) {
             $contadores[$nombre] = [];
@@ -914,6 +980,9 @@ foreach ($contadores as $nombre => $v) {
 usort($filas, fn($a,$b)=> $b['total_bruto'] <=> $a['total_bruto']);
 
 $CONDUCTORES_LIST = array_column($filas, 'nombre');
+
+// Pasar los IDs de viajes a JavaScript
+$viajesIdsJSON = json_encode($viajesIdsPorConductor, JSON_UNESCAPED_UNICODE);
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -943,6 +1012,7 @@ $CONDUCTORES_LIST = array_column($filas, 'nombre');
         #floatingPanel { box-shadow: 0 10px 40px rgba(0,0,0,0.15); z-index: 9999; }
         #panelDragHandle { cursor: move; }
         .fila-seleccionada { background-color: #f0f9ff !important; }
+        .fila-pagada { background-color: #f0fdf4 !important; border-left: 4px solid #22c55e !important; }
         .empresas-container { max-height: 150px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 0.75rem; padding: 0.75rem; background: white; }
         .empresa-checkbox { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; }
         .switch-pagado { position: relative; display: inline-block; width: 50px; height: 24px; }
@@ -1033,8 +1103,43 @@ $CONDUCTORES_LIST = array_column($filas, 'nombre');
             display: inline-block;
             border: 1px solid #fbbf24;
         }
+        .badge-pagado-conductor {
+            background: #dcfce7;
+            color: #166534;
+            font-size: 0.65rem;
+            padding: 0.15rem 0.5rem;
+            border-radius: 9999px;
+            margin-left: 0.25rem;
+            display: inline-block;
+            border: 1px solid #86efac;
+        }
         .disponible-positivo { color: #059669; font-weight: 600; }
         .disponible-negativo { color: #dc2626; font-weight: 600; }
+        
+        .btn-pagar {
+            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+            border: 1px solid #15803d;
+            color: white;
+            transition: all 0.2s;
+            font-weight: 600;
+        }
+        .btn-pagar:hover {
+            background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        .btn-despagar {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            border: 1px solid #b45309;
+            color: white;
+            transition: all 0.2s;
+            font-weight: 600;
+        }
+        .btn-despagar:hover {
+            background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
         
         .cuenta-checkbox {
             width: 18px;
@@ -1101,6 +1206,13 @@ $CONDUCTORES_LIST = array_column($filas, 'nombre');
             background: linear-gradient(135deg, #1e6e3e 0%, #144d25 100%);
             transform: translateY(-1px);
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        
+        .acciones-bar {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.75rem;
+            padding: 0.75rem 1rem;
         }
         
         @media (max-width: 640px) {
@@ -1218,6 +1330,18 @@ $CONDUCTORES_LIST = array_column($filas, 'nombre');
         </div>
     </section>
 
+    <!-- BARRA DE ACCIONES: PAGAR/DESPAGAR -->
+    <section class="acciones-bar flex flex-wrap items-center gap-3">
+        <span class="text-sm font-semibold text-slate-700">⚡ Acciones rápidas:</span>
+        <button id="btnPagarSeleccionados" class="btn-pagar rounded-lg px-4 py-2 text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+            <span>✅</span> Marcar como PAGADOS
+        </button>
+        <button id="btnDespagarSeleccionados" class="btn-despagar rounded-lg px-4 py-2 text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+            <span>↩️</span> Desmarcar (No pagados)
+        </button>
+        <span id="viajesCountInfo" class="text-xs text-slate-500 ml-auto"></span>
+    </section>
+
     <section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
             <div>
@@ -1275,12 +1399,21 @@ $CONDUCTORES_LIST = array_column($filas, 'nombre');
                 foreach ($filas as $f): 
                     $contador_filas++;
                     $nombre_normalizado = htmlspecialchars(mb_strtolower($f['nombre']));
+                    $tieneViajes = isset($viajesIdsPorConductor[$f['nombre']]) && count($viajesIdsPorConductor[$f['nombre']]) > 0;
+                    $viajesCount = $tieneViajes ? count($viajesIdsPorConductor[$f['nombre']]) : 0;
                 ?>
-                    <tr data-conductor="<?= $nombre_normalizado ?>" data-base="<?= $f['total_bruto'] ?>" data-row-index="<?= $contador_filas ?>">
+                    <tr data-conductor="<?= $nombre_normalizado ?>" 
+                        data-base="<?= $f['total_bruto'] ?>" 
+                        data-row-index="<?= $contador_filas ?>"
+                        data-tiene-viajes="<?= $tieneViajes ? '1' : '0' ?>"
+                        data-viajes-count="<?= $viajesCount ?>">
                         <td class="px-3 py-2">
                             <button type="button" class="conductor-link text-blue-600 hover:underline" data-nombre="<?= htmlspecialchars($f['nombre']) ?>" title="Ver viajes">
                                 <?= htmlspecialchars($f['nombre']) ?>
                             </button>
+                            <?php if ($tieneViajes): ?>
+                            <span class="badge-pagado-conductor" title="<?= $viajesCount ?> viajes"><?= $viajesCount ?> viajes</span>
+                            <?php endif; ?>
                         </td>
                         <td class="px-3 py-2 text-right num base"><?= number_format($f['total_bruto'],0,',','.') ?></td>
                         <td class="px-3 py-2 text-right num ajuste">0</td>
@@ -1401,6 +1534,10 @@ $CONDUCTORES_LIST = array_column($filas, 'nombre');
             <div class="flex justify-between">
                 <span>Préstamos:</span>
                 <span id="panelPrest" class="num">0</span>
+            </div>
+            <div class="flex justify-between border-t border-slate-200 pt-2 mt-2">
+                <span class="font-semibold">Viajes seleccionados:</span>
+                <span id="panelViajesCount" class="num font-bold text-blue-600">0</span>
             </div>
         </div>
     </div>
@@ -1685,6 +1822,9 @@ const MANUAL_ROWS_KEY = 'filas_manuales_temp:'+COMPANY_SCOPE;
 const SELECTED_CONDUCTORS_KEY = 'conductores_seleccionados_temp:'+COMPANY_SCOPE;
 const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNICODE|JSON_NUMERIC_CHECK); ?>;
 
+// NUEVO: IDs de viajes por conductor desde PHP
+const VIAJES_IDS_POR_CONDUCTOR = <?= $viajesIdsJSON ?>;
+
 let modoHistoricoActivo = false;
 
 function toInt(s) {
@@ -1728,9 +1868,213 @@ const clearBuscar = document.getElementById('clearBuscar');
 const contadorConductores = document.getElementById('contador-conductores');
 const filtroEstado = document.getElementById('filtroEstado');
 
+// NUEVO: Botones de pagar/despagar
+const btnPagarSeleccionados = document.getElementById('btnPagarSeleccionados');
+const btnDespagarSeleccionados = document.getElementById('btnDespagarSeleccionados');
+const viajesCountInfo = document.getElementById('viajesCountInfo');
+
+// ===== FUNCIÓN PARA OBTENER IDs DE VIAJES DE CONDUCTORES SELECCIONADOS =====
+function obtenerViajesIdsDeSeleccionados() {
+    const ids = [];
+    document.querySelectorAll('#tbody .selector-conductor:checked').forEach(cb => {
+        const tr = cb.closest('tr');
+        if (!tr || tr.style.display === 'none') return;
+        
+        const nombre = obtenerNombreConductorDeFila(tr);
+        if (nombre && VIAJES_IDS_POR_CONDUCTOR[nombre]) {
+            ids.push(...VIAJES_IDS_POR_CONDUCTOR[nombre]);
+        }
+    });
+    return [...new Set(ids)]; // Eliminar duplicados
+}
+
+function obtenerViajesCountDeSeleccionados() {
+    let count = 0;
+    document.querySelectorAll('#tbody .selector-conductor:checked').forEach(cb => {
+        const tr = cb.closest('tr');
+        if (!tr || tr.style.display === 'none') return;
+        
+        const tieneViajes = tr.dataset.tieneViajes === '1';
+        const viajesCount = parseInt(tr.dataset.viajesCount || '0');
+        if (tieneViajes) {
+            count += viajesCount;
+        }
+    });
+    return count;
+}
+
+function actualizarInfoViajesSeleccionados() {
+    const count = obtenerViajesCountDeSeleccionados();
+    const ids = obtenerViajesIdsDeSeleccionados();
+    
+    if (viajesCountInfo) {
+        viajesCountInfo.textContent = count > 0 ? `${count} viajes (${ids.length} IDs únicos)` : '';
+    }
+    
+    // Panel flotante
+    const panelViajesCount = document.getElementById('panelViajesCount');
+    if (panelViajesCount) {
+        panelViajesCount.textContent = count;
+    }
+    
+    // Habilitar/deshabilitar botones
+    if (btnPagarSeleccionados) {
+        btnPagarSeleccionados.disabled = ids.length === 0;
+    }
+    if (btnDespagarSeleccionados) {
+        btnDespagarSeleccionados.disabled = ids.length === 0;
+    }
+}
+
+// ===== FUNCIÓN PARA MARCAR VIAJES COMO PAGADOS =====
+async function pagarViajesSeleccionados() {
+    const viajeIds = obtenerViajesIdsDeSeleccionados();
+    
+    if (viajeIds.length === 0) {
+        Swal.fire({
+            title: '⚠️ Sin viajes',
+            text: 'Los conductores seleccionados no tienen viajes en este rango/empresas',
+            icon: 'warning'
+        });
+        return;
+    }
+    
+    const countConductores = document.querySelectorAll('#tbody .selector-conductor:checked').length;
+    const countViajes = obtenerViajesCountDeSeleccionados();
+    
+    const confirmacion = await Swal.fire({
+        title: '✅ ¿Marcar como PAGADOS?',
+        html: `
+            <p>Se marcarán como <strong>PAGADOS</strong>:</p>
+            <div class="text-left mt-3 space-y-1">
+                <p>👤 <strong>${countConductores}</strong> conductor(es)</p>
+                <p>🚛 <strong>${countViajes}</strong> viajes</p>
+                <p>🆔 <strong>${viajeIds.length}</strong> registros en BD</p>
+            </div>
+            <p class="text-xs text-slate-500 mt-3">Esto actualizará la tabla <code>viajes</code> directamente</p>
+        `,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: '✅ Sí, marcar como pagados',
+        confirmButtonColor: '#22c55e',
+        cancelButtonText: 'Cancelar'
+    });
+    
+    if (!confirmacion.isConfirmed) return;
+    
+    try {
+        Swal.fire({
+            title: 'Actualizando viajes...',
+            text: 'Por favor espera',
+            allowOutsideClick: false,
+            didOpen: () => Swal.showLoading()
+        });
+        
+        const formData = new FormData();
+        formData.append('accion', 'pagar_viajes');
+        formData.append('viaje_ids', JSON.stringify(viajeIds));
+        
+        const response = await fetch('', { method: 'POST', body: formData });
+        const resultado = await response.json();
+        
+        Swal.close();
+        
+        if (resultado.success) {
+            Swal.fire({
+                title: '✅ ¡Viajes pagados!',
+                html: `
+                    <p>Se marcaron <strong>${resultado.afectados}</strong> viajes como pagados</p>
+                    <p class="text-sm text-slate-500 mt-2">👤 ${countConductores} conductor(es) actualizado(s)</p>
+                `,
+                icon: 'success',
+                confirmButtonText: 'Continuar'
+            });
+            
+            // Recargar la página para reflejar cambios
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            throw new Error(resultado.message);
+        }
+    } catch (error) {
+        Swal.fire('❌ Error', error.message, 'error');
+    }
+}
+
+// ===== FUNCIÓN PARA DESMARCAR VIAJES COMO PAGADOS =====
+async function despagarViajesSeleccionados() {
+    const viajeIds = obtenerViajesIdsDeSeleccionados();
+    
+    if (viajeIds.length === 0) {
+        Swal.fire({
+            title: '⚠️ Sin viajes',
+            text: 'Los conductores seleccionados no tienen viajes en este rango/empresas',
+            icon: 'warning'
+        });
+        return;
+    }
+    
+    const countConductores = document.querySelectorAll('#tbody .selector-conductor:checked').length;
+    const countViajes = obtenerViajesCountDeSeleccionados();
+    
+    const confirmacion = await Swal.fire({
+        title: '↩️ ¿Desmarcar como NO PAGADOS?',
+        html: `
+            <p>Se desmarcarán (volverán a <strong>NO PAGADOS</strong>):</p>
+            <div class="text-left mt-3 space-y-1">
+                <p>👤 <strong>${countConductores}</strong> conductor(es)</p>
+                <p>🚛 <strong>${countViajes}</strong> viajes</p>
+                <p>🆔 <strong>${viajeIds.length}</strong> registros en BD</p>
+            </div>
+            <p class="text-xs text-amber-600 mt-3">⚠️ Esto revertirá el estado de pago en la tabla <code>viajes</code></p>
+        `,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: '↩️ Sí, desmarcar',
+        confirmButtonColor: '#f59e0b',
+        cancelButtonText: 'Cancelar'
+    });
+    
+    if (!confirmacion.isConfirmed) return;
+    
+    try {
+        Swal.fire({
+            title: 'Actualizando viajes...',
+            text: 'Por favor espera',
+            allowOutsideClick: false,
+            didOpen: () => Swal.showLoading()
+        });
+        
+        const formData = new FormData();
+        formData.append('accion', 'despagar_viajes');
+        formData.append('viaje_ids', JSON.stringify(viajeIds));
+        
+        const response = await fetch('', { method: 'POST', body: formData });
+        const resultado = await response.json();
+        
+        Swal.close();
+        
+        if (resultado.success) {
+            Swal.fire({
+                title: '↩️ Viajes desmarcados',
+                html: `
+                    <p>Se desmarcaron <strong>${resultado.afectados}</strong> viajes (ahora no pagados)</p>
+                    <p class="text-sm text-slate-500 mt-2">👤 ${countConductores} conductor(es) actualizado(s)</p>
+                `,
+                icon: 'success',
+                confirmButtonText: 'Continuar'
+            });
+            
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            throw new Error(resultado.message);
+        }
+    } catch (error) {
+        Swal.fire('❌ Error', error.message, 'error');
+    }
+}
+
 // ===== FUNCIÓN DE EXPORTACIÓN A EXCEL =====
 function exportarAExcel() {
-    // Recopilar datos de todas las filas visibles
     const filas = [];
     const filasVisibles = document.querySelectorAll('#tbody tr:not([style*="display: none"])');
     
@@ -1764,7 +2108,6 @@ function exportarAExcel() {
         });
     });
     
-    // Recopilar totales
     const totales = {
         llego: document.getElementById('tot_llego')?.textContent || '0',
         ret: document.getElementById('tot_ret')?.textContent || '0',
@@ -1775,13 +2118,11 @@ function exportarAExcel() {
         pagar: document.getElementById('tot_pagar')?.textContent || '0'
     };
     
-    // Crear formulario para envío POST
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = '?exportar_excel=1&desde=<?= htmlspecialchars($desde) ?>&hasta=<?= htmlspecialchars($hasta) ?>';
     form.target = '_blank';
     
-    // Agregar campos
     const addField = (name, value) => {
         const input = document.createElement('input');
         input.type = 'hidden';
@@ -1993,7 +2334,7 @@ function obtenerValorAPagarFila(tr) {
 }
 
 function aplicarEstadoFila(tr, estado) {
-    tr.classList.remove('estado-pagado', 'estado-pendiente', 'estado-procesando', 'estado-parcial');
+    tr.classList.remove('estado-pagado', 'estado-pendiente', 'estado-procesando', 'estado-parcial', 'fila-pagada');
     if (estado) tr.classList.add(`estado-${estado}`);
 }
 
@@ -2071,6 +2412,8 @@ function agregarFilaManual(manualIdFromLS = null) {
     nuevaFila.className = 'fila-manual';
     nuevaFila.dataset.manualId = manualId;
     nuevaFila.dataset.conductor = '';
+    nuevaFila.dataset.tieneViajes = '0';
+    nuevaFila.dataset.viajesCount = '0';
     
     nuevaFila.innerHTML = `
         <td class="px-3 py-2">
@@ -2161,6 +2504,7 @@ function configurarEventosFila(tr) {
             else tr.classList.remove('fila-seleccionada');
             actualizarPanelFlotante();
             guardarSeleccionCheckboxes();
+            actualizarInfoViajesSeleccionados(); // NUEVO
         });
     }
 
@@ -2227,6 +2571,7 @@ function configurarEventosFila(tr) {
             tr.remove();
             recalcularTodo();
             actualizarPanelFlotante();
+            actualizarInfoViajesSeleccionados();
             filtrarConductores();
         });
     }
@@ -2239,6 +2584,15 @@ function configurarEventosFila(tr) {
         conductorSelect.addEventListener('change', () => {
             const newBaseName = conductorSelect.value;
             tr.dataset.conductor = normalizarTexto(newBaseName);
+            
+            // Actualizar info de viajes para fila manual
+            if (newBaseName && VIAJES_IDS_POR_CONDUCTOR[newBaseName]) {
+                tr.dataset.tieneViajes = '1';
+                tr.dataset.viajesCount = VIAJES_IDS_POR_CONDUCTOR[newBaseName].length;
+            } else {
+                tr.dataset.tieneViajes = '0';
+                tr.dataset.viajesCount = '0';
+            }
             
             if (cta && accMap[newBaseName]) cta.value = accMap[newBaseName];
             if (ss && ssMap[newBaseName]) ss.value = fmt(ssMap[newBaseName]).replace('$', '');
@@ -2255,6 +2609,7 @@ function configurarEventosFila(tr) {
             
             asignarPrestamosAFilas(modoHistoricoActivo);
             recalcularTodo();
+            actualizarInfoViajesSeleccionados();
             filtrarConductores();
         });
     }
@@ -2290,7 +2645,7 @@ function actualizarPanelFlotante() {
     
     checkboxes.forEach(cb => {
         const tr = cb.closest('tr');
-        if (!tr) return;
+        if (!tr || tr.style.display === 'none') return;
         
         totalPagar += toInt(tr.querySelector('.pagar')?.textContent || '0');
         totalLlego += toInt(tr.querySelector('.llego')?.textContent || '0');
@@ -2312,6 +2667,8 @@ function actualizarPanelFlotante() {
     document.getElementById('panelApor').textContent = fmt(totalApor);
     document.getElementById('panelSS').textContent = fmt(totalSS);
     document.getElementById('panelPrest').textContent = fmt(totalPrest);
+    
+    actualizarInfoViajesSeleccionados(); // NUEVO
 }
 
 function guardarSeleccionCheckboxes() {
@@ -2323,6 +2680,7 @@ function guardarSeleccionCheckboxes() {
     });
     selectedConductors = seleccionados;
     localStorage.setItem(SELECTED_CONDUCTORS_KEY, JSON.stringify(selectedConductors));
+    actualizarInfoViajesSeleccionados(); // NUEVO
 }
 
 function restaurarSeleccionCheckbox(tr) {
@@ -2374,6 +2732,7 @@ function filtrarPorEstado() {
     
     contadorConductores.textContent = `Mostrando ${visibles} de ${totalFilas} conductores`;
     actualizarPanelFlotante();
+    actualizarInfoViajesSeleccionados();
 }
 
 function filtrarConductores() {
@@ -2437,6 +2796,7 @@ function recalcularTodo() {
     document.getElementById('tot_pagar').textContent = fmt(sumPagar);
     
     actualizarPanelFlotante();
+    actualizarInfoViajesSeleccionados();
 }
 
 function hacerPanelArrastrable() {
@@ -3445,6 +3805,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Evento del botón de exportación
     document.getElementById('btnExportExcel').addEventListener('click', exportarAExcel);
     
+    // NUEVO: Eventos de botones Pagar/Despagar
+    btnPagarSeleccionados?.addEventListener('click', pagarViajesSeleccionados);
+    btnDespagarSeleccionados?.addEventListener('click', despagarViajesSeleccionados);
+    
     document.getElementById('btnSeleccionarTodas')?.addEventListener('click', () => {
         document.querySelectorAll('.empresa-checkbox input').forEach(cb => cb.checked = true);
     });
@@ -3487,6 +3851,7 @@ document.addEventListener('DOMContentLoaded', function() {
             });
             actualizarPanelFlotante();
             guardarSeleccionCheckboxes();
+            actualizarInfoViajesSeleccionados();
         });
     }
     
@@ -3549,6 +3914,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     setTimeout(recalcularTodo, 100);
     cargarComprobantesDesdeBD();
+    actualizarInfoViajesSeleccionados();
     
     window.abrirModalViajes = function(nombre) {
         document.getElementById('viajesTitle').textContent = nombre;
