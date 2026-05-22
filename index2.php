@@ -27,8 +27,9 @@ $columnas_disponibles = [
     'tipo_vehiculo' => ['nombre' => 'Vehículo', 'visible' => true, 'orden' => 6],
     'empresa' => ['nombre' => 'Empresa', 'visible' => true, 'orden' => 7],
     'pago_parcial' => ['nombre' => 'Pago Parcial', 'visible' => true, 'orden' => 8],
-    'imagen' => ['nombre' => 'Evidencia', 'visible' => true, 'orden' => 9],
-    'epicrisis' => ['nombre' => 'Epicrisis', 'visible' => true, 'orden' => 10]
+    'pagado' => ['nombre' => 'Pagado', 'visible' => true, 'orden' => 9],
+    'imagen' => ['nombre' => 'Evidencia', 'visible' => true, 'orden' => 10],
+    'epicrisis' => ['nombre' => 'Epicrisis', 'visible' => true, 'orden' => 11]
 ];
 
 // Inicializar configuración de columnas en sesión
@@ -208,6 +209,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             : "NULL";
 
         $pago_parcial = normalizarPagoParcial($conexion, $_POST['pago_parcial'] ?? null);
+        $pagado = isset($_POST['pagado']) ? 1 : 0;
 
         // Manejo de imagen (evidencia)
         $imagen_nombre = procesarSubidaArchivo('imagen');
@@ -221,8 +223,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $_SESSION['error'] = "Los campos Nombre, Fecha, Ruta y Vehículo son obligatorios.";
             $accion = 'crear';
         } else {
-            $sql = "INSERT INTO viajes (nombre, cedula, fecha, ruta, tipo_vehiculo, empresa, imagen, epicrisis, pago_parcial) 
-                    VALUES ('$nombre', $cedula, '$fecha', '$ruta', '$tipo_vehiculo', $empresa, $imagen_valor, $epicrisis_valor, $pago_parcial)";
+            $sql = "INSERT INTO viajes (nombre, cedula, fecha, ruta, tipo_vehiculo, empresa, imagen, epicrisis, pago_parcial, pagado) 
+                    VALUES ('$nombre', $cedula, '$fecha', '$ruta', '$tipo_vehiculo', $empresa, $imagen_valor, $epicrisis_valor, $pago_parcial, $pagado)";
             
             if ($conexion->query($sql)) {
                 header("Location: ?msg=creado");
@@ -249,6 +251,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             : "NULL";
 
         $pago_parcial = normalizarPagoParcial($conexion, $_POST['pago_parcial'] ?? null);
+        $pagado = isset($_POST['pagado']) ? 1 : 0;
         
         // Obtener datos ACTUALES del registro para comparar
         $sql_actual = "SELECT nombre, cedula, fecha, ruta, tipo_vehiculo, empresa, pago_parcial FROM viajes WHERE id = $id";
@@ -311,7 +314,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     ruta = '$ruta',
                     tipo_vehiculo = '$tipo_vehiculo',
                     empresa = $empresa,
-                    pago_parcial = $pago_parcial
+                    pago_parcial = $pago_parcial,
+                    pagado = $pagado
                     $imagen_campo
                     $epicrisis_campo
                     WHERE id = $id";
@@ -356,6 +360,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
         $pago_parcial_general = normalizarPagoParcial($conexion, $_POST['pago_parcial_general'] ?? null);
         $hay_pago_general = (isset($_POST['pago_parcial_general']) && trim((string)$_POST['pago_parcial_general']) !== '');
+        $pagado_general = isset($_POST['pagado_general']) ? (int)$_POST['pagado_general'] : null;
 
         foreach ($ids as $id_viaje) {
             $id_viaje = (int)$id_viaje;
@@ -367,6 +372,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $vehiculo_key = "tipo_vehiculo_$id_viaje";
             $empresa_key  = "empresa_$id_viaje";
             $pago_key     = "pago_parcial_$id_viaje";
+            $pagado_key   = "pagado_$id_viaje";
             
             $nombre = isset($_POST[$nombre_key]) && trim($_POST[$nombre_key]) !== '' 
                 ? "'" . $conexion->real_escape_string($_POST[$nombre_key]) . "'"
@@ -411,6 +417,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $pago_parcial = $pago_parcial_general;
             }
             
+            // Determinar valor de pagado
+            $pagado_valor = null;
+            if (isset($_POST[$pagado_key])) {
+                $pagado_valor = 1;
+            } elseif ($pagado_general !== null) {
+                $pagado_valor = $pagado_general;
+            }
+            
             if (!$nombre || !$fecha || !$ruta || !$tipo_vehiculo) {
                 continue;
             }
@@ -427,8 +441,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     ruta = $ruta,
                     tipo_vehiculo = $tipo_vehiculo,
                     empresa = $empresa,
-                    pago_parcial = IFNULL($pago_parcial, pago_parcial)
-                    WHERE id = $id_viaje";
+                    pago_parcial = IFNULL($pago_parcial, pago_parcial)";
+            
+            if ($pagado_valor !== null) {
+                $sql .= ", pagado = $pagado_valor";
+            }
+            
+            $sql .= " WHERE id = $id_viaje";
             
             if ($conexion->query($sql)) {
                 $actualizados++;
@@ -555,6 +574,13 @@ if ($accion == 'informe') {
         }
     }
 
+    // Pagado (nuevo filtro)
+    if (isset($_GET['pagado']) && $_GET['pagado'] !== '') {
+        $pagado_val = (int)$_GET['pagado'];
+        $where[] = "pagado = $pagado_val";
+        $desc_filtros[] = "Estado: " . ($pagado_val ? 'Pagado' : 'Pendiente');
+    }
+
     // Construir consulta principal
     $sql = "SELECT * FROM viajes";
     if (count($where) > 0) {
@@ -616,6 +642,18 @@ if ($accion == 'informe') {
             tr:nth-child(even) { 
                 background: #f8f9fa; 
             }
+            tr.pagado {
+                background-color: #d4edda !important;
+            }
+            tr.pendiente {
+                background-color: #f8d7da !important;
+            }
+            tr.pagado:nth-child(even) {
+                background-color: #c3e6cb !important;
+            }
+            tr.pendiente:nth-child(even) {
+                background-color: #f5c6cb !important;
+            }
             .fecha-generacion {
                 color: #666;
                 font-size: 12px;
@@ -627,6 +665,20 @@ if ($accion == 'informe') {
             .badge-pago {
                 background: #0dcaf0;
                 color: #000;
+                padding: 3px 8px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            .badge-pagado {
+                background: #28a745;
+                color: white;
+                padding: 3px 8px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            .badge-pendiente {
+                background: #dc3545;
+                color: white;
                 padding: 3px 8px;
                 border-radius: 4px;
                 font-weight: bold;
@@ -651,6 +703,8 @@ if ($accion == 'informe') {
                 body { margin: 15px; }
                 th { background: #333 !important; color: white !important; }
                 .badge-pago { background: #0dcaf0 !important; color: black !important; }
+                tr.pagado { background-color: #d4edda !important; }
+                tr.pendiente { background-color: #f8d7da !important; }
             }
             .btn-print {
                 background: #0d6efd;
@@ -728,8 +782,10 @@ if ($accion == 'informe') {
                     </tr>
                 </thead>
                 <tbody>
-                    <?php while($row = $resultado->fetch_assoc()): ?>
-                        <tr>
+                    <?php while($row = $resultado->fetch_assoc()): 
+                        $clase_fila = $row['pagado'] ? 'pagado' : 'pendiente';
+                    ?>
+                        <tr class="<?= $clase_fila ?>">
                             <?php foreach($columnas_visibles as $key => $columna): ?>
                                 <?php if (!$columna['visible']) continue; ?>
                                 
@@ -768,6 +824,16 @@ if ($accion == 'informe') {
                                                 <span class="badge-pago">$<?= number_format((int)$row['pago_parcial'], 0, ',', '.') ?></span>
                                             <?php else: ?>
                                                 —
+                                            <?php endif; ?>
+                                        </td>
+                                        <?php break; ?>
+                                    
+                                    <?php case 'pagado': ?>
+                                        <td>
+                                            <?php if ($row['pagado'] == 1): ?>
+                                                <span class="badge-pagado">✅ Pagado</span>
+                                            <?php else: ?>
+                                                <span class="badge-pendiente">❌ Pendiente</span>
                                             <?php endif; ?>
                                         </td>
                                         <?php break; ?>
@@ -822,6 +888,17 @@ if ($accion == 'informe') {
                 }
                 $res_suma = $conexion->query($sql_suma);
                 $total_pagos = $res_suma ? (int)$res_suma->fetch_assoc()['total'] : 0;
+                
+                // Contar pagados y pendientes
+                $sql_contar = "SELECT 
+                    SUM(CASE WHEN pagado = 1 THEN 1 ELSE 0 END) as pagados,
+                    SUM(CASE WHEN pagado = 0 THEN 1 ELSE 0 END) as pendientes
+                    FROM viajes";
+                if (count($where) > 0) {
+                    $sql_contar .= " WHERE " . implode(" AND ", $where);
+                }
+                $res_contar = $conexion->query($sql_contar);
+                $contar = $res_contar ? $res_contar->fetch_assoc() : ['pagados' => 0, 'pendientes' => 0];
             ?>
                 <div style="margin-top: 20px; padding: 15px; background: #e8f4ff; border-radius: 5px; text-align: right; font-size: 16px;">
                     <strong>💰 TOTAL PAGOS PARCIALES:</strong> 
@@ -829,6 +906,18 @@ if ($accion == 'informe') {
                         $<?= number_format($total_pagos, 0, ',', '.') ?>
                     </span>
                 </div>
+            <?php endif; ?>
+            
+            <!-- Resumen de estado de pagos -->
+            <?php if (isset($contar)): ?>
+            <div style="margin-top: 15px; display: flex; gap: 20px;">
+                <div style="padding: 15px; background: #d4edda; border-radius: 5px; flex: 1; text-align: center;">
+                    <h4 style="color: #155724;">✅ Pagados: <?= $contar['pagados'] ?></h4>
+                </div>
+                <div style="padding: 15px; background: #f8d7da; border-radius: 5px; flex: 1; text-align: center;">
+                    <h4 style="color: #721c24;">❌ Pendientes: <?= $contar['pendientes'] ?></h4>
+                </div>
+            </div>
             <?php endif; ?>
             
         <?php else: ?>
@@ -911,13 +1000,40 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             background-color: #157347;
             color: white;
         }
+        /* Estilos para filas pagadas y pendientes */
+        tr.pagado {
+            background-color: #d4edda !important;
+        }
+        tr.pendiente {
+            background-color: #f8d7da !important;
+        }
+        .table-hover tbody tr.pagado:hover {
+            background-color: #c3e6cb !important;
+        }
+        .table-hover tbody tr.pendiente:hover {
+            background-color: #f5c6cb !important;
+        }
+        .badge-pagado {
+            background-color: #28a745;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .badge-pendiente {
+            background-color: #dc3545;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body class="bg-light">
 
 <?php include("nav.php"); ?>
 
-<!-- NAVEGACÓN SUPERIOR -->
+<!-- NAVEGACIÓN SUPERIOR -->
 
 
 <div class="container py-4">
@@ -1013,6 +1129,17 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                        value="<?= htmlspecialchars($viaje['pago_parcial'] ?? '') ?>"
                                        placeholder="Opcional - dejar vacío si no aplica">
                                 <small class="text-muted">Monto entregado como anticipo / pago parcial (si aplica).</small>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="pagado" id="pagadoCheck" value="1"
+                                           <?= (isset($viaje['pagado']) && $viaje['pagado'] == 1) ? 'checked' : '' ?>>
+                                    <label class="form-check-label" for="pagadoCheck">
+                                        <strong>✅ Viaje Pagado</strong>
+                                    </label>
+                                </div>
+                                <small class="text-muted">Marque esta casilla si el viaje ya ha sido pagado completamente.</small>
                             </div>
                             
                             <div class="mb-3">
@@ -1178,6 +1305,14 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                    placeholder="Dejar vacío para no cambiar">
                                         </div>
                                         <div class="col-md-4">
+                                            <label class="form-label">Estado de pago (general)</label>
+                                            <select name="pagado_general" class="form-select form-select-sm">
+                                                <option value="">-- No cambiar --</option>
+                                                <option value="1">✅ Pagado</option>
+                                                <option value="0">❌ Pendiente</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
                                             <label class="form-label">Ruta (general)</label>
                                             <select name="ruta_general" class="form-select form-select-sm select2-single">
                                                 <option value="">-- No cambiar --</option>
@@ -1226,6 +1361,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                             <th>Vehículo</th>
                                             <th>Empresa</th>
                                             <th>Pago parcial</th>
+                                            <th>Pagado</th>
                                             <th>Evidencia</th>
                                             <th>Epicrisis</th>
                                         </tr>
@@ -1234,7 +1370,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                         <?php foreach($viajes_seleccionados as $viaje_multi): 
                                             $id_multi = (int)$viaje_multi['id'];
                                         ?>
-                                            <tr>
+                                            <tr class="<?= $viaje_multi['pagado'] ? 'pagado' : 'pendiente' ?>">
                                                 <td class="fw-bold"><?= $id_multi ?></td>
                                                 <td>
                                                     <input type="text" name="nombre_<?= $id_multi ?>" 
@@ -1290,6 +1426,10 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                            class="form-control form-control-sm"
                                                            value="<?= htmlspecialchars($viaje_multi['pago_parcial'] ?? '') ?>"
                                                            placeholder="(vacío = no cambia)">
+                                                </td>
+                                                <td class="text-center">
+                                                    <input type="checkbox" name="pagado_<?= $id_multi ?>" value="1"
+                                                           <?= $viaje_multi['pagado'] ? 'checked' : '' ?>>
                                                 </td>
                                                 <td class="text-center">
                                                     <?php if(!empty($viaje_multi['imagen'])): ?>
@@ -1457,6 +1597,15 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                         <input type="date" name="hasta" value="<?= htmlspecialchars($_GET['hasta'] ?? '') ?>" class="form-control">
                     </div>
 
+                    <div class="col-md-2">
+                        <label class="form-label">Estado de pago</label>
+                        <select name="pagado" class="form-select">
+                            <option value="">-- Todos --</option>
+                            <option value="1" <?= (isset($_GET['pagado']) && $_GET['pagado'] === '1') ? 'selected' : '' ?>>✅ Pagado</option>
+                            <option value="0" <?= (isset($_GET['pagado']) && $_GET['pagado'] === '0') ? 'selected' : '' ?>>❌ Pendiente</option>
+                        </select>
+                    </div>
+
                     <div class="col-md-3">
                         <label class="form-label">Ruta</label>
                         <select name="ruta[]" class="form-select select2-multiple" multiple data-placeholder="Todas las rutas">
@@ -1552,6 +1701,12 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         } elseif (!empty($_GET['hasta'])) {
             $hasta = $conexion->real_escape_string($_GET['hasta']);
             $where[] = "fecha <= '$hasta'";
+        }
+
+        // Filtro de estado de pago (NUEVO)
+        if (isset($_GET['pagado']) && $_GET['pagado'] !== '') {
+            $pagado_val = (int)$_GET['pagado'];
+            $where[] = "pagado = $pagado_val";
         }
 
         if (!empty($_GET['ruta']) && is_array($_GET['ruta'])) {
@@ -1705,8 +1860,9 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                 $ids_visibles[]    = $id_registro;
                                 $esta_seleccionado = in_array($id_registro, $_SESSION['seleccionados']);
                                 $pagoParcial = $row['pago_parcial'];
+                                $clase_fila = $row['pagado'] ? 'pagado' : 'pendiente';
                             ?>
-                                <tr id="fila_<?= $id_registro ?>" class="<?= $esta_seleccionado ? 'seleccionado' : '' ?>">
+                                <tr id="fila_<?= $id_registro ?>" class="<?= $esta_seleccionado ? 'seleccionado' : '' ?> <?= $clase_fila ?>">
                                     <td>
                                         <form method="POST" class="d-inline">
                                             <input type="hidden" name="toggle_seleccion" value="<?= $id_registro ?>">
@@ -1757,6 +1913,16 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                         </span>
                                                     <?php else: ?>
                                                         <span class="text-muted">—</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <?php break;
+                                                
+                                            case 'pagado': ?>
+                                                <td>
+                                                    <?php if ($row['pagado'] == 1): ?>
+                                                        <span class="badge-pagado">✅ Pagado</span>
+                                                    <?php else: ?>
+                                                        <span class="badge-pendiente">❌ Pendiente</span>
                                                     <?php endif; ?>
                                                 </td>
                                                 <?php break;
