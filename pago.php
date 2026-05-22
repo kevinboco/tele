@@ -77,6 +77,72 @@ CREATE TABLE IF NOT EXISTS cuentas_guardadas_empresas (
 
 /* ================= AJAX HANDLERS ================= */
 
+// Endpoint para actualizar cuenta existente
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'actualizar_cuenta') {
+    header('Content-Type: application/json');
+    
+    $id = intval($_POST['id']);
+    $nombre = $conn->real_escape_string($_POST['nombre'] ?? '');
+    $desde = $conn->real_escape_string($_POST['desde'] ?? '');
+    $hasta = $conn->real_escape_string($_POST['hasta'] ?? '');
+    $facturado = floatval($_POST['facturado'] ?? 0);
+    $porcentaje_ajuste = floatval($_POST['porcentaje_ajuste'] ?? 0);
+    $pagado = intval($_POST['pagado'] ?? 0);
+    $datos_json = $conn->real_escape_string($_POST['datos_json'] ?? '{}');
+    $comprobantes_json = $conn->real_escape_string($_POST['comprobantes_json'] ?? '{}');
+    $empresas = isset($_POST['empresas']) ? json_decode($_POST['empresas'], true) : [];
+    $usuario = $conn->real_escape_string($_SESSION['usuario'] ?? 'Sistema');
+    
+    if (empty($nombre) || empty($empresas) || $id <= 0) {
+        echo json_encode(['success' => false, 'message' => 'Datos incompletos']);
+        exit;
+    }
+    
+    $conn->begin_transaction();
+    
+    try {
+        // Actualizar la cuenta principal
+        $sql = "UPDATE cuentas_guardadas 
+                SET nombre = '$nombre', 
+                    desde = '$desde', 
+                    hasta = '$hasta', 
+                    facturado = $facturado, 
+                    porcentaje_ajuste = $porcentaje_ajuste, 
+                    pagado = $pagado, 
+                    datos_json = '$datos_json', 
+                    comprobantes_json = '$comprobantes_json',
+                    usuario = '$usuario'
+                WHERE id = $id";
+        
+        if (!$conn->query($sql)) {
+            throw new Exception("Error al actualizar cuenta: " . $conn->error);
+        }
+        
+        if ($conn->affected_rows === 0) {
+            throw new Exception("No se encontró la cuenta con ID $id");
+        }
+        
+        // Eliminar empresas antiguas y volver a insertar
+        $conn->query("DELETE FROM cuentas_guardadas_empresas WHERE cuenta_id = $id");
+        
+        foreach ($empresas as $empresa) {
+            $empresa_esc = $conn->real_escape_string($empresa);
+            $sql_emp = "INSERT INTO cuentas_guardadas_empresas (cuenta_id, empresa_nombre) VALUES ($id, '$empresa_esc')";
+            if (!$conn->query($sql_emp)) {
+                throw new Exception("Error al actualizar empresas: " . $conn->error);
+            }
+        }
+        
+        $conn->commit();
+        echo json_encode(['success' => true, 'id' => $id, 'message' => 'Cuenta actualizada exitosamente']);
+        
+    } catch (Exception $e) {
+        $conn->rollback();
+        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    }
+    exit;
+}
+
 // Endpoint para marcar viajes como pagados
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'pagar_viajes') {
     header('Content-Type: application/json');
@@ -178,7 +244,7 @@ if (isset($_GET['exportar_excel'])) {
     echo '<p><strong>Fecha de exportación:</strong> ' . date('d/m/Y H:i:s') . '</p>';
     echo '</div>';
     
-    echo '<table>';
+    echo '<tr>';
     echo '<thead>';
     echo '<tr>';
     echo '<th>#</th>';
@@ -230,7 +296,7 @@ if (isset($_GET['exportar_excel'])) {
         echo '<tr class="total-row">';
         echo '<td class="text-center" colspan="2"><strong>TOTALES</strong></td>';
         echo '<td class="num"><strong>' . htmlspecialchars($totales['llego'] ?? '0') . '</strong></td>';
-        echo '<td></td>';
+        echo '<tr></td>';
         echo '<td class="num"><strong>' . htmlspecialchars($totales['llego'] ?? '0') . '</strong></td>';
         echo '<td class="num"><strong>' . htmlspecialchars($totales['ret'] ?? '0') . '</strong></td>';
         echo '<td class="num"><strong>' . htmlspecialchars($totales['mil4'] ?? '0') . '</strong></td>';
@@ -244,7 +310,7 @@ if (isset($_GET['exportar_excel'])) {
     }
     
     echo '</tbody>';
-    echo '</table>';
+    echo '<tr>';
     echo '</body></html>';
     exit;
 }
@@ -682,7 +748,7 @@ if (isset($_GET['viajes_conductor'])) {
                             ".htmlspecialchars($vehiculo)."
                         </span>
                     </td>
-                 </tr>";
+                  </tr>";
         }
     } else {
         $rowsHTML .= "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresas seleccionadas.</td></tr>";
@@ -734,7 +800,6 @@ if (isset($_GET['viajes_conductor'])) {
             ?>
         </div>
 
-        <!-- Acciones del modal de viajes -->
         <div class="flex flex-wrap items-center gap-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
             <span class="text-xs font-medium text-blue-700">⚡ Acciones en viajes:</span>
             <button type="button" class="btn-pagar-viajes-modal px-3 py-1.5 rounded-lg text-xs font-medium bg-green-500 text-white hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
@@ -1215,6 +1280,14 @@ $viajesIdsJSON = json_encode($viajesIdsPorConductor, JSON_UNESCAPED_UNICODE);
             border-radius: 0.75rem;
             padding: 0.75rem 1rem;
         }
+        
+        .badge-cuenta-cargada {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
     </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
@@ -1339,6 +1412,9 @@ $viajesIdsJSON = json_encode($viajesIdsPorConductor, JSON_UNESCAPED_UNICODE);
                 </div>
                 <button id="btnAddManual" class="rounded-lg bg-green-600 text-white px-4 py-2 text-sm hover:bg-green-700 whitespace-nowrap">
                     ➕ Agregar manual
+                </button>
+                <button id="btnUpdateCuenta" class="rounded-lg bg-amber-600 text-white px-4 py-2 text-sm hover:bg-amber-700 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                    🔄 Actualizar cuenta cargada
                 </button>
             </div>
         </div>
@@ -1798,6 +1874,8 @@ const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNI
 const VIAJES_IDS_POR_CONDUCTOR = <?= $viajesIdsJSON ?>;
 
 let modoHistoricoActivo = false;
+let cuentaActualId = null;
+let cuentaActualNombre = null;
 
 function toInt(s) {
     if (typeof s === 'number') return Math.round(s);
@@ -1831,6 +1909,7 @@ let comprobantesMap = {};
 
 const tbody = document.getElementById('tbody');
 const btnAddManual = document.getElementById('btnAddManual');
+const btnUpdateCuenta = document.getElementById('btnUpdateCuenta');
 const floatingPanel = document.getElementById('floatingPanel');
 const panelDragHandle = document.getElementById('panelDragHandle');
 const closePanel = document.getElementById('closePanel');
@@ -1843,6 +1922,141 @@ const filtroEstado = document.getElementById('filtroEstado');
 const btnPagarSeleccionados = document.getElementById('btnPagarSeleccionados');
 const btnDespagarSeleccionados = document.getElementById('btnDespagarSeleccionados');
 const viajesCountInfo = document.getElementById('viajesCountInfo');
+
+// ===== FUNCIÓN PARA ACTUALIZAR CUENTA CARGADA =====
+async function actualizarCuentaCargada() {
+    if (!cuentaActualId) {
+        Swal.fire('⚠️ Sin cuenta cargada', 'Primero debes cargar una cuenta desde el gestor', 'warning');
+        return;
+    }
+    
+    const confirmacion = await Swal.fire({
+        title: '🔄 Actualizar cuenta',
+        html: `
+            <p>Vas a actualizar la cuenta:</p>
+            <p class="font-bold text-amber-600">"${cuentaActualNombre}"</p>
+            <p class="text-sm text-slate-500 mt-2">Se sobrescribirán los siguientes datos:</p>
+            <ul class="text-left text-sm list-disc list-inside mt-2">
+                <li>Préstamos asignados</li>
+                <li>Seguridad social</li>
+                <li>Cuentas bancarias</li>
+                <li>Estados de pago</li>
+                <li>Filas manuales</li>
+                <li>Comprobantes de transferencia</li>
+                <li>Facturado y % de ajuste</li>
+            </ul>
+        `,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: '✅ Sí, actualizar',
+        confirmButtonColor: '#f59e0b',
+        cancelButtonText: 'Cancelar'
+    });
+    
+    if (!confirmacion.isConfirmed) return;
+    
+    const nombre = cuentaActualNombre;
+    const desde = document.getElementById('filtro_desde').value;
+    const hasta = document.getElementById('filtro_hasta').value;
+    const facturado = toInt(document.getElementById('inp_facturado').value);
+    const porcentaje = parseFloat(document.getElementById('inp_porcentaje_ajuste').value) || 0;
+    const pagado = document.getElementById('cuenta_pagado')?.checked ? 1 : 0;
+    
+    // Obtener empresas seleccionadas
+    const empresas = [];
+    document.querySelectorAll('.empresa-checkbox input:checked').forEach(cb => {
+        empresas.push(cb.value);
+    });
+    
+    // Preparar datos
+    const datosParaGuardar = {
+        prestamos: prestSel,
+        segSocial: ssMap,
+        cuentasBancarias: accMap,
+        estadosPago: estadoPagoMap,
+        filasManuales: []
+    };
+    
+    document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => {
+        const conductor = tr.querySelector('.conductor-select')?.value || '';
+        const base = toInt(tr.querySelector('.base-manual')?.value || '0');
+        const cuenta = tr.querySelector('.cta')?.value || '';
+        const segSocial = toInt(tr.querySelector('.ss')?.value || '0');
+        const estado = tr.querySelector('.estado-pago')?.value || '';
+        
+        if (conductor) {
+            datosParaGuardar.filasManuales.push({ conductor, base, cuenta, segSocial, estado });
+        }
+    });
+    
+    const comprobantesParaGuardar = {};
+    for (const [conductor, base64] of Object.entries(comprobantesMap)) {
+        if (base64) {
+            comprobantesParaGuardar[conductor] = base64;
+        }
+    }
+    
+    Swal.fire({
+        title: 'Actualizando cuenta...',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+    });
+    
+    try {
+        const formData = new FormData();
+        formData.append('accion', 'actualizar_cuenta');
+        formData.append('id', cuentaActualId);
+        formData.append('nombre', nombre);
+        formData.append('desde', desde);
+        formData.append('hasta', hasta);
+        formData.append('facturado', facturado);
+        formData.append('porcentaje_ajuste', porcentaje);
+        formData.append('pagado', pagado);
+        formData.append('empresas', JSON.stringify(empresas));
+        formData.append('datos_json', JSON.stringify(datosParaGuardar));
+        formData.append('comprobantes_json', JSON.stringify(comprobantesParaGuardar));
+        
+        const response = await fetch('', { method: 'POST', body: formData });
+        const resultado = await response.json();
+        
+        if (resultado.success) {
+            Swal.fire({
+                title: '✅ Cuenta actualizada',
+                html: `<p>"${nombre}" fue actualizada correctamente</p><p class="text-xs text-slate-500 mt-2">Se guardaron ${Object.keys(comprobantesParaGuardar).length} comprobantes</p>`,
+                icon: 'success',
+                confirmButtonText: 'Continuar'
+            });
+        } else {
+            throw new Error(resultado.message);
+        }
+    } catch (error) {
+        Swal.fire('❌ Error', error.message, 'error');
+    }
+}
+
+// Mostrar indicador de cuenta cargada
+function mostrarIndicadorCuentaCargada(nombre) {
+    const existing = document.getElementById('cuentaCargadaBadge');
+    if (existing) existing.remove();
+    
+    const badge = document.createElement('div');
+    badge.id = 'cuentaCargadaBadge';
+    badge.className = 'fixed bottom-4 right-4 z-50 bg-amber-500 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 badge-cuenta-cargada';
+    badge.innerHTML = `
+        <span>📂</span>
+        <span class="text-sm font-medium">Cuenta cargada: ${nombre}</span>
+        <button id="limpiarCuentaCargada" class="ml-2 text-white hover:bg-amber-600 rounded px-2 py-1">✕</button>
+    `;
+    document.body.appendChild(badge);
+    
+    document.getElementById('limpiarCuentaCargada')?.addEventListener('click', () => {
+        cuentaActualId = null;
+        cuentaActualNombre = null;
+        if (btnUpdateCuenta) btnUpdateCuenta.disabled = true;
+        badge.remove();
+        Swal.fire('Cuenta descargada', 'Puedes cargar otra cuenta o continuar trabajando', 'info');
+    });
+}
 
 // ===== FUNCIÓN PARA OBTENER IDs DE VIAJES DE CONDUCTORES SELECCIONADOS =====
 function obtenerViajesIdsDeSeleccionados() {
@@ -2040,7 +2254,6 @@ function actualizarContadorViajesModal() {
 function configurarEventosModalViajes() {
     viajesSeleccionadosEnModal = new Set();
     
-    // Checkbox "Seleccionar todos" del modal
     const selectAllViajesModal = document.getElementById('selectAllViajesModal');
     if (selectAllViajesModal) {
         selectAllViajesModal.checked = false;
@@ -2059,7 +2272,6 @@ function configurarEventosModalViajes() {
         });
     }
     
-    // Checkboxes individuales
     document.querySelectorAll('#viajesTableBody .viaje-checkbox').forEach(cb => {
         cb.addEventListener('change', function() {
             const viajeId = parseInt(this.dataset.viajeId);
@@ -2073,7 +2285,6 @@ function configurarEventosModalViajes() {
         });
     });
     
-    // Botón "Seleccionar todos"
     const btnSelectAll = document.querySelector('.btn-select-all-viajes');
     if (btnSelectAll) {
         btnSelectAll.addEventListener('click', () => {
@@ -2096,7 +2307,6 @@ function configurarEventosModalViajes() {
         });
     }
     
-    // Botón "Pagar seleccionados" del modal
     const btnPagarModal = document.querySelector('.btn-pagar-viajes-modal');
     if (btnPagarModal) {
         btnPagarModal.addEventListener('click', async () => {
@@ -2107,7 +2317,6 @@ function configurarEventosModalViajes() {
         });
     }
     
-    // Botón "Desmarcar seleccionados" del modal
     const btnDespagarModal = document.querySelector('.btn-despagar-viajes-modal');
     if (btnDespagarModal) {
         btnDespagarModal.addEventListener('click', async () => {
@@ -3465,6 +3674,19 @@ async function cargarCuentaCompletaBD(id) {
         if (resultado.success) {
             const cuenta = resultado.cuenta;
             
+            // Guardar ID y nombre de la cuenta cargada
+            cuentaActualId = id;
+            cuentaActualNombre = cuenta.nombre;
+            
+            // Habilitar el botón de actualizar
+            if (btnUpdateCuenta) {
+                btnUpdateCuenta.disabled = false;
+                btnUpdateCuenta.title = `Actualizar "${cuenta.nombre}"`;
+            }
+            
+            // Mostrar indicador visual
+            mostrarIndicadorCuentaCargada(cuenta.nombre);
+            
             document.getElementById('filtro_desde').value = cuenta.desde;
             document.getElementById('filtro_hasta').value = cuenta.hasta;
             
@@ -3548,7 +3770,7 @@ async function cargarCuentaCompletaBD(id) {
             
             Swal.fire({
                 title: '✅ Cuenta cargada',
-                text: `"${cuenta.nombre}" cargada exitosamente`,
+                text: `"${cuenta.nombre}" cargada exitosamente. Puedes modificarla y luego usar "Actualizar cuenta cargada"`,
                 icon: 'success',
                 timer: 3000,
                 showConfirmButton: true,
@@ -3584,6 +3806,14 @@ async function eliminarCuentaBD(id) {
         const resultado = await response.json();
         
         if (resultado.success) {
+            // Si eliminamos la cuenta que está cargada, limpiar la referencia
+            if (cuentaActualId === id) {
+                cuentaActualId = null;
+                cuentaActualNombre = null;
+                if (btnUpdateCuenta) btnUpdateCuenta.disabled = true;
+                const badge = document.getElementById('cuentaCargadaBadge');
+                if (badge) badge.remove();
+            }
             cuentasSeleccionadas.delete(parseInt(id));
             await renderCuentasBD();
             Swal.fire('✅ Eliminada', 'Cuenta eliminada correctamente', 'success');
@@ -3629,6 +3859,13 @@ async function fusionarCuentasSeleccionadas() {
             const cuentaFusionada = resultado.cuenta_fusionada;
             cuentasSeleccionadas.clear();
             closeGestor();
+            
+            // Limpiar cuenta cargada actual
+            cuentaActualId = null;
+            cuentaActualNombre = null;
+            if (btnUpdateCuenta) btnUpdateCuenta.disabled = true;
+            const badge = document.getElementById('cuentaCargadaBadge');
+            if (badge) badge.remove();
             
             document.getElementById('filtro_desde').value = cuentaFusionada.desde;
             document.getElementById('filtro_hasta').value = cuentaFusionada.hasta;
@@ -3730,6 +3967,11 @@ document.getElementById('prestValorManual').addEventListener('input', () => {
 // ===== INICIALIZACIÓN =====
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('btnExportExcel').addEventListener('click', exportarAExcel);
+    
+    // Botón actualizar cuenta
+    if (btnUpdateCuenta) {
+        btnUpdateCuenta.addEventListener('click', actualizarCuentaCargada);
+    }
     
     btnPagarSeleccionados?.addEventListener('click', async () => {
         const ids = obtenerViajesIdsDeSeleccionados();
@@ -3849,7 +4091,6 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(r => r.text())
             .then(html => {
                 document.getElementById('viajesContent').innerHTML = html;
-                // Configurar eventos después de cargar el contenido
                 setTimeout(configurarEventosModalViajes, 50);
             })
             .catch(() => document.getElementById('viajesContent').innerHTML = '<p class="text-center text-red-600">Error cargando viajes</p>');
