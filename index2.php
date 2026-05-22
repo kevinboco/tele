@@ -917,7 +917,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
 
 <?php include("nav.php"); ?>
 
-<!-- NAVEGACIÓN SUPERIOR -->
+<!-- NAVEGACÓN SUPERIOR -->
 
 
 <div class="container py-4">
