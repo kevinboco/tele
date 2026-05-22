@@ -408,67 +408,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     exit;
 }
 
-// ========== NUEVO: Endpoint para ACTUALIZAR cuenta existente ==========
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'actualizar_cuenta') {
-    header('Content-Type: application/json');
-    
-    $id = intval($_POST['id'] ?? 0);
-    $nombre = $conn->real_escape_string($_POST['nombre'] ?? '');
-    $desde = $conn->real_escape_string($_POST['desde'] ?? '');
-    $hasta = $conn->real_escape_string($_POST['hasta'] ?? '');
-    $facturado = floatval($_POST['facturado'] ?? 0);
-    $porcentaje_ajuste = floatval($_POST['porcentaje_ajuste'] ?? 0);
-    $pagado = intval($_POST['pagado'] ?? 0);
-    $datos_json = $conn->real_escape_string($_POST['datos_json'] ?? '{}');
-    $comprobantes_json = $conn->real_escape_string($_POST['comprobantes_json'] ?? '{}');
-    $empresas = isset($_POST['empresas']) ? json_decode($_POST['empresas'], true) : [];
-    
-    if ($id <= 0 || empty($nombre) || empty($empresas)) {
-        echo json_encode(['success' => false, 'message' => 'Faltan datos obligatorios']);
-        exit;
-    }
-    
-    $conn->begin_transaction();
-    
-    try {
-        // Actualizar la cuenta principal
-        $sql = "UPDATE cuentas_guardadas 
-                SET nombre = '$nombre', 
-                    desde = '$desde', 
-                    hasta = '$hasta', 
-                    facturado = $facturado, 
-                    porcentaje_ajuste = $porcentaje_ajuste, 
-                    pagado = $pagado, 
-                    datos_json = '$datos_json', 
-                    comprobantes_json = '$comprobantes_json'
-                WHERE id = $id";
-        
-        if (!$conn->query($sql)) {
-            throw new Exception("Error al actualizar cuenta: " . $conn->error);
-        }
-        
-        // Eliminar empresas antiguas y volver a insertar
-        $conn->query("DELETE FROM cuentas_guardadas_empresas WHERE cuenta_id = $id");
-        
-        foreach ($empresas as $empresa) {
-            $empresa_esc = $conn->real_escape_string($empresa);
-            $sql_emp = "INSERT INTO cuentas_guardadas_empresas (cuenta_id, empresa_nombre) VALUES ($id, '$empresa_esc')";
-            if (!$conn->query($sql_emp)) {
-                throw new Exception("Error al actualizar empresas: " . $conn->error);
-            }
-        }
-        
-        $conn->commit();
-        echo json_encode(['success' => true, 'id' => $id, 'message' => 'Cuenta actualizada exitosamente']);
-        
-    } catch (Exception $e) {
-        $conn->rollback();
-        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
-    }
-    exit;
-}
-// ========== FIN NUEVO ==========
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'eliminar_cuenta') {
     header('Content-Type: application/json');
     $id = intval($_POST['id']);
@@ -743,7 +682,7 @@ if (isset($_GET['viajes_conductor'])) {
                             ".htmlspecialchars($vehiculo)."
                         </span>
                     </td>
-                  </tr>";
+                 </tr>";
         }
     } else {
         $rowsHTML .= "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresas seleccionadas.</td></tr>";
@@ -1276,38 +1215,17 @@ $viajesIdsJSON = json_encode($viajesIdsPorConductor, JSON_UNESCAPED_UNICODE);
             border-radius: 0.75rem;
             padding: 0.75rem 1rem;
         }
-        
-        /* NUEVO: Estilo para indicador de edición */
-        .badge-editando {
-            background: #fef3c7;
-            color: #92400e;
-            font-size: 0.7rem;
-            padding: 0.2rem 0.5rem;
-            border-radius: 9999px;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.25rem;
-            border: 1px solid #f59e0b;
-        }
     </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
 <header class="max-w-[1600px] mx-auto px-3 md:px-4 pt-6">
     <div class="bg-white border border-slate-200 rounded-2xl shadow-sm px-5 py-4">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
-                <h2 class="text-xl md:text-2xl font-bold">
-                    🧾 Ajuste de Pago 
-                    <span class="bd-badge text-xs px-2 py-1 rounded-full ml-2">Base de Datos</span>
-                    <span class="bg-purple-600 text-white text-xs px-2 py-1 rounded-full ml-1">Múltiples Empresas</span>
-                </h2>
-                <!-- NUEVO: Indicador de cuenta en edición -->
-                <div id="editandoIndicator" class="mt-1 hidden">
-                    <span class="badge-editando">
-                        ✏️ Editando cuenta: <span id="editandoNombreCuenta"></span>
-                    </span>
-                </div>
-            </div>
+            <h2 class="text-xl md:text-2xl font-bold">
+                🧾 Ajuste de Pago 
+                <span class="bd-badge text-xs px-2 py-1 rounded-full ml-2">Base de Datos</span>
+                <span class="bg-purple-600 text-white text-xs px-2 py-1 rounded-full ml-1">Múltiples Empresas</span>
+            </h2>
             <div class="flex items-center gap-2">
                 <button id="btnExportExcel" class="btn-excel rounded-lg px-3 py-2 text-sm font-medium flex items-center gap-2">
                     <span>📥</span> Descargar Excel
@@ -1470,14 +1388,14 @@ $viajesIdsJSON = json_encode($viajesIdsPorConductor, JSON_UNESCAPED_UNICODE);
                             <?php endif; ?>
                         </td>
                         <td class="px-3 py-2 text-right num base"><?= number_format($f['total_bruto'],0,',','.') ?></td>
-                        <td class="px-3 py-2 text-right num ajuste">0</span></td>
-                        <td class="px-3 py-2 text-right num llego">0</span></td>
-                        <td class="px-3 py-2 text-right num ret">0</span></td>
-                        <td class="px-3 py-2 text-right num mil4">0</span></td>
-                        <td class="px-3 py-2 text-right num apor">0</span></td>
+                        <td class="px-3 py-2 text-right num ajuste">0</td>
+                        <td class="px-3 py-2 text-right num llego">0</td>
+                        <td class="px-3 py-2 text-right num ret">0</td>
+                        <td class="px-3 py-2 text-right num mil4">0</td>
+                        <td class="px-3 py-2 text-right num apor">0</td>
                         <td class="px-3 py-2 text-right">
                             <input type="text" class="ss w-full max-w-[100px] rounded-lg border border-slate-300 px-2 py-1 text-right num" value="">
-                        </span></td>
+                        </td>
                         <td class="px-3 py-2">
                             <div class="flex items-center gap-1">
                                 <span class="num prest text-sm font-medium">0</span>
@@ -1486,11 +1404,11 @@ $viajesIdsJSON = json_encode($viajesIdsPorConductor, JSON_UNESCAPED_UNICODE);
                                 </button>
                             </div>
                             <div class="text-[10px] text-slate-500 selected-deudor truncate max-w-[150px]"></div>
-                        </span></td>
+                        </td>
                         <td class="px-3 py-2">
                             <input type="text" class="cta w-full max-w-[140px] rounded-lg border border-slate-300 px-2 py-1" value="" placeholder="N° cuenta">
-                        </span></td>
-                        <td class="px-3 py-2 text-right num pagar">0</span></td>
+                        </td>
+                        <td class="px-3 py-2 text-right num pagar">0</td>
                         <td class="px-3 py-2 text-center">
                             <select class="estado-pago w-full max-w-[120px] rounded-lg border border-slate-300 px-2 py-1 text-sm">
                                 <option value="">Sin estado</option>
@@ -1499,7 +1417,7 @@ $viajesIdsJSON = json_encode($viajesIdsPorConductor, JSON_UNESCAPED_UNICODE);
                                 <option value="procesando">🔄 Procesando</option>
                                 <option value="parcial">⚠️ Parcial</option>
                             </select>
-                        </span></td>
+                        </td>
                         <td class="px-3 py-2 text-center">
                             <div class="comprobante-container flex flex-col items-center gap-1">
                                 <input type="file" 
@@ -1516,25 +1434,25 @@ $viajesIdsJSON = json_encode($viajesIdsPorConductor, JSON_UNESCAPED_UNICODE);
                                     🗑️
                                 </button>
                             </div>
-                        </span></td>
+                        </td>
                         <td class="px-3 py-2 text-center">
                             <input type="checkbox" class="checkbox-conductor selector-conductor">
-                        </span></td>
+                        </td>
                     </tr>
                 <?php endforeach; ?>
                 </tbody>
                 <tfoot class="bg-slate-50 font-semibold">
                     <tr>
-                        <td class="px-3 py-2" colspan="3">Totales</span></td>
-                        <td class="px-3 py-2 text-right num" id="tot_llego">0</span></td>
-                        <td class="px-3 py-2 text-right num" id="tot_ret">0</span></td>
-                        <td class="px-3 py-2 text-right num" id="tot_mil4">0</span></td>
-                        <td class="px-3 py-2 text-right num" id="tot_apor">0</span></td>
-                        <td class="px-3 py-2 text-right num" id="tot_ss">0</span></td>
-                        <td class="px-3 py-2 text-right num" id="tot_prest">0</span></td>
-                        <td class="px-3 py-2"></span></td>
-                        <td class="px-3 py-2 text-right num" id="tot_pagar">0</span></td>
-                        <td class="px-3 py-2" colspan="3"></span></td>
+                        <td class="px-3 py-2" colspan="3">Totales</td>
+                        <td class="px-3 py-2 text-right num" id="tot_llego">0</td>
+                        <td class="px-3 py-2 text-right num" id="tot_ret">0</td>
+                        <td class="px-3 py-2 text-right num" id="tot_mil4">0</td>
+                        <td class="px-3 py-2 text-right num" id="tot_apor">0</td>
+                        <td class="px-3 py-2 text-right num" id="tot_ss">0</td>
+                        <td class="px-3 py-2 text-right num" id="tot_prest">0</td>
+                        <td class="px-3 py-2"></td>
+                        <td class="px-3 py-2 text-right num" id="tot_pagar">0</td>
+                        <td class="px-3 py-2" colspan="3"></td>
                     </tr>
                 </tfoot>
             </table>
@@ -1719,7 +1637,7 @@ $viajesIdsJSON = json_encode($viajesIdsPorConductor, JSON_UNESCAPED_UNICODE);
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-8 w-full max-w-lg bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
         <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-            <h3 class="text-lg font-semibold" id="saveCuentaModalTitle">⭐ Guardar cuenta de cobro</h3>
+            <h3 class="text-lg font-semibold">⭐ Guardar cuenta de cobro</h3>
             <button id="btnCloseSaveCuenta" class="p-2 rounded hover:bg-slate-100">✕</button>
         </div>
         <div class="p-5 space-y-3">
@@ -1769,9 +1687,7 @@ $viajesIdsJSON = json_encode($viajesIdsPorConductor, JSON_UNESCAPED_UNICODE);
         </div>
         <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
             <button id="btnCancelSaveCuenta" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
-            <button id="btnDoSaveCuenta" class="rounded-lg border border-amber-500 text-white px-4 py-2 bg-amber-500 hover:bg-amber-600">⭐ Guardar</button>
-            <!-- NUEVO: Botón Actualizar cuenta -->
-            <button id="btnDoUpdateCuenta" class="rounded-lg border border-blue-500 text-white px-4 py-2 bg-blue-500 hover:bg-blue-600 hidden">🔄 Actualizar cuenta</button>
+            <button id="btnDoSaveCuenta" class="rounded-lg border border-amber-500 text-white px-4 py-2 bg-amber-500 hover:bg-amber-600">Guardar en BD</button>
         </div>
     </div>
 </div>
@@ -1848,7 +1764,7 @@ $viajesIdsJSON = json_encode($viajesIdsPorConductor, JSON_UNESCAPED_UNICODE);
                         <tr>
                             <td colspan="8" class="px-3 py-8 text-center text-slate-500">
                                 <div class="animate-pulse">Cargando cuentas...</div>
-                            </span></td>
+                            </td>
                         </tr>
                     </tbody>
                 </table>
@@ -1880,10 +1796,6 @@ const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNI
 
 // IDs de viajes por conductor desde PHP
 const VIAJES_IDS_POR_CONDUCTOR = <?= $viajesIdsJSON ?>;
-
-// NUEVAS VARIABLES PARA MODO EDICIÓN
-let currentEditingCuentaId = null;
-let currentEditingCuentaNombre = null;
 
 let modoHistoricoActivo = false;
 
@@ -1931,137 +1843,6 @@ const filtroEstado = document.getElementById('filtroEstado');
 const btnPagarSeleccionados = document.getElementById('btnPagarSeleccionados');
 const btnDespagarSeleccionados = document.getElementById('btnDespagarSeleccionados');
 const viajesCountInfo = document.getElementById('viajesCountInfo');
-
-// Elementos del modal de guardar
-const saveCuentaModalTitle = document.getElementById('saveCuentaModalTitle');
-const btnDoUpdateCuenta = document.getElementById('btnDoUpdateCuenta');
-const btnDoSaveCuentaOriginal = document.getElementById('btnDoSaveCuenta');
-
-// ===== NUEVAS FUNCIONES PARA MODO EDICIÓN =====
-function resetEditingState() {
-    currentEditingCuentaId = null;
-    currentEditingCuentaNombre = null;
-    const editandoIndicator = document.getElementById('editandoIndicator');
-    if (editandoIndicator) editandoIndicator.classList.add('hidden');
-    
-    // Restaurar botones del modal de guardar
-    if (saveCuentaModalTitle) saveCuentaModalTitle.textContent = '⭐ Guardar cuenta de cobro';
-    if (btnDoUpdateCuenta) btnDoUpdateCuenta.classList.add('hidden');
-    if (btnDoSaveCuentaOriginal) btnDoSaveCuentaOriginal.classList.remove('hidden');
-}
-
-function setEditingMode(cuentaId, cuentaNombre) {
-    currentEditingCuentaId = cuentaId;
-    currentEditingCuentaNombre = cuentaNombre;
-    
-    const editandoIndicator = document.getElementById('editandoIndicator');
-    const editandoNombreCuenta = document.getElementById('editandoNombreCuenta');
-    if (editandoIndicator && editandoNombreCuenta) {
-        editandoNombreCuenta.textContent = cuentaNombre;
-        editandoIndicator.classList.remove('hidden');
-    }
-    
-    // Cambiar botones del modal de guardar
-    if (saveCuentaModalTitle) saveCuentaModalTitle.textContent = '🔄 Actualizar cuenta de cobro';
-    if (btnDoUpdateCuenta) btnDoUpdateCuenta.classList.remove('hidden');
-    if (btnDoSaveCuentaOriginal) btnDoSaveCuentaOriginal.classList.add('hidden');
-}
-
-// NUEVA FUNCIÓN: Actualizar cuenta existente (UPDATE)
-async function actualizarCuentaExistente() {
-    if (!currentEditingCuentaId) {
-        Swal.fire('⚠️ Error', 'No hay una cuenta seleccionada para actualizar', 'warning');
-        return;
-    }
-    
-    const nombre = document.getElementById('cuenta_nombre').value.trim();
-    if (!nombre) {
-        Swal.fire('⚠️ Nombre requerido', 'Debes ingresar un nombre para la cuenta', 'warning');
-        return;
-    }
-    
-    const empresas = <?= json_encode($empresasSeleccionadas) ?>;
-    const desde = '<?= $desde ?>';
-    const hasta = '<?= $hasta ?>';
-    const facturado = toInt(document.getElementById('cuenta_facturado').value);
-    const porcentaje = parseFloat(document.getElementById('cuenta_porcentaje').value) || 0;
-    const pagado = document.getElementById('cuenta_pagado').checked ? 1 : 0;
-    
-    const datosParaGuardar = {
-        prestamos: prestSel,
-        segSocial: ssMap,
-        cuentasBancarias: accMap,
-        estadosPago: estadoPagoMap,
-        filasManuales: []
-    };
-    
-    document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => {
-        const conductor = tr.querySelector('.conductor-select')?.value || '';
-        const base = toInt(tr.querySelector('.base-manual')?.value || '0');
-        const cuenta = tr.querySelector('.cta')?.value || '';
-        const segSocial = toInt(tr.querySelector('.ss')?.value || '0');
-        const estado = tr.querySelector('.estado-pago')?.value || '';
-        
-        if (conductor) {
-            datosParaGuardar.filasManuales.push({ conductor, base, cuenta, segSocial, estado });
-        }
-    });
-    
-    const comprobantesParaGuardar = {};
-    for (const [conductor, base64] of Object.entries(comprobantesMap)) {
-        if (base64) {
-            comprobantesParaGuardar[conductor] = base64;
-        }
-    }
-    
-    const formData = new FormData();
-    formData.append('accion', 'actualizar_cuenta');
-    formData.append('id', currentEditingCuentaId);
-    formData.append('nombre', nombre);
-    formData.append('desde', desde);
-    formData.append('hasta', hasta);
-    formData.append('facturado', facturado);
-    formData.append('porcentaje_ajuste', porcentaje);
-    formData.append('pagado', pagado);
-    formData.append('empresas', JSON.stringify(empresas));
-    formData.append('datos_json', JSON.stringify(datosParaGuardar));
-    formData.append('comprobantes_json', JSON.stringify(comprobantesParaGuardar));
-    
-    try {
-        Swal.fire({
-            title: 'Actualizando cuenta...',
-            text: 'Por favor espera',
-            allowOutsideClick: false,
-            didOpen: () => Swal.showLoading()
-        });
-        
-        const response = await fetch('', { method: 'POST', body: formData });
-        const resultado = await response.json();
-        
-        Swal.close();
-        
-        if (resultado.success) {
-            Swal.fire({
-                title: '✅ Cuenta actualizada',
-                text: `"${nombre}" se ha actualizado correctamente`,
-                icon: 'success',
-                confirmButtonText: 'Continuar'
-            });
-            
-            resetEditingState();
-            document.getElementById('saveCuentaModal').classList.add('hidden');
-            
-            // Recargar el gestor si está abierto
-            if (!document.getElementById('gestorCuentasModal').classList.contains('hidden')) {
-                await renderCuentasBD();
-            }
-        } else {
-            throw new Error(resultado.message);
-        }
-    } catch (error) {
-        Swal.fire('❌ Error', error.message, 'error');
-    }
-}
 
 // ===== FUNCIÓN PARA OBTENER IDs DE VIAJES DE CONDUCTORES SELECCIONADOS =====
 function obtenerViajesIdsDeSeleccionados() {
@@ -2690,14 +2471,14 @@ function agregarFilaManual(manualIdFromLS = null) {
         <td class="px-3 py-2 text-right">
             <input type="text" class="base-manual w-full max-w-[100px] rounded-lg border border-slate-300 px-2 py-1 text-right num" value="0">
         </td>
-        <td class="px-3 py-2 text-right num ajuste">0</span></td>
-        <td class="px-3 py-2 text-right num llego">0</span></td>
-        <td class="px-3 py-2 text-right num ret">0</span></td>
-        <td class="px-3 py-2 text-right num mil4">0</span></td>
-        <td class="px-3 py-2 text-right num apor">0</span></td>
+        <td class="px-3 py-2 text-right num ajuste">0</td>
+        <td class="px-3 py-2 text-right num llego">0</td>
+        <td class="px-3 py-2 text-right num ret">0</td>
+        <td class="px-3 py-2 text-right num mil4">0</td>
+        <td class="px-3 py-2 text-right num apor">0</td>
         <td class="px-3 py-2 text-right">
             <input type="text" class="ss w-full max-w-[80px] rounded-lg border border-slate-300 px-2 py-1 text-right num" value="">
-        </span></td>
+        </td>
         <td class="px-3 py-2">
             <div class="flex items-center gap-1">
                 <span class="num prest text-sm font-medium">0</span>
@@ -2706,11 +2487,11 @@ function agregarFilaManual(manualIdFromLS = null) {
                 </button>
             </div>
             <div class="text-[10px] text-slate-500 selected-deudor truncate max-w-[150px]"></div>
-         </span></td>
+        </td>
         <td class="px-3 py-2">
             <input type="text" class="cta w-full max-w-[120px] rounded-lg border border-slate-300 px-2 py-1" placeholder="N° cuenta">
-         </span></td>
-        <td class="px-3 py-2 text-right num pagar">0</span></td>
+        </td>
+        <td class="px-3 py-2 text-right num pagar">0</td>
         <td class="px-3 py-2 text-center">
             <select class="estado-pago w-full max-w-[100px] rounded-lg border border-slate-300 px-2 py-1 text-xs">
                 <option value="">Sin estado</option>
@@ -2719,7 +2500,7 @@ function agregarFilaManual(manualIdFromLS = null) {
                 <option value="procesando">🔄 Procesando</option>
                 <option value="parcial">⚠️ Parcial</option>
             </select>
-         </span></td>
+        </td>
         <td class="px-3 py-2 text-center">
             <div class="comprobante-container flex flex-col items-center gap-1">
                 <input type="file" class="comprobante-file hidden" accept="image/*">
@@ -2731,13 +2512,13 @@ function agregarFilaManual(manualIdFromLS = null) {
                     🗑️
                 </button>
             </div>
-         </span></td>
+        </td>
         <td class="px-3 py-2 text-center">
             <div class="flex items-center justify-center gap-2">
                 <input type="checkbox" class="checkbox-conductor selector-conductor">
                 <button type="button" class="btn-eliminar-manual text-xs px-2 py-1 rounded border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700">🗑️</button>
             </div>
-         </span></tr>
+        </td>
     `;
 
     tbody.appendChild(nuevaFila);
@@ -3348,7 +3129,7 @@ function closePrestModal() {
 }
 
 // ===== GESTOR DE CUENTAS =====
-const saveCuentaModalEl = document.getElementById('saveCuentaModal');
+const saveCuentaModal = document.getElementById('saveCuentaModal');
 const btnShowSaveCuenta = document.getElementById('btnShowSaveCuenta');
 const btnCloseSaveCuenta = document.getElementById('btnCloseSaveCuenta');
 const btnCancelSaveCuenta = document.getElementById('btnCancelSaveCuenta');
@@ -3406,33 +3187,25 @@ function openSaveCuenta() {
     ).join('');
     
     iRango.value = '<?= $desde ?> → <?= $hasta ?>';
-    
-    // Si estamos editando una cuenta, mostrar su nombre, si no, generar uno nuevo
-    if (currentEditingCuentaId && currentEditingCuentaNombre) {
-        iNombre.value = currentEditingCuentaNombre;
-    } else {
-        iNombre.value = `${empresas[0]} ${iRango.value}`;
-    }
-    
+    iNombre.value = `${empresas[0]} ${iRango.value}`;
     iFacturado.value = document.getElementById('inp_facturado').value;
     iPorcentaje.value = document.getElementById('inp_porcentaje_ajuste').value;
     iPagado.checked = false;
     pagadoLabel.textContent = 'NO PAGADO';
     pagadoLabel.className = 'text-sm px-2 py-1 rounded-full bg-red-100 text-red-700';
     
-    saveCuentaModalEl.classList.remove('hidden');
+    saveCuentaModal.classList.remove('hidden');
     setTimeout(() => iNombre.focus(), 100);
 }
 
 function closeSaveCuenta() {
-    saveCuentaModalEl.classList.add('hidden');
+    saveCuentaModal.classList.add('hidden');
 }
 
 btnShowSaveCuenta.addEventListener('click', openSaveCuenta);
 btnCloseSaveCuenta.addEventListener('click', closeSaveCuenta);
 btnCancelSaveCuenta.addEventListener('click', closeSaveCuenta);
 
-// Botón GUARDAR cuenta nueva (original)
 btnDoSaveCuenta.addEventListener('click', async () => {
     const nombre = iNombre.value.trim();
     if (!nombre) {
@@ -3499,7 +3272,6 @@ btnDoSaveCuenta.addEventListener('click', async () => {
                 showConfirmButton: false
             });
             closeSaveCuenta();
-            resetEditingState();
             if (!gestorModal.classList.contains('hidden')) {
                 await renderCuentasBD();
             }
@@ -3510,11 +3282,6 @@ btnDoSaveCuenta.addEventListener('click', async () => {
         Swal.fire('❌ Error', error.message, 'error');
     }
 });
-
-// NUEVO: Botón ACTUALIZAR cuenta existente
-if (btnDoUpdateCuenta) {
-    btnDoUpdateCuenta.addEventListener('click', actualizarCuentaExistente);
-}
 
 function actualizarBotonFusion() {
     const seleccionadas = Array.from(cuentasSeleccionadas);
@@ -3565,7 +3332,7 @@ async function renderCuentasBD() {
         totalCuentasInfo.textContent = `${cuentasFiltradas.length} cuentas`;
         
         if (cuentasFiltradas.length === 0) {
-            tbodyCuentasBD.innerHTML = `<tr><td colspan="8" class="px-3 py-8 text-center text-slate-500">No hay cuentas guardadas</span></tr>`;
+            tbodyCuentasBD.innerHTML = `<tr><td colspan="8" class="px-3 py-8 text-center text-slate-500">No hay cuentas guardadas</td></tr>`;
             return;
         }
         
@@ -3582,27 +3349,27 @@ async function renderCuentasBD() {
             <tr data-cuenta-id="${cuenta.id}" class="hover:bg-slate-50 ${claseSeleccionada}">
                 <td class="px-3 py-3 text-center">
                     <input type="checkbox" class="cuenta-checkbox cuenta-seleccion" value="${cuenta.id}" ${seleccionada}>
-                 </span></td>
+                </td>
                 <td class="px-3 py-3">
                     <div class="font-medium">${cuenta.nombre}</div>
                     <div class="text-xs text-slate-500">👤 ${cuenta.usuario || 'Sistema'}</div>
-                 </span></td>
+                </td>
                 <td class="px-3 py-3"><div class="text-xs max-w-[200px] truncate">${empresasStr || '—'}</div></td>
                 <td class="px-3 py-3 text-xs">${cuenta.desde} → ${cuenta.hasta}</td>
-                <td class="px-3 py-3 text-right num font-semibold">${fmt(cuenta.facturado || 0)}</span></td>
+                <td class="px-3 py-3 text-right num font-semibold">${fmt(cuenta.facturado || 0)}</td>
                 <td class="px-3 py-3 text-center">
                     <label class="switch-pagado switch-small" style="width:40px;height:20px;">
                         <input type="checkbox" class="switch-estado-cuenta" data-id="${cuenta.id}" ${estaPagado ? 'checked' : ''}>
                         <span class="switch-slider" style="background-color:${estaPagado ? '#22c55e' : '#ef4444'};"></span>
                     </label>
-                 </span></td>
-                <td class="px-3 py-3 text-center text-xs text-slate-500">${new Date(cuenta.fecha_creacion).toLocaleDateString('es-CO')}</span></td>
+                </td>
+                <td class="px-3 py-3 text-center text-xs text-slate-500">${new Date(cuenta.fecha_creacion).toLocaleDateString('es-CO')}</td>
                 <td class="px-3 py-3 text-right">
                     <div class="inline-flex gap-2">
                         <button class="btnCargarCuenta border px-3 py-2 rounded bg-blue-50 hover:bg-blue-100 text-xs text-blue-700" data-id="${cuenta.id}">📂 Cargar</button>
                         <button class="btnEliminarCuenta border px-3 py-2 rounded bg-rose-50 hover:bg-rose-100 text-xs text-rose-700" data-id="${cuenta.id}">🗑️</button>
                     </div>
-                 </span></td>
+                </td>
             </tr>`;
         });
         
@@ -3642,7 +3409,7 @@ async function renderCuentasBD() {
         actualizarBotonFusion();
         
     } catch (error) {
-        tbodyCuentasBD.innerHTML = `<tr><td colspan="8" class="px-3 py-8 text-center text-rose-600">❌ Error: ${error.message}</span></tr>`;
+        tbodyCuentasBD.innerHTML = `<tr><td colspan="8" class="px-3 py-8 text-center text-rose-600">❌ Error: ${error.message}</td></tr>`;
     }
 }
 
@@ -3675,7 +3442,6 @@ async function actualizarEstadoCuenta(id, nuevoEstado, switchElement) {
     }
 }
 
-// MODIFICADA: Al cargar una cuenta, activar modo edición
 async function cargarCuentaCompletaBD(id) {
     const confirmacion = await Swal.fire({
         title: '¿Cargar esta cuenta?',
@@ -3698,9 +3464,6 @@ async function cargarCuentaCompletaBD(id) {
         
         if (resultado.success) {
             const cuenta = resultado.cuenta;
-            
-            // NUEVO: Entrar en modo edición con esta cuenta
-            setEditingMode(cuenta.id, cuenta.nombre);
             
             document.getElementById('filtro_desde').value = cuenta.desde;
             document.getElementById('filtro_hasta').value = cuenta.hasta;
@@ -3785,11 +3548,11 @@ async function cargarCuentaCompletaBD(id) {
             
             Swal.fire({
                 title: '✅ Cuenta cargada',
-                text: `"${cuenta.nombre}" cargada exitosamente. Ahora puedes modificarla y usar "Actualizar cuenta" para guardar los cambios.`,
+                text: `"${cuenta.nombre}" cargada exitosamente`,
                 icon: 'success',
-                timer: 4000,
+                timer: 3000,
                 showConfirmButton: true,
-                confirmButtonText: 'Entendido'
+                confirmButtonText: 'Continuar'
             });
             
         } else {
@@ -3821,10 +3584,6 @@ async function eliminarCuentaBD(id) {
         const resultado = await response.json();
         
         if (resultado.success) {
-            // Si estamos eliminando la cuenta que estábamos editando, resetear modo edición
-            if (currentEditingCuentaId === parseInt(id)) {
-                resetEditingState();
-            }
             cuentasSeleccionadas.delete(parseInt(id));
             await renderCuentasBD();
             Swal.fire('✅ Eliminada', 'Cuenta eliminada correctamente', 'success');
@@ -3868,9 +3627,6 @@ async function fusionarCuentasSeleccionadas() {
         
         if (resultado.success) {
             const cuentaFusionada = resultado.cuenta_fusionada;
-            
-            // Resetear modo edición porque la fusión crea una nueva cuenta virtual
-            resetEditingState();
             cuentasSeleccionadas.clear();
             closeGestor();
             
@@ -3904,7 +3660,7 @@ async function fusionarCuentasSeleccionadas() {
             document.getElementById('inp_porcentaje_ajuste').value = cuentaFusionada.porcentaje_ajuste;
             recalcularTodo();
             
-            Swal.fire({ title: '✅ Cuentas fusionadas', html: `<p>Se han fusionado <strong>${ids.length} cuentas</strong> exitosamente.</p><p class="text-sm mt-2">Ahora puedes guardar esta fusión como una nueva cuenta.</p>`, icon: 'success', confirmButtonText: 'Continuar' });
+            Swal.fire({ title: '✅ Cuentas fusionadas', html: `<p>Se han fusionado <strong>${ids.length} cuentas</strong> exitosamente.</p>`, icon: 'success', confirmButtonText: 'Continuar' });
         } else {
             throw new Error(resultado.message);
         }
@@ -4093,6 +3849,7 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(r => r.text())
             .then(html => {
                 document.getElementById('viajesContent').innerHTML = html;
+                // Configurar eventos después de cargar el contenido
                 setTimeout(configurarEventosModalViajes, 50);
             })
             .catch(() => document.getElementById('viajesContent').innerHTML = '<p class="text-center text-red-600">Error cargando viajes</p>');
