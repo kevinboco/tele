@@ -180,7 +180,7 @@ if (isset($_GET['exportar_excel'])) {
     
     echo '<table>';
     echo '<thead>';
-    echo ' hilab';
+    echo '<tr>';
     echo '<th>#</th>';
     echo '<th>Conductor</th>';
     echo '<th>Base</th>';
@@ -230,21 +230,21 @@ if (isset($_GET['exportar_excel'])) {
         echo '<tr class="total-row">';
         echo '<td class="text-center" colspan="2"><strong>TOTALES</strong></td>';
         echo '<td class="num"><strong>' . htmlspecialchars($totales['llego'] ?? '0') . '</strong></td>';
-        echo ' number_format';
+        echo '<td></td>';
         echo '<td class="num"><strong>' . htmlspecialchars($totales['llego'] ?? '0') . '</strong></td>';
         echo '<td class="num"><strong>' . htmlspecialchars($totales['ret'] ?? '0') . '</strong></td>';
         echo '<td class="num"><strong>' . htmlspecialchars($totales['mil4'] ?? '0') . '</strong></td>';
         echo '<td class="num"><strong>' . htmlspecialchars($totales['apor'] ?? '0') . '</strong></td>';
         echo '<td class="num"><strong>' . htmlspecialchars($totales['ss'] ?? '0') . '</strong></td>';
         echo '<td class="num"><strong>' . htmlspecialchars($totales['prest'] ?? '0') . '</strong></td>';
-        echo ' number_format';
+        echo '<td></td>';
         echo '<td class="num"><strong>' . htmlspecialchars($totales['pagar'] ?? '0') . '</strong></td>';
-        echo ' number_format';
+        echo '<td></td>';
         echo '</tr>';
     }
     
     echo '</tbody>';
-    echo '赶';
+    echo '</table>';
     echo '</body></html>';
     exit;
 }
@@ -356,7 +356,6 @@ if (isset($_GET['obtener_cuentas'])) {
     exit;
 }
 
-// GUARDAR NUEVA CUENTA (INSERT)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'guardar_cuenta') {
     header('Content-Type: application/json');
     
@@ -401,68 +400,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
         
         $conn->commit();
         echo json_encode(['success' => true, 'id' => $cuenta_id, 'message' => 'Cuenta guardada exitosamente']);
-        
-    } catch (Exception $e) {
-        $conn->rollback();
-        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
-    }
-    exit;
-}
-
-// ACTUALIZAR CUENTA EXISTENTE (UPDATE) - NUEVO ENDPOINT
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'actualizar_cuenta') {
-    header('Content-Type: application/json');
-    
-    $id = intval($_POST['id'] ?? 0);
-    $nombre = $conn->real_escape_string($_POST['nombre'] ?? '');
-    $desde = $conn->real_escape_string($_POST['desde'] ?? '');
-    $hasta = $conn->real_escape_string($_POST['hasta'] ?? '');
-    $facturado = floatval($_POST['facturado'] ?? 0);
-    $porcentaje_ajuste = floatval($_POST['porcentaje_ajuste'] ?? 0);
-    $pagado = intval($_POST['pagado'] ?? 0);
-    $datos_json = $conn->real_escape_string($_POST['datos_json'] ?? '{}');
-    $comprobantes_json = $conn->real_escape_string($_POST['comprobantes_json'] ?? '{}');
-    $empresas = isset($_POST['empresas']) ? json_decode($_POST['empresas'], true) : [];
-    $usuario = $conn->real_escape_string($_SESSION['usuario'] ?? 'Sistema');
-    
-    if ($id <= 0 || empty($nombre) || empty($empresas)) {
-        echo json_encode(['success' => false, 'message' => 'Datos incompletos o ID inválido']);
-        exit;
-    }
-    
-    $conn->begin_transaction();
-    
-    try {
-        // Actualizar la cuenta principal
-        $sql = "UPDATE cuentas_guardadas SET 
-                    nombre = '$nombre',
-                    desde = '$desde',
-                    hasta = '$hasta',
-                    facturado = $facturado,
-                    porcentaje_ajuste = $porcentaje_ajuste,
-                    pagado = $pagado,
-                    datos_json = '$datos_json',
-                    comprobantes_json = '$comprobantes_json',
-                    usuario = '$usuario'
-                WHERE id = $id";
-        
-        if (!$conn->query($sql)) {
-            throw new Exception("Error al actualizar cuenta: " . $conn->error);
-        }
-        
-        // Eliminar empresas anteriores y volver a insertar
-        $conn->query("DELETE FROM cuentas_guardadas_empresas WHERE cuenta_id = $id");
-        
-        foreach ($empresas as $empresa) {
-            $empresa_esc = $conn->real_escape_string($empresa);
-            $sql_emp = "INSERT INTO cuentas_guardadas_empresas (cuenta_id, empresa_nombre) VALUES ($id, '$empresa_esc')";
-            if (!$conn->query($sql_emp)) {
-                throw new Exception("Error al actualizar empresas: " . $conn->error);
-            }
-        }
-        
-        $conn->commit();
-        echo json_encode(['success' => true, 'id' => $id, 'message' => 'Cuenta actualizada exitosamente']);
         
     } catch (Exception $e) {
         $conn->rollback();
@@ -745,7 +682,7 @@ if (isset($_GET['viajes_conductor'])) {
                             ".htmlspecialchars($vehiculo)."
                         </span>
                     </td>
-                  </tr>";
+                 </tr>";
         }
     } else {
         $rowsHTML .= "<tr><td colspan='5' class='px-3 py-4 text-center text-slate-500'>Sin viajes en el rango/empresas seleccionadas.</td></tr>";
@@ -1278,15 +1215,6 @@ $viajesIdsJSON = json_encode($viajesIdsPorConductor, JSON_UNESCAPED_UNICODE);
             border-radius: 0.75rem;
             padding: 0.75rem 1rem;
         }
-        .btn-editar-cuenta {
-            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-            color: white;
-            transition: all 0.2s;
-        }
-        .btn-editar-cuenta:hover {
-            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-            transform: translateY(-1px);
-        }
     </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
@@ -1704,19 +1632,15 @@ $viajesIdsJSON = json_encode($viajesIdsPorConductor, JSON_UNESCAPED_UNICODE);
     </div>
 </div>
 
-<!-- Modal Guardar/Actualizar Cuenta -->
+<!-- Modal Guardar Cuenta -->
 <div id="saveCuentaModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
     <div class="absolute inset-0 bg-black/30"></div>
     <div class="relative mx-auto my-8 w-full max-w-lg bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
         <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-            <h3 class="text-lg font-semibold">
-                <span id="modalTitleSaveCuenta">⭐ Guardar cuenta de cobro</span>
-            </h3>
+            <h3 class="text-lg font-semibold">⭐ Guardar cuenta de cobro</h3>
             <button id="btnCloseSaveCuenta" class="p-2 rounded hover:bg-slate-100">✕</button>
         </div>
         <div class="p-5 space-y-3">
-            <input type="hidden" id="cuenta_edit_id" value="0">
-            
             <label class="block">
                 <span class="block text-xs font-medium mb-1">Nombre de la cuenta</span>
                 <input id="cuenta_nombre" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2" placeholder="Ej: Hospital Sep 2025">
@@ -1763,8 +1687,7 @@ $viajesIdsJSON = json_encode($viajesIdsPorConductor, JSON_UNESCAPED_UNICODE);
         </div>
         <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
             <button id="btnCancelSaveCuenta" class="rounded-lg border border-slate-300 px-4 py-2 bg-white hover:bg-slate-50">Cancelar</button>
-            <button id="btnDoSaveCuenta" class="rounded-lg border border-amber-500 text-white px-4 py-2 bg-amber-500 hover:bg-amber-600">⭐ Guardar como nueva</button>
-            <button id="btnDoUpdateCuenta" class="rounded-lg border border-blue-500 text-white px-4 py-2 bg-blue-500 hover:bg-blue-600 hidden">✏️ Actualizar cuenta</button>
+            <button id="btnDoSaveCuenta" class="rounded-lg border border-amber-500 text-white px-4 py-2 bg-amber-500 hover:bg-amber-600">Guardar en BD</button>
         </div>
     </div>
 </div>
@@ -1875,7 +1798,6 @@ const PRESTAMOS_LIST = <?php echo json_encode($prestamosList, JSON_UNESCAPED_UNI
 const VIAJES_IDS_POR_CONDUCTOR = <?= $viajesIdsJSON ?>;
 
 let modoHistoricoActivo = false;
-let cuentaEditandoId = 0; // 0 = nueva cuenta, >0 = editando
 
 function toInt(s) {
     if (typeof s === 'number') return Math.round(s);
@@ -2118,6 +2040,7 @@ function actualizarContadorViajesModal() {
 function configurarEventosModalViajes() {
     viajesSeleccionadosEnModal = new Set();
     
+    // Checkbox "Seleccionar todos" del modal
     const selectAllViajesModal = document.getElementById('selectAllViajesModal');
     if (selectAllViajesModal) {
         selectAllViajesModal.checked = false;
@@ -2136,6 +2059,7 @@ function configurarEventosModalViajes() {
         });
     }
     
+    // Checkboxes individuales
     document.querySelectorAll('#viajesTableBody .viaje-checkbox').forEach(cb => {
         cb.addEventListener('change', function() {
             const viajeId = parseInt(this.dataset.viajeId);
@@ -2149,6 +2073,7 @@ function configurarEventosModalViajes() {
         });
     });
     
+    // Botón "Seleccionar todos"
     const btnSelectAll = document.querySelector('.btn-select-all-viajes');
     if (btnSelectAll) {
         btnSelectAll.addEventListener('click', () => {
@@ -2171,6 +2096,7 @@ function configurarEventosModalViajes() {
         });
     }
     
+    // Botón "Pagar seleccionados" del modal
     const btnPagarModal = document.querySelector('.btn-pagar-viajes-modal');
     if (btnPagarModal) {
         btnPagarModal.addEventListener('click', async () => {
@@ -2181,6 +2107,7 @@ function configurarEventosModalViajes() {
         });
     }
     
+    // Botón "Desmarcar seleccionados" del modal
     const btnDespagarModal = document.querySelector('.btn-despagar-viajes-modal');
     if (btnDespagarModal) {
         btnDespagarModal.addEventListener('click', async () => {
@@ -3207,9 +3134,6 @@ const btnShowSaveCuenta = document.getElementById('btnShowSaveCuenta');
 const btnCloseSaveCuenta = document.getElementById('btnCloseSaveCuenta');
 const btnCancelSaveCuenta = document.getElementById('btnCancelSaveCuenta');
 const btnDoSaveCuenta = document.getElementById('btnDoSaveCuenta');
-const btnDoUpdateCuenta = document.getElementById('btnDoUpdateCuenta');
-const modalTitleSaveCuenta = document.getElementById('modalTitleSaveCuenta');
-const cuentaEditId = document.getElementById('cuenta_edit_id');
 const gestorModal = document.getElementById('gestorCuentasModal');
 const btnShowGestor = document.getElementById('btnShowGestorCuentas');
 const btnCloseGestor = document.getElementById('btnCloseGestor');
@@ -3246,16 +3170,7 @@ iPagado?.addEventListener('change', () => {
     }
 });
 
-function resetSaveModal() {
-    cuentaEditandoId = 0;
-    cuentaEditId.value = '0';
-    modalTitleSaveCuenta.textContent = '⭐ Guardar cuenta de cobro';
-    btnDoSaveCuenta.classList.remove('hidden');
-    btnDoUpdateCuenta.classList.add('hidden');
-}
-
 function openSaveCuenta() {
-    resetSaveModal();
     const empresas = <?= json_encode($empresasSeleccionadas) ?>;
     
     if (empresas.length === 0) {
@@ -3283,43 +3198,14 @@ function openSaveCuenta() {
     setTimeout(() => iNombre.focus(), 100);
 }
 
-function openEditCuenta(cuenta) {
-    resetSaveModal();
-    cuentaEditandoId = cuenta.id;
-    cuentaEditId.value = cuenta.id;
-    modalTitleSaveCuenta.textContent = '✏️ Actualizar cuenta de cobro';
-    btnDoSaveCuenta.classList.add('hidden');
-    btnDoUpdateCuenta.classList.remove('hidden');
-    
-    const empresas = cuenta.empresas || [];
-    empresasContainer.innerHTML = empresas.map(emp => 
-        `<div class="py-1 px-2 bg-white rounded border border-slate-200 mb-1 text-sm">✓ ${emp}</div>`
-    ).join('');
-    
-    iRango.value = `${cuenta.desde} → ${cuenta.hasta}`;
-    iNombre.value = cuenta.nombre;
-    iFacturado.value = fmt(cuenta.facturado).replace('$', '');
-    iPorcentaje.value = cuenta.porcentaje_ajuste;
-    iPagado.checked = cuenta.pagado == 1;
-    pagadoLabel.textContent = iPagado.checked ? 'PAGADO' : 'NO PAGADO';
-    pagadoLabel.className = iPagado.checked 
-        ? 'text-sm px-2 py-1 rounded-full bg-green-100 text-green-700' 
-        : 'text-sm px-2 py-1 rounded-full bg-red-100 text-red-700';
-    
-    saveCuentaModal.classList.remove('hidden');
-    setTimeout(() => iNombre.focus(), 100);
-}
-
 function closeSaveCuenta() {
     saveCuentaModal.classList.add('hidden');
-    resetSaveModal();
 }
 
 btnShowSaveCuenta.addEventListener('click', openSaveCuenta);
 btnCloseSaveCuenta.addEventListener('click', closeSaveCuenta);
 btnCancelSaveCuenta.addEventListener('click', closeSaveCuenta);
 
-// GUARDAR NUEVA CUENTA
 btnDoSaveCuenta.addEventListener('click', async () => {
     const nombre = iNombre.value.trim();
     if (!nombre) {
@@ -3393,101 +3279,6 @@ btnDoSaveCuenta.addEventListener('click', async () => {
             throw new Error(resultado.message);
         }
     } catch (error) {
-        Swal.fire('❌ Error', error.message, 'error');
-    }
-});
-
-// ACTUALIZAR CUENTA EXISTENTE
-btnDoUpdateCuenta.addEventListener('click', async () => {
-    const id = cuentaEditandoId;
-    if (id === 0) {
-        Swal.fire('⚠️ Error', 'No hay cuenta seleccionada para actualizar', 'warning');
-        return;
-    }
-    
-    const nombre = iNombre.value.trim();
-    if (!nombre) {
-        Swal.fire('⚠️ Nombre requerido', 'Debes ingresar un nombre para la cuenta', 'warning');
-        return;
-    }
-    
-    const empresas = <?= json_encode($empresasSeleccionadas) ?>;
-    const desde = '<?= $desde ?>';
-    const hasta = '<?= $hasta ?>';
-    const facturado = toInt(iFacturado.value);
-    const porcentaje = parseFloat(iPorcentaje.value) || 0;
-    const pagado = iPagado.checked ? 1 : 0;
-    
-    const datosParaGuardar = {
-        prestamos: prestSel,
-        segSocial: ssMap,
-        cuentasBancarias: accMap,
-        estadosPago: estadoPagoMap,
-        filasManuales: []
-    };
-    
-    document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => {
-        const conductor = tr.querySelector('.conductor-select')?.value || '';
-        const base = toInt(tr.querySelector('.base-manual')?.value || '0');
-        const cuenta = tr.querySelector('.cta')?.value || '';
-        const segSocial = toInt(tr.querySelector('.ss')?.value || '0');
-        const estado = tr.querySelector('.estado-pago')?.value || '';
-        
-        if (conductor) {
-            datosParaGuardar.filasManuales.push({ conductor, base, cuenta, segSocial, estado });
-        }
-    });
-    
-    const comprobantesParaGuardar = {};
-    for (const [conductor, base64] of Object.entries(comprobantesMap)) {
-        if (base64) {
-            comprobantesParaGuardar[conductor] = base64;
-        }
-    }
-    
-    const formData = new FormData();
-    formData.append('accion', 'actualizar_cuenta');
-    formData.append('id', id);
-    formData.append('nombre', nombre);
-    formData.append('desde', desde);
-    formData.append('hasta', hasta);
-    formData.append('facturado', facturado);
-    formData.append('porcentaje_ajuste', porcentaje);
-    formData.append('pagado', pagado);
-    formData.append('empresas', JSON.stringify(empresas));
-    formData.append('datos_json', JSON.stringify(datosParaGuardar));
-    formData.append('comprobantes_json', JSON.stringify(comprobantesParaGuardar));
-    
-    try {
-        Swal.fire({
-            title: 'Actualizando cuenta...',
-            text: 'Por favor espera',
-            allowOutsideClick: false,
-            didOpen: () => Swal.showLoading()
-        });
-        
-        const response = await fetch('', { method: 'POST', body: formData });
-        const resultado = await response.json();
-        
-        Swal.close();
-        
-        if (resultado.success) {
-            Swal.fire({
-                title: '✅ Cuenta actualizada',
-                text: `Se actualizó la cuenta "${nombre}" correctamente`,
-                icon: 'success',
-                timer: 2000,
-                showConfirmButton: false
-            });
-            closeSaveCuenta();
-            if (!gestorModal.classList.contains('hidden')) {
-                await renderCuentasBD();
-            }
-        } else {
-            throw new Error(resultado.message);
-        }
-    } catch (error) {
-        Swal.close();
         Swal.fire('❌ Error', error.message, 'error');
     }
 });
@@ -3575,7 +3366,6 @@ async function renderCuentasBD() {
                 <td class="px-3 py-3 text-center text-xs text-slate-500">${new Date(cuenta.fecha_creacion).toLocaleDateString('es-CO')}</td>
                 <td class="px-3 py-3 text-right">
                     <div class="inline-flex gap-2">
-                        <button class="btnEditarCuenta border px-3 py-2 rounded bg-indigo-50 hover:bg-indigo-100 text-xs text-indigo-700" data-id="${cuenta.id}">✏️ Editar</button>
                         <button class="btnCargarCuenta border px-3 py-2 rounded bg-blue-50 hover:bg-blue-100 text-xs text-blue-700" data-id="${cuenta.id}">📂 Cargar</button>
                         <button class="btnEliminarCuenta border px-3 py-2 rounded bg-rose-50 hover:bg-rose-100 text-xs text-rose-700" data-id="${cuenta.id}">🗑️</button>
                     </div>
@@ -3588,16 +3378,6 @@ async function renderCuentasBD() {
         document.querySelectorAll('.cuenta-seleccion').forEach(cb => {
             cb.addEventListener('change', function() {
                 manejarSeleccionCuenta(parseInt(this.value), this.checked);
-            });
-        });
-        
-        document.querySelectorAll('.btnEditarCuenta').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const id = btn.dataset.id;
-                const cuenta = cuentasFiltradas.find(c => c.id == id);
-                if (cuenta) {
-                    await cargarDatosParaEdicion(cuenta);
-                }
             });
         });
         
@@ -3630,106 +3410,6 @@ async function renderCuentasBD() {
         
     } catch (error) {
         tbodyCuentasBD.innerHTML = `<tr><td colspan="8" class="px-3 py-8 text-center text-rose-600">❌ Error: ${error.message}</td></tr>`;
-    }
-}
-
-async function cargarDatosParaEdicion(cuenta) {
-    Swal.fire({
-        title: 'Cargando datos...',
-        text: 'Preparando cuenta para edición',
-        allowOutsideClick: false,
-        didOpen: () => Swal.showLoading()
-    });
-    
-    try {
-        document.getElementById('filtro_desde').value = cuenta.desde;
-        document.getElementById('filtro_hasta').value = cuenta.hasta;
-        
-        const empresasGuardadas = cuenta.empresas || [];
-        document.querySelectorAll('.empresa-checkbox input').forEach(cb => {
-            cb.checked = empresasGuardadas.includes(cb.value);
-        });
-        
-        const datos = cuenta.datos_json || {};
-        const comprobantesGuardados = cuenta.comprobantes_json || {};
-        
-        prestSel = datos.prestamos || {};
-        ssMap = datos.segSocial || {};
-        accMap = datos.cuentasBancarias || {};
-        estadoPagoMap = datos.estadosPago || {};
-        comprobantesMap = comprobantesGuardados;
-        
-        setLS(PREST_SEL_KEY, prestSel);
-        setLS(SS_KEY, ssMap);
-        setLS(ACC_KEY, accMap);
-        setLS(ESTADO_PAGO_KEY, estadoPagoMap);
-        
-        document.querySelectorAll('#tbody tr.fila-manual').forEach(tr => tr.remove());
-        manualRows = [];
-        
-        if (datos.filasManuales && datos.filasManuales.length > 0) {
-            datos.filasManuales.forEach(fila => {
-                agregarFilaManual();
-                const ultimaFila = tbody.querySelector('tr.fila-manual:last-child');
-                if (ultimaFila) {
-                    const select = ultimaFila.querySelector('.conductor-select');
-                    const baseInput = ultimaFila.querySelector('.base-manual');
-                    const ctaInput = ultimaFila.querySelector('.cta');
-                    const ssInput = ultimaFila.querySelector('.ss');
-                    const estadoSelect = ultimaFila.querySelector('.estado-pago');
-                    
-                    if (select) select.value = fila.conductor;
-                    if (baseInput) baseInput.value = fmt(fila.base).replace('$', '');
-                    if (ctaInput) ctaInput.value = fila.cuenta;
-                    if (ssInput) ssInput.value = fmt(fila.segSocial).replace('$', '');
-                    if (estadoSelect) estadoSelect.value = fila.estado;
-                    
-                    if (fila.conductor) {
-                        if (fila.cuenta) accMap[fila.conductor] = fila.cuenta;
-                        if (fila.segSocial) ssMap[fila.conductor] = fila.segSocial;
-                        if (fila.estado) estadoPagoMap[fila.conductor] = fila.estado;
-                        if (comprobantesGuardados[fila.conductor]) {
-                            actualizarPreviewComprobante(fila.conductor, comprobantesGuardados[fila.conductor]);
-                        }
-                    }
-                }
-            });
-            localStorage.setItem(MANUAL_ROWS_KEY, JSON.stringify(manualRows));
-        }
-        
-        document.querySelectorAll('#tbody tr').forEach(tr => {
-            const nombre = obtenerNombreConductorDeFila(tr);
-            if (nombre) {
-                if (accMap[nombre]) { const cta = tr.querySelector('.cta'); if (cta) cta.value = accMap[nombre]; }
-                if (ssMap[nombre]) { const ss = tr.querySelector('.ss'); if (ss) ss.value = fmt(ssMap[nombre]).replace('$', ''); }
-                if (estadoPagoMap[nombre]) {
-                    const estado = tr.querySelector('.estado-pago');
-                    if (estado) { estado.value = estadoPagoMap[nombre]; aplicarEstadoFila(tr, estadoPagoMap[nombre]); }
-                }
-                if (comprobantesMap[nombre]) {
-                    actualizarPreviewComprobante(nombre, comprobantesMap[nombre]);
-                } else {
-                    configurarEventosComprobante(tr, nombre);
-                }
-            }
-        });
-        
-        asignarPrestamosAFilas(true);
-        
-        if (cuenta.porcentaje_ajuste) {
-            document.getElementById('inp_porcentaje_ajuste').value = cuenta.porcentaje_ajuste;
-        }
-        
-        recalcularTodo();
-        closeGestor();
-        
-        Swal.close();
-        
-        openEditCuenta(cuenta);
-        
-    } catch (error) {
-        Swal.close();
-        Swal.fire('❌ Error', 'No se pudieron cargar los datos para edición', 'error');
     }
 }
 
@@ -4169,6 +3849,7 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(r => r.text())
             .then(html => {
                 document.getElementById('viajesContent').innerHTML = html;
+                // Configurar eventos después de cargar el contenido
                 setTimeout(configurarEventosModalViajes, 50);
             })
             .catch(() => document.getElementById('viajesContent').innerHTML = '<p class="text-center text-red-600">Error cargando viajes</p>');
