@@ -224,7 +224,7 @@ function manual_resend_current_step($chat_id, $estado) {
             break;
             
         case 'manual_vehiculo_menu':
-            $vehiculos = $conn ? obtenerVehiculosAdmin($conn, $chat_id) : [];
+            $vehiculos = $conn ? obtenerVehiculosAdmin($conn) : [];
             if ($vehiculos) {
                 $kb = manual_kb_grid($vehiculos, 'manual_vehiculo_sel_');
                 $kb["inline_keyboard"][] = [[ "text"=>"➕ Nuevo vehículo", "callback_data"=>"manual_vehiculo_nuevo" ]];
@@ -241,7 +241,7 @@ function manual_resend_current_step($chat_id, $estado) {
             break;
             
         case 'manual_empresa_menu':
-            $empresas = $conn ? obtenerEmpresasAdmin($conn, $chat_id) : [];
+            $empresas = $conn ? obtenerEmpresasAdmin($conn) : [];
             if ($empresas) {
                 $kb = manual_kb_grid($empresas, 'manual_empresa_sel_');
                 $kb["inline_keyboard"][] = [[ "text"=>"➕ Nueva empresa", "callback_data"=>"manual_empresa_nuevo" ]];
@@ -367,7 +367,7 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
         
         $letra = $estado['manual_filtro_letra'] ?? '';
         $conn = db();
-        $conductores = $conn ? obtenerConductoresPorLetra($conn, $chat_id, $letra) : [];
+        $conductores = $conn ? obtenerConductoresPorLetra($conn, $letra) : [];
         $conn?->close();
         
         if ($conductores) {
@@ -386,7 +386,7 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
         
         $letra = $estado['manual_filtro_ruta_letra'] ?? '';
         $conn = db();
-        $rutas = $conn ? obtenerRutasPorLetra($conn, $chat_id, $letra) : [];
+        $rutas = $conn ? obtenerRutasPorLetra($conn, $letra) : [];
         $conn?->close();
         
         if ($rutas) {
@@ -401,7 +401,7 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
     if ($cb_data === 'manual_info') {
         $letra = $estado['manual_filtro_letra'] ?? '';
         $conn = db();
-        $conductores = $conn ? obtenerConductoresPorLetra($conn, $chat_id, $letra) : [];
+        $conductores = $conn ? obtenerConductoresPorLetra($conn, $letra) : [];
         $conn?->close();
         if ($cb_id) answerCallbackQuery($cb_id, "Página " . ($estado['manual_page'] + 1) . " de " . ceil(count($conductores) / 10));
         return;
@@ -411,7 +411,7 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
     if ($cb_data === 'manual_info_ruta') {
         $letra = $estado['manual_filtro_ruta_letra'] ?? '';
         $conn = db();
-        $rutas = $conn ? obtenerRutasPorLetra($conn, $chat_id, $letra) : [];
+        $rutas = $conn ? obtenerRutasPorLetra($conn, $letra) : [];
         $conn?->close();
         if ($cb_id) answerCallbackQuery($cb_id, "Página " . ($estado['manual_page_ruta'] + 1) . " de " . ceil(count($rutas) / 10));
         return;
@@ -436,7 +436,7 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
     // Seleccionar conductor existente
     if (strpos($cb_data, 'manual_sel_') === 0) {
         $idSel = (int)substr($cb_data, strlen('manual_sel_'));
-        $conn = db(); $row = obtenerConductorAdminPorId($conn, $idSel, $chat_id); $conn?->close();
+        $conn = db(); $row = obtenerConductorAdminPorId($conn, $idSel); $conn?->close();
         if (!$row) { sendMessage($chat_id, "⚠️ Conductor no encontrado. Vuelve a intentarlo con /manual."); }
         else {
             $estado['manual_nombre'] = $row['nombre'];
@@ -456,7 +456,7 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
     // Seleccionar ruta existente
     if (strpos($cb_data, 'manual_ruta_sel_') === 0) {
         $idRuta = (int)substr($cb_data, strlen('manual_ruta_sel_'));
-        $conn = db(); $r = obtenerRutaAdminPorId($conn, $idRuta, $chat_id); $conn?->close();
+        $conn = db(); $r = obtenerRutaAdminPorId($conn, $idRuta); $conn?->close();
         if (!$r) sendMessage($chat_id, "⚠️ Ruta no encontrada. Vuelve a intentarlo.");
         else {
             $estado['manual_ruta'] = $r['ruta'];
@@ -478,7 +478,7 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
         $estado['manual_fecha'] = date("Y-m-d");
         $estado['paso'] = 'manual_vehiculo_menu'; saveState($chat_id,$estado);
 
-        $conn = db(); $vehiculos = $conn ? obtenerVehiculosAdmin($conn, $chat_id) : []; $conn?->close();
+        $conn = db(); $vehiculos = $conn ? obtenerVehiculosAdmin($conn) : []; $conn?->close();
         if ($vehiculos) {
             $kb = manual_kb_grid($vehiculos, 'manual_vehiculo_sel_');
             $kb["inline_keyboard"][] = [[ "text"=>"➕ Nuevo vehículo", "callback_data"=>"manual_vehiculo_nuevo" ]];
@@ -509,13 +509,13 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
     // Vehículo
     if (strpos($cb_data, 'manual_vehiculo_sel_') === 0) {
         $idVeh = (int)substr($cb_data, strlen('manual_vehiculo_sel_'));
-        $conn = db(); $v = obtenerVehiculoAdminPorId($conn, $idVeh, $chat_id); $conn?->close();
+        $conn = db(); $v = obtenerVehiculoAdminPorId($conn, $idVeh); $conn?->close();
         if (!$v) sendMessage($chat_id, "⚠️ Vehículo no encontrado. Vuelve a intentarlo.");
         else {
             $estado['manual_vehiculo'] = $v['vehiculo'];
             $estado['paso'] = 'manual_empresa_menu'; saveState($chat_id,$estado);
 
-            $conn = db(); $empresas = $conn ? obtenerEmpresasAdmin($conn, $chat_id) : []; $conn?->close();
+            $conn = db(); $empresas = $conn ? obtenerEmpresasAdmin($conn) : []; $conn?->close();
             if ($empresas) {
                 $kb = manual_kb_grid($empresas, 'manual_empresa_sel_');
                 $kb["inline_keyboard"][] = [[ "text"=>"➕ Nueva empresa", "callback_data"=>"manual_empresa_nuevo" ]];
@@ -535,7 +535,7 @@ function manual_handle_callback($chat_id, &$estado, $cb_data, $cb_id=null) {
     // Empresa seleccionar / crear y preguntar por pago parcial
     if (strpos($cb_data, 'manual_empresa_sel_') === 0) {
         $idEmp = (int)substr($cb_data, strlen('manual_empresa_sel_'));
-        $conn = db(); $e = obtenerEmpresaAdminPorId($conn, $idEmp, $chat_id); $conn?->close();
+        $conn = db(); $e = obtenerEmpresaAdminPorId($conn, $idEmp); $conn?->close();
         if (!$e) sendMessage($chat_id, "⚠️ Empresa no encontrada. Vuelve a intentarlo.");
         else {
             $estado['manual_empresa'] = $e['nombre'];
@@ -660,7 +660,7 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
             $estado['manual_page'] = 0;
             
             $conn = db();
-            $conductores = $conn ? obtenerConductoresPorLetra($conn, $chat_id, $letra) : [];
+            $conductores = $conn ? obtenerConductoresPorLetra($conn, $letra) : [];
             $conn?->close();
             
             if (!empty($conductores)) {
@@ -695,7 +695,7 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
             $estado['manual_page_ruta'] = 0;
             
             $conn = db();
-            $rutas = $conn ? obtenerRutasPorLetra($conn, $chat_id, $letra) : [];
+            $rutas = $conn ? obtenerRutasPorLetra($conn, $letra) : [];
             $conn?->close();
             
             if (!empty($rutas)) {
@@ -725,7 +725,7 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
             
             $conn = db(); 
             if ($conn) { 
-                crearConductorAdmin($conn, $chat_id, $nombre); 
+                crearConductorAdmin($conn, $nombre); 
                 $conn->close(); 
             }
             
@@ -743,7 +743,7 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
             
             $conn = db(); 
             if ($conn) { 
-                crearRutaAdmin($conn, $chat_id, $rutaTxt); 
+                crearRutaAdmin($conn, $rutaTxt); 
                 $conn->close(); 
             }
             
@@ -766,7 +766,7 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
 
             $estado['paso'] = 'manual_vehiculo_menu'; saveState($chat_id,$estado);
             
-            $conn = db(); $vehiculos = $conn ? obtenerVehiculosAdmin($conn, $chat_id) : []; $conn?->close();
+            $conn = db(); $vehiculos = $conn ? obtenerVehiculosAdmin($conn) : []; $conn?->close();
             if ($vehiculos) {
                 $kb = manual_kb_grid($vehiculos, 'manual_vehiculo_sel_');
                 $kb["inline_keyboard"][] = [[ "text"=>"➕ Nuevo vehículo", "callback_data"=>"manual_vehiculo_nuevo" ]];
@@ -784,14 +784,14 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
             
             $conn = db(); 
             if ($conn) { 
-                crearVehiculoAdmin($conn, $chat_id, $vehTxt); 
+                crearVehiculoAdmin($conn, $vehTxt); 
                 $conn->close(); 
             }
             
             $estado["manual_vehiculo"] = $vehTxt;
             $estado['paso'] = 'manual_empresa_menu'; saveState($chat_id,$estado);
 
-            $conn = db(); $emp = $conn ? obtenerEmpresasAdmin($conn, $chat_id) : []; $conn?->close();
+            $conn = db(); $emp = $conn ? obtenerEmpresasAdmin($conn) : []; $conn?->close();
             if ($emp) {
                 $kb = manual_kb_grid($emp, 'manual_empresa_sel_');
                 $kb["inline_keyboard"][] = [[ "text"=>"➕ Nueva empresa", "callback_data"=>"manual_empresa_nuevo" ]];
@@ -809,7 +809,7 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
             
             $conn = db(); 
             if ($conn) { 
-                crearEmpresaAdmin($conn, $chat_id, $empTxt); 
+                crearEmpresaAdmin($conn, $empTxt); 
                 $conn->close(); 
             }
             
@@ -869,7 +869,7 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
     }
 }
 
-/* ========= PROCESAR IMAGEN DE EVICIA (OBLIGATORIA) ========= */
+/* ========= PROCESAR IMAGEN DE EVIDENCIA (OBLIGATORIA) ========= */
 function manual_process_evidencia($chat_id, &$estado, $photo) {
     $file_id = null;
     
@@ -1042,12 +1042,14 @@ function manual_insert_viaje_and_close($chat_id, &$estado) {
         return; 
     }
     
-    $stmt = $conn->prepare("INSERT INTO viajes (nombre, ruta, fecha, cedula, tipo_vehiculo, empresa, imagen, epicrisis, pago_parcial) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)");
+    // Insertar el viaje asociado al chat_id del usuario que lo registra
+    $stmt = $conn->prepare("INSERT INTO viajes (chat_id, nombre, ruta, fecha, cedula, tipo_vehiculo, empresa, imagen, epicrisis, pago_parcial) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)");
     $pago_parcial = $estado["manual_pago_parcial"] ?? null;
     $imagen = $estado["manual_imagen"] ?? null;
     $epicrisis = $estado["manual_epicrisis"] ?? null;
     
-    $stmt->bind_param("sssssssi", 
+    $stmt->bind_param("issssssi", 
+        $chat_id,
         $estado["manual_nombre"], 
         $estado["manual_ruta"], 
         $estado["manual_fecha"], 
