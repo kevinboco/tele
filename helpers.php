@@ -1,209 +1,293 @@
 <?php
 // helpers.php
-require_once __DIR__.'/config.php';
 
+// ========= CONEXIÓN A LA BASE DE DATOS =========
 function db() {
-    $mysqli = @new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
-    return $mysqli->connect_error ? null : $mysqli;
-}
-
-function sendMessage($chat_id, $text, $opts = null, $parse='Markdown') {
-    global $APIURL;
-    if (!$chat_id) return;
-    $data = ["chat_id"=>$chat_id, "text"=>$text, "parse_mode"=>$parse];
-    if ($opts) $data["reply_markup"] = json_encode($opts);
-    @file_get_contents($APIURL . "sendMessage?" . http_build_query($data));
-}
-
-function answerCallbackQuery($cb_id) {
-    global $APIURL;
-    if (!$cb_id) return;
-    @file_get_contents($APIURL . "answerCallbackQuery?" . http_build_query(["callback_query_id"=>$cb_id]));
-}
-
-function stateFile($chat_id) {
-    return __DIR__ . "/estado_" . ($chat_id ?: "unknown") . ".json";
-}
-function loadState($chat_id) {
-    $f = stateFile($chat_id);
-    if (!file_exists($f)) return [];
-    $st = json_decode(file_get_contents($f), true) ?: [];
-    // TTL
-    if (!empty($st) && isset($st['last_ts']) && (time() - $st['last_ts'] > STATE_TTL)) {
-        @unlink($f);
-        return [];
+    $host = 'localhost';
+    $user = 'root';
+    $pass = '';
+    $db   = 'bot_viajes';
+    
+    $conn = new mysqli($host, $user, $pass, $db);
+    if ($conn->connect_error) {
+        error_log("Error de conexión: " . $conn->connect_error);
+        return null;
     }
-    return $st;
+    $conn->set_charset("utf8mb4");
+    return $conn;
 }
+
+// ========= FUNCIONES DE ESTADO =========
 function saveState($chat_id, $estado) {
-    $f = stateFile($chat_id);
-    $estado['last_ts'] = time();
-    file_put_contents($f, json_encode($estado, JSON_UNESCAPED_UNICODE), LOCK_EX);
+    $file = __DIR__ . "/estados/{$chat_id}.json";
+    $dir = dirname($file);
+    if (!is_dir($dir)) mkdir($dir, 0775, true);
+    file_put_contents($file, json_encode($estado, JSON_UNESCAPED_UNICODE));
 }
+
+function loadState($chat_id) {
+    $file = __DIR__ . "/estados/{$chat_id}.json";
+    if (!file_exists($file)) return null;
+    return json_decode(file_get_contents($file), true);
+}
+
 function clearState($chat_id) {
-    $f = stateFile($chat_id);
-    if (file_exists($f)) @unlink($f);
+    $file = __DIR__ . "/estados/{$chat_id}.json";
+    if (file_exists($file)) unlink($file);
 }
 
-function withMutex($chat_id) {
-    // devuelve [lock, release()]
-    $lock = null;
-    if ($chat_id) {
-        $lockFile = __DIR__ . "/lock_" . $chat_id . ".lock";
-        $lock = fopen($lockFile, 'c');
-        if ($lock && !flock($lock, LOCK_EX | LOCK_NB)) {
-            file_put_contents("debug.txt", "[LOCK] Chat $chat_id ocupado\n", FILE_APPEND);
-            exit;
-        }
-    }
-    return [$lock, function() use ($lock) {
-        if ($lock) { flock($lock, LOCK_UN); fclose($lock); }
-    }];
-}
-
-function dedupe($chat_id, $update_id) {
-    if (!$chat_id || $update_id===null) return;
-    $f = __DIR__ . "/last_update_" . $chat_id . ".txt";
-    $last = is_file($f) ? (int)file_get_contents($f) : -1;
-    if ($update_id <= $last) exit; // ya procesado
-    file_put_contents($f, (string)$update_id, LOCK_EX);
-}
-
-function kbFechaAgg() {
-    return [
-        "inline_keyboard" => [
-            [ ["text"=>"📅 Hoy","callback_data"=>"fecha_hoy"] ],
-            [ ["text"=>"✍️ Otra fecha","callback_data"=>"fecha_manual"] ],
-        ]
+// ========= FUNCIONES DE MENSAJERÍA =========
+function sendMessage($chat_id, $text, $reply_markup = null) {
+    global $TOKEN;
+    $data = [
+        'chat_id' => $chat_id,
+        'text' => $text,
+        'parse_mode' => 'Markdown'
     ];
+    if ($reply_markup) {
+        $data['reply_markup'] = json_encode($reply_markup);
+    }
+    $url = "https://api.telegram.org/bot{$TOKEN}/sendMessage";
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_POST, 1);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    $result = curl_exec($ch);
+    curl_close($ch);
+    return $result;
 }
+
+function answerCallbackQuery($callback_query_id, $text = null, $show_alert = false) {
+    global $TOKEN;
+    $data = [
+        'callback_query_id' => $callback_query_id
+    ];
+    if ($text) {
+        $data['text'] = $text;
+        $data['show_alert'] = $show_alert;
+    }
+    $url = "https://api.telegram.org/bot{$TOKEN}/answerCallbackQuery";
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_POST, 1);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    $result = curl_exec($ch);
+    curl_close($ch);
+    return $result;
+}
+
+// ========= TECLADOS =========
 function kbFechaManual() {
     return [
         "inline_keyboard" => [
-            [["text"=>"📅 Hoy","callback_data"=>"mfecha_hoy"]],
-            [["text"=>"📆 Otra fecha","callback_data"=>"mfecha_otro"]],
+            [["text" => "📅 Hoy", "callback_data" => "mfecha_hoy"]],
+            [["text" => "📆 Elegir otra fecha", "callback_data" => "mfecha_otro"]]
         ]
     ];
 }
+
 function kbMeses($anio) {
-    $labels=[1=>"Enero",2=>"Febrero",3=>"Marzo",4=>"Abril",5=>"Mayo",6=>"Junio",7=>"Julio",8=>"Agosto",9=>"Septiembre",10=>"Octubre",11=>"Noviembre",12=>"Diciembre"];
-    $kb=["inline_keyboard"=>[]];
-    for ($i=1;$i<=12;$i+=2) {
-        $row=[];
-        $row[]=["text"=>$labels[$i]." $anio","callback_data"=>"mmes_".$anio."_".str_pad($i,2,"0",STR_PAD_LEFT)];
-        if ($i+1<=12) $row[]=["text"=>$labels[$i+1]." $anio","callback_data"=>"mmes_".$anio."_".str_pad($i+1,2,"0",STR_PAD_LEFT)];
-        $kb["inline_keyboard"][]=$row;
+    $meses = [
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+    ];
+    $kb = ["inline_keyboard" => []];
+    $row = [];
+    foreach ($meses as $i => $mes) {
+        $row[] = [
+            "text" => $mes,
+            "callback_data" => "mmes_{$anio}_" . ($i + 1)
+        ];
+        if (count($row) == 3) {
+            $kb["inline_keyboard"][] = $row;
+            $row = [];
+        }
     }
+    if (!empty($row)) $kb["inline_keyboard"][] = $row;
     return $kb;
 }
 
-// Mini helpers BD (compartidos)
-function obtenerRutasUsuario($conn, $conductor_id) {
-    $rutas=[]; if(!$conn) return $rutas;
-    $conductor_id=(int)$conductor_id;
-    $sql="SELECT ruta FROM rutas WHERE conductor_id=$conductor_id ORDER BY id DESC";
-    if ($res=$conn->query($sql)) while($row=$res->fetch_assoc()) $rutas[]=$row['ruta'];
+// ========= CONDUCTORES (GLOBAL - sin chat_id) =========
+function obtenerConductoresPorLetra($conn, $letra) {
+    $stmt = $conn->prepare("SELECT id, nombre FROM conductores WHERE nombre LIKE ? ORDER BY nombre");
+    $like = $letra . '%';
+    $stmt->bind_param("s", $like);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $conductores = [];
+    while ($row = $result->fetch_assoc()) {
+        $conductores[] = $row;
+    }
+    $stmt->close();
+    return $conductores;
+}
+
+function obtenerConductorAdminPorId($conn, $id) {
+    $stmt = $conn->prepare("SELECT id, nombre FROM conductores WHERE id = ?");
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result->fetch_assoc();
+    $stmt->close();
+    return $row;
+}
+
+function crearConductorAdmin($conn, $nombre) {
+    // Verificar si ya existe (sin filtrar por chat_id)
+    $stmt = $conn->prepare("SELECT id FROM conductores WHERE nombre = ?");
+    $stmt->bind_param("s", $nombre);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($result->fetch_assoc()) {
+        $stmt->close();
+        return false; // Ya existe
+    }
+    $stmt->close();
+    
+    $stmt = $conn->prepare("INSERT INTO conductores (nombre) VALUES (?)");
+    $stmt->bind_param("s", $nombre);
+    $result = $stmt->execute();
+    $stmt->close();
+    return $result;
+}
+
+// ========= RUTAS (GLOBAL - sin chat_id) =========
+function obtenerRutasPorLetra($conn, $letra) {
+    $stmt = $conn->prepare("SELECT id, ruta FROM rutas WHERE ruta LIKE ? ORDER BY ruta");
+    $like = $letra . '%';
+    $stmt->bind_param("s", $like);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $rutas = [];
+    while ($row = $result->fetch_assoc()) {
+        $rutas[] = $row;
+    }
+    $stmt->close();
     return $rutas;
 }
 
-function obtenerConductoresAdmin($conn, $owner) {
-    $rows=[]; if(!$conn) return $rows;
-    $owner=(int)$owner;
-    $sql="SELECT id, nombre FROM conductores_admin WHERE owner_chat_id=$owner ORDER BY id DESC LIMIT 100";
-    if ($res=$conn->query($sql)) while($r=$res->fetch_assoc()) $rows[]=$r;
-    return $rows;
+function obtenerRutaAdminPorId($conn, $id) {
+    $stmt = $conn->prepare("SELECT id, ruta FROM rutas WHERE id = ?");
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result->fetch_assoc();
+    $stmt->close();
+    return $row;
 }
 
-/**
- * Obtener conductores que empiezan por una letra (case-insensitive)
- */
-function obtenerConductoresPorLetra($conn, $owner, $letra) {
-    $rows = []; 
-    if (!$conn) return $rows;
-    $owner = (int)$owner;
-    $letra = $conn->real_escape_string($letra);
-    $sql = "SELECT id, nombre FROM conductores_admin WHERE owner_chat_id=$owner AND LOWER(nombre) LIKE LOWER('$letra%') ORDER BY nombre ASC LIMIT 100";
-    if ($res = $conn->query($sql)) {
-        while ($r = $res->fetch_assoc()) {
-            $rows[] = $r;
-        }
+function crearRutaAdmin($conn, $ruta) {
+    // Verificar si ya existe (sin filtrar por chat_id)
+    $stmt = $conn->prepare("SELECT id FROM rutas WHERE ruta = ?");
+    $stmt->bind_param("s", $ruta);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($result->fetch_assoc()) {
+        $stmt->close();
+        return false; // Ya existe
     }
-    return $rows;
+    $stmt->close();
+    
+    $stmt = $conn->prepare("INSERT INTO rutas (ruta) VALUES (?)");
+    $stmt->bind_param("s", $ruta);
+    $result = $stmt->execute();
+    $stmt->close();
+    return $result;
 }
 
-function crearConductorAdmin($conn, $owner, $nombre) {
-    if(!$conn) return false; $owner=(int)$owner;
-    $stmt=$conn->prepare("INSERT IGNORE INTO conductores_admin (owner_chat_id, nombre) VALUES (?, ?)");
-    $stmt->bind_param("is", $owner, $nombre);
-    $ok=$stmt->execute(); $stmt->close(); return $ok;
-}
-function obtenerConductorAdminPorId($conn, $id, $owner) {
-    if(!$conn) return null; $id=(int)$id; $owner=(int)$owner;
-    $res=$conn->query("SELECT id, nombre FROM conductores_admin WHERE id=$id AND owner_chat_id=$owner LIMIT 1");
-    return ($res && $res->num_rows)? $res->fetch_assoc():null;
-}
-
-function obtenerRutasAdmin($conn, $owner) {
-    $rows=[]; if(!$conn) return $rows;
-    $owner=(int)$owner;
-    $res=$conn->query("SELECT id, ruta FROM rutas_admin WHERE owner_chat_id=$owner ORDER BY id DESC LIMIT 100");
-    if($res) while($r=$res->fetch_assoc()) $rows[]=$r; return $rows;
-}
-
-/**
- * Obtener rutas que empiezan por una letra (case-insensitive)
- */
-function obtenerRutasPorLetra($conn, $owner, $letra) {
-    $rows = []; 
-    if (!$conn) return $rows;
-    $owner = (int)$owner;
-    $letra = $conn->real_escape_string($letra);
-    $sql = "SELECT id, ruta FROM rutas_admin WHERE owner_chat_id=$owner AND LOWER(ruta) LIKE LOWER('$letra%') ORDER BY ruta ASC LIMIT 100";
-    if ($res = $conn->query($sql)) {
-        while ($r = $res->fetch_assoc()) {
-            $rows[] = $r;
-        }
+// ========= VEHÍCULOS (GLOBAL - sin chat_id) =========
+function obtenerVehiculosAdmin($conn) {
+    $stmt = $conn->prepare("SELECT id, vehiculo FROM vehiculos ORDER BY vehiculo");
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $vehiculos = [];
+    while ($row = $result->fetch_assoc()) {
+        $vehiculos[] = $row;
     }
-    return $rows;
+    $stmt->close();
+    return $vehiculos;
 }
 
-function crearRutaAdmin($conn, $owner, $ruta) {
-    if(!$conn) return false; $owner=(int)$owner;
-    $stmt=$conn->prepare("INSERT IGNORE INTO rutas_admin (owner_chat_id, ruta) VALUES (?, ?)");
-    $stmt->bind_param("is", $owner, $ruta); $ok=$stmt->execute(); $stmt->close(); return $ok;
+function obtenerVehiculoAdminPorId($conn, $id) {
+    $stmt = $conn->prepare("SELECT id, vehiculo FROM vehiculos WHERE id = ?");
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result->fetch_assoc();
+    $stmt->close();
+    return $row;
 }
-function obtenerRutaAdminPorId($conn, $id, $owner) {
-    if(!$conn) return null; $id=(int)$id; $owner=(int)$owner;
-    $res=$conn->query("SELECT id, ruta FROM rutas_admin WHERE id=$id AND owner_chat_id=$owner LIMIT 1");
-    return ($res && $res->num_rows)? $res->fetch_assoc():null;
+
+function crearVehiculoAdmin($conn, $vehiculo) {
+    // Verificar si ya existe (sin filtrar por chat_id)
+    $stmt = $conn->prepare("SELECT id FROM vehiculos WHERE vehiculo = ?");
+    $stmt->bind_param("s", $vehiculo);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($result->fetch_assoc()) {
+        $stmt->close();
+        return false; // Ya existe
+    }
+    $stmt->close();
+    
+    $stmt = $conn->prepare("INSERT INTO vehiculos (vehiculo) VALUES (?)");
+    $stmt->bind_param("s", $vehiculo);
+    $result = $stmt->execute();
+    $stmt->close();
+    return $result;
 }
-function obtenerVehiculosAdmin($conn, $owner) {
-    $rows=[]; if(!$conn) return $rows; $owner=(int)$owner;
-    $res=$conn->query("SELECT id, vehiculo FROM vehiculos_admin WHERE owner_chat_id=$owner ORDER BY id DESC LIMIT 100");
-    if($res) while($r=$res->fetch_assoc()) $rows[]=$r; return $rows;
+
+// ========= EMPRESAS (GLOBAL - sin chat_id) =========
+function obtenerEmpresasAdmin($conn) {
+    $stmt = $conn->prepare("SELECT id, nombre FROM empresas ORDER BY nombre");
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $empresas = [];
+    while ($row = $result->fetch_assoc()) {
+        $empresas[] = $row;
+    }
+    $stmt->close();
+    return $empresas;
 }
-function crearVehiculoAdmin($conn, $owner, $vehiculo) {
-    if(!$conn) return false; $owner=(int)$owner;
-    $stmt=$conn->prepare("INSERT IGNORE INTO vehiculos_admin (owner_chat_id, vehiculo) VALUES (?, ?)");
-    $stmt->bind_param("is", $owner, $vehiculo); $ok=$stmt->execute(); $stmt->close(); return $ok;
+
+function obtenerEmpresaAdminPorId($conn, $id) {
+    $stmt = $conn->prepare("SELECT id, nombre FROM empresas WHERE id = ?");
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result->fetch_assoc();
+    $stmt->close();
+    return $row;
 }
-function obtenerVehiculoAdminPorId($conn, $id, $owner) {
-    if(!$conn) return null; $id=(int)$id; $owner=(int)$owner;
-    $res=$conn->query("SELECT id, vehiculo FROM vehiculos_admin WHERE id=$id AND owner_chat_id=$owner LIMIT 1");
-    return ($res && $res->num_rows)? $res->fetch_assoc():null;
+
+function crearEmpresaAdmin($conn, $nombre) {
+    // Verificar si ya existe (sin filtrar por chat_id)
+    $stmt = $conn->prepare("SELECT id FROM empresas WHERE nombre = ?");
+    $stmt->bind_param("s", $nombre);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    if ($result->fetch_assoc()) {
+        $stmt->close();
+        return false; // Ya existe
+    }
+    $stmt->close();
+    
+    $stmt = $conn->prepare("INSERT INTO empresas (nombre) VALUES (?)");
+    $stmt->bind_param("s", $nombre);
+    $result = $stmt->execute();
+    $stmt->close();
+    return $result;
 }
-function obtenerEmpresasAdmin($conn, $owner) {
-    $rows=[]; if(!$conn) return $rows; $owner=(int)$owner;
-    $res=$conn->query("SELECT id, nombre FROM empresas_admin WHERE owner_chat_id=$owner ORDER BY id DESC LIMIT 100");
-    if($res) while($r=$res->fetch_assoc()) $rows[]=$r; return $rows;
-}
-function crearEmpresaAdmin($conn, $owner, $nombre) {
-    if(!$conn) return false; $owner=(int)$owner;
-    $stmt=$conn->prepare("INSERT IGNORE INTO empresas_admin (owner_chat_id, nombre) VALUES (?, ?)");
-    $stmt->bind_param("is", $owner, $nombre); $ok=$stmt->execute(); $stmt->close(); return $ok;
-}
-function obtenerEmpresaAdminPorId($conn, $id, $owner) {
-    if(!$conn) return null; $id=(int)$id; $owner=(int)$owner;
-    $res=$conn->query("SELECT id, nombre FROM empresas_admin WHERE id=$id AND owner_chat_id=$owner LIMIT 1");
-    return ($res && $res->num_rows)? $res->fetch_assoc():null;
+
+// ========= OBTENER TODOS LOS CONDUCTORES (para /agg) =========
+function obtenerConductoresAdmin($conn) {
+    $stmt = $conn->prepare("SELECT id, nombre FROM conductores ORDER BY nombre");
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $conductores = [];
+    while ($row = $result->fetch_assoc()) {
+        $conductores[] = $row;
+    }
+    $stmt->close();
+    return $conductores;
 }
