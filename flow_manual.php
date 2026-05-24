@@ -869,7 +869,7 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
     }
 }
 
-/* ========= PROCESAR IMAGEN DE EVIDENCIA (OBLIGATORIA) ========= */
+/* ========= PROCESAR IMAGEN DE EVICIA (OBLIGATORIA) ========= */
 function manual_process_evidencia($chat_id, &$estado, $photo) {
     $file_id = null;
     
