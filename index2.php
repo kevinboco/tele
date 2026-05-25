@@ -1,5 +1,5 @@
 <?php
-// index2.php - Sistema completo de gestión de viajes con INFORME y SELECTORES DINÁMICOS
+// index2.php - Sistema completo de gestión de viajes con INFORME y SELECTORES DINÁMICOS (CORREGIDO)
 
 // SIEMPRE primero la sesión, sin imprimir nada antes
 session_start();
@@ -173,7 +173,6 @@ if (isset($_POST['ajax']) && $_POST['ajax'] == 'crear') {
     
     switch($tabla) {
         case 'conductores':
-            // Verificar si ya existe
             $check = $conexion->query("SELECT id FROM conductores_admin WHERE nombre = '$valor'");
             if ($check && $check->num_rows > 0) {
                 $respuesta['success'] = true;
@@ -749,14 +748,13 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
     <link href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/css/select2-bootstrap-5-theme.min.css" rel="stylesheet">
     <style>
         .table-hover tbody tr:hover { background-color: rgba(0,0,0,.025); }
-        .img-thumb { max-width: 70px; height: auto; }
+        .img-thumb { max-width: 70px; height: auto; cursor: pointer; }
         .required:after { content: " *"; color: red; }
         .seleccionado { background-color: rgba(25, 135, 84, 0.1) !important; }
         .checkbox-seleccion { cursor: pointer; }
         .sticky-actions { position: sticky; top: 0; z-index: 1000; background: white; padding: 15px; margin: -15px -15px 15px -15px; border-bottom: 1px solid #dee2e6; box-shadow: 0 2px 4px rgba(0,0,0,.1); }
         .table-container { max-height: 600px; overflow-y: auto; }
         .form-control-sm { padding: 0.25rem 0.5rem; font-size: 0.875rem; }
-        .select2-container--default .select2-selection--multiple { min-height: 38px; }
         .btn-informe { background-color: #198754; color: white; }
         .btn-informe:hover { background-color: #157347; color: white; }
         tr.pagado { background-color: #d4edda !important; }
@@ -766,8 +764,8 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 38px; }
         .select2-container--default .select2-selection--single { height: 38px; }
         .select2-container--default .select2-selection--single .select2-selection__arrow { height: 36px; }
-        .select2-container .select2-search--inline .select2-search__field { margin-top: 5px; }
-        .crear-nuevo-option { background-color: #e8f4ff; font-weight: bold; }
+        .columnas-dropdown { position: absolute; top: 100%; right: 0; z-index: 1000; background: white; border: 1px solid #dee2e6; border-radius: 0.375rem; box-shadow: 0 0.5rem 1rem rgba(0,0,0,.15); min-width: 300px; padding: 1rem; display: none; }
+        .columnas-dropdown.show { display: block; }
     </style>
 </head>
 <body class="bg-light">
@@ -780,20 +778,20 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             <?php
             switch($mensaje) {
                 case 'creado': echo "✅ Viaje creado exitosamente."; break;
-                case 'editado': echo "✏ Viaje editado exitosamente."; break;
+                case 'editado': echo "✏️ Viaje editado exitosamente."; break;
                 case 'editado_con_cedula': 
                     $afectados = $_GET['afectados'] ?? 0;
                     $nombre = $_GET['nombre'] ?? '';
-                    echo "✏ Viaje editado exitosamente. <br>✅ La cédula se actualizó en <b>$afectados</b> registros adicionales de <b>" . htmlspecialchars($nombre) . "</b>."; 
+                    echo "✏️ Viaje editado exitosamente. <br>✅ La cédula se actualizó en <b>$afectados</b> registros adicionales de <b>" . htmlspecialchars($nombre) . "</b>."; 
                     break;
-                case 'eliminado': echo "🗑 Viaje eliminado exitosamente."; break;
+                case 'eliminado': echo "🗑️ Viaje eliminado exitosamente."; break;
                 case 'multi_eliminado': 
                     $count = $_GET['count'] ?? 0;
-                    echo "🗑 $count viaje(s) eliminado(s) exitosamente."; 
+                    echo "🗑️ $count viaje(s) eliminado(s) exitosamente."; 
                     break;
                 case 'multi_editado': 
                     $count = $_GET['count'] ?? 0;
-                    echo "✏ $count viaje(s) editado(s) exitosamente."; 
+                    echo "✏️ $count viaje(s) editado(s) exitosamente."; 
                     break;
                 default: echo htmlspecialchars($mensaje);
             }
@@ -806,7 +804,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         <div class="alert alert-danger alert-dismissible fade show">
             <?php
             switch($error) {
-                case 'no_ids': echo "⚠ No se seleccionaron registros."; break;
+                case 'no_ids': echo "⚠️ No se seleccionaron registros."; break;
                 case 'eliminar': echo "❌ Error al eliminar el registro."; break;
                 default: echo htmlspecialchars($error);
             }
@@ -829,7 +827,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                 <div class="card shadow">
                     <div class="card-header <?= $accion == 'crear' ? 'bg-success' : 'bg-warning' ?> text-white">
                         <h3 class="mb-0">
-                            <?= $accion == 'crear' ? '➕ Nuevo Viaje' : '✏ Editar Viaje' ?>
+                            <?= $accion == 'crear' ? '➕ Nuevo Viaje' : '✏️ Editar Viaje' ?>
                         </h3>
                     </div>
                     <div class="card-body">
@@ -841,10 +839,10 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                 <input type="hidden" name="crear" value="1">
                             <?php endif; ?>
                             
-                            <!-- CAMPO NOMBRE - Selector dinámico con creación -->
+                            <!-- CAMPO NOMBRE - Selector dinámico -->
                             <div class="mb-3">
                                 <label class="form-label required">Nombre (Conductor)</label>
-                                <select name="nombre" id="nombreSelect" class="form-select select2-crear" style="width: 100%;" required>
+                                <select name="nombre" id="nombreSelect" class="form-select" style="width: 100%;" required>
                                     <option value="">-- Buscar o escribir nuevo nombre --</option>
                                     <?php
                                     $res = $conexion->query("SELECT nombre FROM conductores_admin ORDER BY nombre ASC");
@@ -863,12 +861,9 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                 <input type="text" name="cedula" class="form-control" 
                                        value="<?= htmlspecialchars($viaje['cedula'] ?? '') ?>"
                                        placeholder="Opcional - puede estar vacío">
-                                <small class="text-muted">
-                                    <?php if ($accion == 'editar'): ?>
-                                        <strong>NOTA:</strong> Si solo modifica la cédula y los demás campos quedan igual, 
-                                        esta cédula se asignará automáticamente a <strong>TODOS</strong> los registros con el mismo nombre.
-                                    <?php endif; ?>
-                                </small>
+                                <?php if ($accion == 'editar'): ?>
+                                    <small class="text-muted">Si solo modifica la cédula, se actualizará en todos los registros con el mismo nombre.</small>
+                                <?php endif; ?>
                             </div>
 
                             <div class="mb-3">
@@ -894,10 +889,10 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                        value="<?= htmlspecialchars($viaje['fecha'] ?? '') ?>" required>
                             </div>
                             
-                            <!-- CAMPO RUTA - Selector dinámico con creación -->
+                            <!-- CAMPO RUTA - Selector dinámico -->
                             <div class="mb-3">
                                 <label class="form-label required">Ruta</label>
-                                <select name="ruta" id="rutaSelect" class="form-select select2-crear" style="width: 100%;" required>
+                                <select name="ruta" id="rutaSelect" class="form-select" style="width: 100%;" required>
                                     <option value="">-- Buscar o escribir nueva ruta --</option>
                                     <?php
                                     $res = $conexion->query("SELECT ruta FROM rutas_admin ORDER BY ruta ASC");
@@ -925,10 +920,10 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                 <small class="text-muted">Para vehículos nuevos, agrégalos directamente en la lista de vehículos.</small>
                             </div>
                             
-                            <!-- CAMPO EMPRESA - Selector dinámico con creación -->
+                            <!-- CAMPO EMPRESA - Selector dinámico -->
                             <div class="mb-3">
                                 <label class="form-label">Empresa</label>
-                                <select name="empresa" id="empresaSelect" class="form-select select2-crear" style="width: 100%;">
+                                <select name="empresa" id="empresaSelect" class="form-select" style="width: 100%;">
                                     <option value="">-- Ninguna / Buscar o escribir nueva empresa --</option>
                                     <?php
                                     $res = $conexion->query("SELECT nombre FROM empresas_admin ORDER BY nombre ASC");
@@ -946,8 +941,8 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                             <?php if ($accion == 'editar' && isset($viaje['imagen']) && !empty($viaje['imagen'])): ?>
                                 <div class="mb-3">
                                     <label class="form-label">📸 Evidencia actual</label>
-                                    <div class="mb-2">
-                                        <img src="uploads/<?= htmlspecialchars($viaje['imagen']) ?>" class="img-thumbnail img-thumb">
+                                    <div>
+                                        <img src="uploads/<?= htmlspecialchars($viaje['imagen']) ?>" class="img-thumbnail" style="max-width: 150px;">
                                         <div class="form-check mt-2">
                                             <input class="form-check-input" type="checkbox" name="eliminar_imagen" value="1" id="eliminarImg">
                                             <label class="form-check-label" for="eliminarImg">Eliminar evidencia actual</label>
@@ -965,8 +960,8 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                             <?php if ($accion == 'editar' && isset($viaje['epicrisis']) && !empty($viaje['epicrisis'])): ?>
                                 <div class="mb-3">
                                     <label class="form-label">📋 Epicrisis actual</label>
-                                    <div class="mb-2">
-                                        <img src="uploads/<?= htmlspecialchars($viaje['epicrisis']) ?>" class="img-thumbnail img-thumb">
+                                    <div>
+                                        <img src="uploads/<?= htmlspecialchars($viaje['epicrisis']) ?>" class="img-thumbnail" style="max-width: 150px;">
                                         <div class="form-check mt-2">
                                             <input class="form-check-input" type="checkbox" name="eliminar_epicrisis" value="1" id="eliminarEpicrisis">
                                             <label class="form-check-label" for="eliminarEpicrisis">Eliminar epicrisis actual</label>
@@ -999,7 +994,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             <div class="col-12">
                 <div class="card shadow">
                     <div class="card-header bg-warning text-dark">
-                        <h3 class="mb-0">✏ Editar Múltiples Viajes (<?= (int)$total_seleccionados ?> seleccionados)</h3>
+                        <h3 class="mb-0">✏️ Editar Múltiples Viajes (<?= (int)$total_seleccionados ?> seleccionados)</h3>
                     </div>
                     <div class="card-body">
                         <form method="POST" id="formEditarMultiple">
@@ -1022,7 +1017,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                     <div class="row g-3">
                                         <div class="col-md-4">
                                             <label class="form-label">Nombre (general)</label>
-                                            <select name="nombre_general" class="form-select select2-crear-general">
+                                            <select name="nombre_general" class="form-select select2-general">
                                                 <option value="">-- No cambiar --</option>
                                                 <?php
                                                 $res = $conexion->query("SELECT nombre FROM conductores_admin ORDER BY nombre ASC");
@@ -1056,7 +1051,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                         </div>
                                         <div class="col-md-4">
                                             <label class="form-label">Ruta (general)</label>
-                                            <select name="ruta_general" class="form-select select2-crear-general">
+                                            <select name="ruta_general" class="form-select select2-general">
                                                 <option value="">-- No cambiar --</option>
                                                 <?php
                                                 $res = $conexion->query("SELECT ruta FROM rutas_admin ORDER BY ruta ASC");
@@ -1079,7 +1074,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                         </div>
                                         <div class="col-md-4">
                                             <label class="form-label">Empresa (general)</label>
-                                            <select name="empresa_general" class="form-select select2-crear-general">
+                                            <select name="empresa_general" class="form-select select2-general">
                                                 <option value="">-- No cambiar --</option>
                                                 <?php
                                                 $res = $conexion->query("SELECT nombre FROM empresas_admin ORDER BY nombre ASC");
@@ -1119,7 +1114,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                             <tr class="<?= $viaje_multi['pagado'] ? 'pagado' : 'pendiente' ?>">
                                                 <td class="fw-bold"><?= $id_multi ?></td>
                                                 <td>
-                                                    <select name="nombre_<?= $id_multi ?>" class="form-select form-select-sm select2-crear-fila">
+                                                    <select name="nombre_<?= $id_multi ?>" class="form-select form-select-sm select2-fila">
                                                         <option value="<?= htmlspecialchars($viaje_multi['nombre']) ?>"><?= htmlspecialchars($viaje_multi['nombre']) ?></option>
                                                         <?php
                                                         $res = $conexion->query("SELECT nombre FROM conductores_admin ORDER BY nombre ASC");
@@ -1132,15 +1127,15 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                         }
                                                         ?>
                                                     </select>
-                                                </td>
+                                                 </td>
                                                 <td>
                                                     <input type="text" name="cedula_<?= $id_multi ?>" class="form-control form-control-sm" value="<?= htmlspecialchars($viaje_multi['cedula'] ?? '') ?>">
-                                                </td>
+                                                 </td>
                                                 <td>
                                                     <input type="date" name="fecha_<?= $id_multi ?>" class="form-control form-control-sm" value="<?= htmlspecialchars($viaje_multi['fecha']) ?>">
-                                                </td>
+                                                 </td>
                                                 <td>
-                                                    <select name="ruta_<?= $id_multi ?>" class="form-select form-select-sm select2-crear-fila">
+                                                    <select name="ruta_<?= $id_multi ?>" class="form-select form-select-sm select2-fila">
                                                         <option value="<?= htmlspecialchars($viaje_multi['ruta']) ?>"><?= htmlspecialchars($viaje_multi['ruta']) ?></option>
                                                         <?php
                                                         $res = $conexion->query("SELECT ruta FROM rutas_admin ORDER BY ruta ASC");
@@ -1153,7 +1148,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                         }
                                                         ?>
                                                     </select>
-                                                </td>
+                                                 </td>
                                                 <td>
                                                     <select name="tipo_vehiculo_<?= $id_multi ?>" class="form-select form-select-sm select2-single">
                                                         <option value="">-- Seleccionar --</option>
@@ -1161,9 +1156,9 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                             <option value="<?= htmlspecialchars($vehItem) ?>" <?= ($vehItem == $viaje_multi['tipo_vehiculo']) ? 'selected' : '' ?>><?= htmlspecialchars($vehItem) ?></option>
                                                         <?php endforeach; ?>
                                                     </select>
-                                                </td>
+                                                 </td>
                                                 <td>
-                                                    <select name="empresa_<?= $id_multi ?>" class="form-select form-select-sm select2-crear-fila">
+                                                    <select name="empresa_<?= $id_multi ?>" class="form-select form-select-sm select2-fila">
                                                         <option value="">-- Ninguna --</option>
                                                         <option value="<?= htmlspecialchars($viaje_multi['empresa'] ?? '') ?>" selected><?= htmlspecialchars($viaje_multi['empresa'] ?? '') ?></option>
                                                         <?php
@@ -1177,28 +1172,30 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                         }
                                                         ?>
                                                     </select>
-                                                </td>
+                                                 </td>
                                                 <td>
                                                     <input type="number" min="0" step="1" name="pago_parcial_<?= $id_multi ?>" class="form-control form-control-sm" value="<?= htmlspecialchars($viaje_multi['pago_parcial'] ?? '') ?>" placeholder="(vacío = no cambia)">
-                                                </td>
+                                                 </td>
                                                 <td class="text-center">
                                                     <input type="checkbox" name="pagado_<?= $id_multi ?>" value="1" <?= $viaje_multi['pagado'] ? 'checked' : '' ?>>
                                                 </td>
                                                 <td class="text-center">
                                                     <?php if(!empty($viaje_multi['imagen'])): ?>
-                                                        <img src="uploads/<?= htmlspecialchars($viaje_multi['imagen']) ?>" width="50" class="rounded img-thumb">
+                                                        <img src="uploads/<?= htmlspecialchars($viaje_multi['imagen']) ?>" width="50" class="rounded img-thumb" data-bs-toggle="modal" data-bs-target="#imgModal<?= $id_multi ?>">
+                                                        <div class="modal fade" id="imgModal<?= $id_multi ?>" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-body text-center"><img src="uploads/<?= htmlspecialchars($viaje_multi['imagen']) ?>" class="img-fluid rounded"></div></div></div></div>
                                                     <?php else: ?>
                                                         <span class="text-muted">—</span>
                                                     <?php endif; ?>
                                                 </td>
                                                 <td class="text-center">
                                                     <?php if(!empty($viaje_multi['epicrisis'])): ?>
-                                                        <img src="uploads/<?= htmlspecialchars($viaje_multi['epicrisis']) ?>" width="50" class="rounded img-thumb">
+                                                        <img src="uploads/<?= htmlspecialchars($viaje_multi['epicrisis']) ?>" width="50" class="rounded img-thumb" data-bs-toggle="modal" data-bs-target="#epiModal<?= $id_multi ?>">
+                                                        <div class="modal fade" id="epiModal<?= $id_multi ?>" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-body text-center"><img src="uploads/<?= htmlspecialchars($viaje_multi['epicrisis']) ?>" class="img-fluid rounded"></div></div></div></div>
                                                     <?php else: ?>
                                                         <span class="text-muted">—</span>
                                                     <?php endif; ?>
                                                 </td>
-                                            </tr>
+                                            </table>
                                         <?php endforeach; ?>
                                     </tbody>
                                 </table>
@@ -1214,7 +1211,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             </div>
         </div>
 
-    <!-- ================== LISTADO PRINCIPAL ================== -->
+    <!-- ================== LISTADO PRINCIPAL (CORREGIDO) ================== -->
     <?php else: ?>
         <?php if (!empty($_SESSION['seleccionados'])): ?>
             <div class="alert alert-info alert-dismissible fade show">
@@ -1249,13 +1246,13 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                 <button type="submit" class="btn btn-success btn-informe">📄 Generar Informe</button>
             </form>
             
-            <div class="columnas-config position-relative">
+            <div class="position-relative">
                 <button type="button" class="btn btn-outline-primary" id="btnConfigColumnas">📊 Configurar Columnas</button>
-                <div class="columnas-dropdown" id="dropdownColumnas" style="position: absolute; top: 100%; right: 0; z-index: 1000; background: white; border: 1px solid #dee2e6; border-radius: 0.375rem; box-shadow: 0 0.5rem 1rem rgba(0,0,0,.15); min-width: 300px; padding: 1rem; display: none;">
+                <div class="columnas-dropdown" id="dropdownColumnas">
                     <h6 class="mb-3">Seleccionar columnas a mostrar:</h6>
                     <form method="POST" id="formColumnas">
                         <?php foreach($_SESSION['columnas_visibles'] as $key => $columna): ?>
-                            <div class="form-check columna-checkbox">
+                            <div class="form-check">
                                 <input class="form-check-input" type="checkbox" name="columnas[]" value="<?= htmlspecialchars($key) ?>" id="col_<?= htmlspecialchars($key) ?>" <?= $columna['visible'] ? 'checked' : '' ?>>
                                 <label class="form-check-label" for="col_<?= htmlspecialchars($key) ?>"><?= htmlspecialchars($columna['nombre']) ?></label>
                             </div>
@@ -1376,6 +1373,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         </div>
 
         <?php
+        // CONSTRUIR CONSULTA PARA EL LISTADO
         $where = [];
         $ids_visibles = [];
 
@@ -1432,7 +1430,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         $resultado = $conexion->query($sql);
         ?>
 
-        <!-- LISTADO -->
+        <!-- TABLA DE VIAJES CORREGIDA -->
         <div class="card shadow">
             <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
                 <div>
@@ -1454,14 +1452,10 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                     <h5>📋 Acciones para los <?= count($_SESSION['seleccionados']) ?> viajes seleccionados:</h5>
                     <div class="d-flex gap-2 mt-2">
                         <form method="POST">
-                            <button type="submit" name="accion_multiple" value="editar" class="btn btn-warning">✏ Editar Seleccionados (Completo)</button>
+                            <button type="submit" name="accion_multiple" value="editar" class="btn btn-warning">✏️ Editar Seleccionados (Completo)</button>
                         </form>
                         <form method="POST">
-                            <button type="submit" name="accion_multiple" value="eliminar" class="btn btn-danger" onclick="return confirm('¿Eliminar los <?= count($_SESSION['seleccionados']) ?> registros seleccionados?')">🗑 Eliminar Seleccionados</button>
-                        </form>
-                        <form method="POST" class="ms-auto">
-                            <input type="hidden" name="limpiar_seleccion" value="1">
-                            <button type="submit" class="btn btn-outline-secondary btn-sm">Limpiar selección</button>
+                            <button type="submit" name="accion_multiple" value="eliminar" class="btn btn-danger" onclick="return confirm('¿Eliminar los <?= count($_SESSION['seleccionados']) ?> registros seleccionados?')">🗑️ Eliminar Seleccionados</button>
                         </form>
                     </div>
                 </div>
@@ -1487,21 +1481,22 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                 <div class="table-container">
                     <table class="table table-bordered table-striped table-hover align-middle">
                         <thead class="table-dark">
-                            <tr><th style="width:32px;">Sel.</th>
-                            <?php 
-                            $columnas_ordenadas = $_SESSION['columnas_visibles'];
-                            uasort($columnas_ordenadas, function($a, $b) { return $a['orden'] <=> $b['orden']; });
-                            foreach($columnas_ordenadas as $key => $columna):
-                                if (!$columna['visible']) continue;
-                                $width = '';
-                                switch($key) {
-                                    case 'id': $width = 'width: 60px;'; break;
-                                    case 'imagen': case 'epicrisis': $width = 'width: 100px;'; break;
-                                }
-                            ?>
-                                <th style="<?= $width ?>"><?= htmlspecialchars($columna['nombre']) ?></th>
-                            <?php endforeach; ?>
-                            <th style="width:160px;">Acciones</th>
+                            <tr>
+                                <th style="width: 40px;">
+                                    <input type="checkbox" id="seleccionarTodosCheckbox" style="transform: scale(1.2);">
+                                </th>
+                                <?php 
+                                $columnas_ordenadas = $_SESSION['columnas_visibles'];
+                                uasort($columnas_ordenadas, function($a, $b) { return $a['orden'] <=> $b['orden']; });
+                                foreach($columnas_ordenadas as $key => $columna):
+                                    if (!$columna['visible']) continue;
+                                    $width = '';
+                                    if ($key == 'id') $width = 'style="width: 70px;"';
+                                    if ($key == 'imagen' || $key == 'epicrisis') $width = 'style="width: 100px;"';
+                                ?>
+                                    <th <?= $width ?>><?= htmlspecialchars($columna['nombre']) ?></th>
+                                <?php endforeach; ?>
+                                <th style="width: 130px;">Acciones</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1512,45 +1507,91 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                 $esta_seleccionado = in_array($id_registro, $_SESSION['seleccionados']);
                                 $clase_fila = $row['pagado'] ? 'pagado' : 'pendiente';
                             ?>
-                                <tr id="fila_<?= $id_registro ?>" class="<?= $esta_seleccionado ? 'seleccionado' : '' ?> <?= $clase_fila ?>">
-                                    <td>
-                                        <form method="POST" class="d-inline">
+                                <tr class="<?= $esta_seleccionado ? 'seleccionado' : '' ?> <?= $clase_fila ?>">
+                                    <td class="text-center">
+                                        <form method="POST" class="d-inline toggle-form">
                                             <input type="hidden" name="toggle_seleccion" value="<?= $id_registro ?>">
-                                            <input type="checkbox" class="form-check-input checkbox-seleccion" onchange="this.form.submit()" <?= $esta_seleccionado ? 'checked' : '' ?>>
+                                            <input type="checkbox" class="form-check-input row-selector" 
+                                                   onchange="this.form.submit()" <?= $esta_seleccionado ? 'checked' : '' ?>>
                                         </form>
                                     </td>
                                     
                                     <?php foreach($columnas_ordenadas as $key => $columna): 
                                         if (!$columna['visible']) continue;
+                                        
                                         switch($key):
-                                            case 'id': ?> <tr><?= $id_registro; ?></td> <?php break;
-                                            case 'nombre': ?> <td><?= htmlspecialchars($row['nombre']); ?></td> <?php break;
-                                            case 'cedula': ?> <td><?= !empty($row['cedula']) ? htmlspecialchars($row['cedula']) : '<span class="text-muted">—</span>'; ?></td> <?php break;
-                                            case 'fecha': ?> <td><?= htmlspecialchars($row['fecha']); ?></td> <?php break;
-                                            case 'ruta': ?> <td><?= htmlspecialchars($row['ruta']); ?></td> <?php break;
-                                            case 'tipo_vehiculo': ?> <td><?= htmlspecialchars($row['tipo_vehiculo']); ?></td> <?php break;
-                                            case 'empresa': ?> <td><?= !empty($row['empresa']) ? htmlspecialchars($row['empresa']) : '<span class="text-muted">—</span>'; ?></td> <?php break;
-                                            case 'pago_parcial': ?> <td><?php if ($row['pago_parcial'] !== null && $row['pago_parcial'] !== ''): ?><span class="badge bg-info text-dark">$<?= number_format((int)$row['pago_parcial'], 0, ',', '.') ?></span><?php else: ?><span class="text-muted">—</span><?php endif; ?></td> <?php break;
-                                            case 'pagado': ?> <td><?php if ($row['pagado'] == 1): ?><span class="badge-pagado">✅ Pagado</span><?php else: ?><span class="badge-pendiente">❌ Pendiente</span><?php endif; ?></td> <?php break;
-                                            case 'imagen': ?>
+                                            case 'id': ?>
+                                                <td class="fw-bold"><?= $id_registro ?></td>
+                                                <?php break;
+                                            case 'nombre': ?>
+                                                <td><?= htmlspecialchars($row['nombre']) ?></td>
+                                                <?php break;
+                                            case 'cedula': ?>
+                                                <td><?= !empty($row['cedula']) ? htmlspecialchars($row['cedula']) : '<span class="text-muted">—</span>' ?></td>
+                                                <?php break;
+                                            case 'fecha': ?>
+                                                <td><?= htmlspecialchars($row['fecha']) ?></td>
+                                                <?php break;
+                                            case 'ruta': ?>
+                                                <td><?= htmlspecialchars($row['ruta']) ?></td>
+                                                <?php break;
+                                            case 'tipo_vehiculo': ?>
+                                                <td><?= htmlspecialchars($row['tipo_vehiculo']) ?></td>
+                                                <?php break;
+                                            case 'empresa': ?>
+                                                <td><?= !empty($row['empresa']) ? htmlspecialchars($row['empresa']) : '<span class="text-muted">—</span>' ?></td>
+                                                <?php break;
+                                            case 'pago_parcial': ?>
                                                 <td>
+                                                    <?php if ($row['pago_parcial'] !== null && $row['pago_parcial'] !== ''): ?>
+                                                        <span class="badge bg-info text-dark">$<?= number_format((int)$row['pago_parcial'], 0, ',', '.') ?></span>
+                                                    <?php else: ?>
+                                                        <span class="text-muted">—</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <?php break;
+                                            case 'pagado': ?>
+                                                <td>
+                                                    <?php if ($row['pagado'] == 1): ?>
+                                                        <span class="badge-pagado">✅ Pagado</span>
+                                                    <?php else: ?>
+                                                        <span class="badge-pendiente">❌ Pendiente</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <?php break;
+                                            case 'imagen': ?>
+                                                <td class="text-center">
                                                     <?php if(!empty($row['imagen'])): ?>
-                                                        <a href="#" data-bs-toggle="modal" data-bs-target="#imgModal<?= $id_registro; ?>">
-                                                            <img src="uploads/<?= htmlspecialchars($row['imagen']); ?>" width="70" class="rounded img-thumb" alt="Evidencia">
-                                                        </a>
-                                                        <div class="modal fade" id="imgModal<?= $id_registro; ?>" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-body text-center"><img src="uploads/<?= htmlspecialchars($row['imagen']); ?>" class="img-fluid rounded" alt="Evidencia"></div></div></div></div>
+                                                        <img src="uploads/<?= htmlspecialchars($row['imagen']) ?>" width="50" class="rounded img-thumb" 
+                                                             data-bs-toggle="modal" data-bs-target="#imgModal<?= $id_registro ?>" style="cursor: pointer;">
+                                                        <div class="modal fade" id="imgModal<?= $id_registro ?>" tabindex="-1">
+                                                            <div class="modal-dialog modal-dialog-centered">
+                                                                <div class="modal-content">
+                                                                    <div class="modal-body text-center">
+                                                                        <img src="uploads/<?= htmlspecialchars($row['imagen']) ?>" class="img-fluid rounded">
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
                                                     <?php else: ?>
                                                         <span class="text-muted">—</span>
                                                     <?php endif; ?>
                                                 </td>
                                                 <?php break;
                                             case 'epicrisis': ?>
-                                                <td>
+                                                <td class="text-center">
                                                     <?php if(!empty($row['epicrisis'])): ?>
-                                                        <a href="#" data-bs-toggle="modal" data-bs-target="#epiModal<?= $id_registro; ?>">
-                                                            <img src="uploads/<?= htmlspecialchars($row['epicrisis']); ?>" width="70" class="rounded img-thumb" alt="Epicrisis">
-                                                        </a>
-                                                        <div class="modal fade" id="epiModal<?= $id_registro; ?>" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-body text-center"><img src="uploads/<?= htmlspecialchars($row['epicrisis']); ?>" class="img-fluid rounded" alt="Epicrisis"></div></div></div></div>
+                                                        <img src="uploads/<?= htmlspecialchars($row['epicrisis']) ?>" width="50" class="rounded img-thumb" 
+                                                             data-bs-toggle="modal" data-bs-target="#epiModal<?= $id_registro ?>" style="cursor: pointer;">
+                                                        <div class="modal fade" id="epiModal<?= $id_registro ?>" tabindex="-1">
+                                                            <div class="modal-dialog modal-dialog-centered">
+                                                                <div class="modal-content">
+                                                                    <div class="modal-body text-center">
+                                                                        <img src="uploads/<?= htmlspecialchars($row['epicrisis']) ?>" class="img-fluid rounded">
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
                                                     <?php else: ?>
                                                         <span class="text-muted">—</span>
                                                     <?php endif; ?>
@@ -1560,23 +1601,57 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                     endforeach; ?>
                                     
                                     <td>
-                                        <a href="?accion=editar&id=<?= $id_registro; ?>" class="btn btn-warning btn-sm">✏ Editar</a>
-                                        <a href="?accion=eliminar&id=<?= $id_registro; ?>" class="btn btn-danger btn-sm" onclick="return confirm('¿Seguro de eliminar?')">🗑 Eliminar</a>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <a href="?accion=editar&id=<?= $id_registro ?>" class="btn btn-warning" title="Editar">✏️</a>
+                                            <a href="?accion=eliminar&id=<?= $id_registro ?>" class="btn btn-danger" title="Eliminar" onclick="return confirm('¿Seguro de eliminar este viaje?')">🗑️</a>
+                                        </div>
                                     </td>
                                 </tr>
                             <?php endwhile; ?>
                         <?php else: ?>
                             <?php 
-                            $columnas_visibles_count = count(array_filter($columnas_ordenadas, fn($c) => $c['visible']));
-                            $total_columnas = $columnas_visibles_count + 2;
+                            $total_columnas = 1; // columna de selección
+                            foreach($columnas_ordenadas as $col) if ($col['visible']) $total_columnas++;
+                            $total_columnas++; // columna de acciones
                             ?>
-                            <tr><td colspan="<?= $total_columnas ?>" class="text-center py-4">No se encontraron resultados.</td></tr>
+                            <tr>
+                                <td colspan="<?= $total_columnas ?>" class="text-center py-5">
+                                    <div class="text-muted">
+                                        <i class="bi bi-inbox" style="font-size: 2rem;"></i>
+                                        <p class="mt-2">No se encontraron viajes con los filtros seleccionados.</p>
+                                        <a href="?accion=crear" class="btn btn-success btn-sm">➕ Crear primer viaje</a>
+                                    </div>
+                                </td>
+                            </tr>
                         <?php endif; ?>
                         </tbody>
                     </table>
                 </div>
             </div>
         </div>
+        
+        <!-- Script para actualizar los inputs de IDs visibles -->
+        <script>
+            const idsVisiblesArray = <?= json_encode($ids_visibles) ?>;
+            document.getElementById('idsVisibles') && (document.getElementById('idsVisibles').value = idsVisiblesArray.join(','));
+            document.getElementById('idsVisibles2') && (document.getElementById('idsVisibles2').value = idsVisiblesArray.join(','));
+            
+            // Checkbox "seleccionar todos" en el encabezado
+            const selectAllCheckbox = document.getElementById('seleccionarTodosCheckbox');
+            if (selectAllCheckbox) {
+                selectAllCheckbox.addEventListener('change', function() {
+                    const checkboxes = document.querySelectorAll('.row-selector');
+                    checkboxes.forEach(cb => {
+                        if (cb.checked !== this.checked) {
+                            cb.checked = this.checked;
+                            // Disparar submit del formulario padre
+                            const form = cb.closest('form');
+                            if (form) form.submit();
+                        }
+                    });
+                });
+            }
+        </script>
     <?php endif; ?>
 </div>
 
@@ -1586,17 +1661,25 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
 <script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/i18n/es.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const idsVisiblesArray = <?= json_encode($ids_visibles ?? []) ?>;
-    const input1 = document.getElementById('idsVisibles');
-    const input2 = document.getElementById('idsVisibles2');
-    if (input1) input1.value = idsVisiblesArray.join(',');
-    if (input2) input2.value = idsVisiblesArray.join(',');
-    
+    // Tooltips
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
     tooltipTriggerList.map(function (tooltipTriggerEl) { return new bootstrap.Tooltip(tooltipTriggerEl); });
     
-    $('.select2-multiple').select2({ width: '100%', placeholder: function() { return $(this).data('placeholder'); }, allowClear: true, language: 'es' });
-    $('.select2-single').select2({ width: '100%', placeholder: '-- Seleccionar --', allowClear: true, language: 'es' });
+    // Select2 para selects múltiples (filtros)
+    $('.select2-multiple').select2({ 
+        width: '100%', 
+        placeholder: function() { return $(this).data('placeholder'); }, 
+        allowClear: true, 
+        language: 'es' 
+    });
+    
+    // Select2 para selects simples
+    $('.select2-single').select2({ 
+        width: '100%', 
+        placeholder: '-- Seleccionar --', 
+        allowClear: true, 
+        language: 'es' 
+    });
     
     // Función para configurar Select2 con creación de nuevos elementos
     function setupCreatableSelect2(selector, tabla, valorActual = null) {
@@ -1608,22 +1691,22 @@ document.addEventListener('DOMContentLoaded', function() {
             tags: true,
             createTag: function(params) {
                 var term = $.trim(params.term);
-                if (term === '') { return null; }
+                if (term === '') return null;
                 return {
                     id: term,
-                    text: term + ' (⚡ Crear nuevo)',
+                    text: term + ' (➕ Crear nuevo)',
                     newOption: true
                 };
             },
             templateResult: function(data) {
                 if (data.newOption) {
-                    return $('<span style="color: #0d6efd; font-weight: bold;">➕ Crear: ' + data.text.replace(' (⚡ Crear nuevo)', '') + '</span>');
+                    return $('<span style="color: #0d6efd; font-weight: bold;">➕ ' + data.text.replace(' (➕ Crear nuevo)', '') + '</span>');
                 }
                 return data.text;
             },
             templateSelection: function(data) {
                 if (data.newOption) {
-                    return data.text.replace(' (⚡ Crear nuevo)', '');
+                    return data.text.replace(' (➕ Crear nuevo)', '');
                 }
                 return data.text;
             },
@@ -1639,9 +1722,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     };
                 },
                 processResults: function(data) {
-                    return {
-                        results: data.results || []
-                    };
+                    return { results: data.results || [] };
                 },
                 cache: true
             },
@@ -1652,7 +1733,7 @@ document.addEventListener('DOMContentLoaded', function() {
         $(selector).on('select2:select', function(e) {
             var data = e.params.data;
             if (data.newOption) {
-                var nuevoValor = data.text.replace(' (⚡ Crear nuevo)', '');
+                var nuevoValor = data.text.replace(' (➕ Crear nuevo)', '');
                 $.ajax({
                     url: window.location.href,
                     type: 'POST',
@@ -1664,13 +1745,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     },
                     success: function(response) {
                         if (response.success) {
-                            // Agregar la nueva opción al select
                             var newOption = new Option(response.valor, response.valor, true, true);
                             $(selector).append(newOption).trigger('change');
-                            // Mostrar mensaje de éxito
-                            var toastHtml = '<div class="position-fixed bottom-0 end-0 p-3" style="z-index: 11"><div class="toast show" role="alert"><div class="toast-header bg-success text-white"><strong class="me-auto">✅ Éxito</strong><button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button></div><div class="toast-body">' + response.mensaje + ': ' + response.valor + '</div></div></div>';
+                            // Mostrar toast de éxito
+                            var toastHtml = '<div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1050"><div class="toast show" role="alert" data-bs-autohide="true" data-bs-delay="3000"><div class="toast-header bg-success text-white"><strong class="me-auto">✅ Éxito</strong><button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button></div><div class="toast-body">' + response.mensaje + ': ' + response.valor + '</div></div></div>';
                             $('body').append(toastHtml);
-                            setTimeout(function() { $('.toast').toast('hide'); setTimeout(function() { $('.position-fixed').remove(); }, 500); }, 3000);
+                            var toast = new bootstrap.Toast($('.toast').last()[0]);
+                            toast.show();
+                            setTimeout(function() { $('.position-fixed').last().remove(); }, 3500);
                         } else {
                             alert('Error: ' + response.mensaje);
                         }
@@ -1682,22 +1764,21 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
         
-        // Si hay un valor actual, establecerlo
         if (valorActual) {
             $(selector).val(valorActual).trigger('change');
         }
     }
     
-    // Inicializar los selectores dinámicos
+    // Inicializar selectores dinámicos en formulario crear/editar
     <?php if ($accion == 'crear' || ($accion == 'editar' && $viaje)): ?>
         setupCreatableSelect2('#nombreSelect', 'conductores', <?= json_encode($viaje['nombre'] ?? null) ?>);
         setupCreatableSelect2('#rutaSelect', 'rutas', <?= json_encode($viaje['ruta'] ?? null) ?>);
         setupCreatableSelect2('#empresaSelect', 'empresas', <?= json_encode($viaje['empresa'] ?? null) ?>);
     <?php endif; ?>
     
-    // Para edición múltiple (generales)
+    // Inicializar selectores dinámicos en edición múltiple
     <?php if ($accion == 'editar_multiple'): ?>
-        $('.select2-crear-general').each(function() {
+        $('.select2-general').each(function() {
             var tabla = '';
             if ($(this).attr('name') === 'nombre_general') tabla = 'conductores';
             if ($(this).attr('name') === 'ruta_general') tabla = 'rutas';
@@ -1709,7 +1790,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
         
-        $('.select2-crear-fila').each(function() {
+        $('.select2-fila').each(function() {
             var tabla = '';
             if ($(this).attr('name') && $(this).attr('name').startsWith('nombre_')) tabla = 'conductores';
             if ($(this).attr('name') && $(this).attr('name').startsWith('ruta_')) tabla = 'rutas';
@@ -1722,19 +1803,34 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     <?php endif; ?>
     
+    // Configuración de columnas dropdown
     const btnConfig = document.getElementById('btnConfigColumnas');
     const dropdown = document.getElementById('dropdownColumnas');
     if (btnConfig && dropdown) {
-        btnConfig.addEventListener('click', function(e) { e.stopPropagation(); dropdown.classList.toggle('show'); });
-        document.addEventListener('click', function(e) { if (!dropdown.contains(e.target) && !btnConfig.contains(e.target)) dropdown.classList.remove('show'); });
-        dropdown.addEventListener('click', function(e) { e.stopPropagation(); });
+        btnConfig.addEventListener('click', function(e) { 
+            e.stopPropagation(); 
+            dropdown.classList.toggle('show'); 
+        });
+        document.addEventListener('click', function(e) { 
+            if (dropdown && !dropdown.contains(e.target) && !btnConfig.contains(e.target)) 
+                dropdown.classList.remove('show'); 
+        });
+        if (dropdown) dropdown.addEventListener('click', function(e) { e.stopPropagation(); });
     }
 });
 
+// Confirmación para edición múltiple
 document.getElementById('formEditarMultiple')?.addEventListener('submit', function(e) {
     const totalRegistros = <?= count($viajes_seleccionados ?? []) ?>;
-    if (totalRegistros === 0) { e.preventDefault(); alert('No hay registros para editar.'); return false; }
-    if (!confirm(`¿Estás seguro de editar ${totalRegistros} registros?`)) { e.preventDefault(); return false; }
+    if (totalRegistros === 0) { 
+        e.preventDefault(); 
+        alert('No hay registros para editar.'); 
+        return false; 
+    }
+    if (!confirm(`¿Estás seguro de editar ${totalRegistros} registros?`)) { 
+        e.preventDefault(); 
+        return false; 
+    }
 });
 </script>
 </body>
