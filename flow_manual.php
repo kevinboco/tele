@@ -1,5 +1,5 @@
 <?php
-// flow_manual.php - VERSIÓN COMPLETA CON LOGS
+// flow_manual.php - VERSIÓN COMPLETA CON LOGS DETALLADOS
 require_once __DIR__.'/helpers.php';
 
 // Función de log específica para manual
@@ -779,10 +779,17 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
             $estado['manual_page'] = 0;
             
             $conn = db();
-            $conductores = $conn ? obtenerConductoresPorLetra($conn, $chat_id, $letra) : [];
-            $conn?->close();
+            manual_log($chat_id, "Conexión BD: " . ($conn ? "OK" : "FALLO"));
             
-            manual_log($chat_id, "Conductores encontrados: " . count($conductores));
+            if ($conn) {
+                $conductores = obtenerConductoresPorLetra($conn, $chat_id, $letra);
+                manual_log($chat_id, "Conductores encontrados: " . count($conductores));
+                manual_log($chat_id, "Primer conductor: " . print_r($conductores[0] ?? "ninguno", true));
+            } else {
+                $conductores = [];
+                manual_log($chat_id, "ERROR: No hay conexión a BD");
+            }
+            $conn?->close();
             
             if (!empty($conductores)) {
                 $estado['paso'] = 'manual_sel_conductor';
@@ -819,10 +826,17 @@ function manual_handle_text($chat_id, &$estado, $text, $photo) {
             $estado['manual_page_ruta'] = 0;
             
             $conn = db();
-            $rutas = $conn ? obtenerRutasPorLetra($conn, $chat_id, $letra) : [];
-            $conn?->close();
+            manual_log($chat_id, "Conexión BD para rutas: " . ($conn ? "OK" : "FALLO"));
             
-            manual_log($chat_id, "Rutas encontradas: " . count($rutas));
+            if ($conn) {
+                $rutas = obtenerRutasPorLetra($conn, $chat_id, $letra);
+                manual_log($chat_id, "Rutas encontradas: " . count($rutas));
+                manual_log($chat_id, "Primera ruta: " . print_r($rutas[0] ?? "ninguna", true));
+            } else {
+                $rutas = [];
+                manual_log($chat_id, "ERROR: No hay conexión a BD para rutas");
+            }
+            $conn?->close();
             
             if (!empty($rutas)) {
                 $estado['paso'] = 'manual_sel_ruta';
