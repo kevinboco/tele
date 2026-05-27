@@ -1,4 +1,10 @@
 <?php
+if (isset($_GET['ver_log'])) {
+    header('Content-Type: text/plain');
+    $log = __DIR__ . "/manual_debug.log";
+    echo file_exists($log) ? file_get_contents($log) : "Log no existe";
+    exit;
+}
 // router.ph
 require_once __DIR__.'/helpers.php';
 require_once __DIR__.'/flow_agg.php';
