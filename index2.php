@@ -1,5 +1,5 @@
 <?php
-// index2.php - Sistema completo de gestión de viajes con INFORME y SELECTORES DINÁMICOS (CORREGIDO)
+// index2.php - Sistema completo de gestión de viajes con INFORME y SELECTORES DINÁMICOS + CAMPO WHATSAPP
 
 // SIEMPRE primero la sesión, sin imprimir nada antes
 session_start();
@@ -28,7 +28,8 @@ $columnas_disponibles = [
     'pago_parcial' => ['nombre' => 'Pago Parcial', 'visible' => true, 'orden' => 8],
     'pagado' => ['nombre' => 'Pagado', 'visible' => true, 'orden' => 9],
     'imagen' => ['nombre' => 'Evidencia', 'visible' => true, 'orden' => 10],
-    'epicrisis' => ['nombre' => 'Epicrisis', 'visible' => true, 'orden' => 11]
+    'epicrisis' => ['nombre' => 'Epicrisis', 'visible' => true, 'orden' => 11],
+    'whatsapp' => ['nombre' => 'WhatsApp', 'visible' => true, 'orden' => 12]  // NUEVA COLUMNA
 ];
 
 if (!isset($_SESSION['columnas_visibles'])) {
@@ -250,6 +251,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             : "NULL";
         $pago_parcial = normalizarPagoParcial($conexion, $_POST['pago_parcial'] ?? null);
         $pagado = isset($_POST['pagado']) ? 1 : 0;
+        $whatsapp = isset($_POST['whatsapp']) && trim($_POST['whatsapp']) !== ''
+            ? "'" . $conexion->real_escape_string($_POST['whatsapp']) . "'"
+            : "NULL";
         $imagen_nombre = procesarSubidaArchivo('imagen');
         $imagen_valor = $imagen_nombre ? "'" . $conexion->real_escape_string($imagen_nombre) . "'" : "NULL";
         $epicrisis_nombre = procesarSubidaArchivo('epicrisis');
@@ -259,8 +263,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $_SESSION['error'] = "Los campos Nombre, Fecha, Ruta y Vehículo son obligatorios.";
             $accion = 'crear';
         } else {
-            $sql = "INSERT INTO viajes (nombre, cedula, fecha, ruta, tipo_vehiculo, empresa, imagen, epicrisis, pago_parcial, pagado) 
-                    VALUES ('$nombre', $cedula, '$fecha', '$ruta', '$tipo_vehiculo', $empresa, $imagen_valor, $epicrisis_valor, $pago_parcial, $pagado)";
+            $sql = "INSERT INTO viajes (nombre, cedula, fecha, ruta, tipo_vehiculo, empresa, imagen, epicrisis, whatsapp, pago_parcial, pagado) 
+                    VALUES ('$nombre', $cedula, '$fecha', '$ruta', '$tipo_vehiculo', $empresa, $imagen_valor, $epicrisis_valor, $whatsapp, $pago_parcial, $pagado)";
             
             if ($conexion->query($sql)) {
                 header("Location: ?msg=creado");
@@ -286,6 +290,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             : "NULL";
         $pago_parcial = normalizarPagoParcial($conexion, $_POST['pago_parcial'] ?? null);
         $pagado = isset($_POST['pagado']) ? 1 : 0;
+        $whatsapp = isset($_POST['whatsapp']) && trim($_POST['whatsapp']) !== ''
+            ? "'" . $conexion->real_escape_string($_POST['whatsapp']) . "'"
+            : "NULL";
         
         $sql_actual = "SELECT nombre, cedula, fecha, ruta, tipo_vehiculo, empresa, pago_parcial FROM viajes WHERE id = $id";
         $res_actual = $conexion->query($sql_actual);
@@ -342,7 +349,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     tipo_vehiculo = '$tipo_vehiculo',
                     empresa = $empresa,
                     pago_parcial = $pago_parcial,
-                    pagado = $pagado
+                    pagado = $pagado,
+                    whatsapp = $whatsapp
                     $imagen_campo
                     $epicrisis_campo
                     WHERE id = $id";
@@ -391,6 +399,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $empresa_key  = "empresa_$id_viaje";
             $pago_key     = "pago_parcial_$id_viaje";
             $pagado_key   = "pagado_$id_viaje";
+            $whatsapp_key = "whatsapp_$id_viaje";
             
             $nombre = isset($_POST[$nombre_key]) && trim($_POST[$nombre_key]) !== '' 
                 ? "'" . $conexion->real_escape_string($_POST[$nombre_key]) . "'"
@@ -442,6 +451,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $pagado_valor = $pagado_general;
             }
             
+            $whatsapp = "NULL";
+            if (isset($_POST[$whatsapp_key]) && trim($_POST[$whatsapp_key]) !== '') {
+                $whatsapp = "'" . $conexion->real_escape_string($_POST[$whatsapp_key]) . "'";
+            } elseif (isset($_POST['whatsapp_general']) && trim($_POST['whatsapp_general']) !== '') {
+                $whatsapp = "'" . $conexion->real_escape_string($_POST['whatsapp_general']) . "'";
+            }
+            
             if (!$nombre || !$fecha || !$ruta || !$tipo_vehiculo) {
                 continue;
             }
@@ -458,7 +474,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     ruta = $ruta,
                     tipo_vehiculo = $tipo_vehiculo,
                     empresa = $empresa,
-                    pago_parcial = IFNULL($pago_parcial, pago_parcial)";
+                    pago_parcial = IFNULL($pago_parcial, pago_parcial),
+                    whatsapp = IFNULL($whatsapp, whatsapp)";
             
             if ($pagado_valor !== null) {
                 $sql .= ", pagado = $pagado_valor";
@@ -614,7 +631,7 @@ if ($accion == 'informe') {
             .info-filtros { background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; border-left: 4px solid #0d6efd; }
             table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
             th { background: #343a40; color: white; padding: 12px 8px; text-align: left; font-weight: bold; }
-            td { border: 1px solid #dee2e6; padding: 8px; vertical-align: top; }
+            td { border: 1px solid #dee2e6; padding: 8px; vertical-align: top; white-space: pre-wrap; }
             tr:nth-child(even) { background: #f8f9fa; }
             tr.pagado { background-color: #d4edda !important; }
             tr.pendiente { background-color: #f8d7da !important; }
@@ -655,11 +672,13 @@ if ($accion == 'informe') {
         <?php if ($resultado && $resultado->num_rows > 0): ?>
             <div class="total-registros">📋 Total de registros: <?= $resultado->num_rows ?></div>
             <table>
-                <thead><tr>
-                    <?php foreach($columnas_visibles as $key => $columna): if ($columna['visible']): ?>
-                        <th><?= htmlspecialchars($columna['nombre']) ?></th>
-                    <?php endif; endforeach; ?>
-                </tr></thead>
+                <thead>
+                    <tr>
+                        <?php foreach($columnas_visibles as $key => $columna): if ($columna['visible']): ?>
+                            <th><?= htmlspecialchars($columna['nombre']) ?></th>
+                        <?php endif; endforeach; ?>
+                    </tr>
+                </thead>
                 <tbody>
                     <?php while($row = $resultado->fetch_assoc()): 
                         $clase_fila = $row['pagado'] ? 'pagado' : 'pendiente';
@@ -678,6 +697,7 @@ if ($accion == 'informe') {
                                     case 'pagado': ?> <td><?php if ($row['pagado'] == 1): ?><span class="badge-pagado">✅ Pagado</span><?php else: ?><span class="badge-pendiente">❌ Pendiente</span><?php endif; ?></td> <?php break;
                                     case 'imagen': ?> <td><?php if(!empty($row['imagen'])): ?><img src="uploads/<?= htmlspecialchars($row['imagen']) ?>" class="img-informe" onerror="this.style.display='none'"><?php else: ?>—<?php endif; ?></td> <?php break;
                                     case 'epicrisis': ?> <td><?php if(!empty($row['epicrisis'])): ?><img src="uploads/<?= htmlspecialchars($row['epicrisis']) ?>" class="img-informe" onerror="this.style.display='none'"><?php else: ?>—<?php endif; ?></td> <?php break;
+                                    case 'whatsapp': ?> <td><?php if(!empty($row['whatsapp'])): ?><div style="white-space: pre-wrap; word-break: break-word;"><?= nl2br(htmlspecialchars($row['whatsapp'])) ?></div><?php else: ?>—<?php endif; ?></td> <?php break;
                                 endswitch; ?>
                             <?php endforeach; ?>
                         </tr>
@@ -766,6 +786,8 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         .select2-container--default .select2-selection--single .select2-selection__arrow { height: 36px; }
         .columnas-dropdown { position: absolute; top: 100%; right: 0; z-index: 1000; background: white; border: 1px solid #dee2e6; border-radius: 0.375rem; box-shadow: 0 0.5rem 1rem rgba(0,0,0,.15); min-width: 300px; padding: 1rem; display: none; }
         .columnas-dropdown.show { display: block; }
+        td { white-space: pre-wrap; word-break: break-word; vertical-align: top; }
+        .whatsapp-cell { white-space: pre-wrap; word-break: break-word; max-width: 400px; min-width: 250px; }
     </style>
 </head>
 <body class="bg-light">
@@ -975,6 +997,14 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                 <input type="file" name="epicrisis" class="form-control" accept="image/*">
                             </div>
                             
+                            <!-- NUEVO CAMPO WHATSAPP -->
+                            <div class="mb-3">
+                                <label class="form-label">💬 Mensaje original de WhatsApp</label>
+                                <textarea name="whatsapp" class="form-control" rows="5" 
+                                          placeholder="Pega aquí el mensaje original copiado del grupo de WhatsApp...&#10;Ejemplo:&#10;Buenos días, necesito un viaje para Juan Pérez&#10;Cédula: 12345678&#10;Ruta: Nazareth&#10;Vehículo: camión&#10;Empresa: Transportes Unidos&#10;Pago: $80,000"><?= htmlspecialchars($viaje['whatsapp'] ?? '') ?></textarea>
+                                <small class="text-muted">Guarda el mensaje original sin formato para poder comparar después si se transcribió correctamente.</small>
+                            </div>
+                            
                             <div class="d-flex justify-content-between">
                                 <a href="?" class="btn btn-secondary">Cancelar</a>
                                 <button type="submit" class="btn <?= $accion == 'crear' ? 'btn-success' : 'btn-warning' ?>">
@@ -1086,6 +1116,11 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                 ?>
                                             </select>
                                         </div>
+                                        <div class="col-md-12">
+                                            <label class="form-label">WhatsApp (general)</label>
+                                            <textarea name="whatsapp_general" class="form-control" rows="3" placeholder="Pega aquí el mensaje de WhatsApp para aplicar a todos los registros seleccionados..."></textarea>
+                                            <small class="text-muted">Si se deja vacío, no se modificará este campo en los registros.</small>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -1105,6 +1140,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                             <th>Pagado</th>
                                             <th>Evidencia</th>
                                             <th>Epicrisis</th>
+                                            <th>WhatsApp</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -1127,13 +1163,13 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                         }
                                                         ?>
                                                     </select>
-                                                 </td>
+                                                </td>
                                                 <td>
                                                     <input type="text" name="cedula_<?= $id_multi ?>" class="form-control form-control-sm" value="<?= htmlspecialchars($viaje_multi['cedula'] ?? '') ?>">
-                                                 </td>
+                                                </td>
                                                 <td>
                                                     <input type="date" name="fecha_<?= $id_multi ?>" class="form-control form-control-sm" value="<?= htmlspecialchars($viaje_multi['fecha']) ?>">
-                                                 </td>
+                                                </td>
                                                 <td>
                                                     <select name="ruta_<?= $id_multi ?>" class="form-select form-select-sm select2-fila">
                                                         <option value="<?= htmlspecialchars($viaje_multi['ruta']) ?>"><?= htmlspecialchars($viaje_multi['ruta']) ?></option>
@@ -1148,7 +1184,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                         }
                                                         ?>
                                                     </select>
-                                                 </td>
+                                                </td>
                                                 <td>
                                                     <select name="tipo_vehiculo_<?= $id_multi ?>" class="form-select form-select-sm select2-single">
                                                         <option value="">-- Seleccionar --</option>
@@ -1156,7 +1192,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                             <option value="<?= htmlspecialchars($vehItem) ?>" <?= ($vehItem == $viaje_multi['tipo_vehiculo']) ? 'selected' : '' ?>><?= htmlspecialchars($vehItem) ?></option>
                                                         <?php endforeach; ?>
                                                     </select>
-                                                 </td>
+                                                </td>
                                                 <td>
                                                     <select name="empresa_<?= $id_multi ?>" class="form-select form-select-sm select2-fila">
                                                         <option value="">-- Ninguna --</option>
@@ -1172,10 +1208,10 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                         }
                                                         ?>
                                                     </select>
-                                                 </td>
+                                                </td>
                                                 <td>
                                                     <input type="number" min="0" step="1" name="pago_parcial_<?= $id_multi ?>" class="form-control form-control-sm" value="<?= htmlspecialchars($viaje_multi['pago_parcial'] ?? '') ?>" placeholder="(vacío = no cambia)">
-                                                 </td>
+                                                </td>
                                                 <td class="text-center">
                                                     <input type="checkbox" name="pagado_<?= $id_multi ?>" value="1" <?= $viaje_multi['pagado'] ? 'checked' : '' ?>>
                                                 </td>
@@ -1195,7 +1231,10 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                         <span class="text-muted">—</span>
                                                     <?php endif; ?>
                                                 </td>
-                                            </table>
+                                                <td>
+                                                    <textarea name="whatsapp_<?= $id_multi ?>" class="form-control form-control-sm" rows="3" placeholder="Mensaje original de WhatsApp..."><?= htmlspecialchars($viaje_multi['whatsapp'] ?? '') ?></textarea>
+                                                </td>
+                                            </tr>
                                         <?php endforeach; ?>
                                     </tbody>
                                 </table>
@@ -1211,7 +1250,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             </div>
         </div>
 
-    <!-- ================== LISTADO PRINCIPAL (CORREGIDO) ================== -->
+    <!-- ================== LISTADO PRINCIPAL ================== -->
     <?php else: ?>
         <?php if (!empty($_SESSION['seleccionados'])): ?>
             <div class="alert alert-info alert-dismissible fade show">
@@ -1430,7 +1469,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         $resultado = $conexion->query($sql);
         ?>
 
-        <!-- TABLA DE VIAJES CORREGIDA -->
+        <!-- TABLA DE VIAJES -->
         <div class="card shadow">
             <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
                 <div>
@@ -1493,6 +1532,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                     $width = '';
                                     if ($key == 'id') $width = 'style="width: 70px;"';
                                     if ($key == 'imagen' || $key == 'epicrisis') $width = 'style="width: 100px;"';
+                                    if ($key == 'whatsapp') $width = 'style="min-width: 300px; max-width: 500px;"';
                                 ?>
                                     <th <?= $width ?>><?= htmlspecialchars($columna['nombre']) ?></th>
                                 <?php endforeach; ?>
@@ -1591,6 +1631,17 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                                     </div>
                                                                 </div>
                                                             </div>
+                                                        </div>
+                                                    <?php else: ?>
+                                                        <span class="text-muted">—</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <?php break;
+                                            case 'whatsapp': ?>
+                                                <td class="whatsapp-cell">
+                                                    <?php if(!empty($row['whatsapp'])): ?>
+                                                        <div style="white-space: pre-wrap; word-break: break-word; font-family: monospace; font-size: 12px; background: #f8f9fa; padding: 8px; border-radius: 5px; max-height: 200px; overflow-y: auto;">
+                                                            <?= nl2br(htmlspecialchars($row['whatsapp'])) ?>
                                                         </div>
                                                     <?php else: ?>
                                                         <span class="text-muted">—</span>
@@ -1803,7 +1854,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     <?php endif; ?>
     
-    // Configuración de columnas dropdo
+    // Configuración de columnas dropdown
     const btnConfig = document.getElementById('btnConfigColumnas');
     const dropdown = document.getElementById('dropdownColumnas');
     if (btnConfig && dropdown) {
