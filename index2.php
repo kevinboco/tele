@@ -1803,7 +1803,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     <?php endif; ?>
     
-    // Configuración de columnas dropdown
+    // Configuración de columnas dropdo
     const btnConfig = document.getElementById('btnConfigColumnas');
     const dropdown = document.getElementById('dropdownColumnas');
     if (btnConfig && dropdown) {
