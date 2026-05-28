@@ -1,5 +1,6 @@
 <?php
-// index2.php - Sistema completo de gestión de viajes con INFORME y SELECTORES DINÁMICOS + CAMPO WHATSAPP (VERSIÓN TABLA ANCHA Y COMPACTA)
+// index2.php - Sistema completo de gestión de viajes con INFORME y SELECTORES DINÁMICOS + CAMPO WHATSAPP
+// VERSIÓN: Encabezado fijo + WhatsApp con altura para 4 líneas
 
 // SIEMPRE primero la sesión, sin imprimir nada antes
 session_start();
@@ -630,7 +631,7 @@ if ($accion == 'informe') {
             h1 { color: #333; border-bottom: 2px solid #333; padding-bottom: 10px; }
             .info-filtros { background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; border-left: 4px solid #0d6efd; }
             table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
-            th { background: #343a40; color: white; padding: 12px 8px; text-align: left; font-weight: bold; }
+            th { background: #343a40; color: white; padding: 12px 8px; text-align: left; font-weight: bold; position: sticky; top: 0; z-index: 10; }
             td { border: 1px solid #dee2e6; padding: 8px; vertical-align: top; white-space: pre-wrap; }
             tr:nth-child(even) { background: #f8f9fa; }
             tr.pagado { background-color: #d4edda !important; }
@@ -645,6 +646,7 @@ if ($accion == 'informe') {
             @media print { .no-print { display: none; } }
             .btn-print { background: #0d6efd; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-bottom: 20px; }
             .btn-cerrar { background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-bottom: 20px; }
+            .whatsapp-content-informe { white-space: pre-wrap; word-break: break-word; max-height: 100px; overflow-y: auto; font-size: 12px; background: #f8f9fa; padding: 5px; border-radius: 4px; }
         </style>
     </head>
     <body>
@@ -671,39 +673,41 @@ if ($accion == 'informe') {
         </div>
         <?php if ($resultado && $resultado->num_rows > 0): ?>
             <div class="total-registros">📋 Total de registros: <?= $resultado->num_rows ?></div>
-            <table>
-                <thead>
-                    <tr>
-                        <?php foreach($columnas_visibles as $key => $columna): if ($columna['visible']): ?>
-                            <th><?= htmlspecialchars($columna['nombre']) ?></th>
-                        <?php endif; endforeach; ?>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php while($row = $resultado->fetch_assoc()): 
-                        $clase_fila = $row['pagado'] ? 'pagado' : 'pendiente';
-                    ?>
-                        <tr class="<?= $clase_fila ?>">
-                            <?php foreach($columnas_visibles as $key => $columna): if (!$columna['visible']) continue; ?>
-                                <?php switch($key): 
-                                    case 'id': ?> <td><?= (int)$row['id'] ?></td> <?php break;
-                                    case 'nombre': ?> <td><?= htmlspecialchars($row['nombre']) ?></td> <?php break;
-                                    case 'cedula': ?> <td><?= !empty($row['cedula']) ? htmlspecialchars($row['cedula']) : '—' ?></td> <?php break;
-                                    case 'fecha': ?> <td><?= date('d/m/Y', strtotime($row['fecha'])) ?></td> <?php break;
-                                    case 'ruta': ?> <td><?= htmlspecialchars($row['ruta']) ?></td> <?php break;
-                                    case 'tipo_vehiculo': ?> <td><?= htmlspecialchars($row['tipo_vehiculo']) ?></td> <?php break;
-                                    case 'empresa': ?> <td><?= !empty($row['empresa']) ? htmlspecialchars($row['empresa']) : '—' ?></td> <?php break;
-                                    case 'pago_parcial': ?> <td><?php if ($row['pago_parcial'] !== null && $row['pago_parcial'] !== ''): ?>$<?= number_format((int)$row['pago_parcial'], 0, ',', '.') ?><?php else: ?>—<?php endif; ?></td> <?php break;
-                                    case 'pagado': ?> <td><?php if ($row['pagado'] == 1): ?><span class="badge-pagado">✅ Pagado</span><?php else: ?><span class="badge-pendiente">❌ Pendiente</span><?php endif; ?></td> <?php break;
-                                    case 'imagen': ?> <td><?php if(!empty($row['imagen'])): ?><img src="uploads/<?= htmlspecialchars($row['imagen']) ?>" class="img-informe" onerror="this.style.display='none'"><?php else: ?>—<?php endif; ?></td> <?php break;
-                                    case 'epicrisis': ?> <td><?php if(!empty($row['epicrisis'])): ?><img src="uploads/<?= htmlspecialchars($row['epicrisis']) ?>" class="img-informe" onerror="this.style.display='none'"><?php else: ?>—<?php endif; ?></td> <?php break;
-                                    case 'whatsapp': ?> <td><?php if(!empty($row['whatsapp'])): ?><div style="white-space: pre-wrap; word-break: break-word; max-height: 80px; overflow-y: auto; font-size: 12px;"><?= nl2br(htmlspecialchars($row['whatsapp'])) ?></div><?php else: ?>—<?php endif; ?></td> <?php break;
-                                endswitch; ?>
-                            <?php endforeach; ?>
+            <div style="overflow-x: auto; max-height: 80vh; overflow-y: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <?php foreach($columnas_visibles as $key => $columna): if ($columna['visible']): ?>
+                                <th><?= htmlspecialchars($columna['nombre']) ?></th>
+                            <?php endif; endforeach; ?>
                         </tr>
-                    <?php endwhile; ?>
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        <?php while($row = $resultado->fetch_assoc()): 
+                            $clase_fila = $row['pagado'] ? 'pagado' : 'pendiente';
+                        ?>
+                            <tr class="<?= $clase_fila ?>">
+                                <?php foreach($columnas_visibles as $key => $columna): if (!$columna['visible']) continue; ?>
+                                    <?php switch($key): 
+                                        case 'id': ?> <td><?= (int)$row['id'] ?></td> <?php break;
+                                        case 'nombre': ?> <td><?= htmlspecialchars($row['nombre']) ?></td> <?php break;
+                                        case 'cedula': ?> <td><?= !empty($row['cedula']) ? htmlspecialchars($row['cedula']) : '—' ?></td> <?php break;
+                                        case 'fecha': ?> <td><?= date('d/m/Y', strtotime($row['fecha'])) ?></td> <?php break;
+                                        case 'ruta': ?> <td><?= htmlspecialchars($row['ruta']) ?></td> <?php break;
+                                        case 'tipo_vehiculo': ?> <td><?= htmlspecialchars($row['tipo_vehiculo']) ?></td> <?php break;
+                                        case 'empresa': ?> <td><?= !empty($row['empresa']) ? htmlspecialchars($row['empresa']) : '—' ?></td> <?php break;
+                                        case 'pago_parcial': ?> <td><?php if ($row['pago_parcial'] !== null && $row['pago_parcial'] !== ''): ?>$<?= number_format((int)$row['pago_parcial'], 0, ',', '.') ?><?php else: ?>—<?php endif; ?></td> <?php break;
+                                        case 'pagado': ?> <td><?php if ($row['pagado'] == 1): ?><span class="badge-pagado">✅ Pagado</span><?php else: ?><span class="badge-pendiente">❌ Pendiente</span><?php endif; ?></td> <?php break;
+                                        case 'imagen': ?> <td><?php if(!empty($row['imagen'])): ?><img src="uploads/<?= htmlspecialchars($row['imagen']) ?>" class="img-informe" onerror="this.style.display='none'"><?php else: ?>—<?php endif; ?></td> <?php break;
+                                        case 'epicrisis': ?> <td><?php if(!empty($row['epicrisis'])): ?><img src="uploads/<?= htmlspecialchars($row['epicrisis']) ?>" class="img-informe" onerror="this.style.display='none'"><?php else: ?>—<?php endif; ?></td> <?php break;
+                                        case 'whatsapp': ?> <td><?php if(!empty($row['whatsapp'])): ?><div class="whatsapp-content-informe"><?= nl2br(htmlspecialchars($row['whatsapp'])) ?></div><?php else: ?>—<?php endif; ?></td> <?php break;
+                                    endswitch; ?>
+                                <?php endforeach; ?>
+                            </tr>
+                        <?php endwhile; ?>
+                    </tbody>
+                </table>
+            </div>
         <?php else: ?>
             <div style="text-align: center; padding: 50px; background: #f8f9fa; border-radius: 5px;">
                 <h3 style="color: #666;">📭 No hay registros para mostrar</h3>
@@ -773,7 +777,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         .seleccionado { background-color: rgba(25, 135, 84, 0.1) !important; }
         .checkbox-seleccion { cursor: pointer; }
         .sticky-actions { position: sticky; top: 0; z-index: 1000; background: white; padding: 15px; margin: -15px -15px 15px -15px; border-bottom: 1px solid #dee2e6; box-shadow: 0 2px 4px rgba(0,0,0,.1); }
-        .table-container { max-height: 70vh; overflow-y: auto; }
+        .table-container { max-height: 70vh; overflow-y: auto; position: relative; }
         .form-control-sm { padding: 0.25rem 0.5rem; font-size: 0.875rem; }
         .btn-informe { background-color: #198754; color: white; }
         .btn-informe:hover { background-color: #157347; color: white; }
@@ -791,6 +795,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         .tabla-ancha {
             width: 100%;
             font-size: 13px;
+            border-collapse: collapse;
         }
         .tabla-ancha th,
         .tabla-ancha td {
@@ -801,11 +806,18 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             white-space: pre-wrap;
             word-break: break-word;
         }
-        /* Celda WhatsApp con scroll de 3 líneas (~60px) */
-        .whatsapp-cell {
-            max-width: 350px;
-            min-width: 200px;
+        
+        /* ENCABEZADO FIJO (STICKY) - LO QUE PEDISTE */
+        .table-container thead th {
+            position: sticky;
+            top: 0;
+            background-color: #212529;
+            color: white;
+            z-index: 20;
+            box-shadow: 0 2px 2px -1px rgba(0,0,0,0.2);
         }
+        
+        /* WhatsApp: altura para ver 4 líneas (~80px) - LO QUE PEDISTE */
         .whatsapp-content {
             white-space: pre-wrap;
             word-break: break-word;
@@ -814,10 +826,11 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             background: #f8f9fa;
             padding: 6px;
             border-radius: 4px;
-            max-height: 60px;
+            max-height: 80px;
             overflow-y: auto;
-            line-height: 1.3;
+            line-height: 1.4;
         }
+        
         /* Contenedor de la tabla fuera del container para que ocupe todo el ancho */
         .full-width-table {
             width: 100vw;
@@ -1169,9 +1182,9 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                 </div>
                             </div>
                             
-                            <div class="table-container mb-4" style="overflow-x: auto;">
+                            <div class="table-container mb-4" style="overflow-x: auto; max-height: 60vh; overflow-y: auto;">
                                 <table class="table table-bordered table-striped table-sm align-middle" style="font-size: 13px;">
-                                    <thead class="table-dark sticky-top" style="top: 0;">
+                                    <thead class="table-dark" style="position: sticky; top: 0; z-index: 10;">
                                         <tr>
                                             <th>ID</th>
                                             <th>Nombre</th>
@@ -1193,7 +1206,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                         ?>
                                             <tr class="<?= $viaje_multi['pagado'] ? 'pagado' : 'pendiente' ?>">
                                                 <td class="fw-bold"><?= $id_multi ?></td>
-                                                <td>
+                                                <tr>
                                                     <select name="nombre_<?= $id_multi ?>" class="form-select form-select-sm select2-fila">
                                                         <option value="<?= htmlspecialchars($viaje_multi['nombre']) ?>"><?= htmlspecialchars($viaje_multi['nombre']) ?></option>
                                                         <?php
@@ -1211,7 +1224,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                 <td>
                                                     <input type="text" name="cedula_<?= $id_multi ?>" class="form-control form-control-sm" value="<?= htmlspecialchars($viaje_multi['cedula'] ?? '') ?>">
                                                 </td>
-                                                <tr>
+                                                <td>
                                                     <input type="date" name="fecha_<?= $id_multi ?>" class="form-control form-control-sm" value="<?= htmlspecialchars($viaje_multi['fecha']) ?>">
                                                 </td>
                                                 <td>
@@ -1229,7 +1242,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                         ?>
                                                     </select>
                                                 </td>
-                                                <td>
+                                                <tr>
                                                     <select name="tipo_vehiculo_<?= $id_multi ?>" class="form-select form-select-sm select2-single">
                                                         <option value="">-- Seleccionar --</option>
                                                         <?php foreach($listas['vehiculos'] as $vehItem): ?>
@@ -1276,7 +1289,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                     <?php endif; ?>
                                                 </td>
                                                 <td>
-                                                    <textarea name="whatsapp_<?= $id_multi ?>" class="form-control form-control-sm" rows="3" placeholder="Mensaje original de WhatsApp..." style="font-size: 11px;"><?= htmlspecialchars($viaje_multi['whatsapp'] ?? '') ?></textarea>
+                                                    <textarea name="whatsapp_<?= $id_multi ?>" class="form-control form-control-sm" rows="3" placeholder="Mensaje original de WhatsApp..." style="font-size: 11px; font-family: monospace;"><?= htmlspecialchars($viaje_multi['whatsapp'] ?? '') ?></textarea>
                                                 </td>
                                             </tr>
                                         <?php endforeach; ?>
@@ -1544,7 +1557,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
 
                 <div class="table-container" style="margin: 0 15px;">
                     <table class="table table-bordered table-striped table-hover tabla-ancha">
-                        <thead class="table-dark">
+                        <thead>
                             <tr>
                                 <th style="width: 40px;">
                                     <input type="checkbox" id="seleccionarTodosCheckbox" style="transform: scale(1.2);">
