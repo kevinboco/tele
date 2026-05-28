@@ -1,6 +1,7 @@
 <?php
 // index2.php - Sistema completo de gestión de viajes con INFORME y SELECTORES DINÁMICOS + CAMPO WHATSAPP
-// VERSIÓN: Encabezado fijo + WhatsApp con altura AUTOMÁTICA (se adapta al texto)
+// VERSIÓN: Encabezdo fijo + WhatsApp con altura AUTOMÁTICA (se adapta al texto)
+// VERSIÓN 2: MANTIENE FILTROS Y SCROLL después de guardar
 
 // SIEMPRE primero la sesión, sin imprimir nada antes
 session_start();
@@ -42,13 +43,24 @@ if (isset($_POST['actualizar_columnas'])) {
     foreach ($columnas_disponibles as $key => $columna) {
         $_SESSION['columnas_visibles'][$key]['visible'] = in_array($key, $columnas_seleccionadas);
     }
-    header("Location: " . strtok($_SERVER["REQUEST_URI"], '?'));
+    // Mantener filtros al cambiar columnas
+    $filtros_str = $_POST['filtros_ocultos'] ?? '';
+    if ($filtros_str) {
+        header("Location: ?" . $filtros_str);
+    } else {
+        header("Location: " . strtok($_SERVER["REQUEST_URI"], '?'));
+    }
     exit();
 }
 
 if (isset($_POST['restablecer_columnas'])) {
     $_SESSION['columnas_visibles'] = $columnas_disponibles;
-    header("Location: " . strtok($_SERVER["REQUEST_URI"], '?'));
+    $filtros_str = $_POST['filtros_ocultos'] ?? '';
+    if ($filtros_str) {
+        header("Location: ?" . $filtros_str);
+    } else {
+        header("Location: " . strtok($_SERVER["REQUEST_URI"], '?'));
+    }
     exit();
 }
 
@@ -114,6 +126,54 @@ function procesarSubidaArchivo($campo) {
         }
     }
     return null;
+}
+
+// ================== FUNCIÓN PARA CONSTRUIR URL DE FILTROS ==================
+function construirUrlFiltros() {
+    $params = [];
+    
+    if (!empty($_GET['nombre']) && is_array($_GET['nombre'])) {
+        foreach($_GET['nombre'] as $val) {
+            if (trim($val) !== '') $params['nombre'][] = $val;
+        }
+    }
+    if (!empty($_GET['cedula']) && is_array($_GET['cedula'])) {
+        foreach($_GET['cedula'] as $val) {
+            if (trim($val) !== '') $params['cedula'][] = $val;
+        }
+    }
+    if (!empty($_GET['desde'])) $params['desde'] = $_GET['desde'];
+    if (!empty($_GET['hasta'])) $params['hasta'] = $_GET['hasta'];
+    if (isset($_GET['pagado']) && $_GET['pagado'] !== '') $params['pagado'] = $_GET['pagado'];
+    if (!empty($_GET['ruta']) && is_array($_GET['ruta'])) {
+        foreach($_GET['ruta'] as $val) {
+            if (trim($val) !== '') $params['ruta'][] = $val;
+        }
+    }
+    if (!empty($_GET['vehiculo']) && is_array($_GET['vehiculo'])) {
+        foreach($_GET['vehiculo'] as $val) {
+            if (trim($val) !== '') $params['vehiculo'][] = $val;
+        }
+    }
+    if (!empty($_GET['empresa']) && is_array($_GET['empresa'])) {
+        foreach($_GET['empresa'] as $val) {
+            if (trim($val) !== '') $params['empresa'][] = $val;
+        }
+    }
+    
+    if (empty($params)) return '';
+    
+    $url = '';
+    foreach($params as $key => $value) {
+        if (is_array($value)) {
+            foreach($value as $v) {
+                $url .= '&' . urlencode($key) . '[]=' . urlencode($v);
+            }
+        } else {
+            $url .= '&' . urlencode($key) . '=' . urlencode($value);
+        }
+    }
+    return ltrim($url, '&');
 }
 
 // ================== ENDPOINTS AJAX PARA SELECTORES DINÁMICOS ==================
@@ -268,7 +328,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     VALUES ('$nombre', $cedula, '$fecha', '$ruta', '$tipo_vehiculo', $empresa, $imagen_valor, $epicrisis_valor, $whatsapp, $pago_parcial, $pagado)";
             
             if ($conexion->query($sql)) {
-                header("Location: ?msg=creado");
+                $filtros_url = construirUrlFiltros();
+                if ($filtros_url) {
+                    header("Location: ?msg=creado&" . $filtros_url);
+                } else {
+                    header("Location: ?msg=creado");
+                }
                 exit();
             } else {
                 $_SESSION['error'] = "Error al crear: " . $conexion->error;
@@ -357,6 +422,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     WHERE id = $id";
             
             if ($conexion->query($sql)) {
+                $filtros_url = construirUrlFiltros();
+                $scroll_pos = isset($_POST['scroll_pos']) ? (int)$_POST['scroll_pos'] : 0;
+                
                 if ($solo_cambio_cedula && !empty($cedula_nueva)) {
                     $nombre_escapado = $conexion->real_escape_string($nombre);
                     $valor_cedula = empty($cedula_nueva) ? "NULL" : "'" . $conexion->real_escape_string($cedula_nueva) . "'";
@@ -365,11 +433,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                    AND id != $id";
                     if ($conexion->query($sql_masivo)) {
                         $registros_afectados = $conexion->affected_rows;
-                        header("Location: ?msg=editado_con_cedula&afectados=$registros_afectados&nombre=" . urlencode($nombre));
+                        if ($filtros_url) {
+                            header("Location: ?msg=editado_con_cedula&afectados=$registros_afectados&scroll_pos=$scroll_pos&nombre=" . urlencode($nombre) . "&" . $filtros_url);
+                        } else {
+                            header("Location: ?msg=editado_con_cedula&afectados=$registros_afectados&scroll_pos=$scroll_pos&nombre=" . urlencode($nombre));
+                        }
                         exit();
                     }
                 }
-                header("Location: ?msg=editado");
+                
+                if ($filtros_url) {
+                    header("Location: ?msg=editado&scroll_pos=$scroll_pos&" . $filtros_url);
+                } else {
+                    header("Location: ?msg=editado&scroll_pos=$scroll_pos");
+                }
                 exit();
             } else {
                 $_SESSION['error'] = "Error al actualizar: " . $conexion->error;
@@ -380,7 +457,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     
     elseif (isset($_POST['editar_multiple_completo'])) {
         if (empty($_SESSION['seleccionados'])) {
-            header("Location: ?error=no_ids");
+            $filtros_url = construirUrlFiltros();
+            if ($filtros_url) {
+                header("Location: ?error=no_ids&" . $filtros_url);
+            } else {
+                header("Location: ?error=no_ids");
+            }
             exit();
         }
         
@@ -490,13 +572,23 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
         
         $_SESSION['seleccionados'] = [];
-        header("Location: ?msg=multi_editado&count=$actualizados");
+        $filtros_url = construirUrlFiltros();
+        if ($filtros_url) {
+            header("Location: ?msg=multi_editado&count=$actualizados&" . $filtros_url);
+        } else {
+            header("Location: ?msg=multi_editado&count=$actualizados");
+        }
         exit();
     }
     
     elseif (isset($_POST['accion_multiple'])) {
         if (empty($_SESSION['seleccionados'])) {
-            header("Location: ?error=no_ids");
+            $filtros_url = construirUrlFiltros();
+            if ($filtros_url) {
+                header("Location: ?error=no_ids&" . $filtros_url);
+            } else {
+                header("Location: ?error=no_ids");
+            }
             exit();
         }
         
@@ -507,14 +599,29 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $sql = "DELETE FROM viajes WHERE id IN ($ids_str)";
             if ($conexion->query($sql)) {
                 $_SESSION['seleccionados'] = [];
-                header("Location: ?msg=multi_eliminado&count=" . count($ids));
+                $filtros_url = construirUrlFiltros();
+                if ($filtros_url) {
+                    header("Location: ?msg=multi_eliminado&count=" . count($ids) . "&" . $filtros_url);
+                } else {
+                    header("Location: ?msg=multi_eliminado&count=" . count($ids));
+                }
             } else {
-                header("Location: ?error=eliminar");
+                $filtros_url = construirUrlFiltros();
+                if ($filtros_url) {
+                    header("Location: ?error=eliminar&" . $filtros_url);
+                } else {
+                    header("Location: ?error=eliminar");
+                }
             }
             exit();
         }
         elseif ($_POST['accion_multiple'] == 'editar') {
-            header("Location: ?accion=editar_multiple");
+            $filtros_url = construirUrlFiltros();
+            if ($filtros_url) {
+                header("Location: ?accion=editar_multiple&" . $filtros_url);
+            } else {
+                header("Location: ?accion=editar_multiple");
+            }
             exit();
         }
     }
@@ -528,10 +635,20 @@ if ($accion == 'eliminar' && $id > 0) {
             unset($_SESSION['seleccionados'][$key]);
             $_SESSION['seleccionados'] = array_values($_SESSION['seleccionados']);
         }
-        header("Location: ?msg=eliminado");
+        $filtros_url = construirUrlFiltros();
+        if ($filtros_url) {
+            header("Location: ?msg=eliminado&" . $filtros_url);
+        } else {
+            header("Location: ?msg=eliminado");
+        }
         exit();
     } else {
-        header("Location: ?error=eliminar");
+        $filtros_url = construirUrlFiltros();
+        if ($filtros_url) {
+            header("Location: ?error=eliminar&" . $filtros_url);
+        } else {
+            header("Location: ?error=eliminar");
+        }
         exit();
     }
 }
@@ -761,6 +878,9 @@ if ($res) while($r = $res->fetch_assoc()) $listas['empresas'][] = $r['empresa'];
 
 $error_msg = $_SESSION['error'] ?? null;
 if (isset($_SESSION['error'])) unset($_SESSION['error']);
+
+// Obtener scroll position de la URL si existe
+$scroll_pos = isset($_GET['scroll_pos']) ? (int)$_GET['scroll_pos'] : 0;
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -912,6 +1032,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                             <?php if ($accion == 'editar'): ?>
                                 <input type="hidden" name="id" value="<?= (int)$id ?>">
                                 <input type="hidden" name="editar" value="1">
+                                <input type="hidden" name="scroll_pos" id="scroll_pos_input" value="0">
                             <?php else: ?>
                                 <input type="hidden" name="crear" value="1">
                             <?php endif; ?>
@@ -1061,7 +1182,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                             </div>
                             
                             <div class="d-flex justify-content-between">
-                                <a href="?" class="btn btn-secondary">Cancelar</a>
+                                <a href="?<?= htmlspecialchars(construirUrlFiltros()) ?>" class="btn btn-secondary">Cancelar</a>
                                 <button type="submit" class="btn <?= $accion == 'crear' ? 'btn-success' : 'btn-warning' ?>">
                                     <?= $accion == 'crear' ? 'Crear Viaje' : 'Guardar Cambios' ?>
                                 </button>
@@ -1296,7 +1417,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                             </div>
                             
                             <div class="d-flex justify-content-between">
-                                <a href="?" class="btn btn-secondary">Cancelar</a>
+                                <a href="?<?= htmlspecialchars(construirUrlFiltros()) ?>" class="btn btn-secondary">Cancelar</a>
                                 <button type="submit" class="btn btn-warning">Guardar Cambios en <?= (int)$total_seleccionados ?> Registros</button>
                             </div>
                         </form>
@@ -1327,15 +1448,27 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
 
         <div class="d-flex justify-content-end mb-3 gap-2">
             <form method="GET" action="" target="_blank">
-                <?php foreach($_GET as $key => $value) {
-                    if ($key != 'accion') {
-                        if (is_array($value)) {
-                            foreach($value as $v) echo '<input type="hidden" name="' . htmlspecialchars($key) . '[]" value="' . htmlspecialchars($v) . '">';
-                        } else {
-                            echo '<input type="hidden" name="' . htmlspecialchars($key) . '" value="' . htmlspecialchars($value) . '">';
-                        }
-                    }
-                } ?>
+                <?php 
+                // Pasar todos los filtros actuales al informe
+                if (!empty($_GET['nombre']) && is_array($_GET['nombre'])) {
+                    foreach($_GET['nombre'] as $v) echo '<input type="hidden" name="nombre[]" value="' . htmlspecialchars($v) . '">';
+                }
+                if (!empty($_GET['cedula']) && is_array($_GET['cedula'])) {
+                    foreach($_GET['cedula'] as $v) echo '<input type="hidden" name="cedula[]" value="' . htmlspecialchars($v) . '">';
+                }
+                if (!empty($_GET['desde'])) echo '<input type="hidden" name="desde" value="' . htmlspecialchars($_GET['desde']) . '">';
+                if (!empty($_GET['hasta'])) echo '<input type="hidden" name="hasta" value="' . htmlspecialchars($_GET['hasta']) . '">';
+                if (isset($_GET['pagado']) && $_GET['pagado'] !== '') echo '<input type="hidden" name="pagado" value="' . htmlspecialchars($_GET['pagado']) . '">';
+                if (!empty($_GET['ruta']) && is_array($_GET['ruta'])) {
+                    foreach($_GET['ruta'] as $v) echo '<input type="hidden" name="ruta[]" value="' . htmlspecialchars($v) . '">';
+                }
+                if (!empty($_GET['vehiculo']) && is_array($_GET['vehiculo'])) {
+                    foreach($_GET['vehiculo'] as $v) echo '<input type="hidden" name="vehiculo[]" value="' . htmlspecialchars($v) . '">';
+                }
+                if (!empty($_GET['empresa']) && is_array($_GET['empresa'])) {
+                    foreach($_GET['empresa'] as $v) echo '<input type="hidden" name="empresa[]" value="' . htmlspecialchars($v) . '">';
+                }
+                ?>
                 <input type="hidden" name="accion" value="informe">
                 <button type="submit" class="btn btn-success btn-informe">📄 Generar Informe</button>
             </form>
@@ -1351,6 +1484,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                 <label class="form-check-label" for="col_<?= htmlspecialchars($key) ?>"><?= htmlspecialchars($columna['nombre']) ?></label>
                             </div>
                         <?php endforeach; ?>
+                        <input type="hidden" name="filtros_ocultos" value="<?= htmlspecialchars(construirUrlFiltros()) ?>">
                         <div class="mt-3 d-flex justify-content-between">
                             <button type="submit" name="actualizar_columnas" class="btn btn-sm btn-primary">Aplicar cambios</button>
                             <button type="submit" name="restablecer_columnas" class="btn btn-sm btn-secondary">Restablecer todas</button>
@@ -1553,8 +1687,8 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                     <?php endif; ?>
                 </div>
 
-                <div class="table-container" style="margin: 0 15px;">
-                    <table class="table table-bordered table-striped table-hover tabla-ancha">
+                <div class="table-container" id="tableContainer" style="margin: 0 15px;">
+                    <table class="table table-bordered table-striped table-hover tabla-ancha" id="tablaViajes">
                         <thead>
                             <tr>
                                 <th style="width: 40px;">
@@ -1690,8 +1824,8 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                     
                                     <td>
                                         <div class="btn-group btn-group-sm" role="group">
-                                            <a href="?accion=editar&id=<?= $id_registro ?>" class="btn btn-warning" title="Editar">✏️</a>
-                                            <a href="?accion=eliminar&id=<?= $id_registro ?>" class="btn btn-danger" title="Eliminar" onclick="return confirm('¿Seguro de eliminar este viaje?')">🗑️</a>
+                                            <a href="?accion=editar&id=<?= $id_registro ?>&<?= htmlspecialchars(construirUrlFiltros()) ?>&scroll_pos=' + (tableContainer?.scrollTop || 0) + '" class="btn btn-warning" title="Editar" id="editLink_<?= $id_registro ?>">✏️</a>
+                                            <a href="?accion=eliminar&id=<?= $id_registro ?>&<?= htmlspecialchars(construirUrlFiltros()) ?>" class="btn btn-danger" title="Eliminar" onclick="return confirm('¿Seguro de eliminar este viaje?')">🗑️</a>
                                         </div>
                                     </td>
                                 </tr>
@@ -1721,6 +1855,32 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             const idsVisiblesArray = <?= json_encode($ids_visibles) ?>;
             document.getElementById('idsVisibles') && (document.getElementById('idsVisibles').value = idsVisiblesArray.join(','));
             document.getElementById('idsVisibles2') && (document.getElementById('idsVisibles2').value = idsVisiblesArray.join(','));
+            
+            // RESTAURAR SCROLL POSITION
+            const tableContainer = document.getElementById('tableContainer');
+            const scrollPos = <?= (int)$scroll_pos ?>;
+            
+            if (tableContainer && scrollPos > 0) {
+                tableContainer.scrollTop = scrollPos;
+            }
+            
+            // Guardar scroll position antes de enviar el formulario de edición
+            const scrollPosInput = document.getElementById('scroll_pos_input');
+            if (scrollPosInput && tableContainer) {
+                scrollPosInput.value = tableContainer.scrollTop;
+            }
+            
+            // Para los enlaces de edición, añadir el scroll actual
+            document.querySelectorAll('[id^="editLink_"]').forEach(link => {
+                link.addEventListener('click', function(e) {
+                    if (tableContainer) {
+                        const currentScroll = tableContainer.scrollTop;
+                        const url = this.getAttribute('href');
+                        const separator = url.includes('?') ? '&' : '?';
+                        this.setAttribute('href', url + separator + 'scroll_pos=' + currentScroll);
+                    }
+                });
+            });
             
             const selectAllCheckbox = document.getElementById('seleccionarTodosCheckbox');
             if (selectAllCheckbox) {
