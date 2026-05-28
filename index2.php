@@ -1,6 +1,6 @@
 <?php
 // index2.php - Sistema completo de gestión de viajes con INFORME y SELECTORES DINÁMICOS + CAMPO WHATSAPP
-// VERSIÓN: Encabezado fijo + WhatsApp con altura para 4 líneas
+// VERSIÓN: Encabezado fijo + WhatsApp con altura AUTOMÁTICA (se adapta al texto)
 
 // SIEMPRE primero la sesión, sin imprimir nada antes
 session_start();
@@ -646,7 +646,7 @@ if ($accion == 'informe') {
             @media print { .no-print { display: none; } }
             .btn-print { background: #0d6efd; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-bottom: 20px; }
             .btn-cerrar { background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-bottom: 20px; }
-            .whatsapp-content-informe { white-space: pre-wrap; word-break: break-word; max-height: 100px; overflow-y: auto; font-size: 12px; background: #f8f9fa; padding: 5px; border-radius: 4px; }
+            .whatsapp-content-informe { white-space: pre-wrap; word-break: break-word; font-size: 12px; background: #f8f9fa; padding: 5px; border-radius: 4px; }
         </style>
     </head>
     <body>
@@ -807,7 +807,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             word-break: break-word;
         }
         
-        /* ENCABEZADO FIJO (STICKY) - LO QUE PEDISTE */
+        /* ENCABEZADO FIJO (STICKY) */
         .table-container thead th {
             position: sticky;
             top: 0;
@@ -817,7 +817,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             box-shadow: 0 2px 2px -1px rgba(0,0,0,0.2);
         }
         
-        /* WhatsApp: altura para ver 4 líneas (~80px) - LO QUE PEDISTE */
+        /* WhatsApp: SIN límite de altura, se adapta automáticamente al contenido */
         .whatsapp-content {
             white-space: pre-wrap;
             word-break: break-word;
@@ -826,8 +826,6 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             background: #f8f9fa;
             padding: 6px;
             border-radius: 4px;
-            max-height: 80px;
-            overflow-y: auto;
             line-height: 1.4;
         }
         
@@ -1206,7 +1204,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                         ?>
                                             <tr class="<?= $viaje_multi['pagado'] ? 'pagado' : 'pendiente' ?>">
                                                 <td class="fw-bold"><?= $id_multi ?></td>
-                                                <tr>
+                                                <td>
                                                     <select name="nombre_<?= $id_multi ?>" class="form-select form-select-sm select2-fila">
                                                         <option value="<?= htmlspecialchars($viaje_multi['nombre']) ?>"><?= htmlspecialchars($viaje_multi['nombre']) ?></option>
                                                         <?php
@@ -1242,7 +1240,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                         ?>
                                                     </select>
                                                 </td>
-                                                <tr>
+                                                <td>
                                                     <select name="tipo_vehiculo_<?= $id_multi ?>" class="form-select form-select-sm select2-single">
                                                         <option value="">-- Seleccionar --</option>
                                                         <?php foreach($listas['vehiculos'] as $vehItem): ?>
@@ -1677,7 +1675,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                 </td>
                                                 <?php break;
                                             case 'whatsapp': ?>
-                                                <td class="whatsapp-cell">
+                                                <td>
                                                     <?php if(!empty($row['whatsapp'])): ?>
                                                         <div class="whatsapp-content">
                                                             <?= nl2br(htmlspecialchars($row['whatsapp'])) ?>
