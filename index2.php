@@ -1,5 +1,5 @@
 <?php
-// index2.php - Sistema completo de gestión de viajes con INFORME y SELECTORES DINÁMICOS + CAMPO WHATSAPP
+// index2.php - Sistema completo de gestión de viajes con INFORME y SELECTORES DINÁMICOS + CAMPO WHATSAPP (VERSIÓN TABLA ANCHA Y COMPACTA)
 
 // SIEMPRE primero la sesión, sin imprimir nada antes
 session_start();
@@ -29,7 +29,7 @@ $columnas_disponibles = [
     'pagado' => ['nombre' => 'Pagado', 'visible' => true, 'orden' => 9],
     'imagen' => ['nombre' => 'Evidencia', 'visible' => true, 'orden' => 10],
     'epicrisis' => ['nombre' => 'Epicrisis', 'visible' => true, 'orden' => 11],
-    'whatsapp' => ['nombre' => 'WhatsApp', 'visible' => true, 'orden' => 12]  // NUEVA COLUMNA
+    'whatsapp' => ['nombre' => 'WhatsApp', 'visible' => true, 'orden' => 12]
 ];
 
 if (!isset($_SESSION['columnas_visibles'])) {
@@ -697,7 +697,7 @@ if ($accion == 'informe') {
                                     case 'pagado': ?> <td><?php if ($row['pagado'] == 1): ?><span class="badge-pagado">✅ Pagado</span><?php else: ?><span class="badge-pendiente">❌ Pendiente</span><?php endif; ?></td> <?php break;
                                     case 'imagen': ?> <td><?php if(!empty($row['imagen'])): ?><img src="uploads/<?= htmlspecialchars($row['imagen']) ?>" class="img-informe" onerror="this.style.display='none'"><?php else: ?>—<?php endif; ?></td> <?php break;
                                     case 'epicrisis': ?> <td><?php if(!empty($row['epicrisis'])): ?><img src="uploads/<?= htmlspecialchars($row['epicrisis']) ?>" class="img-informe" onerror="this.style.display='none'"><?php else: ?>—<?php endif; ?></td> <?php break;
-                                    case 'whatsapp': ?> <td><?php if(!empty($row['whatsapp'])): ?><div style="white-space: pre-wrap; word-break: break-word;"><?= nl2br(htmlspecialchars($row['whatsapp'])) ?></div><?php else: ?>—<?php endif; ?></td> <?php break;
+                                    case 'whatsapp': ?> <td><?php if(!empty($row['whatsapp'])): ?><div style="white-space: pre-wrap; word-break: break-word; max-height: 80px; overflow-y: auto; font-size: 12px;"><?= nl2br(htmlspecialchars($row['whatsapp'])) ?></div><?php else: ?>—<?php endif; ?></td> <?php break;
                                 endswitch; ?>
                             <?php endforeach; ?>
                         </tr>
@@ -773,21 +773,65 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         .seleccionado { background-color: rgba(25, 135, 84, 0.1) !important; }
         .checkbox-seleccion { cursor: pointer; }
         .sticky-actions { position: sticky; top: 0; z-index: 1000; background: white; padding: 15px; margin: -15px -15px 15px -15px; border-bottom: 1px solid #dee2e6; box-shadow: 0 2px 4px rgba(0,0,0,.1); }
-        .table-container { max-height: 600px; overflow-y: auto; }
+        .table-container { max-height: 70vh; overflow-y: auto; }
         .form-control-sm { padding: 0.25rem 0.5rem; font-size: 0.875rem; }
         .btn-informe { background-color: #198754; color: white; }
         .btn-informe:hover { background-color: #157347; color: white; }
         tr.pagado { background-color: #d4edda !important; }
         tr.pendiente { background-color: #f8d7da !important; }
-        .badge-pagado { background-color: #28a745; color: white; padding: 5px 10px; border-radius: 4px; }
-        .badge-pendiente { background-color: #dc3545; color: white; padding: 5px 10px; border-radius: 4px; }
+        .badge-pagado { background-color: #28a745; color: white; padding: 5px 10px; border-radius: 4px; font-size: 12px; }
+        .badge-pendiente { background-color: #dc3545; color: white; padding: 5px 10px; border-radius: 4px; font-size: 12px; }
         .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 38px; }
         .select2-container--default .select2-selection--single { height: 38px; }
         .select2-container--default .select2-selection--single .select2-selection__arrow { height: 36px; }
         .columnas-dropdown { position: absolute; top: 100%; right: 0; z-index: 1000; background: white; border: 1px solid #dee2e6; border-radius: 0.375rem; box-shadow: 0 0.5rem 1rem rgba(0,0,0,.15); min-width: 300px; padding: 1rem; display: none; }
         .columnas-dropdown.show { display: block; }
-        td { white-space: pre-wrap; word-break: break-word; vertical-align: top; }
-        .whatsapp-cell { white-space: pre-wrap; word-break: break-word; max-width: 400px; min-width: 250px; }
+        
+        /* Estilos para tabla COMPACTA y de ANCHO COMPLETO */
+        .tabla-ancha {
+            width: 100%;
+            font-size: 13px;
+        }
+        .tabla-ancha th,
+        .tabla-ancha td {
+            padding: 6px 8px;
+            vertical-align: top;
+        }
+        .tabla-ancha td {
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        /* Celda WhatsApp con scroll de 3 líneas (~60px) */
+        .whatsapp-cell {
+            max-width: 350px;
+            min-width: 200px;
+        }
+        .whatsapp-content {
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-family: monospace;
+            font-size: 11px;
+            background: #f8f9fa;
+            padding: 6px;
+            border-radius: 4px;
+            max-height: 60px;
+            overflow-y: auto;
+            line-height: 1.3;
+        }
+        /* Contenedor de la tabla fuera del container para que ocupe todo el ancho */
+        .full-width-table {
+            width: 100vw;
+            position: relative;
+            left: 50%;
+            right: 50%;
+            margin-left: -50vw;
+            margin-right: -50vw;
+            padding-left: 15px;
+            padding-right: 15px;
+        }
+        .table-responsive-full {
+            overflow-x: auto;
+        }
     </style>
 </head>
 <body class="bg-light">
@@ -997,7 +1041,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                 <input type="file" name="epicrisis" class="form-control" accept="image/*">
                             </div>
                             
-                            <!-- NUEVO CAMPO WHATSAPP -->
+                            <!-- CAMPO WHATSAPP -->
                             <div class="mb-3">
                                 <label class="form-label">💬 Mensaje original de WhatsApp</label>
                                 <textarea name="whatsapp" class="form-control" rows="5" 
@@ -1125,8 +1169,8 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                 </div>
                             </div>
                             
-                            <div class="table-container mb-4">
-                                <table class="table table-bordered table-striped table-sm align-middle">
+                            <div class="table-container mb-4" style="overflow-x: auto;">
+                                <table class="table table-bordered table-striped table-sm align-middle" style="font-size: 13px;">
                                     <thead class="table-dark sticky-top" style="top: 0;">
                                         <tr>
                                             <th>ID</th>
@@ -1140,7 +1184,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                             <th>Pagado</th>
                                             <th>Evidencia</th>
                                             <th>Epicrisis</th>
-                                            <th>WhatsApp</th>
+                                            <th style="min-width: 250px;">WhatsApp</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -1167,7 +1211,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                 <td>
                                                     <input type="text" name="cedula_<?= $id_multi ?>" class="form-control form-control-sm" value="<?= htmlspecialchars($viaje_multi['cedula'] ?? '') ?>">
                                                 </td>
-                                                <td>
+                                                <tr>
                                                     <input type="date" name="fecha_<?= $id_multi ?>" class="form-control form-control-sm" value="<?= htmlspecialchars($viaje_multi['fecha']) ?>">
                                                 </td>
                                                 <td>
@@ -1217,7 +1261,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                 </td>
                                                 <td class="text-center">
                                                     <?php if(!empty($viaje_multi['imagen'])): ?>
-                                                        <img src="uploads/<?= htmlspecialchars($viaje_multi['imagen']) ?>" width="50" class="rounded img-thumb" data-bs-toggle="modal" data-bs-target="#imgModal<?= $id_multi ?>">
+                                                        <img src="uploads/<?= htmlspecialchars($viaje_multi['imagen']) ?>" width="40" class="rounded img-thumb" data-bs-toggle="modal" data-bs-target="#imgModal<?= $id_multi ?>">
                                                         <div class="modal fade" id="imgModal<?= $id_multi ?>" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-body text-center"><img src="uploads/<?= htmlspecialchars($viaje_multi['imagen']) ?>" class="img-fluid rounded"></div></div></div></div>
                                                     <?php else: ?>
                                                         <span class="text-muted">—</span>
@@ -1225,14 +1269,14 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                                 </td>
                                                 <td class="text-center">
                                                     <?php if(!empty($viaje_multi['epicrisis'])): ?>
-                                                        <img src="uploads/<?= htmlspecialchars($viaje_multi['epicrisis']) ?>" width="50" class="rounded img-thumb" data-bs-toggle="modal" data-bs-target="#epiModal<?= $id_multi ?>">
+                                                        <img src="uploads/<?= htmlspecialchars($viaje_multi['epicrisis']) ?>" width="40" class="rounded img-thumb" data-bs-toggle="modal" data-bs-target="#epiModal<?= $id_multi ?>">
                                                         <div class="modal fade" id="epiModal<?= $id_multi ?>" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-body text-center"><img src="uploads/<?= htmlspecialchars($viaje_multi['epicrisis']) ?>" class="img-fluid rounded"></div></div></div></div>
                                                     <?php else: ?>
                                                         <span class="text-muted">—</span>
                                                     <?php endif; ?>
                                                 </td>
                                                 <td>
-                                                    <textarea name="whatsapp_<?= $id_multi ?>" class="form-control form-control-sm" rows="3" placeholder="Mensaje original de WhatsApp..."><?= htmlspecialchars($viaje_multi['whatsapp'] ?? '') ?></textarea>
+                                                    <textarea name="whatsapp_<?= $id_multi ?>" class="form-control form-control-sm" rows="3" placeholder="Mensaje original de WhatsApp..." style="font-size: 11px;"><?= htmlspecialchars($viaje_multi['whatsapp'] ?? '') ?></textarea>
                                                 </td>
                                             </tr>
                                         <?php endforeach; ?>
@@ -1250,7 +1294,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             </div>
         </div>
 
-    <!-- ================== LISTADO PRINCIPAL ================== -->
+    <!-- ================== LISTADO PRINCIPAL CON TABLA DE ANCHO COMPLETO ================== -->
     <?php else: ?>
         <?php if (!empty($_SESSION['seleccionados'])): ?>
             <div class="alert alert-info alert-dismissible fade show">
@@ -1305,7 +1349,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             </div>
         </div>
 
-        <!-- FILTROS -->
+        <!-- FILTROS (se quedan centrados dentro del container) -->
         <div class="card shadow mb-4">
             <div class="card-header bg-primary text-white">
                 <h3 class="mb-0">🔍 Filtros de búsqueda (multiselect)</h3>
@@ -1469,39 +1513,10 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         $resultado = $conexion->query($sql);
         ?>
 
-        <!-- TABLA DE VIAJES -->
-        <div class="card shadow">
-            <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
-                <div>
-                    <h3 class="mb-0">📋 Listado de Viajes</h3>
-                    <?php if ($resultado): ?>
-                        <small class="text-light">Mostrando <?= $resultado->num_rows ?> resultado(s)</small>
-                    <?php endif; ?>
-                </div>
-                <div class="d-flex gap-2">
-                    <?php if (!empty($_SESSION['seleccionados'])): ?>
-                        <span class="badge bg-success align-self-center">✅ <?= count($_SESSION['seleccionados']) ?> seleccionado(s)</span>
-                    <?php endif; ?>
-                    <a href="?accion=crear" class="btn btn-success">➕ Nuevo Viaje</a>
-                </div>
-            </div>
-            
-            <?php if (!empty($_SESSION['seleccionados'])): ?>
-                <div class="sticky-actions">
-                    <h5>📋 Acciones para los <?= count($_SESSION['seleccionados']) ?> viajes seleccionados:</h5>
-                    <div class="d-flex gap-2 mt-2">
-                        <form method="POST">
-                            <button type="submit" name="accion_multiple" value="editar" class="btn btn-warning">✏️ Editar Seleccionados (Completo)</button>
-                        </form>
-                        <form method="POST">
-                            <button type="submit" name="accion_multiple" value="eliminar" class="btn btn-danger" onclick="return confirm('¿Eliminar los <?= count($_SESSION['seleccionados']) ?> registros seleccionados?')">🗑️ Eliminar Seleccionados</button>
-                        </form>
-                    </div>
-                </div>
-            <?php endif; ?>
-            
-            <div class="card-body">
-                <div class="mb-3 d-flex justify-content-between align-items-center bg-light p-3 rounded">
+        <!-- TABLA DE VIAJES - ANCHO COMPLETO (FUERA DEL CONTAINER) -->
+        <div class="full-width-table">
+            <div class="table-responsive-full">
+                <div class="mb-3 d-flex justify-content-between align-items-center bg-light p-3 rounded" style="margin-left: 15px; margin-right: 15px;">
                     <div>
                         <strong>Selección múltiple:</strong>
                         <form method="POST" class="d-inline ms-2">
@@ -1515,10 +1530,20 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                             <button type="submit" class="btn btn-sm btn-outline-secondary">❌ Deseleccionar todos los visibles</button>
                         </form>
                     </div>
+                    <?php if (!empty($_SESSION['seleccionados'])): ?>
+                        <div class="d-flex gap-2">
+                            <form method="POST">
+                                <button type="submit" name="accion_multiple" value="editar" class="btn btn-warning btn-sm">✏️ Editar Seleccionados</button>
+                            </form>
+                            <form method="POST">
+                                <button type="submit" name="accion_multiple" value="eliminar" class="btn btn-danger btn-sm" onclick="return confirm('¿Eliminar los <?= count($_SESSION['seleccionados']) ?> registros seleccionados?')">🗑️ Eliminar</button>
+                            </form>
+                        </div>
+                    <?php endif; ?>
                 </div>
 
-                <div class="table-container">
-                    <table class="table table-bordered table-striped table-hover align-middle">
+                <div class="table-container" style="margin: 0 15px;">
+                    <table class="table table-bordered table-striped table-hover tabla-ancha">
                         <thead class="table-dark">
                             <tr>
                                 <th style="width: 40px;">
@@ -1530,13 +1555,14 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                 foreach($columnas_ordenadas as $key => $columna):
                                     if (!$columna['visible']) continue;
                                     $width = '';
-                                    if ($key == 'id') $width = 'style="width: 70px;"';
-                                    if ($key == 'imagen' || $key == 'epicrisis') $width = 'style="width: 100px;"';
-                                    if ($key == 'whatsapp') $width = 'style="min-width: 300px; max-width: 500px;"';
+                                    if ($key == 'id') $width = 'style="width: 60px;"';
+                                    if ($key == 'imagen' || $key == 'epicrisis') $width = 'style="width: 80px;"';
+                                    if ($key == 'whatsapp') $width = 'style="width: 300px;"';
+                                    if ($key == 'pagado') $width = 'style="width: 100px;"';
                                 ?>
                                     <th <?= $width ?>><?= htmlspecialchars($columna['nombre']) ?></th>
                                 <?php endforeach; ?>
-                                <th style="width: 130px;">Acciones</th>
+                                <th style="width: 80px;">Acciones</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1602,7 +1628,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                             case 'imagen': ?>
                                                 <td class="text-center">
                                                     <?php if(!empty($row['imagen'])): ?>
-                                                        <img src="uploads/<?= htmlspecialchars($row['imagen']) ?>" width="50" class="rounded img-thumb" 
+                                                        <img src="uploads/<?= htmlspecialchars($row['imagen']) ?>" width="40" class="rounded img-thumb" 
                                                              data-bs-toggle="modal" data-bs-target="#imgModal<?= $id_registro ?>" style="cursor: pointer;">
                                                         <div class="modal fade" id="imgModal<?= $id_registro ?>" tabindex="-1">
                                                             <div class="modal-dialog modal-dialog-centered">
@@ -1621,7 +1647,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                             case 'epicrisis': ?>
                                                 <td class="text-center">
                                                     <?php if(!empty($row['epicrisis'])): ?>
-                                                        <img src="uploads/<?= htmlspecialchars($row['epicrisis']) ?>" width="50" class="rounded img-thumb" 
+                                                        <img src="uploads/<?= htmlspecialchars($row['epicrisis']) ?>" width="40" class="rounded img-thumb" 
                                                              data-bs-toggle="modal" data-bs-target="#epiModal<?= $id_registro ?>" style="cursor: pointer;">
                                                         <div class="modal fade" id="epiModal<?= $id_registro ?>" tabindex="-1">
                                                             <div class="modal-dialog modal-dialog-centered">
@@ -1640,7 +1666,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                             case 'whatsapp': ?>
                                                 <td class="whatsapp-cell">
                                                     <?php if(!empty($row['whatsapp'])): ?>
-                                                        <div style="white-space: pre-wrap; word-break: break-word; font-family: monospace; font-size: 12px; background: #f8f9fa; padding: 8px; border-radius: 5px; max-height: 200px; overflow-y: auto;">
+                                                        <div class="whatsapp-content">
                                                             <?= nl2br(htmlspecialchars($row['whatsapp'])) ?>
                                                         </div>
                                                     <?php else: ?>
@@ -1668,7 +1694,6 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                             <tr>
                                 <td colspan="<?= $total_columnas ?>" class="text-center py-5">
                                     <div class="text-muted">
-                                        <i class="bi bi-inbox" style="font-size: 2rem;"></i>
                                         <p class="mt-2">No se encontraron viajes con los filtros seleccionados.</p>
                                         <a href="?accion=crear" class="btn btn-success btn-sm">➕ Crear primer viaje</a>
                                     </div>
@@ -1681,13 +1706,11 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             </div>
         </div>
         
-        <!-- Script para actualizar los inputs de IDs visibles -->
         <script>
             const idsVisiblesArray = <?= json_encode($ids_visibles) ?>;
             document.getElementById('idsVisibles') && (document.getElementById('idsVisibles').value = idsVisiblesArray.join(','));
             document.getElementById('idsVisibles2') && (document.getElementById('idsVisibles2').value = idsVisiblesArray.join(','));
             
-            // Checkbox "seleccionar todos" en el encabezado
             const selectAllCheckbox = document.getElementById('seleccionarTodosCheckbox');
             if (selectAllCheckbox) {
                 selectAllCheckbox.addEventListener('change', function() {
@@ -1695,7 +1718,6 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                     checkboxes.forEach(cb => {
                         if (cb.checked !== this.checked) {
                             cb.checked = this.checked;
-                            // Disparar submit del formulario padre
                             const form = cb.closest('form');
                             if (form) form.submit();
                         }
@@ -1712,11 +1734,9 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
 <script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/i18n/es.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Tooltips
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
     tooltipTriggerList.map(function (tooltipTriggerEl) { return new bootstrap.Tooltip(tooltipTriggerEl); });
     
-    // Select2 para selects múltiples (filtros)
     $('.select2-multiple').select2({ 
         width: '100%', 
         placeholder: function() { return $(this).data('placeholder'); }, 
@@ -1724,7 +1744,6 @@ document.addEventListener('DOMContentLoaded', function() {
         language: 'es' 
     });
     
-    // Select2 para selects simples
     $('.select2-single').select2({ 
         width: '100%', 
         placeholder: '-- Seleccionar --', 
@@ -1732,7 +1751,6 @@ document.addEventListener('DOMContentLoaded', function() {
         language: 'es' 
     });
     
-    // Función para configurar Select2 con creación de nuevos elementos
     function setupCreatableSelect2(selector, tabla, valorActual = null) {
         $(selector).select2({
             width: '100%',
@@ -1780,7 +1798,6 @@ document.addEventListener('DOMContentLoaded', function() {
             minimumInputLength: 1
         });
         
-        // Manejar creación de nuevo elemento
         $(selector).on('select2:select', function(e) {
             var data = e.params.data;
             if (data.newOption) {
@@ -1798,7 +1815,6 @@ document.addEventListener('DOMContentLoaded', function() {
                         if (response.success) {
                             var newOption = new Option(response.valor, response.valor, true, true);
                             $(selector).append(newOption).trigger('change');
-                            // Mostrar toast de éxito
                             var toastHtml = '<div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1050"><div class="toast show" role="alert" data-bs-autohide="true" data-bs-delay="3000"><div class="toast-header bg-success text-white"><strong class="me-auto">✅ Éxito</strong><button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button></div><div class="toast-body">' + response.mensaje + ': ' + response.valor + '</div></div></div>';
                             $('body').append(toastHtml);
                             var toast = new bootstrap.Toast($('.toast').last()[0]);
@@ -1820,14 +1836,12 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    // Inicializar selectores dinámicos en formulario crear/editar
     <?php if ($accion == 'crear' || ($accion == 'editar' && $viaje)): ?>
         setupCreatableSelect2('#nombreSelect', 'conductores', <?= json_encode($viaje['nombre'] ?? null) ?>);
         setupCreatableSelect2('#rutaSelect', 'rutas', <?= json_encode($viaje['ruta'] ?? null) ?>);
         setupCreatableSelect2('#empresaSelect', 'empresas', <?= json_encode($viaje['empresa'] ?? null) ?>);
     <?php endif; ?>
     
-    // Inicializar selectores dinámicos en edición múltiple
     <?php if ($accion == 'editar_multiple'): ?>
         $('.select2-general').each(function() {
             var tabla = '';
@@ -1854,7 +1868,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     <?php endif; ?>
     
-    // Configuración de columnas dropdown
     const btnConfig = document.getElementById('btnConfigColumnas');
     const dropdown = document.getElementById('dropdownColumnas');
     if (btnConfig && dropdown) {
@@ -1870,7 +1883,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-// Confirmación para edición múltiple
 document.getElementById('formEditarMultiple')?.addEventListener('submit', function(e) {
     const totalRegistros = <?= count($viajes_seleccionados ?? []) ?>;
     if (totalRegistros === 0) { 
