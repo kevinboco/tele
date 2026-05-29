@@ -1440,6 +1440,12 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                 </div>
             </div>
         <?php endif; ?>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="mb-0">📋 Listado de Viajes</h2>
+            <a href="?accion=crear" class="btn btn-success btn-lg">
+                ➕ Nuevo Viaje
+            </a>
+        </div>
 
         <div class="d-flex justify-content-end mb-3 gap-2">
             <form method="GET" action="" target="_blank">
