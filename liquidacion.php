@@ -1,3035 +1,2128 @@
 <?php
-include("nav.php");
-$conn = new mysqli("mysql.hostinger.com", "u648222299_keboco5", "Bucaramanga3011", "u648222299_viajes");
-if ($conn->connect_error) { die("Error conexión BD: " . $conn->connect_error); }
-$conn->set_charset("utf8mb4");
+// index2.php - Sistema completo de gestión de viajes con INFORME y SELECTORES DINÁMICOS + CAMPO WHATSAPP
+// VERSIÓN: Encabezado fijo + WhatsApp con altura AUTOMÁTICA (se adapta al texto)
+// VERSIÓN 3: MANTIENE FILTROS Y SCROLL POSITION CON sessionStorage
 
-/* =======================================================
-   🔹 FUNCIONES DINÁMICAS (sin cambios)
-======================================================= */
+// SIEMPRE primero la sesión, sin imprimir nada antes
+session_start();
+include("conexion.php");
 
-// Obtener columnas de tarifas dinámicamente
-function obtenerColumnasTarifas($conn) {
-    $columnas = [];
-    $res = $conn->query("SHOW COLUMNS FROM tarifas");
-    if ($res) {
-        while ($row = $res->fetch_assoc()) {
-            $field = $row['Field'];
-            $excluir = ['id', 'empresa', 'tipo_vehiculo', 'created_at', 'updated_at'];
-            if (!in_array($field, $excluir)) {
-                $columnas[] = $field;
+// ================== CONFIGURACIÓN INICIAL ==================
+$accion  = $_GET['accion'] ?? 'listar';
+$id      = $_GET['id'] ?? 0;
+$mensaje = $_GET['msg'] ?? '';
+$error   = $_GET['error'] ?? '';
+
+// Inicializar array de selección si no existe
+if (!isset($_SESSION['seleccionados'])) {
+    $_SESSION['seleccionados'] = [];
+}
+
+// ================== CONFIGURACIÓN DE COLUMNAS VISIBLES ==================
+$columnas_disponibles = [
+    'id' => ['nombre' => 'ID', 'visible' => true, 'orden' => 1],
+    'nombre' => ['nombre' => 'Nombre', 'visible' => true, 'orden' => 2],
+    'cedula' => ['nombre' => 'Cédula', 'visible' => true, 'orden' => 3],
+    'fecha' => ['nombre' => 'Fecha', 'visible' => true, 'orden' => 4],
+    'ruta' => ['nombre' => 'Ruta', 'visible' => true, 'orden' => 5],
+    'tipo_vehiculo' => ['nombre' => 'Vehículo', 'visible' => true, 'orden' => 6],
+    'empresa' => ['nombre' => 'Empresa', 'visible' => true, 'orden' => 7],
+    'pago_parcial' => ['nombre' => 'Pago Parcial', 'visible' => true, 'orden' => 8],
+    'pagado' => ['nombre' => 'Pagado', 'visible' => true, 'orden' => 9],
+    'imagen' => ['nombre' => 'Evidencia', 'visible' => true, 'orden' => 10],
+    'epicrisis' => ['nombre' => 'Epicrisis', 'visible' => true, 'orden' => 11],
+    'whatsapp' => ['nombre' => 'WhatsApp', 'visible' => true, 'orden' => 12]
+];
+
+if (!isset($_SESSION['columnas_visibles'])) {
+    $_SESSION['columnas_visibles'] = $columnas_disponibles;
+}
+
+if (isset($_POST['actualizar_columnas'])) {
+    $columnas_seleccionadas = $_POST['columnas'] ?? [];
+    foreach ($columnas_disponibles as $key => $columna) {
+        $_SESSION['columnas_visibles'][$key]['visible'] = in_array($key, $columnas_seleccionadas);
+    }
+    // Mantener filtros al cambiar columnas
+    $filtros_str = $_POST['filtros_ocultos'] ?? '';
+    if ($filtros_str) {
+        header("Location: ?" . $filtros_str);
+    } else {
+        header("Location: " . strtok($_SERVER["REQUEST_URI"], '?'));
+    }
+    exit();
+}
+
+if (isset($_POST['restablecer_columnas'])) {
+    $_SESSION['columnas_visibles'] = $columnas_disponibles;
+    $filtros_str = $_POST['filtros_ocultos'] ?? '';
+    if ($filtros_str) {
+        header("Location: ?" . $filtros_str);
+    } else {
+        header("Location: " . strtok($_SERVER["REQUEST_URI"], '?'));
+    }
+    exit();
+}
+
+// ================== MANEJO DE SELECCIÓN ==================
+if (isset($_POST['toggle_seleccion'])) {
+    $id_toggle = (int)$_POST['toggle_seleccion'];
+    if (in_array($id_toggle, $_SESSION['seleccionados'])) {
+        $_SESSION['seleccionados'] = array_diff($_SESSION['seleccionados'], [$id_toggle]);
+    } else {
+        $_SESSION['seleccionados'][] = $id_toggle;
+    }
+    $_SESSION['seleccionados'] = array_values(array_unique($_SESSION['seleccionados']));
+}
+
+if (isset($_POST['seleccionar_todos']) && isset($_POST['ids_visibles'])) {
+    $ids_visibles = [];
+    if (is_array($_POST['ids_visibles'])) {
+        $ids_visibles = array_map('intval', $_POST['ids_visibles']);
+    } else {
+        $raw = trim($_POST['ids_visibles']);
+        if ($raw !== '') {
+            $ids_visibles = array_map('intval', explode(',', $raw));
+        }
+    }
+    if (!empty($ids_visibles)) {
+        if ($_POST['seleccionar_todos'] == '1') {
+            foreach ($ids_visibles as $id_visible) {
+                if (!in_array($id_visible, $_SESSION['seleccionados'])) {
+                    $_SESSION['seleccionados'][] = $id_visible;
+                }
             }
-        }
-    }
-    return $columnas;
-}
-
-// Crear nueva columna en tarifas
-function crearNuevaColumnaTarifa($conn, $nombre_columna) {
-    $nombre_columna = preg_replace('/[^a-zA-Z0-9_]/', '_', $nombre_columna);
-    $nombre_columna = strtolower($nombre_columna);
-    
-    $columnas_existentes = obtenerColumnasTarifas($conn);
-    if (in_array($nombre_columna, $columnas_existentes)) {
-        return true;
-    }
-    
-    $sql = "ALTER TABLE tarifas ADD COLUMN `$nombre_columna` DECIMAL(10,2) DEFAULT 0.00";
-    return $conn->query($sql);
-}
-
-// Obtener clasificaciones disponibles
-function obtenerClasificacionesDisponibles($conn) {
-    return obtenerColumnasTarifas($conn);
-}
-
-// Mapeo de colores para clasificaciones
-function obtenerEstiloClasificacion($clasificacion) {
-    $estilos = [
-        'completo'    => ['bg' => 'bg-emerald-100', 'text' => 'text-emerald-700', 'border' => 'border-emerald-200', 'row' => 'bg-emerald-50/40', 'label' => 'Completo'],
-        'medio'       => ['bg' => 'bg-amber-100', 'text' => 'text-amber-800', 'border' => 'border-amber-200', 'row' => 'bg-amber-50/40', 'label' => 'Medio'],
-        'extra'       => ['bg' => 'bg-slate-200', 'text' => 'text-slate-800', 'border' => 'border-slate-300', 'row' => 'bg-slate-50', 'label' => 'Extra'],
-        'siapana'     => ['bg' => 'bg-fuchsia-100', 'text' => 'text-fuchsia-700', 'border' => 'border-fuchsia-200', 'row' => 'bg-fuchsia-50/40', 'label' => 'Siapana'],
-        'carrotanque' => ['bg' => 'bg-cyan-100', 'text' => 'text-cyan-800', 'border' => 'border-cyan-200', 'row' => 'bg-cyan-50/40', 'label' => 'Carrotanque'],
-        'riohacha'    => ['bg' => 'bg-indigo-100', 'text' => 'text-indigo-700', 'border' => 'border-indigo-200', 'row' => 'bg-indigo-50/40', 'label' => 'Riohacha'],
-        'pru'         => ['bg' => 'bg-teal-100', 'text' => 'text-teal-700', 'border' => 'border-teal-200', 'row' => 'bg-teal-50/40', 'label' => 'Pru'],
-        'maco'        => ['bg' => 'bg-rose-100', 'text' => 'text-rose-700', 'border' => 'border-rose-200', 'row' => 'bg-rose-50/40', 'label' => 'Maco']
-    ];
-    
-    if (isset($estilos[$clasificacion])) {
-        return $estilos[$clasificacion];
-    }
-    
-    $colors = [
-        ['bg' => 'bg-violet-100', 'text' => 'text-violet-700', 'border' => 'border-violet-200'],
-        ['bg' => 'bg-orange-100', 'text' => 'text-orange-700', 'border' => 'border-orange-200'],
-        ['bg' => 'bg-lime-100', 'text' => 'text-lime-700', 'border' => 'border-lime-200'],
-        ['bg' => 'bg-sky-100', 'text' => 'text-sky-700', 'border' => 'border-sky-200'],
-        ['bg' => 'bg-pink-100', 'text' => 'text-pink-700', 'border' => 'border-pink-200'],
-        ['bg' => 'bg-purple-100', 'text' => 'text-purple-700', 'border' => 'border-purple-200'],
-        ['bg' => 'bg-yellow-100', 'text' => 'text-yellow-700', 'border' => 'border-yellow-200'],
-        ['bg' => 'bg-red-100', 'text' => 'text-red-700', 'border' => 'border-red-200'],
-    ];
-    
-    $hash = crc32($clasificacion);
-    $color_index = abs($hash) % count($colors);
-    
-    return [
-        'bg' => $colors[$color_index]['bg'],
-        'text' => $colors[$color_index]['text'],
-        'border' => $colors[$color_index]['border'],
-        'row' => str_replace('bg-', 'bg-', $colors[$color_index]['bg']) . '/40',
-        'label' => ucfirst($clasificacion)
-    ];
-}
-
-// Colores únicos por tipo de vehículo
-function obtenerColorVehiculo($vehiculo) {
-    $colores_vehiculos = [
-        'camioneta' => ['bg' => 'bg-blue-100', 'text' => 'text-blue-700', 'border' => 'border-blue-200', 'dark' => 'bg-blue-50'],
-        'turbo' => ['bg' => 'bg-green-100', 'text' => 'text-green-700', 'border' => 'border-green-200', 'dark' => 'bg-green-50'],
-        'mensual' => ['bg' => 'bg-orange-100', 'text' => 'text-orange-700', 'border' => 'border-orange-200', 'dark' => 'bg-orange-50'],
-        'camión' => ['bg' => 'bg-purple-100', 'text' => 'text-purple-700', 'border' => 'border-purple-200', 'dark' => 'bg-purple-50'],
-        'buseta' => ['bg' => 'bg-pink-100', 'text' => 'text-pink-700', 'border' => 'border-pink-200', 'dark' => 'bg-pink-50'],
-        'minivan' => ['bg' => 'bg-teal-100', 'text' => 'text-teal-700', 'border' => 'border-teal-200', 'dark' => 'bg-teal-50'],
-        'automóvil' => ['bg' => 'bg-red-100', 'text' => 'text-red-700', 'border' => 'border-red-200', 'dark' => 'bg-red-50'],
-        'moto' => ['bg' => 'bg-indigo-100', 'text' => 'text-indigo-700', 'border' => 'border-indigo-200', 'dark' => 'bg-indigo-50'],
-        'bicicleta' => ['bg' => 'bg-lime-100', 'text' => 'text-lime-700', 'border' => 'border-lime-200', 'dark' => 'bg-lime-50'],
-        'furgoneta' => ['bg' => 'bg-amber-100', 'text' => 'text-amber-700', 'border' => 'border-amber-200', 'dark' => 'bg-amber-50'],
-    ];
-    
-    $vehiculo_lower = strtolower($vehiculo);
-    
-    if (isset($colores_vehiculos[$vehiculo_lower])) {
-        return $colores_vehiculos[$vehiculo_lower];
-    }
-    
-    foreach ($colores_vehiculos as $key => $color) {
-        if (strpos($vehiculo_lower, $key) !== false) {
-            return $color;
-        }
-    }
-    
-    $colores_genericos = [
-        ['bg' => 'bg-violet-100', 'text' => 'text-violet-700', 'border' => 'border-violet-200', 'dark' => 'bg-violet-50'],
-        ['bg' => 'bg-cyan-100', 'text' => 'text-cyan-700', 'border' => 'border-cyan-200', 'dark' => 'bg-cyan-50'],
-        ['bg' => 'bg-emerald-100', 'text' => 'text-emerald-700', 'border' => 'border-emerald-200', 'dark' => 'bg-emerald-50'],
-        ['bg' => 'bg-fuchsia-100', 'text' => 'text-fuchsia-700', 'border' => 'border-fuchsia-200', 'dark' => 'bg-fuchsia-50'],
-        ['bg' => 'bg-rose-100', 'text' => 'text-rose-700', 'border' => 'border-rose-200', 'dark' => 'bg-rose-50'],
-        ['bg' => 'bg-sky-100', 'text' => 'text-sky-700', 'border' => 'border-sky-200', 'dark' => 'bg-sky-50'],
-    ];
-    
-    $hash = crc32($vehiculo);
-    $color_index = abs($hash) % count($colores_genericos);
-    
-    return $colores_genericos[$color_index];
-}
-
-/* =======================================================
-   🔹 PROCESAR POST (sin cambios)
-======================================================= */
-if (isset($_POST['crear_clasificacion'])) {
-    $nombre_clasificacion = trim($conn->real_escape_string($_POST['nombre_clasificacion']));
-    if (empty($nombre_clasificacion)) { echo "error: nombre vacío"; exit; }
-    $nombre_columna = preg_replace('/[^a-zA-Z0-9_]/', '_', $nombre_clasificacion);
-    $nombre_columna = strtolower($nombre_columna);
-    if (crearNuevaColumnaTarifa($conn, $nombre_columna)) { echo "ok"; } else { echo "error: " . $conn->error; }
-    exit;
-}
-
-if (isset($_POST['guardar_tarifa'])) {
-    $empresa  = $conn->real_escape_string($_POST['empresa']);
-    $vehiculo = $conn->real_escape_string($_POST['tipo_vehiculo']);
-    $campo    = $conn->real_escape_string($_POST['campo']);
-    $valor    = (float)$_POST['valor'];
-    $campo = strtolower($campo);
-    $campo = preg_replace('/[^a-z0-9_]/', '_', $campo);
-    $columnas_tarifas = obtenerColumnasTarifas($conn);
-    if (!in_array($campo, $columnas_tarifas)) { 
-        if (crearNuevaColumnaTarifa($conn, $campo)) {
-            $columnas_tarifas = obtenerColumnasTarifas($conn);
         } else {
-            echo "error: no se pudo crear el campo '$campo'";
-            exit;
+            $_SESSION['seleccionados'] = array_diff($_SESSION['seleccionados'], $ids_visibles);
+        }
+        $_SESSION['seleccionados'] = array_values(array_unique($_SESSION['seleccionados']));
+    }
+}
+
+if (isset($_POST['limpiar_seleccion'])) {
+    $_SESSION['seleccionados'] = [];
+}
+
+// ================== FUNCIONES AUXILIARES ==================
+function normalizarPagoParcial($conexion, $valorRaw) {
+    if (!isset($valorRaw)) return "NULL";
+    $v = trim((string)$valorRaw);
+    if ($v === '') return "NULL";
+    $v = str_replace([',', ' '], '', $v);
+    if (!is_numeric($v)) return "NULL";
+    $n = (int)$v;
+    if ($n < 0) $n = 0;
+    return (string)$n;
+}
+
+function procesarSubidaArchivo($campo) {
+    if (isset($_FILES[$campo]) && $_FILES[$campo]['error'] === UPLOAD_ERR_OK) {
+        $nombre = basename($_FILES[$campo]['name']);
+        $temp = $_FILES[$campo]['tmp_name'];
+        $destino = "uploads/" . $nombre;
+        if (!is_dir('uploads')) mkdir('uploads', 0777, true);
+        if (move_uploaded_file($temp, $destino)) {
+            return $nombre;
         }
     }
-    $conn->query("INSERT IGNORE INTO tarifas (empresa, tipo_vehiculo) VALUES ('$empresa', '$vehiculo')");
-    $sql = "UPDATE tarifas SET `$campo` = $valor WHERE empresa='$empresa' AND tipo_vehiculo='$vehiculo'";
-    echo $conn->query($sql) ? "ok" : "error: " . $conn->error;
-    exit;
+    return null;
 }
 
-if (isset($_POST['guardar_clasificacion'])) {
-    $ruta       = $conn->real_escape_string($_POST['ruta']);
-    $vehiculo   = $conn->real_escape_string($_POST['tipo_vehiculo']);
-    $clasif     = $conn->real_escape_string($_POST['clasificacion']);
-    $clasif = strtolower($clasif);
-    if ($clasif === '') {
-        $sql = "DELETE FROM ruta_clasificacion WHERE ruta = '$ruta' AND tipo_vehiculo = '$vehiculo'";
-    } else {
-        $sql = "INSERT INTO ruta_clasificacion (ruta, tipo_vehiculo, clasificacion)
-                VALUES ('$ruta', '$vehiculo', '$clasif')
-                ON DUPLICATE KEY UPDATE clasificacion = VALUES(clasificacion)";
-    }
-    echo $conn->query($sql) ? "ok" : ("error: " . $conn->error);
-    exit;
-}
-
-if (isset($_POST['guardar_columnas_seleccionadas'])) {
-    $columnas = $_POST['columnas'] ?? [];
-    $empresas = $_POST['empresas'] ?? "";
-    $desde = $_GET['desde'] ?? "";
-    $hasta = $_GET['hasta'] ?? "";
-    $session_key = "columnas_seleccionadas_" . md5($empresas . $desde . $hasta);
-    setcookie($session_key, json_encode($columnas), time() + (86400 * 7), "/");
-    echo "ok";
-    exit;
-}
-
-/* =======================================================
-   🔹 Endpoint AJAX: viajes por conductor (ICADO para respetar filtro de empresas)
-======================================================= */
-if (isset($_GET['viajes_conductor'])) {
-    $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
-    $desde   = $_GET['desde'];
-    $hasta   = $_GET['hasta'];
-    $empresasFiltro = $_GET['empresas'] ?? ""; // Recibir las empresas seleccionadas
-
-    $clasificaciones_disponibles = obtenerClasificacionesDisponibles($conn);
-    $legend = [];
-    foreach ($clasificaciones_disponibles as $clasif) {
-        $estilo = obtenerEstiloClasificacion($clasif);
-        $legend[$clasif] = [
-            'label' => $estilo['label'],
-            'badge' => "{$estilo['bg']} {$estilo['text']} border {$estilo['border']}",
-            'row' => $estilo['row']
-        ];
-    }
-    $legend['otro'] = ['label'=>'Sin clasificar', 'badge'=>'bg-gray-100 text-gray-700 border border-gray-200', 'row'=>'bg-gray-50/20'];
-
-    $clasif_rutas = [];
-    $resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
-    if ($resClasif) {
-        while ($r = $resClasif->fetch_assoc()) {
-            $key = mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo']), 'UTF-8');
-            $clasif_rutas[$key] = $r['clasificacion'];
-        }
-    }
-
-    // Construir consulta SQL respetando el filtro de empresas
-    $sql = "SELECT fecha, ruta, empresa, tipo_vehiculo, COALESCE(pago_parcial,0) AS pago_parcial
-            FROM viajes
-            WHERE nombre = '$nombre'
-              AND fecha BETWEEN '$desde' AND '$hasta'";
+// ================== FUNCIÓN PARA CONSTRUIR URL DE FILTROS ==================
+function construirUrlFiltros() {
+    $params = [];
     
-    // Aplicar filtro de empresas si existe
-    if (!empty($empresasFiltro)) {
-        $empresasArray = explode(',', $empresasFiltro);
-        $empresasEscapadas = array_map(function($e) use ($conn) {
-            return "'" . $conn->real_escape_string($e) . "'";
-        }, $empresasArray);
-        $sql .= " AND empresa IN (" . implode(',', $empresasEscapadas) . ")";
+    if (!empty($_GET['nombre']) && is_array($_GET['nombre'])) {
+        foreach($_GET['nombre'] as $val) {
+            if (trim($val) !== '') $params['nombre'][] = $val;
+        }
+    }
+    if (!empty($_GET['cedula']) && is_array($_GET['cedula'])) {
+        foreach($_GET['cedula'] as $val) {
+            if (trim($val) !== '') $params['cedula'][] = $val;
+        }
+    }
+    if (!empty($_GET['desde'])) $params['desde'] = $_GET['desde'];
+    if (!empty($_GET['hasta'])) $params['hasta'] = $_GET['hasta'];
+    if (isset($_GET['pagado']) && $_GET['pagado'] !== '') $params['pagado'] = $_GET['pagado'];
+    if (!empty($_GET['ruta']) && is_array($_GET['ruta'])) {
+        foreach($_GET['ruta'] as $val) {
+            if (trim($val) !== '') $params['ruta'][] = $val;
+        }
+    }
+    if (!empty($_GET['vehiculo']) && is_array($_GET['vehiculo'])) {
+        foreach($_GET['vehiculo'] as $val) {
+            if (trim($val) !== '') $params['vehiculo'][] = $val;
+        }
+    }
+    if (!empty($_GET['empresa']) && is_array($_GET['empresa'])) {
+        foreach($_GET['empresa'] as $val) {
+            if (trim($val) !== '') $params['empresa'][] = $val;
+        }
     }
     
-    $sql .= " ORDER BY fecha ASC";
-
-    $res = $conn->query($sql);
-
-    if ($res && $res->num_rows > 0) {
-        $counts = array_fill_keys(array_keys($legend), 0);
-        $rutas_sin_clasificar = [];
-        $total_sin_clasificar = 0;
-        $rowsHTML = "";
-        
-        while ($r = $res->fetch_assoc()) {
-            $ruta = (string)$r['ruta'];
-            $vehiculo = $r['tipo_vehiculo'];
-            
-            $key = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
-            $cat = $clasif_rutas[$key] ?? 'otro';
-            $cat = strtolower($cat);
-            
-            if ($cat === 'otro' || $cat === '') {
-                $total_sin_clasificar++;
-                $rutas_sin_clasificar[] = [
-                    'ruta' => $ruta,
-                    'vehiculo' => $vehiculo,
-                    'fecha' => $r['fecha']
-                ];
+    if (empty($params)) return '';
+    
+    $url = '';
+    foreach($params as $key => $value) {
+        if (is_array($value)) {
+            foreach($value as $v) {
+                $url .= '&' . urlencode($key) . '[]=' . urlencode($v);
             }
-            
-            if ($cat !== 'otro' && !isset($legend[$cat])) {
-                $estilo = obtenerEstiloClasificacion($cat);
-                $legend[$cat] = [
-                    'label' => $estilo['label'],
-                    'badge' => "{$estilo['bg']} {$estilo['text']} border {$estilo['border']}",
-                    'row' => $estilo['row']
-                ];
-                $counts[$cat] = 0;
-            }
-
-            $counts[$cat]++;
-
-            $l = $legend[$cat];
-            $badge = "<span class='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold {$l['badge']}'>".$l['label']."</span>";
-            $rowCls = trim("row-viaje hover:bg-blue-50 transition-colors {$l['row']} cat-$cat");
-
-            $pp = (int)($r['pago_parcial'] ?? 0);
-            $pagoParcialHTML = $pp > 0 ? '$'.number_format($pp,0,',','.') : "<span class='text-slate-400'>—</span>";
-
-            $rowsHTML .= "<tr class='{$rowCls}'>
-                    <td class='px-3 py-2 text-center'>".htmlspecialchars($r['fecha'])."</td>
-                    <td class='px-3 py-2'>
-                      <div class='flex items-center justify-center gap-2'>
-                        {$badge}
-                        <span>".htmlspecialchars($ruta)."</span>
-                      </div>
-                    </td>
-                    <td class='px-3 py-2 text-center'>".htmlspecialchars($r['empresa'])."</td>
-                    <td class='px-3 py-2 text-center'>".htmlspecialchars($vehiculo)."</td>
-                    <td class='px-3 py-2 text-center'>{$pagoParcialHTML}</td>
-                   </tr>";
+        } else {
+            $url .= '&' . urlencode($key) . '=' . urlencode($value);
         }
+    }
+    return ltrim($url, '&');
+}
 
-        echo "<div class='space-y-3'>";
+// ================== ENDPOINTS AJAX PARA SELECTORES DINÁMICOS ==================
+if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar') {
+    header('Content-Type: application/json');
+    $tabla = $_GET['tabla'] ?? '';
+    $term = $_GET['term'] ?? '';
+    $term = $conexion->real_escape_string($term);
+    
+    $resultados = [];
+    
+    switch($tabla) {
+        case 'conductores':
+            $sql = "SELECT nombre as texto, id FROM conductores_admin WHERE nombre LIKE '%$term%' ORDER BY nombre LIMIT 20";
+            $res = $conexion->query($sql);
+            if ($res) {
+                while($row = $res->fetch_assoc()) {
+                    $resultados[] = ['id' => $row['texto'], 'text' => $row['texto']];
+                }
+            }
+            break;
+        case 'rutas':
+            $sql = "SELECT ruta as texto, id FROM rutas_admin WHERE ruta LIKE '%$term%' ORDER BY ruta LIMIT 20";
+            $res = $conexion->query($sql);
+            if ($res) {
+                while($row = $res->fetch_assoc()) {
+                    $resultados[] = ['id' => $row['texto'], 'text' => $row['texto']];
+                }
+            }
+            break;
+        case 'empresas':
+            $sql = "SELECT nombre as texto, id FROM empresas_admin WHERE nombre LIKE '%$term%' ORDER BY nombre LIMIT 20";
+            $res = $conexion->query($sql);
+            if ($res) {
+                while($row = $res->fetch_assoc()) {
+                    $resultados[] = ['id' => $row['texto'], 'text' => $row['texto']];
+                }
+            }
+            break;
+    }
+    
+    echo json_encode(['results' => $resultados]);
+    exit();
+}
+
+if (isset($_POST['ajax']) && $_POST['ajax'] == 'crear') {
+    header('Content-Type: application/json');
+    $tabla = $_POST['tabla'] ?? '';
+    $valor = trim($_POST['valor'] ?? '');
+    $respuesta = ['success' => false, 'mensaje' => '', 'valor' => ''];
+    
+    if (empty($valor)) {
+        $respuesta['mensaje'] = 'Valor vacío';
+        echo json_encode($respuesta);
+        exit();
+    }
+    
+    $valor = $conexion->real_escape_string($valor);
+    
+    switch($tabla) {
+        case 'conductores':
+            $check = $conexion->query("SELECT id FROM conductores_admin WHERE nombre = '$valor'");
+            if ($check && $check->num_rows > 0) {
+                $respuesta['success'] = true;
+                $respuesta['valor'] = $valor;
+                $respuesta['mensaje'] = 'Ya existe';
+                echo json_encode($respuesta);
+                exit();
+            }
+            $sql = "INSERT INTO conductores_admin (nombre, owner_chat_id) VALUES ('$valor', 0)";
+            if ($conexion->query($sql)) {
+                $respuesta['success'] = true;
+                $respuesta['valor'] = $valor;
+                $respuesta['mensaje'] = 'Conductor creado';
+            } else {
+                $respuesta['mensaje'] = 'Error: ' . $conexion->error;
+            }
+            break;
+        case 'rutas':
+            $check = $conexion->query("SELECT id FROM rutas_admin WHERE ruta = '$valor'");
+            if ($check && $check->num_rows > 0) {
+                $respuesta['success'] = true;
+                $respuesta['valor'] = $valor;
+                $respuesta['mensaje'] = 'Ya existe';
+                echo json_encode($respuesta);
+                exit();
+            }
+            $sql = "INSERT INTO rutas_admin (ruta, owner_chat_id) VALUES ('$valor', 0)";
+            if ($conexion->query($sql)) {
+                $respuesta['success'] = true;
+                $respuesta['valor'] = $valor;
+                $respuesta['mensaje'] = 'Ruta creada';
+            } else {
+                $respuesta['mensaje'] = 'Error: ' . $conexion->error;
+            }
+            break;
+        case 'empresas':
+            $check = $conexion->query("SELECT id FROM empresas_admin WHERE nombre = '$valor'");
+            if ($check && $check->num_rows > 0) {
+                $respuesta['success'] = true;
+                $respuesta['valor'] = $valor;
+                $respuesta['mensaje'] = 'Ya existe';
+                echo json_encode($respuesta);
+                exit();
+            }
+            $sql = "INSERT INTO empresas_admin (nombre, owner_chat_id) VALUES ('$valor', 0)";
+            if ($conexion->query($sql)) {
+                $respuesta['success'] = true;
+                $respuesta['valor'] = $valor;
+                $respuesta['mensaje'] = 'Empresa creada';
+            } else {
+                $respuesta['mensaje'] = 'Error: ' . $conexion->error;
+            }
+            break;
+        default:
+            $respuesta['mensaje'] = 'Tabla no válida';
+    }
+    
+    echo json_encode($respuesta);
+    exit();
+}
+
+// ================== PROCESAR ACCIONES ==================
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+
+    if (isset($_POST['crear'])) {
+        $nombre = $conexion->real_escape_string($_POST['nombre'] ?? '');
+        $cedula = isset($_POST['cedula']) && trim($_POST['cedula']) !== '' 
+            ? "'" . $conexion->real_escape_string($_POST['cedula']) . "'" 
+            : "NULL";
+        $fecha = $conexion->real_escape_string($_POST['fecha'] ?? '');
+        $ruta = $conexion->real_escape_string($_POST['ruta'] ?? '');
+        $tipo_vehiculo = $conexion->real_escape_string($_POST['tipo_vehiculo'] ?? '');
+        $empresa = isset($_POST['empresa']) && trim($_POST['empresa']) !== '' 
+            ? "'" . $conexion->real_escape_string($_POST['empresa']) . "'" 
+            : "NULL";
+        $pago_parcial = normalizarPagoParcial($conexion, $_POST['pago_parcial'] ?? null);
+        $pagado = isset($_POST['pagado']) ? 1 : 0;
+        $whatsapp = isset($_POST['whatsapp']) && trim($_POST['whatsapp']) !== ''
+            ? "'" . $conexion->real_escape_string($_POST['whatsapp']) . "'"
+            : "NULL";
+        $imagen_nombre = procesarSubidaArchivo('imagen');
+        $imagen_valor = $imagen_nombre ? "'" . $conexion->real_escape_string($imagen_nombre) . "'" : "NULL";
+        $epicrisis_nombre = procesarSubidaArchivo('epicrisis');
+        $epicrisis_valor = $epicrisis_nombre ? "'" . $conexion->real_escape_string($epicrisis_nombre) . "'" : "NULL";
         
-        if ($total_sin_clasificar > 0) {
-            echo "<div class='bg-amber-50 border border-amber-200 rounded-xl p-4 mb-3'>
-                    <div class='flex items-center gap-2 mb-2'>
-                        <span class='text-amber-600 font-bold text-lg'>⚠️</span>
-                        <span class='font-semibold text-amber-800'>Este conductor tiene $total_sin_clasificar viaje(s) sin clasificar</span>
-                    </div>
-                    <div class='text-sm text-amber-700'>
-                        <p class='mb-2'>Rutas sin clasificación:</p>";
+        if (empty($nombre) || empty($fecha) || empty($ruta) || empty($tipo_vehiculo)) {
+            $_SESSION['error'] = "Los campos Nombre, Fecha, Ruta y Vehículo son obligatorios.";
+            $accion = 'crear';
+        } else {
+            $sql = "INSERT INTO viajes (nombre, cedula, fecha, ruta, tipo_vehiculo, empresa, imagen, epicrisis, whatsapp, pago_parcial, pagado) 
+                    VALUES ('$nombre', $cedula, '$fecha', '$ruta', '$tipo_vehiculo', $empresa, $imagen_valor, $epicrisis_valor, $whatsapp, $pago_parcial, $pagado)";
             
-            foreach (array_slice($rutas_sin_clasificar, 0, 5) as $rsc) {
-                echo "<div class='flex items-center gap-2 mb-1'>
-                        <span class='text-xs'>•</span>
-                        <span>".htmlspecialchars($rsc['ruta'])." (".htmlspecialchars($rsc['vehiculo']).")</span>
-                        <span class='text-xs text-amber-500'>".$rsc['fecha']."</span>
-                      </div>";
+            if ($conexion->query($sql)) {
+                $filtros_url = construirUrlFiltros();
+                if ($filtros_url) {
+                    header("Location: ?msg=creado&" . $filtros_url);
+                } else {
+                    header("Location: ?msg=creado");
+                }
+                exit();
+            } else {
+                $_SESSION['error'] = "Error al crear: " . $conexion->error;
+                $accion = 'crear';
             }
+        }
+    }
+    
+    elseif (isset($_POST['editar'])) {
+        $id = (int)$_POST['id'];
+        $nombre = $conexion->real_escape_string($_POST['nombre'] ?? '');
+        $cedula = isset($_POST['cedula']) && trim($_POST['cedula']) !== '' 
+            ? "'" . $conexion->real_escape_string($_POST['cedula']) . "'" 
+            : "NULL";
+        $fecha = $conexion->real_escape_string($_POST['fecha'] ?? '');
+        $ruta = $conexion->real_escape_string($_POST['ruta'] ?? '');
+        $tipo_vehiculo = $conexion->real_escape_string($_POST['tipo_vehiculo'] ?? '');
+        $empresa = isset($_POST['empresa']) && trim($_POST['empresa']) !== '' 
+            ? "'" . $conexion->real_escape_string($_POST['empresa']) . "'" 
+            : "NULL";
+        $pago_parcial = normalizarPagoParcial($conexion, $_POST['pago_parcial'] ?? null);
+        $pagado = isset($_POST['pagado']) ? 1 : 0;
+        $whatsapp = isset($_POST['whatsapp']) && trim($_POST['whatsapp']) !== ''
+            ? "'" . $conexion->real_escape_string($_POST['whatsapp']) . "'"
+            : "NULL";
+        
+        $sql_actual = "SELECT nombre, cedula, fecha, ruta, tipo_vehiculo, empresa, pago_parcial FROM viajes WHERE id = $id";
+        $res_actual = $conexion->query($sql_actual);
+        $datos_actuales = $res_actual->fetch_assoc();
+        
+        $solo_cambio_cedula = false;
+        $cedula_nueva = isset($_POST['cedula']) ? trim($_POST['cedula']) : '';
+        
+        if ($datos_actuales) {
+            $mismo_nombre = ($nombre == $datos_actuales['nombre']);
+            $misma_fecha = ($fecha == $datos_actuales['fecha']);
+            $misma_ruta = ($ruta == $datos_actuales['ruta']);
+            $mismo_vehiculo = ($tipo_vehiculo == $datos_actuales['tipo_vehiculo']);
+            $empresa_actual = $datos_actuales['empresa'] ?? '';
+            $empresa_nueva = isset($_POST['empresa']) ? trim($_POST['empresa']) : '';
+            $misma_empresa = ($empresa_actual == $empresa_nueva);
+            $pago_actual = $datos_actuales['pago_parcial'] ?? null;
+            $mismo_pago = ($pago_parcial === "NULL" && $pago_actual === null) || 
+                         ($pago_parcial !== "NULL" && (int)$pago_parcial === (int)$pago_actual);
+            $cedula_actual = $datos_actuales['cedula'] ?? '';
+            $cambio_cedula = ($cedula_actual !== $cedula_nueva);
             
-            if ($total_sin_clasificar > 5) {
-                echo "<p class='text-xs text-amber-600 mt-1'>... y ".($total_sin_clasificar - 5)." más</p>";
+            if ($mismo_nombre && $misma_fecha && $misma_ruta && $mismo_vehiculo && 
+                $misma_empresa && $mismo_pago && $cambio_cedula) {
+                $solo_cambio_cedula = true;
             }
-            
-            echo "</div>
-                  </div>";
         }
         
-        echo "<div class='flex flex-wrap gap-2 text-xs' id='legendFilterBar'>";
-        foreach (array_keys($legend) as $k) {
-            if ($counts[$k] > 0) {
-                $l = $legend[$k];
-                $countVal = $counts[$k] ?? 0;
-                $badgeClass = str_replace(['bg-','/40'], ['bg-',''], $l['row']);
-                echo "<button
-                        class='legend-pill inline-flex items-center gap-2 px-3 py-2 rounded-full {$l['badge']} hover:opacity-90 transition ring-0 outline-none border cursor-pointer select-none'
-                        data-tipo='{$k}'
-                      >
-                        <span class='w-2.5 h-2.5 rounded-full {$badgeClass} bg-opacity-100 border border-white/30 shadow-inner'></span>
-                        <span class='font-semibold text-[13px]'>{$l['label']}</span>
-                        <span class='text-[11px] font-semibold opacity-80'>({$countVal})</span>
-                      </button>";
-            }
+        $imagen_campo = '';
+        $imagen_subida = procesarSubidaArchivo('imagen');
+        if ($imagen_subida) {
+            $imagen_campo = ", imagen = '" . $conexion->real_escape_string($imagen_subida) . "'";
+        } elseif (isset($_POST['eliminar_imagen']) && $_POST['eliminar_imagen'] == '1') {
+            $imagen_campo = ", imagen = NULL";
         }
-        echo "</div>";
-
-        echo "<div class='overflow-x-auto max-h-[350px]'>
-                <table class='min-w-full text-sm text-left'>
-                  <thead class='bg-blue-600 text-white sticky top-0 z-10'>
-                    <tr>
-                      <th class='px-3 py-2 text-center'>Fecha</th>
-                      <th class='px-3 py-2 text-center'>Ruta</th>
-                      <th class='px-3 py-2 text-center'>Empresa</th>
-                      <th class='px-3 py-2 text-center'>Vehículo</th>
-                      <th class='px-3 py-2 text-center'>Pago parcial</th>
-                    </tr>
-                  </thead>
-                  <tbody id='viajesTableBody' class='divide-y divide-gray-100'>
-                    {$rowsHTML}
-                  </tbody>
-                </table>
-              </div>";
         
-        echo "</div>";
+        $epicrisis_campo = '';
+        $epicrisis_subida = procesarSubidaArchivo('epicrisis');
+        if ($epicrisis_subida) {
+            $epicrisis_campo = ", epicrisis = '" . $conexion->real_escape_string($epicrisis_subida) . "'";
+        } elseif (isset($_POST['eliminar_epicrisis']) && $_POST['eliminar_epicrisis'] == '1') {
+            $epicrisis_campo = ", epicrisis = NULL";
+        }
         
-        echo "<script>
-                function attachFiltroViajes(){
-                    const pills = document.querySelectorAll('#legendFilterBar .legend-pill');
-                    const rows  = document.querySelectorAll('#viajesTableBody .row-viaje');
-                    if (!pills.length || !rows.length) return;
-
-                    let activeCat = null;
-
-                    function applyFilter(cat){
-                        if (cat === activeCat) {
-                            activeCat = null;
+        if (empty($nombre) || empty($fecha) || empty($ruta) || empty($tipo_vehiculo)) {
+            $_SESSION['error'] = "Los campos Nombre, Fecha, Ruta y Vehículo son obligatorios.";
+            $accion = 'editar';
+        } else {
+            $sql = "UPDATE viajes SET 
+                    nombre = '$nombre',
+                    cedula = $cedula,
+                    fecha = '$fecha',
+                    ruta = '$ruta',
+                    tipo_vehiculo = '$tipo_vehiculo',
+                    empresa = $empresa,
+                    pago_parcial = $pago_parcial,
+                    pagado = $pagado,
+                    whatsapp = $whatsapp
+                    $imagen_campo
+                    $epicrisis_campo
+                    WHERE id = $id";
+            
+            if ($conexion->query($sql)) {
+                $filtros_url = construirUrlFiltros();
+                
+                if ($solo_cambio_cedula && !empty($cedula_nueva)) {
+                    $nombre_escapado = $conexion->real_escape_string($nombre);
+                    $valor_cedula = empty($cedula_nueva) ? "NULL" : "'" . $conexion->real_escape_string($cedula_nueva) . "'";
+                    $sql_masivo = "UPDATE viajes SET cedula = $valor_cedula 
+                                   WHERE nombre = '$nombre_escapado' 
+                                   AND id != $id";
+                    if ($conexion->query($sql_masivo)) {
+                        $registros_afectados = $conexion->affected_rows;
+                        if ($filtros_url) {
+                            header("Location: ?msg=editado_con_cedula&afectados=$registros_afectados&nombre=" . urlencode($nombre) . "&" . $filtros_url);
                         } else {
-                            activeCat = cat;
+                            header("Location: ?msg=editado_con_cedula&afectados=$registros_afectados&nombre=" . urlencode($nombre));
                         }
-
-                        pills.forEach(p => {
-                            const pcat = p.getAttribute('data-tipo');
-                            if (activeCat && pcat === activeCat) {
-                                p.classList.add('ring-2','ring-blue-500','ring-offset-1','ring-offset-white');
-                            } else {
-                                p.classList.remove('ring-2','ring-blue-500','ring-offset-1','ring-offset-white');
-                            }
-                        });
-
-                        rows.forEach(r => {
-                            if (!activeCat) {
-                                r.style.display = '';
-                            } else {
-                                if (r.classList.contains('cat-' + activeCat)) {
-                                    r.style.display = '';
-                                } else {
-                                    r.style.display = 'none';
-                                }
-                            }
-                        });
+                        exit();
                     }
-
-                    pills.forEach(p => {
-                        p.addEventListener('click', ()=>{
-                            const cat = p.getAttribute('data-tipo');
-                            applyFilter(cat);
-                        });
-                    });
                 }
                 
-                setTimeout(attachFiltroViajes, 100);
-              </script>";
+                if ($filtros_url) {
+                    header("Location: ?msg=editado&" . $filtros_url);
+                } else {
+                    header("Location: ?msg=editado");
+                }
+                exit();
+            } else {
+                $_SESSION['error'] = "Error al actualizar: " . $conexion->error;
+                $accion = 'editar';
+            }
+        }
+    }
+    
+    elseif (isset($_POST['editar_multiple_completo'])) {
+        if (empty($_SESSION['seleccionados'])) {
+            $filtros_url = construirUrlFiltros();
+            if ($filtros_url) {
+                header("Location: ?error=no_ids&" . $filtros_url);
+            } else {
+                header("Location: ?error=no_ids");
+            }
+            exit();
+        }
+        
+        $ids = $_SESSION['seleccionados'];
+        $actualizados = 0;
+        $pago_parcial_general = normalizarPagoParcial($conexion, $_POST['pago_parcial_general'] ?? null);
+        $hay_pago_general = (isset($_POST['pago_parcial_general']) && trim((string)$_POST['pago_parcial_general']) !== '');
+        $pagado_general = isset($_POST['pagado_general']) ? (int)$_POST['pagado_general'] : null;
 
+        foreach ($ids as $id_viaje) {
+            $id_viaje = (int)$id_viaje;
+            $nombre_key   = "nombre_$id_viaje";
+            $cedula_key   = "cedula_$id_viaje";
+            $fecha_key    = "fecha_$id_viaje";
+            $ruta_key     = "ruta_$id_viaje";
+            $vehiculo_key = "tipo_vehiculo_$id_viaje";
+            $empresa_key  = "empresa_$id_viaje";
+            $pago_key     = "pago_parcial_$id_viaje";
+            $pagado_key   = "pagado_$id_viaje";
+            $whatsapp_key = "whatsapp_$id_viaje";
+            
+            $nombre = isset($_POST[$nombre_key]) && trim($_POST[$nombre_key]) !== '' 
+                ? "'" . $conexion->real_escape_string($_POST[$nombre_key]) . "'"
+                : (isset($_POST['nombre_general']) && trim($_POST['nombre_general']) !== ''
+                    ? "'" . $conexion->real_escape_string($_POST['nombre_general']) . "'"
+                    : NULL);
+            
+            $cedula = isset($_POST[$cedula_key]) && trim($_POST[$cedula_key]) !== '' 
+                ? "'" . $conexion->real_escape_string($_POST[$cedula_key]) . "'"
+                : (isset($_POST['cedula_general']) && trim($_POST['cedula_general']) !== ''
+                    ? "'" . $conexion->real_escape_string($_POST['cedula_general']) . "'"
+                    : "NULL");
+            
+            $fecha = isset($_POST[$fecha_key]) && trim($_POST[$fecha_key]) !== '' 
+                ? "'" . $conexion->real_escape_string($_POST[$fecha_key]) . "'"
+                : (isset($_POST['fecha_general']) && trim($_POST['fecha_general']) !== ''
+                    ? "'" . $conexion->real_escape_string($_POST['fecha_general']) . "'"
+                    : NULL);
+            
+            $ruta = isset($_POST[$ruta_key]) && trim($_POST[$ruta_key]) !== '' 
+                ? "'" . $conexion->real_escape_string($_POST[$ruta_key]) . "'"
+                : (isset($_POST['ruta_general']) && trim($_POST['ruta_general']) !== ''
+                    ? "'" . $conexion->real_escape_string($_POST['ruta_general']) . "'"
+                    : NULL);
+            
+            $tipo_vehiculo = isset($_POST[$vehiculo_key]) && trim($_POST[$vehiculo_key]) !== '' 
+                ? "'" . $conexion->real_escape_string($_POST[$vehiculo_key]) . "'"
+                : (isset($_POST['tipo_vehiculo_general']) && trim($_POST['tipo_vehiculo_general']) !== ''
+                    ? "'" . $conexion->real_escape_string($_POST['tipo_vehiculo_general']) . "'"
+                    : NULL);
+            
+            $empresa = isset($_POST[$empresa_key]) && trim($_POST[$empresa_key]) !== '' 
+                ? "'" . $conexion->real_escape_string($_POST[$empresa_key]) . "'"
+                : (isset($_POST['empresa_general']) && trim($_POST['empresa_general']) !== ''
+                    ? "'" . $conexion->real_escape_string($_POST['empresa_general']) . "'"
+                    : "NULL");
+
+            $pago_parcial = "NULL";
+            if (isset($_POST[$pago_key]) && trim((string)$_POST[$pago_key]) !== '') {
+                $pago_parcial = normalizarPagoParcial($conexion, $_POST[$pago_key]);
+            } elseif ($hay_pago_general) {
+                $pago_parcial = $pago_parcial_general;
+            }
+            
+            $pagado_valor = null;
+            if (isset($_POST[$pagado_key])) {
+                $pagado_valor = 1;
+            } elseif ($pagado_general !== null) {
+                $pagado_valor = $pagado_general;
+            }
+            
+            $whatsapp = "NULL";
+            if (isset($_POST[$whatsapp_key]) && trim($_POST[$whatsapp_key]) !== '') {
+                $whatsapp = "'" . $conexion->real_escape_string($_POST[$whatsapp_key]) . "'";
+            } elseif (isset($_POST['whatsapp_general']) && trim($_POST['whatsapp_general']) !== '') {
+                $whatsapp = "'" . $conexion->real_escape_string($_POST['whatsapp_general']) . "'";
+            }
+            
+            if (!$nombre || !$fecha || !$ruta || !$tipo_vehiculo) {
+                continue;
+            }
+            
+            $nombre        = ($nombre === NULL) ? "NULL" : $nombre;
+            $fecha         = ($fecha === NULL) ? "NULL" : $fecha;
+            $ruta          = ($ruta === NULL) ? "NULL" : $ruta;
+            $tipo_vehiculo = ($tipo_vehiculo === NULL) ? "NULL" : $tipo_vehiculo;
+
+            $sql = "UPDATE viajes SET 
+                    nombre = $nombre,
+                    cedula = $cedula,
+                    fecha = $fecha,
+                    ruta = $ruta,
+                    tipo_vehiculo = $tipo_vehiculo,
+                    empresa = $empresa,
+                    pago_parcial = IFNULL($pago_parcial, pago_parcial),
+                    whatsapp = IFNULL($whatsapp, whatsapp)";
+            
+            if ($pagado_valor !== null) {
+                $sql .= ", pagado = $pagado_valor";
+            }
+            
+            $sql .= " WHERE id = $id_viaje";
+            
+            if ($conexion->query($sql)) {
+                $actualizados++;
+            }
+        }
+        
+        $_SESSION['seleccionados'] = [];
+        $filtros_url = construirUrlFiltros();
+        if ($filtros_url) {
+            header("Location: ?msg=multi_editado&count=$actualizados&" . $filtros_url);
+        } else {
+            header("Location: ?msg=multi_editado&count=$actualizados");
+        }
+        exit();
+    }
+    
+    elseif (isset($_POST['accion_multiple'])) {
+        if (empty($_SESSION['seleccionados'])) {
+            $filtros_url = construirUrlFiltros();
+            if ($filtros_url) {
+                header("Location: ?error=no_ids&" . $filtros_url);
+            } else {
+                header("Location: ?error=no_ids");
+            }
+            exit();
+        }
+        
+        $ids = $_SESSION['seleccionados'];
+        
+        if ($_POST['accion_multiple'] == 'eliminar') {
+            $ids_str = implode(',', array_map('intval', $ids));
+            $sql = "DELETE FROM viajes WHERE id IN ($ids_str)";
+            if ($conexion->query($sql)) {
+                $_SESSION['seleccionados'] = [];
+                $filtros_url = construirUrlFiltros();
+                if ($filtros_url) {
+                    header("Location: ?msg=multi_eliminado&count=" . count($ids) . "&" . $filtros_url);
+                } else {
+                    header("Location: ?msg=multi_eliminado&count=" . count($ids));
+                }
+            } else {
+                $filtros_url = construirUrlFiltros();
+                if ($filtros_url) {
+                    header("Location: ?error=eliminar&" . $filtros_url);
+                } else {
+                    header("Location: ?error=eliminar");
+                }
+            }
+            exit();
+        }
+        elseif ($_POST['accion_multiple'] == 'editar') {
+            $filtros_url = construirUrlFiltros();
+            if ($filtros_url) {
+                header("Location: ?accion=editar_multiple&" . $filtros_url);
+            } else {
+                header("Location: ?accion=editar_multiple");
+            }
+            exit();
+        }
+    }
+}
+
+// ================== ELIMINAR INDIVIDUAL ==================
+if ($accion == 'eliminar' && $id > 0) {
+    $sql = "DELETE FROM viajes WHERE id = " . (int)$id;
+    if ($conexion->query($sql)) {
+        if (($key = array_search($id, $_SESSION['seleccionados'])) !== false) {
+            unset($_SESSION['seleccionados'][$key]);
+            $_SESSION['seleccionados'] = array_values($_SESSION['seleccionados']);
+        }
+        $filtros_url = construirUrlFiltros();
+        if ($filtros_url) {
+            header("Location: ?msg=eliminado&" . $filtros_url);
+        } else {
+            header("Location: ?msg=eliminado");
+        }
+        exit();
     } else {
-        echo "<p class='text-center text-gray-500 py-4'>No se encontraron viajes para este conductor en ese rango.</p>";
-    }
-    exit;
-}
-
-/* =======================================================
-   🔹 OBTENER PARÁMETROS (fechas por defecto: últimos 30 días si no hay)
-======================================================= */
-// Si no hay fechas en GET, establecer valores por defecto (últimos 30 días)
-if (!isset($_GET['desde']) || !isset($_GET['hasta'])) {
-    $fecha_defecto_desde = date('Y-m-d', strtotime('-30 days'));
-    $fecha_defecto_hasta = date('Y-m-d');
-    header("Location: " . basename(__FILE__) . "?desde=" . $fecha_defecto_desde . "&hasta=" . $fecha_defecto_hasta . "&" . http_build_query(['empresas' => $_GET['empresas'] ?? []]));
-    exit;
-}
-
-$desde = $_GET['desde'];
-$hasta = $_GET['hasta'];
-$empresasSeleccionadas = $_GET['empresas'] ?? [];
-
-// Si "Todas" está seleccionado o no hay selección, obtener todas las empresas
-if (empty($empresasSeleccionadas) || in_array("", $empresasSeleccionadas)) {
-    $resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
-    $empresasSeleccionadas = [];
-    if ($resEmp) while ($r = $resEmp->fetch_assoc()) $empresasSeleccionadas[] = $r['empresa'];
-}
-
-// Guardar empresas seleccionadas como string para pasar al modal
-$empresasFiltroString = implode(',', $empresasSeleccionadas);
-
-// Obtener datos dinámicos
-$columnas_tarifas = obtenerColumnasTarifas($conn);
-$clasificaciones_disponibles = obtenerClasificacionesDisponibles($conn);
-
-// Cargar columnas seleccionadas desde cookie
-$session_key = "columnas_seleccionadas_" . md5(implode(',', $empresasSeleccionadas) . $desde . $hasta);
-$columnas_seleccionadas = [];
-
-if (isset($_COOKIE[$session_key])) {
-    $columnas_seleccionadas = json_decode($_COOKIE[$session_key], true);
-} else {
-    $columnas_seleccionadas = $clasificaciones_disponibles;
-}
-
-// Cargar clasificaciones de rutas desde BD
-$clasif_rutas = [];
-$resClasif = $conn->query("SELECT ruta, tipo_vehiculo, clasificacion FROM ruta_clasificacion");
-if ($resClasif) {
-    while ($r = $resClasif->fetch_assoc()) {
-        $key = mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo']), 'UTF-8');
-        $clasif_rutas[$key] = strtolower($r['clasificacion']);
+        $filtros_url = construirUrlFiltros();
+        if ($filtros_url) {
+            header("Location: ?error=eliminar&" . $filtros_url);
+        } else {
+            header("Location: ?error=eliminar");
+        }
+        exit();
     }
 }
 
-/* =======================================================
-   🔹 CONSOLIDAR DATOS DE TODAS LAS EMPRESAS EN UNA SOLA ESTRUCTURA
-   ======================================================= */
-$datosConsolidados = []; // clave: nombre_conductor
-$todosLosVehiculos = []; // para saber qué vehículos aparecen
-$rutas_sin_clasificar_detalle = []; // NUEVO: almacenar detalles de rutas sin clasificar por conductor
+// ================== PROCESAR INFORME ==================
+if ($accion == 'informe') {
+    $where = [];
+    $desc_filtros = [];
 
-foreach ($empresasSeleccionadas as $empresa) {
-    $empresa = $conn->real_escape_string($empresa);
+    if (!empty($_GET['nombre']) && is_array($_GET['nombre'])) {
+        $nombres = array_map([$conexion, 'real_escape_string'], $_GET['nombre']);
+        $nombres = array_filter($nombres, function($val) { return trim($val) !== ''; });
+        if (!empty($nombres)) {
+            $where[] = "nombre IN ('" . implode("','", $nombres) . "')";
+            $desc_filtros[] = "Nombres: " . implode(', ', array_slice($nombres, 0, 3)) . (count($nombres) > 3 ? '...' : '');
+        }
+    }
+
+    if (!empty($_GET['cedula']) && is_array($_GET['cedula'])) {
+        $cedulas = array_map([$conexion, 'real_escape_string'], $_GET['cedula']);
+        $cedulas = array_filter($cedulas, function($val) { return trim($val) !== ''; });
+        if (!empty($cedulas)) {
+            $where[] = "cedula IN ('" . implode("','", $cedulas) . "')";
+            $desc_filtros[] = "Cédulas: " . implode(', ', array_slice($cedulas, 0, 3)) . (count($cedulas) > 3 ? '...' : '');
+        }
+    }
+
+    if (!empty($_GET['desde']) && !empty($_GET['hasta'])) {
+        $desde = $conexion->real_escape_string($_GET['desde']);
+        $hasta = $conexion->real_escape_string($_GET['hasta']);
+        $where[] = "fecha BETWEEN '$desde' AND '$hasta'";
+        $desc_filtros[] = "Fechas: $desde a $hasta";
+    } elseif (!empty($_GET['desde'])) {
+        $desde = $conexion->real_escape_string($_GET['desde']);
+        $where[] = "fecha >= '$desde'";
+        $desc_filtros[] = "Desde: $desde";
+    } elseif (!empty($_GET['hasta'])) {
+        $hasta = $conexion->real_escape_string($_GET['hasta']);
+        $where[] = "fecha <= '$hasta'";
+        $desc_filtros[] = "Hasta: $hasta";
+    }
+
+    if (!empty($_GET['ruta']) && is_array($_GET['ruta'])) {
+        $rutas = array_map([$conexion, 'real_escape_string'], $_GET['ruta']);
+        $rutas = array_filter($rutas, function($val) { return trim($val) !== ''; });
+        if (!empty($rutas)) {
+            $where[] = "ruta IN ('" . implode("','", $rutas) . "')";
+            $desc_filtros[] = "Rutas: " . implode(', ', array_slice($rutas, 0, 3)) . (count($rutas) > 3 ? '...' : '');
+        }
+    }
+
+    if (!empty($_GET['vehiculo']) && is_array($_GET['vehiculo'])) {
+        $vehiculos = array_map([$conexion, 'real_escape_string'], $_GET['vehiculo']);
+        $vehiculos = array_filter($vehiculos, function($val) { return trim($val) !== ''; });
+        if (!empty($vehiculos)) {
+            $where[] = "tipo_vehiculo IN ('" . implode("','", $vehiculos) . "')";
+            $desc_filtros[] = "Vehículos: " . implode(', ', array_slice($vehiculos, 0, 3)) . (count($vehiculos) > 3 ? '...' : '');
+        }
+    }
+
+    if (!empty($_GET['empresa']) && is_array($_GET['empresa'])) {
+        $empresas = array_map([$conexion, 'real_escape_string'], $_GET['empresa']);
+        $empresas = array_filter($empresas, function($val) { return trim($val) !== ''; });
+        if (!empty($empresas)) {
+            $where[] = "empresa IN ('" . implode("','", $empresas) . "')";
+            $desc_filtros[] = "Empresas: " . implode(', ', array_slice($empresas, 0, 3)) . (count($empresas) > 3 ? '...' : '');
+        }
+    }
+
+    if (isset($_GET['pagado']) && $_GET['pagado'] !== '') {
+        $pagado_val = (int)$_GET['pagado'];
+        $where[] = "pagado = $pagado_val";
+        $desc_filtros[] = "Estado: " . ($pagado_val ? 'Pagado' : 'Pendiente');
+    }
+
+    $sql = "SELECT * FROM viajes";
+    if (count($where) > 0) {
+        $sql .= " WHERE " . implode(" AND ", $where);
+    }
+    $sql .= " ORDER BY fecha DESC, id DESC";
     
-    $sql = "SELECT nombre, ruta, empresa, tipo_vehiculo, fecha, COALESCE(pago_parcial,0) AS pago_parcial
-            FROM viajes
-            WHERE fecha BETWEEN '$desde' AND '$hasta'
-              AND empresa = '$empresa'";
+    $resultado = $conexion->query($sql);
     
-    $res = $conn->query($sql);
+    $columnas_visibles = $_SESSION['columnas_visibles'];
+    uasort($columnas_visibles, function($a, $b) {
+        return $a['orden'] <=> $b['orden'];
+    });
     
+    ?>
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <title>Informe de Viajes</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 30px; background: white; }
+            h1 { color: #333; border-bottom: 2px solid #333; padding-bottom: 10px; }
+            .info-filtros { background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; border-left: 4px solid #0d6efd; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
+            th { background: #343a40; color: white; padding: 12px 8px; text-align: left; font-weight: bold; position: sticky; top: 0; z-index: 10; }
+            td { border: 1px solid #dee2e6; padding: 8px; vertical-align: top; white-space: pre-wrap; }
+            tr:nth-child(even) { background: #f8f9fa; }
+            tr.pagado { background-color: #d4edda !important; }
+            tr.pendiente { background-color: #f8d7da !important; }
+            tr.pagado:nth-child(even) { background-color: #c3e6cb !important; }
+            tr.pendiente:nth-child(even) { background-color: #f5c6cb !important; }
+            .fecha-generacion { color: #666; font-size: 12px; margin-top: 20px; text-align: right; border-top: 1px solid #dee2e6; padding-top: 15px; }
+            .badge-pagado { background: #28a745; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold; }
+            .badge-pendiente { background: #dc3545; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold; }
+            .img-informe { max-width: 60px; max-height: 60px; border-radius: 4px; }
+            .total-registros { background: #e9ecef; padding: 10px; border-radius: 4px; font-weight: bold; }
+            @media print { .no-print { display: none; } }
+            .btn-print { background: #0d6efd; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-bottom: 20px; }
+            .btn-cerrar { background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-bottom: 20px; }
+            .whatsapp-content-informe { white-space: pre-wrap; word-break: break-word; font-size: 12px; background: #f8f9fa; padding: 5px; border-radius: 4px; }
+        </style>
+    </head>
+    <body>
+        <div class="no-print" style="margin-bottom: 20px; display: flex; gap: 10px;">
+            <button onclick="window.print()" class="btn-print">🖨️ Imprimir / Guardar PDF</button>
+            <button onclick="window.close()" class="btn-cerrar">❌ Cerrar</button>
+        </div>
+        <h1>🚗 Informe de Viajes</h1>
+        <div class="info-filtros">
+            <strong>📊 Columnas mostradas:</strong> 
+            <?php 
+            $nombres_columnas = [];
+            foreach($columnas_visibles as $col) {
+                if ($col['visible']) $nombres_columnas[] = $col['nombre'];
+            }
+            echo implode(' · ', $nombres_columnas);
+            ?><br>
+            <strong>🔍 Filtros aplicados:</strong> 
+            <?php if (!empty($desc_filtros)): ?>
+                <?= htmlspecialchars(implode(' | ', $desc_filtros)) ?>
+            <?php else: ?>
+                Sin filtros (todos los registros)
+            <?php endif; ?>
+        </div>
+        <?php if ($resultado && $resultado->num_rows > 0): ?>
+            <div class="total-registros">📋 Total de registros: <?= $resultado->num_rows ?></div>
+            <div style="overflow-x: auto; max-height: 80vh; overflow-y: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <?php foreach($columnas_visibles as $key => $columna): if ($columna['visible']): ?>
+                                <th><?= htmlspecialchars($columna['nombre']) ?></th>
+                            <?php endif; endforeach; ?>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php while($row = $resultado->fetch_assoc()): 
+                            $clase_fila = $row['pagado'] ? 'pagado' : 'pendiente';
+                        ?>
+                            <tr class="<?= $clase_fila ?>">
+                                <?php foreach($columnas_visibles as $key => $columna): if (!$columna['visible']) continue; ?>
+                                    <?php switch($key): 
+                                        case 'id': ?> <td><?= (int)$row['id'] ?></td> <?php break;
+                                        case 'nombre': ?> <td><?= htmlspecialchars($row['nombre']) ?></td> <?php break;
+                                        case 'cedula': ?> <td><?= !empty($row['cedula']) ? htmlspecialchars($row['cedula']) : '—' ?></td> <?php break;
+                                        case 'fecha': ?> <td><?= date('d/m/Y', strtotime($row['fecha'])) ?></td> <?php break;
+                                        case 'ruta': ?> <td><?= htmlspecialchars($row['ruta']) ?></td> <?php break;
+                                        case 'tipo_vehiculo': ?> <td><?= htmlspecialchars($row['tipo_vehiculo']) ?></td> <?php break;
+                                        case 'empresa': ?> <td><?= !empty($row['empresa']) ? htmlspecialchars($row['empresa']) : '—' ?></td> <?php break;
+                                        case 'pago_parcial': ?> <td><?php if ($row['pago_parcial'] !== null && $row['pago_parcial'] !== ''): ?>$<?= number_format((int)$row['pago_parcial'], 0, ',', '.') ?><?php else: ?>—<?php endif; ?></td> <?php break;
+                                        case 'pagado': ?> <td><?php if ($row['pagado'] == 1): ?><span class="badge-pagado">✅ Pagado</span><?php else: ?><span class="badge-pendiente">❌ Pendiente</span><?php endif; ?></td> <?php break;
+                                        case 'imagen': ?> <td><?php if(!empty($row['imagen'])): ?><img src="uploads/<?= htmlspecialchars($row['imagen']) ?>" class="img-informe" onerror="this.style.display='none'"><?php else: ?>—<?php endif; ?></td> <?php break;
+                                        case 'epicrisis': ?> <td><?php if(!empty($row['epicrisis'])): ?><img src="uploads/<?= htmlspecialchars($row['epicrisis']) ?>" class="img-informe" onerror="this.style.display='none'"><?php else: ?>—<?php endif; ?></td> <?php break;
+                                        case 'whatsapp': ?> <td><?php if(!empty($row['whatsapp'])): ?><div class="whatsapp-content-informe"><?= nl2br(htmlspecialchars($row['whatsapp'])) ?></div><?php else: ?>—<?php endif; ?></td> <?php break;
+                                    endswitch; ?>
+                                <?php endforeach; ?>
+                            </tr>
+                        <?php endwhile; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php else: ?>
+            <div style="text-align: center; padding: 50px; background: #f8f9fa; border-radius: 5px;">
+                <h3 style="color: #666;">📭 No hay registros para mostrar</h3>
+            </div>
+        <?php endif; ?>
+        <div class="fecha-generacion">
+            Informe generado desde Sistema de Gestión de Viajes<br>
+            <?= date('d/m/Y H:i:s') ?>
+        </div>
+    </body>
+    </html>
+    <?php
+    exit();
+}
+
+// ================== OBTENER DATOS PARA EDICIÓN ==================
+$viaje = null;
+if ($accion == 'editar' && $id > 0) {
+    $res = $conexion->query("SELECT * FROM viajes WHERE id = " . (int)$id);
+    if ($res && $res->num_rows > 0) {
+        $viaje = $res->fetch_assoc();
+    } else {
+        $accion = 'listar';
+    }
+}
+
+// ================== OBTENER DATOS PARA EDICIÓN MÚLTIPLE ==================
+$viajes_seleccionados = [];
+if ($accion == 'editar_multiple' && !empty($_SESSION['seleccionados'])) {
+    $ids_str = implode(',', array_map('intval', $_SESSION['seleccionados']));
+    $res = $conexion->query("SELECT * FROM viajes WHERE id IN ($ids_str) ORDER BY id ASC");
     if ($res) {
-        while ($row = $res->fetch_assoc()) {
-            $nombre = $row['nombre'];
-            $ruta = $row['ruta'];
-            $vehiculo = $row['tipo_vehiculo'];
-            $fecha = $row['fecha'];
-            $pagoParcial = (int)($row['pago_parcial'] ?? 0);
-            $empresaActual = $row['empresa'];
-            
-            // Registrar vehículo
-            if (!in_array($vehiculo, $todosLosVehiculos)) {
-                $todosLosVehiculos[] = $vehiculo;
-            }
-            
-            // Inicializar conductor si no existe
-            if (!isset($datosConsolidados[$nombre])) {
-                $datosConsolidados[$nombre] = [
-                    "vehiculos" => [], // Para saber qué vehículos usa este conductor
-                    "pagos_por_empresa" => [], // Para calcular pagado correctamente respetando empresas
-                    "viajes_por_clasificacion" => [] // [clasificacion][empresa] = cantidad
-                ];
-            }
-            
-            // Registrar el vehículo del conductor (para mostrar en la tabla, usaremos el más común o el primero)
-            if (!in_array($vehiculo, $datosConsolidados[$nombre]["vehiculos"])) {
-                $datosConsolidados[$nombre]["vehiculos"][] = $vehiculo;
-            }
-            
-            // Acumular pago parcial por empresa
-            if (!isset($datosConsolidados[$nombre]["pagos_por_empresa"][$empresaActual])) {
-                $datosConsolidados[$nombre]["pagos_por_empresa"][$empresaActual] = 0;
-            }
-            $datosConsolidados[$nombre]["pagos_por_empresa"][$empresaActual] += $pagoParcial;
-            
-            // Determinar clasificación de la ruta
-            $keyRuta = mb_strtolower(trim($ruta . '|' . $vehiculo), 'UTF-8');
-            $clasificacion_ruta = $clasif_rutas[$keyRuta] ?? '';
-            
-            // Registrar rutas sin clasificar con DETALLE
-            if ($clasificacion_ruta === '' || $clasificacion_ruta === 'otro') {
-                if (!isset($rutas_sin_clasificar_detalle[$nombre])) {
-                    $rutas_sin_clasificar_detalle[$nombre] = [];
-                }
-                
-                // Crear detalle de la ruta sin clasificar
-                $detalle_ruta = [
-                    'ruta' => $ruta,
-                    'vehiculo' => $vehiculo,
-                    'fecha' => $fecha,
-                    'empresa' => $empresaActual
-                ];
-                
-                // Evitar duplicados (misma ruta+mismo vehículo+misma fecha)
-                $key_detalle = $ruta . '|' . $vehiculo . '|' . $fecha . '|' . $empresaActual;
-                $existe = false;
-                foreach ($rutas_sin_clasificar_detalle[$nombre] as $existente) {
-                    $key_existente = $existente['ruta'] . '|' . $existente['vehiculo'] . '|' . $existente['fecha'] . '|' . $existente['empresa'];
-                    if ($key_existente === $key_detalle) {
-                        $existe = true;
-                        break;
-                    }
-                }
-                
-                if (!$existe) {
-                    $rutas_sin_clasificar_detalle[$nombre][] = $detalle_ruta;
-                }
-            }
-            
-            // Acumular viajes por clasificación y por empresa
-            if ($clasificacion_ruta !== '') {
-                if (!isset($datosConsolidados[$nombre]["viajes_por_clasificacion"][$clasificacion_ruta])) {
-                    $datosConsolidados[$nombre]["viajes_por_clasificacion"][$clasificacion_ruta] = [];
-                }
-                if (!isset($datosConsolidados[$nombre]["viajes_por_clasificacion"][$clasificacion_ruta][$empresaActual])) {
-                    $datosConsolidados[$nombre]["viajes_por_clasificacion"][$clasificacion_ruta][$empresaActual] = 0;
-                }
-                $datosConsolidados[$nombre]["viajes_por_clasificacion"][$clasificacion_ruta][$empresaActual]++;
-            }
+        while($row = $res->fetch_assoc()) {
+            $viajes_seleccionados[] = $row;
         }
     }
 }
 
-// Determinar el vehículo principal de cada conductor (el más usado, o el primero)
-$vehiculoPrincipal = [];
-foreach ($datosConsolidados as $nombre => $info) {
-    // Por ahora, tomamos el primer vehículo de la lista
-    // En una versión más avanzada, podríamos contar cuál es el más frecuente
-    $vehiculoPrincipal[$nombre] = !empty($info["vehiculos"]) ? $info["vehiculos"][0] : 'Desconocido';
-}
+// ================== OBTENER LISTAS PARA FILTROS ==================
+$listas = [];
+$res = $conexion->query("SELECT DISTINCT nombre FROM viajes WHERE nombre <> '' ORDER BY nombre ASC");
+if ($res) while($r = $res->fetch_assoc()) $listas['nombres'][] = $r['nombre'];
+$res = $conexion->query("SELECT DISTINCT cedula FROM viajes WHERE cedula IS NOT NULL AND cedula <> '' ORDER BY cedula ASC");
+if ($res) while($r = $res->fetch_assoc()) $listas['cedulas'][] = $r['cedula'];
+$res = $conexion->query("SELECT DISTINCT ruta FROM viajes WHERE ruta <> '' ORDER BY ruta ASC");
+if ($res) while($r = $res->fetch_assoc()) $listas['rutas'][] = $r['ruta'];
+$res = $conexion->query("SELECT DISTINCT tipo_vehiculo FROM viajes WHERE tipo_vehiculo <> '' ORDER BY tipo_vehiculo ASC");
+if ($res) while($r = $res->fetch_assoc()) $listas['vehiculos'][] = $r['tipo_vehiculo'];
+$res = $conexion->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa <> '' ORDER BY empresa ASC");
+if ($res) while($r = $res->fetch_assoc()) $listas['empresas'][] = $r['empresa'];
 
-// Calcular el total pagado por conductor (sumando todas las empresas)
-$totalPagadoPorConductor = [];
-foreach ($datosConsolidados as $nombre => $info) {
-    $totalPagadoPorConductor[$nombre] = array_sum($info["pagos_por_empresa"] ?? []);
-}
-
-// Calcular rutas sin clasificar por conductor (cantidad)
-$rutasSinClasificarCount = [];
-foreach ($rutas_sin_clasificar_detalle as $nombre => $rutas) {
-    $rutasSinClasificarCount[$nombre] = count($rutas);
-}
-
-// Obtener todas las empresas para el listado
-$todasEmpresas = [];
-$resEmp = $conn->query("SELECT DISTINCT empresa FROM viajes WHERE empresa IS NOT NULL AND empresa<>'' ORDER BY empresa ASC");
-if ($resEmp) while ($r = $resEmp->fetch_assoc()) $todasEmpresas[] = $r['empresa'];
-
-// Tarifas guardadas (necesitamos todas las empresas seleccionadas)
-$tarifas_guardadas = [];
-if (!empty($empresasSeleccionadas)) {
-    $empresasList = "'" . implode("','", array_map([$conn, 'real_escape_string'], $empresasSeleccionadas)) . "'";
-    $resTarifas = $conn->query("SELECT * FROM tarifas WHERE empresa IN ($empresasList)");
-    if ($resTarifas) {
-        while ($r = $resTarifas->fetch_assoc()) {
-            $tarifas_guardadas[$r['empresa']][$r['tipo_vehiculo']] = $r;
-        }
-    }
-}
-
-/* =======================================================
-   🔹 NUEVO: DETECTAR ALERTAS PARA MOSTRAR ARRIBA
-   ======================================================= */
-$alertas_sin_clasificar = $rutas_sin_clasificar_detalle; // Ya tenemos los detalles
-$alertas_sin_tarifa = [];
-
-foreach ($datosConsolidados as $conductor => $info) {
-    // ALERTA 2: Conductores con clasificaciones que tienen tarifa en CERO
-    foreach ($info["viajes_por_clasificacion"] as $clasif => $porEmpresa) {
-        foreach ($porEmpresa as $empresa => $cantidad) {
-            // Buscar en tarifas_guardadas si existe esta combinación y si el valor es 0
-            $tarifa_valor = 0;
-            $vehiculo = $vehiculoPrincipal[$conductor] ?? 'Desconocido';
-            
-            if (isset($tarifas_guardadas[$empresa][$vehiculo][$clasif])) {
-                $tarifa_valor = (float)$tarifas_guardadas[$empresa][$vehiculo][$clasif];
-            }
-            
-            // Si la tarifa es 0, agregar a alertas
-            if ($tarifa_valor == 0) {
-                $alertas_sin_tarifa[] = [
-                    'conductor' => $conductor,
-                    'empresa' => $empresa,
-                    'vehiculo' => $vehiculo,
-                    'clasificacion' => $clasif,
-                    'cantidad_viajes' => $cantidad
-                ];
-            }
-        }
-    }
-}
-
-// Eliminar duplicados en alertas sin tarifa (misma combinación conductor+empresa+vehiculo+clasificacion)
-$alertas_sin_tarifa_unicas = [];
-$visto = [];
-foreach ($alertas_sin_tarifa as $alerta) {
-    $key = $alerta['conductor'] . '|' . $alerta['empresa'] . '|' . $alerta['vehiculo'] . '|' . $alerta['clasificacion'];
-    if (!in_array($key, $visto)) {
-        $visto[] = $key;
-        $alertas_sin_tarifa_unicas[] = $alerta;
-    }
-}
-$alertas_sin_tarifa = $alertas_sin_tarifa_unicas;
+$error_msg = $_SESSION['error'] ?? null;
+if (isset($_SESSION['error'])) unset($_SESSION['error']);
 ?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Liquidación de Conductores - Consolidado</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<!-- Flatpickr para el selector de rango de fechas -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/material_blue.css">
-<style>
-  /* ===== ESTILOS CORREGIDOS CON BOLAS ABAJO Y TOOLTIPS VISIBLES ===== */
-  
-  /* BARRAS DE DESPLAZAMIENTO VISIBLES */
-  ::-webkit-scrollbar {
-    height: 10px;
-    width: 10px;
-    background: #f1f1f1;
-  }
-  
-  ::-webkit-scrollbar-thumb {
-    background: #d1d5db;
-    border-radius: 999px;
-    border: 2px solid #f1f1f1;
-  }
-  
-  ::-webkit-scrollbar-thumb:hover {
-    background: #9ca3af;
-  }
-  
-  ::-webkit-scrollbar-track {
-    background: #f1f1f1;
-    border-radius: 999px;
-  }
-  
-  /* Para Firefox */
-  * {
-    scrollbar-width: thin;
-    scrollbar-color: #d1d5db #f1f1f1;
-  }
-  
-  input[type=number]::-webkit-inner-spin-button,
-  input[type=number]::-webkit-outer-spin-button{ 
-    -webkit-appearance: none; 
-    margin: 0; 
-  }
-  
-  .buscar-container { position: relative; }
-  .buscar-clear { 
-    position: absolute; 
-    right: 10px; 
-    top: 50%; 
-    transform: translateY(-50%); 
-    background: none; 
-    border: none; 
-    color: #64748b; 
-    cursor: pointer; 
-    display: none; 
-  }
-  .buscar-clear:hover { color: #475569; }
-  
-  .vehiculo-mensual {
-    background-color: #fef3c7 !important;
-    border: 1px solid #f59e0b !important;
-    color: #92400e !important;
-    font-weight: 600;
-  }
-  
-  .alerta-sin-clasificar {
-    animation: pulse-alerta 2s infinite;
-  }
-  
-  @keyframes pulse-alerta {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.7; }
-  }
-  
-  /* ===== BOLITAS FLOTANTES EN LA PARTE INFERIOR ===== */
-  .floating-balls-container {
-    position: fixed;
-    left: 50%;
-    transform: translateX(-50%);
-    bottom: 20px; /* Ahora están en la parte inferior */
-    display: flex;
-    flex-direction: row;
-    gap: 20px;
-    z-index: 9998;
-  }
-  
-  .floating-ball {
-    width: 70px;
-    height: 70px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    border: 3px solid white;
-    position: relative;
-    z-index: 9999;
-    overflow: visible; /* Cambiado para que el tooltip sea visible */
-    user-select: none;
-  }
-  
-  .floating-ball:hover {
-    transform: scale(1.15) translateY(-5px);
-    box-shadow: 0 15px 30px rgba(0, 0, 0, 0.3);
-  }
-  
-  .floating-ball:active {
-    transform: scale(0.95);
-  }
-  
-  .ball-content {
-    font-size: 28px;
-    font-weight: bold;
-    color: white;
-    text-shadow: 0 2px 4px rgba(0,0,0,0.3);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  
-  /* ===== TOOLTIP AHORA SIEMPRE VISIBLE AL HACER HOVER ===== */
-  .ball-tooltip {
-    position: absolute;
-    bottom: 80px; /* Aparece arriba de la bola */
-    left: 50%;
-    transform: translateX(-50%);
-    background: #1e293b;
-    color: white;
-    padding: 8px 16px;
-    border-radius: 30px;
-    font-size: 14px;
-    font-weight: 600;
-    white-space: nowrap;
-    box-shadow: 0 6px 16px rgba(0,0,0,0.2);
-    border: 1px solid #334155;
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.2s ease;
-    pointer-events: none;
-    z-index: 10000;
-  }
-  
-  .floating-ball:hover .ball-tooltip {
-    opacity: 1;
-    visibility: visible;
-    bottom: 90px; /* Se desplaza un poco hacia arriba */
-  }
-  
-  /* Flecha del tooltip */
-  .ball-tooltip::after {
-    content: '';
-    position: absolute;
-    top: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    border-width: 8px;
-    border-style: solid;
-    border-color: #1e293b transparent transparent transparent;
-  }
-  
-  .ball-tarifas { background: linear-gradient(135deg, #3b82f6, #1d4ed8); }
-  .ball-crear-clasif { background: linear-gradient(135deg, #10b981, #059669); }
-  .ball-clasif-rutas { background: linear-gradient(135deg, #f59e0b, #d97706); }
-  .ball-selector-columnas { background: linear-gradient(135deg, #8b5cf6, #7c3aed); }
-  
-  .side-panel-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.4);
-    z-index: 9997;
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.3s;
-  }
-  
-  .side-panel-overlay.active {
-    opacity: 1;
-    visibility: visible;
-  }
-  
-  /* PANELES LATERALES - AHORA CON ANCHO DINÁMICO */
-  .side-panel {
-    position: fixed;
-    left: -100%; /* Cambiado para permitir ancho dinámico */
-    top: 0;
-    width: auto; /* Ancho automático basado en contenido */
-    min-width: 500px; /* Ancho mínimo */
-    max-width: 90vw; /* Máximo 90% del viewport */
-    height: 100vh;
-    background: white;
-    box-shadow: 4px 0 25px rgba(0, 0, 0, 0.15);
-    z-index: 9998;
-    transition: left 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    overflow-y: auto;
-    overflow-x: auto; /* Scroll horizontal solo si es absolutamente necesario */
-    display: flex;
-    flex-direction: column;
-  }
-  
-  .side-panel.active {
-    left: 0;
-  }
-  
-  .side-panel-header {
-    position: sticky;
-    top: 0;
-    background: white;
-    border-bottom: 1px solid #e2e8f0;
-    padding: 1.25rem;
-    z-index: 10;
-    flex-shrink: 0;
-  }
-  
-  .side-panel-body {
-    padding: 1.25rem;
-    padding-bottom: 2rem;
-    overflow-y: auto;
-    overflow-x: auto; /* Scroll horizontal si es necesario */
-    flex: 1;
-    min-height: 0;
-    width: fit-content; /* El contenido determina el ancho */
-    min-width: 100%; /* Mínimo el ancho del panel */
-  }
-  
-  /* Estilos para la tabla de clasificación de rutas - AHORA SE AJUSTA AL CONTENIDO */
-  .tabla-clasif-rutas {
-    border-collapse: collapse;
-    width: max-content; /* La tabla ocupa el ancho necesario */
-    min-width: 100%; /* Mínimo el ancho del contenedor */
-  }
-  
-  .tabla-clasif-rutas th {
-    background-color: #f1f5f9;
-    color: #475569;
-    font-weight: 600;
-    font-size: 0.85rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    padding: 12px 16px; /* Padding aumentado */
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    border-bottom: 2px solid #cbd5e1;
-    white-space: nowrap; /* Evita que el texto se rompa */
-  }
-  
-  .tabla-clasif-rutas td {
-    padding: 12px 16px; /* Padding aumentado */
-    border-bottom: 1px solid #e2e8f0;
-    vertical-align: middle;
-    white-space: nowrap; /* Evita que el texto se rompa */
-  }
-  
-  .tabla-clasif-rutas tr:hover {
-    background-color: #f8fafc;
-  }
-  
-  /* Mini tarjeta de empresa - MEJORADA */
-  .empresa-mini-card {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: linear-gradient(135deg, #f8fafc, #f1f5f9);
-    border: 1px solid #cbd5e1;
-    border-radius: 30px;
-    padding: 6px 14px;
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: #1e293b;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    white-space: nowrap;
-    transition: all 0.2s;
-  }
-  
-  .empresa-mini-card:hover {
-    background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
-    border-color: #94a3b8;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-  }
-  
-  .empresa-mini-card span {
-    max-width: 200px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  
-  /* Select de clasificación - MEJORADO */
-  .select-clasif-ruta {
-    border-radius: 30px;
-    border: 1px solid #cbd5e1;
-    padding: 8px 16px;
-    font-size: 0.85rem;
-    background-color: white;
-    cursor: pointer;
-    transition: all 0.2s;
-    min-width: 150px;
-  }
-  
-  .select-clasif-ruta:hover {
-    border-color: #3b82f6;
-    box-shadow: 0 2px 8px rgba(59,130,246,0.1);
-  }
-  
-  .select-clasif-ruta:focus {
-    outline: none;
-    ring: 2px solid #3b82f6;
-    border-color: #3b82f6;
-  }
-  
-  .side-panel-close {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background: #f1f5f9;
-    border: 1px solid #e2e8f0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: all 0.2s;
-    color: #64748b;
-    flex-shrink: 0;
-  }
-  
-  .side-panel-close:hover {
-    background: #e2e8f0;
-    color: #1e293b;
-  }
-  
-  .table-container-wrapper {
-    transition: margin-left 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    margin-left: 0;
-  }
-  
-  .table-container-wrapper.with-panel {
-    margin-left: min(550px, 90vw); /* Se ajusta según el ancho del panel */
-  }
-  
-  .ball-active {
-    animation: pulse-ball 2s infinite;
-    box-shadow: 0 0 0 8px rgba(59, 130, 246, 0.2);
-  }
-  
-  @keyframes pulse-ball {
-    0%, 100% { box-shadow: 0 8px 20px rgba(0,0,0,0.2), 0 0 0 0 rgba(59, 130, 246, 0.4); }
-    50% { box-shadow: 0 8px 20px rgba(0,0,0,0.2), 0 0 0 12px rgba(59, 130, 246, 0); }
-  }
-  
-  @keyframes fadeInDown {
-    from {
-      opacity: 0;
-      transform: translateY(-20px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-  
-  .animate-fade-in-down {
-    animation: fadeInDown 0.3s ease-out;
-  }
-
-  .viajes-backdrop{ 
-    position:fixed; 
-    inset:0; 
-    background:rgba(0,0,0,.45); 
-    display:none; 
-    align-items:center; 
-    justify-content:center; 
-    z-index:10000; 
-  }
-  .viajes-backdrop.show{ display:flex; }
-  .viajes-card{ 
-    width:min(720px,94vw); 
-    max-height:90vh; 
-    overflow:hidden; 
-    border-radius:16px; 
-    background:#fff;
-    box-shadow:0 20px 60px rgba(0,0,0,.25); 
-    border:1px solid #e5e7eb; 
-  }
-  .viajes-header{
-    padding:14px 16px;
-    border-bottom:1px solid #eef2f7
-  }
-  .viajes-body{
-    padding:14px 16px;
-    overflow:auto; 
-    max-height:70vh
-  }
-  .viajes-close{
-    padding:6px 10px; 
-    border-radius:10px; 
-    cursor:pointer;
-  }
-  .viajes-close:hover{
-    background:#f3f4f6
-  }
-
-  .conductor-link{
-    cursor:pointer; 
-    color:#0d6efd; 
-    text-decoration:underline;
-  }
-
-  .row-viaje:hover { background-color: #f8fafc; }
-  .cat-completo { background-color: rgba(209, 250, 229, 0.1); }
-  .cat-medio { background-color: rgba(254, 243, 199, 0.1); }
-  .cat-extra { background-color: rgba(241, 245, 249, 0.1); }
-  .cat-siapana { background-color: rgba(250, 232, 255, 0.1); }
-  .cat-carrotanque { background-color: rgba(207, 250, 254, 0.1); }
-  .cat-otro { background-color: rgba(243, 244, 246, 0.1); }
-  
-  .tarjeta-tarifa-acordeon {
-    transition: all 0.3s ease;
-  }
-  
-  .tarjeta-tarifa-acordeon:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  }
-  
-  .acordeon-header {
-    transition: background-color 0.2s ease;
-  }
-  
-  .acordeon-content {
-    transition: all 0.3s ease;
-    max-height: 0;
-    overflow: hidden;
-  }
-  
-  .acordeon-content.expanded {
-    max-height: 2000px;
-    overflow-y: auto;
-  }
-  
-  .acordeon-icon {
-    transition: transform 0.3s ease;
-  }
-  
-  .acordeon-icon.expanded {
-    transform: rotate(90deg);
-  }
-  
-  .fila-clasificada-completo {
-    background-color: rgba(209, 250, 229, 0.3) !important;
-    border-left: 4px solid #10b981 !important;
-  }
-  
-  .fila-clasificada-medio {
-    background-color: rgba(254, 243, 199, 0.3) !important;
-    border-left: 4px solid #f59e0b !important;
-  }
-  
-  .fila-clasificada-extra {
-    background-color: rgba(241, 245, 249, 0.3) !important;
-    border-left: 4px solid #64748b !important;
-  }
-  
-  .fila-clasificada-siapana {
-    background-color: rgba(250, 232, 255, 0.3) !important;
-    border-left: 4px solid #d946ef !important;
-  }
-  
-  .fila-clasificada-carrotanque {
-    background-color: rgba(207, 250, 254, 0.3) !important;
-    border-left: 4px solid #06b6d4 !important;
-  }
-  
-  .fila-clasificada-riohacha {
-    background-color: rgba(224, 231, 255, 0.3) !important;
-    border-left: 4px solid #4f46e5 !important;
-  }
-  
-  .fila-clasificada-pru {
-    background-color: rgba(204, 251, 241, 0.3) !important;
-    border-left: 4px solid #14b8a6 !important;
-  }
-  
-  .fila-clasificada-maco {
-    background-color: rgba(255, 228, 230, 0.3) !important;
-    border-left: 4px solid #f43f5e !important;
-  }
-  
-  .columna-checkbox-item {
-    transition: all 0.2s ease;
-  }
-  
-  .columna-checkbox-item:hover {
-    background-color: #f8fafc;
-  }
-  
-  .columna-checkbox-item.selected {
-    background-color: #eff6ff;
-    border-color: #3b82f6;
-  }
-  
-  .checkbox-columna {
-    width: 18px;
-    height: 18px;
-    border-radius: 4px;
-    border: 2px solid #cbd5e1;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s;
-    flex-shrink: 0;
-  }
-  
-  .checkbox-columna.checked {
-    background-color: #3b82f6;
-    border-color: #3b82f6;
-  }
-  
-  .checkbox-columna.checked::after {
-    content: "✓";
-    color: white;
-    font-size: 12px;
-    font-weight: bold;
-  }
-  
-  .columna-oculta {
-    display: none !important;
-  }
-  
-  .columna-visualizada {
-    display: table-cell !important;
-  }
-  
-  /* Totales generales destacados */
-  .totales-generales {
-    background: linear-gradient(135deg, #1e293b, #0f172a);
-    color: white;
-    border-radius: 16px;
-    padding: 20px;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.2);
-    margin-bottom: 24px;
-  }
-  
-  .totales-generales .stat {
-    background: rgba(255,255,255,0.1);
-    backdrop-filter: blur(5px);
-    border: 1px solid rgba(255,255,255,0.2);
-    border-radius: 12px;
-    padding: 12px 20px;
-  }
-  
-  /* Indicador de múltiples empresas en el vehículo */
-  .multi-empresa-badge {
-    font-size: 10px;
-    background: rgba(59, 130, 246, 0.1);
-    border: 1px solid rgba(59, 130, 246, 0.3);
-    border-radius: 12px;
-    padding: 2px 6px;
-    margin-left: 4px;
-  }
-  
-  /* NUEVOS ESTILOS PARA LAS NOTIFICACIONES SUPERIORES */
-  .notificaciones-container {
-    margin-bottom: 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-  
-  .notificacion {
-    border-radius: 16px;
-    padding: 20px;
-    box-shadow: 0 8px 20px rgba(0,0,0,0.08);
-    animation: slideDown 0.3s ease-out;
-  }
-  
-  .notificacion-roja {
-    background: linear-gradient(135deg, #fee2e2, #fecaca);
-    border-left: 8px solid #dc2626;
-    border: 1px solid #fca5a5;
-  }
-  
-  .notificacion-amarilla {
-    background: linear-gradient(135deg, #fef3c7, #fde68a);
-    border-left: 8px solid #d97706;
-    border: 1px solid #fcd34d;
-  }
-  
-  .notificacion-titulo {
-    font-size: 1.25rem;
-    font-weight: 700;
-    margin-bottom: 12px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  
-  .notificacion-titulo.rojo { color: #991b1b; }
-  .notificacion-titulo.amarillo { color: #92400e; }
-  
-  .notificacion-conductor {
-    margin-bottom: 16px;
-    background: rgba(255,255,255,0.5);
-    border-radius: 12px;
-    padding: 12px;
-    border: 1px solid rgba(0,0,0,0.05);
-  }
-  
-  .notificacion-conductor-nombre {
-    font-weight: 700;
-    font-size: 1.1rem;
-    margin-bottom: 8px;
-    color: #7f1d1d;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  
-  .notificacion-conductor-nombre.amarillo {
-    color: #854d0e;
-  }
-  
-  .notificacion-rutas-lista {
-    margin-left: 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  
-  .notificacion-ruta-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 0.95rem;
-    padding: 4px 8px;
-    background: white;
-    border-radius: 40px;
-    border: 1px solid rgba(0,0,0,0.05);
-    box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-  }
-  
-  .notificacion-ruta-item:hover {
-    background: #fef2f2;
-  }
-  
-  .notificacion-ruta-item .vehiculo-badge {
-    background: #f1f5f9;
-    border-radius: 20px;
-    padding: 2px 8px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #475569;
-  }
-  
-  .notificacion-ruta-item .fecha-badge {
-    color: #b45309;
-    font-size: 0.8rem;
-    font-weight: 500;
-    margin-left: auto;
-  }
-  
-  .notificacion-item-detalle {
-    background: white;
-    border-radius: 40px;
-    padding: 8px 16px;
-    font-size: 0.95rem;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-    display: inline-flex;
-    align-items: center;
-    gap: 12px;
-    border: 1px solid rgba(0,0,0,0.05);
-    transition: all 0.2s;
-    width: 100%;
-    margin-bottom: 4px;
-  }
-  
-  .notificacion-item-detalle.amarillo {
-    border-left: 4px solid #d97706;
-  }
-  
-  .notificacion-item-detalle .empresa {
-    font-weight: 600;
-    color: #334155;
-  }
-  
-  .notificacion-item-detalle .vehiculo {
-    background: #f1f5f9;
-    border-radius: 20px;
-    padding: 2px 8px;
-    font-size: 0.75rem;
-  }
-  
-  .notificacion-item-detalle .clasificacion {
-    background: #fef3c7;
-    border-radius: 20px;
-    padding: 2px 8px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #92400e;
-  }
-  
-  .notificacion-item-detalle .viajes {
-    margin-left: auto;
-    font-size: 0.8rem;
-    color: #6b7280;
-  }
-  
-  @keyframes slideDown {
-    from {
-      opacity: 0;
-      transform: translateY(-20px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-  
-  /* ===== ESTILOS PARA EL SELECTOR DE RANGO DE FECHAS ===== */
-  .fecha-rango-wrapper {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    flex-wrap: wrap;
-  }
-  .fecha-rango-wrapper .fecha-input-group {
-    flex: 1;
-    min-width: 200px;
-  }
-  .fecha-rango-botones {
-    display: flex;
-    gap: 5px;
-    align-items: center;
-  }
-  .btn-fecha-rapida {
-    padding: 0.5rem 0.75rem;
-    font-size: 0.75rem;
-    border-radius: 0.5rem;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  .btn-fecha-rapida:hover {
-    transform: translateY(-1px);
-  }
-  .flatpickr-calendar.rangeMode .flatpickr-day.selected.startRange,
-  .flatpickr-calendar.rangeMode .flatpickr-day.selected.endRange {
-    background: #0d6efd;
-    border-color: #0d6efd;
-  }
-  .flatpickr-calendar.rangeMode .flatpickr-day.inRange {
-    background: rgba(13, 110, 253, 0.2);
-    border-color: transparent;
-  }
-  
-  @media (max-width: 768px) {
-    .floating-balls-container {
-      bottom: 15px;
-      gap: 10px;
-    }
-    
-    .floating-ball {
-      width: 55px;
-      height: 55px;
-    }
-    
-    .ball-content {
-      font-size: 22px;
-    }
-    
-    .ball-tooltip {
-      font-size: 12px;
-      padding: 6px 12px;
-      bottom: 70px;
-    }
-    
-    .side-panel {
-      min-width: 95vw; /* En móvil, ocupa casi todo el ancho */
-      max-width: 95vw;
-    }
-    
-    .table-container-wrapper.with-panel {
-      margin-left: 0;
-    }
-    
-    .notificacion-rutas-lista {
-      margin-left: 8px;
-    }
-    
-    .notificacion-ruta-item {
-      flex-wrap: wrap;
-    }
-    
-    .tabla-clasif-rutas th,
-    .tabla-clasif-rutas td {
-      padding: 8px 12px; /* Padding reducido en móvil */
-      font-size: 0.8rem;
-    }
-    
-    .select-clasif-ruta {
-      min-width: 120px;
-      padding: 6px 12px;
-    }
-    
-    .empresa-mini-card {
-      padding: 4px 10px;
-      font-size: 0.8rem;
-    }
-    
-    .fecha-rango-wrapper {
-      flex-direction: column;
-      align-items: stretch;
-    }
-    
-    .fecha-rango-botones {
-      justify-content: center;
-    }
-  }
-</style>
+    <meta charset="UTF-8">
+    <title>Gestión de Viajes</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/css/select2.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/css/select2-bootstrap-5-theme.min.css" rel="stylesheet">
+    <style>
+        .table-hover tbody tr:hover { background-color: rgba(0,0,0,.025); }
+        .img-thumb { max-width: 70px; height: auto; cursor: pointer; }
+        .required:after { content: " *"; color: red; }
+        .seleccionado { background-color: rgba(25, 135, 84, 0.1) !important; }
+        .checkbox-seleccion { cursor: pointer; }
+        .sticky-actions { position: sticky; top: 0; z-index: 1000; background: white; padding: 15px; margin: -15px -15px 15px -15px; border-bottom: 1px solid #dee2e6; box-shadow: 0 2px 4px rgba(0,0,0,.1); }
+        .table-container { max-height: 70vh; overflow-y: auto; position: relative; }
+        .form-control-sm { padding: 0.25rem 0.5rem; font-size: 0.875rem; }
+        .btn-informe { background-color: #198754; color: white; }
+        .btn-informe:hover { background-color: #157347; color: white; }
+        tr.pagado { background-color: #d4edda !important; }
+        tr.pendiente { background-color: #f8d7da !important; }
+        .badge-pagado { background-color: #28a745; color: white; padding: 5px 10px; border-radius: 4px; font-size: 12px; }
+        .badge-pendiente { background-color: #dc3545; color: white; padding: 5px 10px; border-radius: 4px; font-size: 12px; }
+        .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 38px; }
+        .select2-container--default .select2-selection--single { height: 38px; }
+        .select2-container--default .select2-selection--single .select2-selection__arrow { height: 36px; }
+        .columnas-dropdown { position: absolute; top: 100%; right: 0; z-index: 1000; background: white; border: 1px solid #dee2e6; border-radius: 0.375rem; box-shadow: 0 0.5rem 1rem rgba(0,0,0,.15); min-width: 300px; padding: 1rem; display: none; }
+        .columnas-dropdown.show { display: block; }
+        
+        /* Estilos para tabla COMPACTA y de ANCHO COMPLETO */
+        .tabla-ancha {
+            width: 100%;
+            font-size: 13px;
+            border-collapse: collapse;
+        }
+        .tabla-ancha th,
+        .tabla-ancha td {
+            padding: 6px 8px;
+            vertical-align: top;
+        }
+        .tabla-ancha td {
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        
+        /* ENCABEZADO FIJO (STICKY) */
+        .table-container thead th {
+            position: sticky;
+            top: 0;
+            background-color: #212529;
+            color: white;
+            z-index: 20;
+            box-shadow: 0 2px 2px -1px rgba(0,0,0,0.2);
+        }
+        
+        /* WhatsApp: SIN límite de altura, se adapta automáticamente al contenido */
+        .whatsapp-content {
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-family: monospace;
+            font-size: 11px;
+            background: #f8f9fa;
+            padding: 6px;
+            border-radius: 4px;
+            line-height: 1.4;
+        }
+        
+        /* Contenedor de la tabla fuera del container para que ocupe todo el ancho */
+        .full-width-table {
+            width: 100vw;
+            position: relative;
+            left: 50%;
+            right: 50%;
+            margin-left: -50vw;
+            margin-right: -50vw;
+            padding-left: 15px;
+            padding-right: 15px;
+        }
+        .table-responsive-full {
+            overflow-x: auto;
+        }
+    </style>
 </head>
-<body class="bg-slate-100 min-h-screen text-slate-800">
+<body class="bg-light">
 
-  <!-- BOLITAS FLOTANTES EN LA PARTE INFERIOR CON TOOLTIPS VISIBLES -->
-  <div class="floating-balls-container">
-    <div class="floating-ball ball-tarifas" id="ball-tarifas" data-panel="tarifas">
-      <div class="ball-content">🚐</div>
-      <div class="ball-tooltip">Tarifas por tipo de vehículo</div>
-    </div>
-    <div class="floating-ball ball-crear-clasif" id="ball-crear-clasif" data-panel="crear-clasif">
-      <div class="ball-content">➕</div>
-      <div class="ball-tooltip">Crear nueva clasificación</div>
-    </div>
-    <div class="floating-ball ball-clasif-rutas" id="ball-clasif-rutas" data-panel="clasif-rutas">
-      <div class="ball-content">🧭</div>
-      <div class="ball-tooltip">Clasificar rutas existentes</div>
-    </div>
-    <div class="floating-ball ball-selector-columnas" id="ball-selector-columnas" data-panel="selector-columnas">
-      <div class="ball-content">📊</div>
-      <div class="ball-tooltip">Seleccionar columnas</div>
-    </div>
-  </div>
+<?php include("nav.php"); ?>
 
-  <!-- ===== HEADER MEJORADO CON SELECTOR DE EMPRESAS Y RANGO DE FECHAS SIEMPRE VISIBLE ===== -->
-  <header class="max-w-[1800px] mx-auto px-3 md:px-4 pt-6">
-    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm px-5 py-4">
-      
-      <!-- Fila superior: Título y contador -->
-      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <h2 class="text-xl md:text-2xl font-bold">🪙 Liquidación de Conductores - CONSOLIDADO</h2>
-        <span class="text-sm bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-medium">
-          📊 <?= count($empresasSeleccionadas) ?> empresa(s) · <?= count($datosConsolidados) ?> conductor(es)
-        </span>
-      </div>
-      
-      <!-- FORMULARIO COMPLETO (Fechas + Empresas con Checkboxes) - SIEMPRE VISIBLE -->
-      <form method="get" class="space-y-4" id="filtrosForm">
-        
-        <!-- FILA DE FECHAS CON SELECTOR DE RANGO ESTILO CALENDARIO (FLATPICKR) -->
-        <div class="flex flex-col md:flex-row gap-4">
-          <div class="flex-1">
-            <label class="block text-xs font-medium text-slate-600 mb-1">📅 Rango de Fechas</label>
-            <div class="fecha-rango-wrapper">
-              <div class="fecha-input-group">
-                <input type="text" id="rangoFechas" class="form-control w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition" 
-                       placeholder="Selecciona rango de fechas" 
-                       value="<?php 
-                            if (!empty($desde) && !empty($hasta)) {
-                                echo htmlspecialchars($desde) . ' a ' . htmlspecialchars($hasta);
-                            }
-                       ?>">
-                <input type="hidden" name="desde" id="desdeInput" value="<?= htmlspecialchars($desde ?? '') ?>">
-                <input type="hidden" name="hasta" id="hastaInput" value="<?= htmlspecialchars($hasta ?? '') ?>">
-              </div>
-              <div class="fecha-rango-botones">
-                <button type="button" class="btn-fecha-rapida bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300" data-rango="hoy">Hoy</button>
-                <button type="button" class="btn-fecha-rapida bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300" data-rango="semana">Esta semana</button>
-                <button type="button" class="btn-fecha-rapida bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300" data-rango="mes">Este mes</button>
-                <button type="button" class="btn-fecha-rapida bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300" data-rango="limpiar">Limpiar</button>
-              </div>
-            </div>
-            <p class="text-xs text-slate-500 mt-1">💡 Haz clic en el calendario: primera fecha = desde, segunda fecha = hasta</p>
-          </div>
-        </div>
-        
-        <!-- SECCIÓN DE EMPRESAS (SIN CAMBIOS) -->
-        <div class="block">
-          <span class="block text-sm font-medium mb-2">Empresas (selecciona una o varias)</span>
-          
-          <div class="space-y-2 max-h-60 overflow-y-auto border border-slate-200 rounded-xl p-3 bg-white">
-            <!-- Opción "Todas" -->
-            <label class="flex items-center gap-2 p-2 hover:bg-slate-50 rounded-lg cursor-pointer">
-              <input type="checkbox" name="empresas[]" value="" 
-                     <?= in_array("", $empresasSeleccionadas) ? 'checked' : '' ?>
-                     class="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer">
-              <span class="text-sm font-medium">🌐 -- Todas las empresas --</span>
-            </label>
-            
-            <!-- Lista de empresas individuales -->
-            <?php foreach($todasEmpresas as $emp): ?>
-              <label class="flex items-center gap-2 p-2 hover:bg-slate-50 rounded-lg cursor-pointer">
-                <input type="checkbox" name="empresas[]" value="<?= htmlspecialchars($emp) ?>"
-                       <?= in_array($emp, $empresasSeleccionadas) ? 'checked' : '' ?>
-                       class="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer">
-                <span class="text-sm font-medium">🏢 <?= htmlspecialchars($emp) ?></span>
-              </label>
-            <?php endforeach; ?>
-          </div>
-          
-          <p class="text-xs text-slate-500 mt-2">
-            💡 Los datos de todas las empresas seleccionadas se consolidan en UNA SOLA TABLA.
-          </p>
-        </div>
-        
-        <!-- Botón de aplicar filtros -->
-        <div class="flex justify-end">
-          <button type="submit" 
-                  class="inline-flex items-center gap-2 rounded-xl bg-blue-600 text-white px-6 py-2.5 text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 focus:ring-4 focus:ring-blue-200 transition">
-            🔄 Aplicar filtros
-          </button>
-        </div>
-      </form>
-      
-      <!-- Resumen de fechas y empresas seleccionadas (feedback visual) -->
-      <div class="flex flex-wrap items-center gap-2 mt-2 pt-3 border-t border-slate-100">
-        <span class="text-sm font-medium text-slate-600">Empresas seleccionadas:</span>
-        <?php if (in_array("", $empresasSeleccionadas)): ?>
-          <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-purple-100 text-purple-700 text-xs font-medium border border-purple-200">
-            🌐 TODAS LAS EMPRESAS
-          </span>
-        <?php else: ?>
-          <?php foreach ($empresasSeleccionadas as $emp): ?>
-            <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-medium border border-blue-200">
-              🏢 <?= htmlspecialchars($emp) ?>
-            </span>
-          <?php endforeach; ?>
-        <?php endif; ?>
-        
-        <span class="text-sm text-slate-500 ml-auto">
-          📅 <?= htmlspecialchars($desde) ?> → <?= htmlspecialchars($hasta) ?>
-        </span>
-      </div>
-      
-    </div>
-  </header>
-
-  <!-- Overlay -->
-  <div class="side-panel-overlay" id="sidePanelOverlay"></div>
-
-  <!-- Contenido principal -->
-  <main class="max-w-[1800px] mx-auto px-3 md:px-4 py-6">
-    <div class="table-container-wrapper" id="tableContainerWrapper">
-      
-      <!-- ===== NOTIFICACIONES SUPERIORES CON DETALLE COMPLETO ===== -->
-      <?php if (!empty($alertas_sin_clasificar) || !empty($alertas_sin_tarifa)): ?>
-      <div class="notificaciones-container">
-        
-        <!-- NOTIFICACIÓN 1: Conductores con rutas sin clasificar (CON DETALLE) -->
-        <?php if (!empty($alertas_sin_clasificar)): ?>
-        <div class="notificacion notificacion-roja">
-          <div class="notificacion-titulo rojo">
-            <span>🔴</span>
-            <span><?= count($alertas_sin_clasificar) ?> conductor(es) con rutas sin clasificar</span>
-          </div>
-          <div class="notificacion-lista">
-            <?php foreach ($alertas_sin_clasificar as $conductor => $rutas): 
-              $total_rutas = count($rutas);
-            ?>
-            <div class="notificacion-conductor">
-              <div class="notificacion-conductor-nombre">
-                <span>👤</span>
-                <span><?= htmlspecialchars($conductor) ?></span>
-                <span class="text-sm bg-red-200 text-red-800 px-2 py-0.5 rounded-full"><?= $total_rutas ?> ruta(s)</span>
-              </div>
-              <div class="notificacion-rutas-lista">
-                <?php foreach (array_slice($rutas, 0, 10) as $ruta): ?>
-                <div class="notificacion-ruta-item">
-                  <span>•</span>
-                  <span class="font-medium"><?= htmlspecialchars($ruta['ruta']) ?></span>
-                  <span class="vehiculo-badge"><?= htmlspecialchars($ruta['vehiculo']) ?></span>
-                  <span class="text-xs text-slate-500">🏢 <?= htmlspecialchars($ruta['empresa']) ?></span>
-                  <span class="fecha-badge"><?= htmlspecialchars($ruta['fecha']) ?></span>
-                </div>
-                <?php endforeach; ?>
-                <?php if ($total_rutas > 10): ?>
-                <div class="text-sm text-red-600 mt-1 ml-4">
-                  ... y <?= ($total_rutas - 10) ?> ruta(s) más
-                </div>
-                <?php endif; ?>
-              </div>
-            </div>
-            <?php endforeach; ?>
-          </div>
-        </div>
-        <?php endif; ?>
-        
-        <!-- NOTIFICACIÓN 2: Conductores con clasificaciones sin tarifa asignada (valor $0) -->
-        <?php if (!empty($alertas_sin_tarifa)): ?>
-        <div class="notificacion notificacion-amarilla">
-          <div class="notificacion-titulo amarillo">
-            <span>🟡</span>
-            <span><?= count($alertas_sin_tarifa) ?> clasificaciones sin tarifa asignada (valor $0)</span>
-          </div>
-          <div class="notificacion-lista">
-            <?php 
-            // Agrupar por conductor para mejor visualización
-            $alertas_por_conductor = [];
-            foreach ($alertas_sin_tarifa as $alerta) {
-                $alertas_por_conductor[$alerta['conductor']][] = $alerta;
+<div class="container py-4">
+    <?php if ($mensaje): ?>
+        <div class="alert alert-success alert-dismissible fade show">
+            <?php
+            switch($mensaje) {
+                case 'creado': echo "✅ Viaje creado exitosamente."; break;
+                case 'editado': echo "✏️ Viaje editado exitosamente."; break;
+                case 'editado_con_cedula': 
+                    $afectados = $_GET['afectados'] ?? 0;
+                    $nombre = $_GET['nombre'] ?? '';
+                    echo "✏️ Viaje editado exitosamente. <br>✅ La cédula se actualizó en <b>$afectados</b> registros adicionales de <b>" . htmlspecialchars($nombre) . "</b>."; 
+                    break;
+                case 'eliminado': echo "🗑️ Viaje eliminado exitosamente."; break;
+                case 'multi_eliminado': 
+                    $count = $_GET['count'] ?? 0;
+                    echo "🗑️ $count viaje(s) eliminado(s) exitosamente."; 
+                    break;
+                case 'multi_editado': 
+                    $count = $_GET['count'] ?? 0;
+                    echo "✏️ $count viaje(s) editado(s) exitosamente."; 
+                    break;
+                default: echo htmlspecialchars($mensaje);
             }
             ?>
-            
-            <?php foreach ($alertas_por_conductor as $conductor => $alertas_conductor): ?>
-            <div class="notificacion-conductor">
-              <div class="notificacion-conductor-nombre amarillo">
-                <span>👤</span>
-                <span><?= htmlspecialchars($conductor) ?></span>
-                <span class="text-sm bg-yellow-200 text-yellow-800 px-2 py-0.5 rounded-full"><?= count($alertas_conductor) ?> clasificaciones</span>
-              </div>
-              <div class="notificacion-rutas-lista">
-                <?php foreach ($alertas_conductor as $alerta): ?>
-                <div class="notificacion-item-detalle amarillo" title="<?= $alerta['cantidad_viajes'] ?> viaje(s) afectado(s)">
-                  <span class="empresa">🏢 <?= htmlspecialchars($alerta['empresa']) ?></span>
-                  <span class="vehiculo">🚐 <?= htmlspecialchars($alerta['vehiculo']) ?></span>
-                  <span class="clasificacion"><?= htmlspecialchars(ucfirst($alerta['clasificacion'])) ?></span>
-                  <span class="viajes"><?= $alerta['cantidad_viajes'] ?> viaje(s)</span>
-                </div>
-                <?php endforeach; ?>
-              </div>
-            </div>
-            <?php endforeach; ?>
-          </div>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
-        <?php endif; ?>
-        
-      </div>
-      <?php endif; ?>
-
-      <!-- Totales generales -->
-      <div class="totales-generales mb-6">
-        <div class="flex items-center gap-3 mb-4">
-          <span class="text-2xl">📊</span>
-          <h3 class="text-xl font-bold">TOTALES CONSOLIDADOS</h3>
-          <span class="bg-white/20 px-3 py-1 rounded-full text-sm"><?= count($empresasSeleccionadas) ?> empresas · <?= count($datosConsolidados) ?> conductores</span>
-        </div>
-        
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div class="stat">
-            <div class="text-sm opacity-80">Viajes totales</div>
-            <div class="text-2xl font-bold" id="total_viajes_general">0</div>
-          </div>
-          <div class="stat">
-            <div class="text-sm opacity-80">Total a pagar</div>
-            <div class="text-2xl font-bold" id="total_general_general">0</div>
-          </div>
-          <div class="stat">
-            <div class="text-sm opacity-80">Pagado</div>
-            <div class="text-2xl font-bold" id="total_pagado_general">0</div>
-          </div>
-          <div class="stat">
-            <div class="text-sm opacity-80">Faltante</div>
-            <div class="text-2xl font-bold" id="total_faltante_general">0</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Botón para selector de columnas -->
-      <div class="mb-4 flex justify-end">
-        <button onclick="togglePanel('selector-columnas')" 
-                class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500 text-white hover:from-purple-600 hover:to-indigo-600 transition shadow-md">
-          <span>📊</span>
-          <span class="text-sm font-medium">Seleccionar columnas</span>
-        </button>
-      </div>
-
-      <!-- Buscador global -->
-      <div class="mb-4 flex gap-3">
-        <div class="buscar-container w-96">
-          <input type="text" 
-                 placeholder="Buscar conductor en todas las empresas..." 
-                 class="buscador-global w-full rounded-xl border border-slate-300 px-4 py-3 pr-10 text-sm"
-                 id="buscadorGlobal">
-          <button class="buscar-clear-global buscar-clear" id="clearBuscador">✕</button>
-        </div>
-        <span class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-2 text-blue-700 text-sm font-medium">
-          <span id="conductoresVisibles"><?= count($datosConsolidados) ?></span>/<span id="conductoresTotales"><?= count($datosConsolidados) ?></span> conductores
-        </span>
-      </div>
-
-      <!-- TABLA CONSOLIDADA ÚNICA -->
-      <?php if (!empty($datosConsolidados)): ?>
-      <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-        <div class="overflow-x-auto rounded-xl border border-slate-200 max-h-[70vh]">
-          <table class="w-full text-sm" id="tablaConsolidada">
-            <thead class="bg-blue-600 text-white sticky top-0 z-20">
-              <tr>
-                <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 70px;">Estado</th>
-                <th class="px-4 py-3 text-left sticky top-0 bg-blue-600" style="min-width: 220px;">Conductor</th>
-                <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 150px;">Tipo Vehículo</th>
-                
-                <?php foreach ($clasificaciones_disponibles as $clasif): 
-                  $estilo = obtenerEstiloClasificacion($clasif);
-                  $abreviaturas = [
-                      'completo' => 'COM', 'medio' => 'MED', 'extra' => 'EXT',
-                      'carrotanque' => 'CTK', 'siapana' => 'SIA', 'riohacha' => 'RIO',
-                      'pru' => 'PRU', 'maco' => 'MAC'
-                  ];
-                  $abreviatura = $abreviaturas[$clasif] ?? strtoupper(substr($clasif, 0, 3));
-                  
-                  $visible = in_array($clasif, $columnas_seleccionadas);
-                  $clase_visibilidad = $visible ? 'columna-visualizada' : 'columna-oculta';
-                  
-                  $colorMap = [
-                      'bg-emerald-100' => '#d1fae5', 'text-emerald-700' => '#047857',
-                      'bg-amber-100' => '#fef3c7', 'text-amber-800' => '#92400e',
-                      'bg-slate-200' => '#e2e8f0', 'text-slate-800' => '#1e293b',
-                      'bg-fuchsia-100' => '#fae8ff', 'text-fuchsia-700' => '#a21caf',
-                      'bg-cyan-100' => '#cffafe', 'text-cyan-800' => '#155e75',
-                      'bg-indigo-100' => '#e0e7ff', 'text-indigo-700' => '#4338ca',
-                      'bg-teal-100' => '#ccfbf1', 'text-teal-700' => '#0f766e',
-                      'bg-rose-100' => '#ffe4e6', 'text-rose-700' => '#be123c',
-                  ];
-                  
-                  $bg_color = $colorMap[$estilo['bg']] ?? '#f1f5f9';
-                  $text_color = $colorMap[$estilo['text']] ?? '#1e293b';
-                ?>
-                <th class="px-4 py-3 text-center sticky top-0 <?= $clase_visibilidad ?> columna-tabla" 
-                    data-columna="<?= htmlspecialchars($clasif) ?>"
-                    style="min-width: 80px; background-color: <?= $bg_color ?>; color: <?= $text_color ?>; z-index: 19;">
-                  <?= htmlspecialchars($abreviatura) ?>
-                </th>
-                <?php endforeach; ?>
-                <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 140px;">Total</th>
-                <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 120px;">Pagado</th>
-                <th class="px-4 py-3 text-center sticky top-0 bg-blue-600" style="min-width: 100px;">Faltante</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100 bg-white" id="tbodyConsolidado">
-            <?php foreach ($datosConsolidados as $conductor => $info): 
-              $vehiculo = $vehiculoPrincipal[$conductor] ?? 'Desconocido';
-              $esMensual = (stripos($vehiculo, 'mensual') !== false);
-              $claseVehiculo = $esMensual ? 'vehiculo-mensual' : '';
-              $rutasSinClasificar = $rutasSinClasificarCount[$conductor] ?? 0;
-              $color_vehiculo = obtenerColorVehiculo($vehiculo);
-              
-              // Calcular total pagado (suma de todas las empresas)
-              $totalPagado = $totalPagadoPorConductor[$conductor] ?? 0;
-              
-              // Preparar data-atributos con los viajes por clasificación y empresa para el cálculo en JS
-              $viajesData = [];
-              foreach ($info["viajes_por_clasificacion"] as $clasif => $porEmpresa) {
-                  foreach ($porEmpresa as $emp => $cantidad) {
-                      $viajesData[] = $clasif . '|' . $emp . '|' . $cantidad;
-                  }
-              }
-              $viajesDataStr = implode(',', $viajesData);
-              
-              // Calcular cantidad total por clasificación (para mostrar en la tabla)
-              $totalesPorClasificacion = [];
-              foreach ($info["viajes_por_clasificacion"] as $clasif => $porEmpresa) {
-                  $totalesPorClasificacion[$clasif] = array_sum($porEmpresa);
-              }
+    <?php endif; ?>
+    
+    <?php if ($error): ?>
+        <div class="alert alert-danger alert-dismissible fade show">
+            <?php
+            switch($error) {
+                case 'no_ids': echo "⚠️ No se seleccionaron registros."; break;
+                case 'eliminar': echo "❌ Error al eliminar el registro."; break;
+                default: echo htmlspecialchars($error);
+            }
             ?>
-              <tr data-conductor="<?= htmlspecialchars($conductor) ?>" 
-                  data-conductor-normalizado="<?= htmlspecialchars(mb_strtolower($conductor)) ?>"
-                  data-pagado="<?= $totalPagado ?>"
-                  data-sin-clasificar="<?= $rutasSinClasificar ?>"
-                  data-viajes-data="<?= htmlspecialchars($viajesDataStr) ?>"
-                  data-vehiculo="<?= htmlspecialchars($vehiculo) ?>"
-                  class="hover:bg-blue-50/40 transition-colors <?php echo $rutasSinClasificar > 0 ? 'alerta-sin-clasificar' : ''; ?> fila-conductor">
-                
-                <td class="px-4 py-3 text-center">
-                  <?php if ($rutasSinClasificar > 0): ?>
-                    <div class="flex flex-col items-center justify-center gap-1" title="<?= $rutasSinClasificar ?> ruta(s) sin clasificar">
-                      <span class="text-amber-600 font-bold animate-pulse">⚠️</span>
-                      <span class="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded-full font-bold">
-                        <?= $rutasSinClasificar ?>
-                      </span>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    <?php endif; ?>
+    
+    <?php if ($error_msg): ?>
+        <div class="alert alert-danger alert-dismissible fade show">
+            <?= htmlspecialchars($error_msg) ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    <?php endif; ?>
+
+    <!-- ================== FORMULARIO CREAR/EDITAR ================== -->
+    <?php if ($accion == 'crear' || ($accion == 'editar' && $viaje)): ?>
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card shadow">
+                    <div class="card-header <?= $accion == 'crear' ? 'bg-success' : 'bg-warning' ?> text-white">
+                        <h3 class="mb-0">
+                            <?= $accion == 'crear' ? '➕ Nuevo Viaje' : '✏️ Editar Viaje' ?>
+                        </h3>
                     </div>
-                  <?php else: ?>
-                    <div class="flex flex-col items-center justify-center gap-1" title="Todas las rutas clasificadas">
-                      <span class="text-emerald-600">✅</span>
-                      <span class="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full font-bold">0</span>
+                    <div class="card-body">
+                        <form method="POST" enctype="multipart/form-data" id="formViaje">
+                            <?php if ($accion == 'editar'): ?>
+                                <input type="hidden" name="id" value="<?= (int)$id ?>">
+                                <input type="hidden" name="editar" value="1">
+                            <?php else: ?>
+                                <input type="hidden" name="crear" value="1">
+                            <?php endif; ?>
+                            
+                            <!-- CAMPO NOMBRE - Selector dinámico -->
+                            <div class="mb-3">
+                                <label class="form-label required">Nombre (Conductor)</label>
+                                <select name="nombre" id="nombreSelect" class="form-select" style="width: 100%;" required>
+                                    <option value="">-- Buscar o escribir nuevo nombre --</option>
+                                    <?php
+                                    $res = $conexion->query("SELECT nombre FROM conductores_admin ORDER BY nombre ASC");
+                                    if ($res) {
+                                        while($row = $res->fetch_assoc()) {
+                                            $selected = (isset($viaje['nombre']) && $viaje['nombre'] == $row['nombre']) ? 'selected' : '';
+                                            echo '<option value="' . htmlspecialchars($row['nombre']) . '" ' . $selected . '>' . htmlspecialchars($row['nombre']) . '</option>';
+                                        }
+                                    }
+                                    ?>
+                                </select>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label">Cédula</label>
+                                <input type="text" name="cedula" class="form-control" 
+                                       value="<?= htmlspecialchars($viaje['cedula'] ?? '') ?>"
+                                       placeholder="Opcional - puede estar vacío">
+                                <?php if ($accion == 'editar'): ?>
+                                    <small class="text-muted">Si solo modifica la cédula, se actualizará en todos los registros con el mismo nombre.</small>
+                                <?php endif; ?>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Pago parcial</label>
+                                <input type="number" min="0" step="1" name="pago_parcial" class="form-control"
+                                       value="<?= htmlspecialchars($viaje['pago_parcial'] ?? '') ?>"
+                                       placeholder="Opcional - dejar vacío si no aplica">
+                            </div>
+                            
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="pagado" id="pagadoCheck" value="1"
+                                           <?= (isset($viaje['pagado']) && $viaje['pagado'] == 1) ? 'checked' : '' ?>>
+                                    <label class="form-check-label" for="pagadoCheck">
+                                        <strong>✅ Viaje Pagado</strong>
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label required">Fecha</label>
+                                <input type="date" name="fecha" class="form-control" 
+                                       value="<?= htmlspecialchars($viaje['fecha'] ?? '') ?>" required>
+                            </div>
+                            
+                            <!-- CAMPO RUTA - Selector dinámico -->
+                            <div class="mb-3">
+                                <label class="form-label required">Ruta</label>
+                                <select name="ruta" id="rutaSelect" class="form-select" style="width: 100%;" required>
+                                    <option value="">-- Buscar o escribir nueva ruta --</option>
+                                    <?php
+                                    $res = $conexion->query("SELECT ruta FROM rutas_admin ORDER BY ruta ASC");
+                                    if ($res) {
+                                        while($row = $res->fetch_assoc()) {
+                                            $selected = (isset($viaje['ruta']) && $viaje['ruta'] == $row['ruta']) ? 'selected' : '';
+                                            echo '<option value="' . htmlspecialchars($row['ruta']) . '" ' . $selected . '>' . htmlspecialchars($row['ruta']) . '</option>';
+                                        }
+                                    }
+                                    ?>
+                                </select>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label required">Tipo de Vehículo</label>
+                                <select name="tipo_vehiculo" class="form-select select2-single" required>
+                                    <option value="">-- Seleccionar --</option>
+                                    <?php foreach($listas['vehiculos'] as $vehItem): ?>
+                                        <option value="<?= htmlspecialchars($vehItem) ?>"
+                                            <?= (isset($viaje['tipo_vehiculo']) && $vehItem == $viaje['tipo_vehiculo']) ? 'selected' : '' ?>>
+                                            <?= htmlspecialchars($vehItem) ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <small class="text-muted">Para vehículos nuevos, agrégalos directamente en la lista de vehículos.</small>
+                            </div>
+                            
+                            <!-- CAMPO EMPRESA - Selector dinámico -->
+                            <div class="mb-3">
+                                <label class="form-label">Empresa</label>
+                                <select name="empresa" id="empresaSelect" class="form-select" style="width: 100%;">
+                                    <option value="">-- Ninguna / Buscar o escribir nueva empresa --</option>
+                                    <?php
+                                    $res = $conexion->query("SELECT nombre FROM empresas_admin ORDER BY nombre ASC");
+                                    if ($res) {
+                                        while($row = $res->fetch_assoc()) {
+                                            $selected = (isset($viaje['empresa']) && $viaje['empresa'] == $row['nombre']) ? 'selected' : '';
+                                            echo '<option value="' . htmlspecialchars($row['nombre']) . '" ' . $selected . '>' . htmlspecialchars($row['nombre']) . '</option>';
+                                        }
+                                    }
+                                    ?>
+                                </select>
+                            </div>
+                            
+                            <!-- IMAGEN EVIDENCIA -->
+                            <?php if ($accion == 'editar' && isset($viaje['imagen']) && !empty($viaje['imagen'])): ?>
+                                <div class="mb-3">
+                                    <label class="form-label">📸 Evidencia actual</label>
+                                    <div>
+                                        <img src="uploads/<?= htmlspecialchars($viaje['imagen']) ?>" class="img-thumbnail" style="max-width: 150px;">
+                                        <div class="form-check mt-2">
+                                            <input class="form-check-input" type="checkbox" name="eliminar_imagen" value="1" id="eliminarImg">
+                                            <label class="form-check-label" for="eliminarImg">Eliminar evidencia actual</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
+                            
+                            <div class="mb-3">
+                                <label class="form-label">📸 <?= $accion == 'crear' ? 'Evidencia (opcional)' : 'Nueva evidencia (opcional)' ?></label>
+                                <input type="file" name="imagen" class="form-control" accept="image/*">
+                            </div>
+                            
+                            <!-- EPICRISIS -->
+                            <?php if ($accion == 'editar' && isset($viaje['epicrisis']) && !empty($viaje['epicrisis'])): ?>
+                                <div class="mb-3">
+                                    <label class="form-label">📋 Epicrisis actual</label>
+                                    <div>
+                                        <img src="uploads/<?= htmlspecialchars($viaje['epicrisis']) ?>" class="img-thumbnail" style="max-width: 150px;">
+                                        <div class="form-check mt-2">
+                                            <input class="form-check-input" type="checkbox" name="eliminar_epicrisis" value="1" id="eliminarEpicrisis">
+                                            <label class="form-check-label" for="eliminarEpicrisis">Eliminar epicrisis actual</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
+                            
+                            <div class="mb-3">
+                                <label class="form-label">📋 <?= $accion == 'crear' ? 'Epicrisis (opcional)' : 'Nueva epicrisis (opcional)' ?></label>
+                                <input type="file" name="epicrisis" class="form-control" accept="image/*">
+                            </div>
+                            
+                            <!-- CAMPO WHATSAPP -->
+                            <div class="mb-3">
+                                <label class="form-label">💬 Mensaje original de WhatsApp</label>
+                                <textarea name="whatsapp" class="form-control" rows="5" 
+                                          placeholder="Pega aquí el mensaje original copiado del grupo de WhatsApp...&#10;Ejemplo:&#10;Buenos días, necesito un viaje para Juan Pérez&#10;Cédula: 12345678&#10;Ruta: Nazareth&#10;Vehículo: camión&#10;Empresa: Transportes Unidos&#10;Pago: $80,000"><?= htmlspecialchars($viaje['whatsapp'] ?? '') ?></textarea>
+                                <small class="text-muted">Guarda el mensaje original sin formato para poder comparar después si se transcribió correctamente.</small>
+                            </div>
+                            
+                            <div class="d-flex justify-content-between">
+                                <a href="?<?= htmlspecialchars(construirUrlFiltros()) ?>" class="btn btn-secondary" id="cancelarBtn">Cancelar</a>
+                                <button type="submit" class="btn <?= $accion == 'crear' ? 'btn-success' : 'btn-warning' ?>">
+                                    <?= $accion == 'crear' ? 'Crear Viaje' : 'Guardar Cambios' ?>
+                                </button>
+                            </div>
+                        </form>
                     </div>
-                  <?php endif; ?>
-                </td>
-                
-                <td class="px-4 py-3">
-                  <button type="button"
-                          class="conductor-link text-blue-700 hover:text-blue-900 underline underline-offset-2 transition flex items-center gap-2"
-                          data-conductor="<?= htmlspecialchars($conductor) ?>"
-                          onclick="abrirModalViajes('<?= htmlspecialchars($conductor) ?>', '')">
-                    <?php if ($rutasSinClasificar > 0): ?>
-                      <span class="text-amber-600">⚠️</span>
-                    <?php endif; ?>
-                    <?= htmlspecialchars($conductor) ?>
-                  </button>
-                  
-                  <!-- Mostrar badge si trabajó en múltiples empresas -->
-                  <?php if (count($info["pagos_por_empresa"]) > 1): ?>
-                  <span class="multi-empresa-badge" title="Trabajó en <?= count($info["pagos_por_empresa"]) ?> empresas">
-                    +<?= count($info["pagos_por_empresa"]) ?>
-                  </span>
-                  <?php endif; ?>
-                </td>
-                
-                <td class="px-4 py-3 text-center">
-                  <span class="inline-block <?= $claseVehiculo ?> px-3 py-1.5 rounded-lg text-xs font-medium border <?= $color_vehiculo['border'] ?> <?= $color_vehiculo['text'] ?> <?= $color_vehiculo['bg'] ?>">
-                    <?= htmlspecialchars($vehiculo) ?>
-                    <?php if ($esMensual): ?>
-                      <span class="ml-1">📅</span>
-                    <?php endif; ?>
-                  </span>
-                </td>
-                
-                <?php foreach ($clasificaciones_disponibles as $clasif): 
-                  $estilo = obtenerEstiloClasificacion($clasif);
-                  $cantidad = $totalesPorClasificacion[$clasif] ?? 0;
-                  $visible = in_array($clasif, $columnas_seleccionadas);
-                  $clase_visibilidad = $visible ? 'columna-visualizada' : 'columna-oculta';
-                  
-                  $colorMap = [
-                      'bg-emerald-100' => '#f0fdf4', 'text-emerald-700' => '#047857',
-                      'bg-amber-100' => '#fffbeb', 'text-amber-800' => '#92400e',
-                      'bg-slate-200' => '#f8fafc', 'text-slate-800' => '#1e293b',
-                      'bg-fuchsia-100' => '#fdf4ff', 'text-fuchsia-700' => '#a21caf',
-                      'bg-cyan-100' => '#ecfeff', 'text-cyan-800' => '#155e75',
-                      'bg-indigo-100' => '#eef2ff', 'text-indigo-700' => '#4338ca',
-                      'bg-teal-100' => '#f0fdfa', 'text-teal-700' => '#0f766e',
-                      'bg-rose-100' => '#fff1f2', 'text-rose-700' => '#be123c',
-                  ];
-                  
-                  $bg_cell_color = $colorMap[$estilo['bg']] ?? '#f8fafc';
-                  $text_cell_color = $colorMap[$estilo['text']] ?? '#1e293b';
-                ?>
-                <td class="px-4 py-3 text-center font-medium <?= $clase_visibilidad ?> columna-tabla" 
-                    data-columna="<?= htmlspecialchars($clasif) ?>"
-                    data-cantidad="<?= $cantidad ?>"
-                    data-clasificacion="<?= htmlspecialchars($clasif) ?>"
-                    style="min-width: 80px; background-color: <?= $bg_cell_color ?>; color: <?= $text_cell_color ?>;">
-                  <?= $cantidad ?>
-                </td>
-                <?php endforeach; ?>
-
-                <td class="px-4 py-3">
-                  <input type="text"
-                         class="totales w-full rounded-xl border border-slate-300 px-3 py-2 text-right bg-slate-50 outline-none"
-                         readonly dir="ltr"
-                         value="0">
-                </td>
-                <td class="px-4 py-3">
-                  <input type="text"
-                         class="pagado w-full rounded-xl border border-emerald-200 px-3 py-2 text-right bg-emerald-50 outline-none"
-                         readonly dir="ltr"
-                         value="<?= number_format($totalPagado, 0, ',', '.') ?>">
-                </td>
-                <td class="px-4 py-3">
-                  <input type="text"
-                         class="faltante w-full rounded-xl border border-rose-200 px-3 py-2 text-right bg-rose-50 outline-none"
-                         readonly dir="ltr"
-                         value="0">
-                </td>
-              </tr>
-            <?php endforeach; ?>
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <?php else: ?>
-      <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-12 text-center">
-        <span class="text-6xl mb-4 block">📭</span>
-        <h3 class="text-xl font-bold text-slate-700 mb-2">No hay datos para mostrar</h3>
-        <p class="text-slate-500">No se encontraron viajes en el período seleccionado para las empresas elegidas.</p>
-      </div>
-      <?php endif; ?>
-    </div>
-  </main>
-
-  <!-- Modal VIAJES -->
-  <div id="viajesModal" class="viajes-backdrop">
-    <div class="viajes-card">
-      <div class="viajes-header">
-        <div class="flex flex-col gap-2 w-full">
-          <div class="flex items-center justify-between">
-            <h3 class="text-lg font-semibold flex items-center gap-2">
-              🧳 Viajes — <span id="viajesTitle" class="font-normal"></span>
-            </h3>
-            <button class="viajes-close text-slate-600 hover:bg-slate-100 border border-slate-300 px-2 py-1 rounded-lg text-sm" id="viajesCloseBtn">
-              ✕ Cerrar
-            </button>
-          </div>
-          <div class="flex items-center gap-4 text-xs text-slate-500">
-            <span id="viajesRango"></span>
-            <span>•</span>
-            <span id="viajesEmpresa">Todas las empresas</span>
-          </div>
-        </div>
-      </div>
-      <div class="viajes-body" id="viajesContent"></div>
-    </div>
-  </div>
-
-  <!-- Flatpickr JS -->
-  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-  <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/es.js"></script>
-  
-  <script>
-    // ===== VARIABLES GLOBALES =====
-    const RANGO_DESDE = <?= json_encode($desde) ?>;
-    const RANGO_HASTA = <?= json_encode($hasta) ?>;
-    const EMPRESAS_SELECCIONADAS = <?= json_encode($empresasSeleccionadas) ?>;
-    const EMPRESAS_FILTRO_STRING = <?= json_encode($empresasFiltroString) ?>;
-    const CLASIFICACIONES_DISPONIBLES = <?= json_encode($clasificaciones_disponibles) ?>;
-    
-    // ===== SISTEMA DE BOLITAS Y PANELES =====
-    let activePanel = null;
-    const panels = ['tarifas', 'crear-clasif', 'clasif-rutas', 'selector-columnas'];
-    
-    document.addEventListener('DOMContentLoaded', function() {
-      panels.forEach(panelId => {
-        const ball = document.getElementById(`ball-${panelId}`);
-        const panel = document.getElementById(`panel-${panelId}`);
-        const closeBtn = panel?.querySelector('.side-panel-close');
-        const overlay = document.getElementById('sidePanelOverlay');
-        const tableWrapper = document.getElementById('tableContainerWrapper');
-        
-        if (ball && panel) {
-          ball.addEventListener('click', () => togglePanel(panelId));
-        }
-        
-        if (closeBtn) {
-          closeBtn.addEventListener('click', () => togglePanel(panelId));
-        }
-      });
-      
-      if (document.getElementById('sidePanelOverlay')) {
-        document.getElementById('sidePanelOverlay').addEventListener('click', () => {
-          if (activePanel) togglePanel(activePanel);
-        });
-      }
-      
-      document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && activePanel) togglePanel(activePanel);
-      });
-      
-      colapsarTodosTarifas();
-      inicializarColoresClasificacion();
-      inicializarSeleccionColumnas();
-      configurarEventosTarifas();
-      configurarBuscadorGlobal();
-      iniciarSelectorRangoFechas(); // NUEVO: Inicializar Flatpickr
-      
-      // Inicializar formato de tarifas y recalcular
-      configurarFormatoTarifas();
-      setTimeout(recalcularTodo, 100);
-    });
-    
-    // ===== NUEVO: INICIALIZAR SELECTOR DE RANGO DE FECHAS CON FLATPICKR =====
-    function iniciarSelectorRangoFechas() {
-      const desdeInput = document.getElementById('desdeInput');
-      const hastaInput = document.getElementById('hastaInput');
-      const rangoFechasInput = document.getElementById('rangoFechas');
-      const filtrosForm = document.getElementById('filtrosForm');
-      
-      if (!rangoFechasInput || !desdeInput || !hastaInput || !filtrosForm) return;
-      
-      let fechaDesde = desdeInput.value || '';
-      let fechaHasta = hastaInput.value || '';
-      
-      const dateRangePicker = flatpickr(rangoFechasInput, {
-        mode: "range",
-        dateFormat: "Y-m-d",
-        locale: "es",
-        altInput: true,
-        altFormat: "d/m/Y",
-        allowInput: true,
-        onClose: function(selectedDates, dateStr, instance) {
-          if (selectedDates.length === 2) {
-            let date1 = selectedDates[0];
-            let date2 = selectedDates[1];
-            
-            let fechaInicio = date1 < date2 ? date1 : date2;
-            let fechaFin = date1 < date2 ? date2 : date1;
-            
-            let inicioStr = fechaInicio.toISOString().split('T')[0];
-            let finStr = fechaFin.toISOString().split('T')[0];
-            
-            desdeInput.value = inicioStr;
-            hastaInput.value = finStr;
-            
-            instance.setDate([fechaInicio, fechaFin], false);
-            
-            // Auto-submit del formulario cuando se selecciona un rango
-            setTimeout(() => {
-              filtrosForm.submit();
-            }, 100);
-          } else if (selectedDates.length === 1) {
-            let fechaUnica = selectedDates[0];
-            desdeInput.value = fechaUnica.toISOString().split('T')[0];
-            hastaInput.value = '';
-          } else if (selectedDates.length === 0) {
-            desdeInput.value = '';
-            hastaInput.value = '';
-          }
-        }
-      });
-      
-      if (fechaDesde && fechaHasta) {
-        dateRangePicker.setDate([fechaDesde, fechaHasta], false);
-        rangoFechasInput.value = fechaDesde + ' a ' + fechaHasta;
-      } else if (fechaDesde) {
-        dateRangePicker.setDate(fechaDesde, false);
-      }
-      
-      // Botones de fechas rápidas
-      document.querySelectorAll('.btn-fecha-rapida').forEach(btn => {
-        btn.addEventListener('click', function(e) {
-          const rango = this.getAttribute('data-rango');
-          const hoy = new Date();
-          let fechaInicio = null;
-          let fechaFin = null;
-          
-          switch(rango) {
-            case 'hoy':
-              fechaInicio = hoy;
-              fechaFin = hoy;
-              break;
-            case 'semana':
-              const diaSemana = hoy.getDay();
-              const diffLunes = diaSemana === 0 ? 6 : diaSemana - 1;
-              fechaInicio = new Date(hoy);
-              fechaInicio.setDate(hoy.getDate() - diffLunes);
-              fechaFin = new Date(fechaInicio);
-              fechaFin.setDate(fechaInicio.getDate() + 6);
-              break;
-            case 'mes':
-              fechaInicio = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
-              fechaFin = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
-              break;
-            case 'limpiar':
-              desdeInput.value = '';
-              hastaInput.value = '';
-              dateRangePicker.clear();
-              return;
-          }
-          
-          if (fechaInicio && fechaFin) {
-            let inicioStr = fechaInicio.toISOString().split('T')[0];
-            let finStr = fechaFin.toISOString().split('T')[0];
-            desdeInput.value = inicioStr;
-            hastaInput.value = finStr;
-            dateRangePicker.setDate([fechaInicio, fechaFin], false);
-            
-            setTimeout(() => {
-              filtrosForm.submit();
-            }, 100);
-          }
-        });
-      });
-    }
-    
-    function togglePanel(panelId) {
-      const ball = document.getElementById(`ball-${panelId}`);
-      const panel = document.getElementById(`panel-${panelId}`);
-      const overlay = document.getElementById('sidePanelOverlay');
-      const tableWrapper = document.getElementById('tableContainerWrapper');
-      
-      if (!panel || !ball) return;
-      
-      if (activePanel === panelId) {
-        panel.classList.remove('active');
-        ball.classList.remove('ball-active');
-        overlay?.classList.remove('active');
-        tableWrapper?.classList.remove('with-panel');
-        activePanel = null;
-      } else {
-        if (activePanel) {
-          document.getElementById(`panel-${activePanel}`)?.classList.remove('active');
-          document.getElementById(`ball-${activePanel}`)?.classList.remove('ball-active');
-        }
-        
-        panel.classList.add('active');
-        ball.classList.add('ball-active');
-        overlay?.classList.add('active');
-        tableWrapper?.classList.add('with-panel');
-        activePanel = panelId;
-      }
-    }
-    
-    // ===== FUNCIONES DE ACORDEÓN =====
-    function toggleAcordeon(vehiculoId) {
-      const content = document.getElementById('content-' + vehiculoId);
-      const icon = document.getElementById('icon-' + vehiculoId);
-      if (content && icon) {
-        if (content.classList.contains('expanded')) {
-          content.classList.remove('expanded');
-          icon.classList.remove('expanded');
-          content.style.maxHeight = '0';
-        } else {
-          content.classList.add('expanded');
-          icon.classList.add('expanded');
-          content.style.maxHeight = content.scrollHeight + 'px';
-        }
-      }
-    }
-    
-    function expandirTodosTarifas() {
-      document.querySelectorAll('.acordeon-content').forEach(content => {
-        if (!content.classList.contains('expanded')) {
-          content.classList.add('expanded');
-          content.style.maxHeight = content.scrollHeight + 'px';
-          const vehiculoId = content.id.replace('content-', '');
-          const icon = document.getElementById('icon-' + vehiculoId);
-          if (icon) icon.classList.add('expanded');
-        }
-      });
-    }
-    
-    function colapsarTodosTarifas() {
-      document.querySelectorAll('.acordeon-content').forEach(content => {
-        if (content.classList.contains('expanded')) {
-          content.classList.remove('expanded');
-          content.style.maxHeight = '0';
-          const vehiculoId = content.id.replace('content-', '');
-          const icon = document.getElementById('icon-' + vehiculoId);
-          if (icon) icon.classList.remove('expanded');
-        }
-      });
-    }
-    
-    // ===== CLASIFICACIÓN DE RUTAS =====
-    function inicializarColoresClasificacion() {
-      document.querySelectorAll('.fila-ruta').forEach(fila => {
-        const select = fila.querySelector('.select-clasif-ruta');
-        if (select) actualizarColorFila(select);
-      });
-    }
-    
-    function actualizarColorFila(selectElement) {
-      const fila = selectElement.closest('tr');
-      const clasificacion = selectElement.value.toLowerCase();
-      const ruta = fila.dataset.ruta;
-      const vehiculo = fila.dataset.vehiculo;
-      
-      fila.classList.forEach(className => {
-        if (className.startsWith('fila-clasificada-')) {
-          fila.classList.remove(className);
-        }
-      });
-      
-      fila.dataset.clasificacion = clasificacion;
-      
-      if (clasificacion) {
-        fila.classList.add('fila-clasificada-' + clasificacion);
-      }
-      
-      guardarClasificacionRuta(ruta, vehiculo, clasificacion);
-    }
-    
-    function guardarClasificacionRuta(ruta, vehiculo, clasificacion) {
-      fetch('<?= basename(__FILE__) ?>', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          guardar_clasificacion: 1,
-          ruta: ruta,
-          tipo_vehiculo: vehiculo,
-          clasificacion: clasificacion
-        })
-      })
-      .then(r => r.text())
-      .then(t => {
-        if (t.trim() !== 'ok') console.error('Error guardando clasificación:', t);
-      });
-    }
-    
-    // ===== SELECCIÓN DE COLUMNAS =====
-    let columnasSeleccionadas = <?= json_encode($columnas_seleccionadas) ?>;
-    
-    function inicializarSeleccionColumnas() {
-      columnasSeleccionadas.forEach(columna => {
-        const checkbox = document.getElementById('checkbox-' + columna);
-        if (checkbox) checkbox.classList.add('checked');
-        const item = document.querySelector('[data-columna="' + columna + '"]');
-        if (item) item.classList.add('selected');
-      });
-      actualizarContadorColumnas();
-      actualizarColumnasTabla();
-    }
-    
-    function toggleColumna(columna) {
-      const checkbox = document.getElementById('checkbox-' + columna);
-      const item = document.querySelector('[data-columna="' + columna + '"]');
-      
-      if (columnasSeleccionadas.includes(columna)) {
-        columnasSeleccionadas = columnasSeleccionadas.filter(c => c !== columna);
-        if (checkbox) checkbox.classList.remove('checked');
-        if (item) item.classList.remove('selected');
-      } else {
-        columnasSeleccionadas.push(columna);
-        if (checkbox) checkbox.classList.add('checked');
-        if (item) item.classList.add('selected');
-      }
-      
-      actualizarContadorColumnas();
-      actualizarColumnasTabla();
-    }
-    
-    function seleccionarTodasColumnas() {
-      columnasSeleccionadas = [];
-      document.querySelectorAll('.columna-checkbox-item').forEach(item => {
-        const columna = item.dataset.columna;
-        columnasSeleccionadas.push(columna);
-        const checkbox = document.getElementById('checkbox-' + columna);
-        if (checkbox) checkbox.classList.add('checked');
-        item.classList.add('selected');
-      });
-      actualizarContadorColumnas();
-      actualizarColumnasTabla();
-    }
-    
-    function deseleccionarTodasColumnas() {
-      columnasSeleccionadas = [];
-      document.querySelectorAll('.columna-checkbox-item').forEach(item => {
-        const columna = item.dataset.columna;
-        const checkbox = document.getElementById('checkbox-' + columna);
-        if (checkbox) checkbox.classList.remove('checked');
-        item.classList.remove('selected');
-      });
-      actualizarContadorColumnas();
-      actualizarColumnasTabla();
-    }
-    
-    function actualizarContadorColumnas() {
-      const contadorPanel = document.getElementById('contador-seleccionadas-panel');
-      if (contadorPanel) contadorPanel.textContent = columnasSeleccionadas.length;
-    }
-    
-    function actualizarColumnasTabla() {
-      document.querySelectorAll('.columna-tabla').forEach(columna => {
-        const nombreColumna = columna.dataset.columna;
-        if (columnasSeleccionadas.includes(nombreColumna)) {
-          columna.classList.remove('columna-oculta');
-          columna.classList.add('columna-visualizada');
-        } else {
-          columna.classList.remove('columna-visualizada');
-          columna.classList.add('columna-oculta');
-        }
-      });
-    }
-    
-    function guardarSeleccionColumnas() {
-      const desde = RANGO_DESDE;
-      const hasta = RANGO_HASTA;
-      const empresas = EMPRESAS_SELECCIONADAS.join(',');
-      
-      fetch('<?= basename(__FILE__) ?>', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          guardar_columnas_seleccionadas: 1,
-          columnas: JSON.stringify(columnasSeleccionadas),
-          empresas: empresas,
-          desde: desde,
-          hasta: hasta
-        })
-      })
-      .then(r => r.text())
-      .then(respuesta => {
-        if (respuesta.trim() === 'ok') {
-          mostrarNotificacion('✅ Selección de columnas guardada', 'success');
-        } else {
-          mostrarNotificacion('❌ Error al guardar selección', 'error');
-        }
-      })
-      .catch(error => {
-        console.error('Error:', error);
-        mostrarNotificacion('❌ Error de conexión', 'error');
-      });
-    }
-    
-    function mostrarNotificacion(mensaje, tipo) {
-      const notificacion = document.createElement('div');
-      notificacion.className = `fixed top-4 right-4 px-4 py-3 rounded-lg shadow-lg z-[10001] animate-fade-in-down ${
-        tipo === 'success' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 
-        'bg-rose-100 text-rose-800 border border-rose-200'
-      }`;
-      notificacion.innerHTML = `
-        <div class="flex items-center gap-2">
-          <span class="text-lg">${tipo === 'success' ? '✅' : '❌'}</span>
-          <span class="font-medium">${mensaje}</span>
-        </div>
-      `;
-      document.body.appendChild(notificacion);
-      setTimeout(() => notificacion.remove(), 3000);
-    }
-    
-    // ===== FUNCIONES DE TARIFAS =====
-    function configurarEventosTarifas() {
-      document.addEventListener('change', function(e) {
-        if (e.target.matches('.tarifa-input')) {
-          const input = e.target;
-          const empresa = input.dataset.empresa;
-          const tipoVehiculo = input.dataset.vehiculo;
-          const campo = input.dataset.campo.toLowerCase();
-          
-          const valorReal = parseInt(input.dataset.valorReal || '0', 10);
-          
-          fetch('<?= basename(__FILE__) ?>', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-              guardar_tarifa: 1,
-              empresa: empresa,
-              tipo_vehiculo: tipoVehiculo,
-              campo: campo,
-              valor: valorReal
-            })
-          })
-          .then(r => r.text())
-          .then(t => {
-            if (t.trim() === 'ok') {
-              input.defaultValue = input.value;
-              recalcularTodo();
-            } else {
-              console.error('Error guardando tarifa:', t);
-              input.value = input.defaultValue;
-            }
-          })
-          .catch(error => {
-            console.error('Error de conexión:', error);
-            input.value = input.defaultValue;
-          });
-        }
-      });
-      
-      document.querySelectorAll('.tarifa-input').forEach(input => {
-        input.defaultValue = input.value;
-      });
-    }
-    
-    // ===== FORMATO DE NÚMEROS CON PUNTOS EN INPUTS DE TARIFAS =====
-    function formatearNumeroMiles(valor) {
-        let numeros = valor.replace(/\D/g, '');
-        if (numeros === '') return '';
-        let numero = parseInt(numeros, 10);
-        return numero.toLocaleString('es-CO').replace(/,/g, '.');
-    }
-    
-    function configurarFormatoTarifas() {
-        document.querySelectorAll('.tarifa-input').forEach(input => {
-            let valorNumerico = input.value.replace(/\D/g, '');
-            if (valorNumerico !== '' && valorNumerico !== '0') {
-                input.dataset.valorReal = valorNumerico;
-                input.value = formatearNumeroMiles(valorNumerico);
-            } else {
-                input.dataset.valorReal = '0';
-            }
-            
-            input.addEventListener('input', function(e) {
-                let cursorPos = this.selectionStart;
-                let valorOriginal = this.value;
-                let soloNumeros = valorOriginal.replace(/\D/g, '');
-                
-                if (soloNumeros === '') {
-                    this.dataset.valorReal = '0';
-                    this.value = '';
-                    return;
-                }
-                
-                this.dataset.valorReal = soloNumeros;
-                let formateado = formatearNumeroMiles(soloNumeros);
-                this.value = formateado;
-                
-                if (soloNumeros.length > 0) {
-                    let digitosAntesCursor = valorOriginal.slice(0, cursorPos).replace(/\D/g, '').length;
-                    let nuevoCursor = 0;
-                    let contadorDigitos = 0;
-                    
-                    for (let i = 0; i < formateado.length; i++) {
-                        nuevoCursor++;
-                        if (formateado[i].match(/\d/)) {
-                            contadorDigitos++;
-                            if (contadorDigitos === digitosAntesCursor) {
-                                break;
-                            }
-                        }
-                    }
-                    
-                    this.setSelectionRange(nuevoCursor, nuevoCursor);
-                }
-            });
-            
-            input.addEventListener('blur', function() {
-                let valorReal = this.dataset.valorReal || '0';
-                if (valorReal === '0' || valorReal === '') {
-                    this.value = '';
-                } else {
-                    this.value = formatearNumeroMiles(valorReal);
-                }
-            });
-            
-            input.addEventListener('keydown', function(e) {
-                if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'ArrowLeft' || 
-                    e.key === 'ArrowRight' || e.key === 'Tab' || e.key === 'Home' || 
-                    e.key === 'End' || e.ctrlKey || e.metaKey) {
-                    return;
-                }
-                if (e.key.match(/\d/)) {
-                    return;
-                }
-                e.preventDefault();
-            });
-            
-            input.addEventListener('paste', function(e) {
-                e.preventDefault();
-                let pastedText = (e.clipboardData || window.clipboardData).getData('text');
-                let soloNumeros = pastedText.replace(/\D/g, '');
-                
-                if (soloNumeros) {
-                    let nuevoValor = (this.dataset.valorReal || '') + soloNumeros;
-                    this.dataset.valorReal = nuevoValor;
-                    this.value = formatearNumeroMiles(nuevoValor);
-                    this.dispatchEvent(new Event('input', { bubbles: true }));
-                }
-            });
-        });
-    }
-    
-    // ===== BUSCADOR GLOBAL =====
-    function configurarBuscadorGlobal() {
-      const input = document.getElementById('buscadorGlobal');
-      const clearBtn = document.getElementById('clearBuscador');
-      
-      if (input) {
-        input.addEventListener('input', filtrarGlobal);
-      }
-      
-      if (clearBtn) {
-        clearBtn.addEventListener('click', () => {
-          input.value = '';
-          filtrarGlobal();
-          input.focus();
-        });
-      }
-    }
-    
-    function filtrarGlobal() {
-      const input = document.getElementById('buscadorGlobal');
-      const textoBusqueda = input ? normalizarTexto(input.value) : '';
-      const filas = document.querySelectorAll('#tbodyConsolidado tr');
-      const clearBtn = document.getElementById('clearBuscador');
-      
-      let visibles = 0;
-      
-      filas.forEach(fila => {
-        const nombreConductor = fila.querySelector('.conductor-link')?.textContent?.replace('⚠️', '').trim() || '';
-        const nombreNormalizado = normalizarTexto(nombreConductor);
-        
-        if (textoBusqueda === '' || nombreNormalizado.includes(textoBusqueda)) {
-          fila.style.display = '';
-          visibles++;
-        } else {
-          fila.style.display = 'none';
-        }
-      });
-      
-      document.getElementById('conductoresVisibles').textContent = visibles;
-      if (clearBtn) clearBtn.style.display = textoBusqueda === '' ? 'none' : 'block';
-      
-      recalcularTodo();
-    }
-    
-    function normalizarTexto(texto) {
-      return texto.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-    }
-    
-    // ===== FUNCIONES DE CÁLCULO =====
-    function getTarifas() {
-      const tarifas = {};
-      document.querySelectorAll('.tarjeta-tarifa-acordeon').forEach(card => {
-        const empresa = card.dataset.empresa;
-        const vehiculo = card.dataset.vehiculo;
-        
-        if (!tarifas[empresa]) tarifas[empresa] = {};
-        if (!tarifas[empresa][vehiculo]) tarifas[empresa][vehiculo] = {};
-        
-        card.querySelectorAll('input[data-campo]').forEach(input => {
-          const campo = input.dataset.campo.toLowerCase();
-          const valor = parseInt(input.dataset.valorReal || '0', 10);
-          tarifas[empresa][vehiculo][campo] = valor;
-        });
-      });
-      return tarifas;
-    }
-    
-    function formatNumber(num) {
-      return new Intl.NumberFormat('es-CO').format(num || 0);
-    }
-    
-    function recalcularTodo() {
-      const tarifas = getTarifas();
-      const filas = document.querySelectorAll('#tbodyConsolidado tr');
-      
-      let totalViajesGlobal = 0;
-      let totalPagadoGlobal = 0;
-      let totalFaltanteGlobal = 0;
-      
-      filas.forEach(fila => {
-        if (fila.style.display === 'none') return;
-        
-        const vehiculo = fila.dataset.vehiculo;
-        const pagado = parseInt(fila.dataset.pagado || '0') || 0;
-        const viajesData = fila.dataset.viajesData || '';
-        
-        const viajes = viajesData.split(',').filter(item => item);
-        
-        let totalFila = 0;
-        
-        viajes.forEach(item => {
-          const partes = item.split('|');
-          if (partes.length === 3) {
-            const clasif = partes[0];
-            const empresa = partes[1];
-            const cantidad = parseInt(partes[2]) || 0;
-            
-            const tarifaEmpresa = tarifas[empresa]?.[vehiculo]?.[clasif] || 0;
-            totalFila += cantidad * tarifaEmpresa;
-          }
-        });
-        
-        let faltante = totalFila - pagado;
-        if (faltante < 0) faltante = 0;
-        
-        const totalInput = fila.querySelector('input.totales');
-        if (totalInput) totalInput.value = formatNumber(totalFila);
-        
-        const faltanteInput = fila.querySelector('input.faltante');
-        if (faltanteInput) faltanteInput.value = formatNumber(faltante);
-        
-        totalViajesGlobal += totalFila;
-        totalPagadoGlobal += pagado;
-        totalFaltanteGlobal += faltante;
-      });
-      
-      document.getElementById('total_viajes_general').textContent = formatNumber(totalViajesGlobal);
-      document.getElementById('total_general_general').textContent = formatNumber(totalViajesGlobal);
-      document.getElementById('total_pagado_general').textContent = formatNumber(totalPagadoGlobal);
-      document.getElementById('total_faltante_general').textContent = formatNumber(totalFaltanteGlobal);
-    }
-    
-    // ===== CREAR NUEVA CLASIFICACIÓN =====
-    function crearYAsignarClasificacion() {
-      const nombreClasif = document.getElementById('txt_nueva_clasificacion').value.trim();
-      const patronRuta = document.getElementById('txt_patron_ruta').value.trim().toLowerCase();
-      
-      if (!nombreClasif) {
-        alert('Escribe el nombre de la nueva clasificación.');
-        return;
-      }
-      
-      fetch('<?= basename(__FILE__) ?>', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          crear_clasificacion: 1,
-          nombre_clasificacion: nombreClasif
-        })
-      })
-      .then(r => r.text())
-      .then(respuesta => {
-        if (respuesta.trim() === 'ok') {
-          if (patronRuta) {
-            const filas = document.querySelectorAll('.fila-ruta');
-            let contador = 0;
-            
-            filas.forEach(row => {
-              const ruta = row.dataset.ruta.toLowerCase();
-              if (ruta.includes(patronRuta)) {
-                const sel = row.querySelector('.select-clasif-ruta');
-                sel.value = nombreClasif.toLowerCase();
-                actualizarColorFila(sel);
-                contador++;
-              }
-            });
-            
-            alert(`✅ Se creó "${nombreClasif}" y se aplicó a ${contador} rutas. Recarga la página.`);
-          } else {
-            alert(`✅ Se creó la clasificación "${nombreClasif}". Recarga la página.`);
-          }
-          
-          document.getElementById('txt_nueva_clasificacion').value = '';
-          document.getElementById('txt_patron_ruta').value = '';
-        } else {
-          alert('❌ Error: ' + respuesta);
-        }
-      })
-      .catch(error => alert('❌ Error de conexión: ' + error));
-    }
-    
-    // ===== MODAL DE VIAJES =====
-    const viajesModal = document.getElementById('viajesModal');
-    const viajesContent = document.getElementById('viajesContent');
-    const viajesTitle = document.getElementById('viajesTitle');
-    const viajesClose = document.getElementById('viajesCloseBtn');
-    const viajesRango = document.getElementById('viajesRango');
-    const viajesEmpresa = document.getElementById('viajesEmpresa');
-    
-    function abrirModalViajes(nombreConductor, empresa) {
-      viajesRango.textContent = RANGO_DESDE + " → " + RANGO_HASTA;
-      
-      if (EMPRESAS_SELECCIONADAS.length === 1) {
-        viajesEmpresa.textContent = EMPRESAS_SELECCIONADAS[0];
-      } else if (EMPRESAS_SELECCIONADAS.length > 1) {
-        viajesEmpresa.textContent = EMPRESAS_SELECCIONADAS.length + " empresas seleccionadas";
-      } else {
-        viajesEmpresa.textContent = "Todas las empresas";
-      }
-      
-      viajesTitle.textContent = nombreConductor;
-      
-      const qs = new URLSearchParams({
-        viajes_conductor: nombreConductor,
-        desde: RANGO_DESDE,
-        hasta: RANGO_HASTA,
-        empresas: EMPRESAS_FILTRO_STRING
-      });
-      
-      viajesContent.innerHTML = '<p class="text-center py-4 animate-pulse">Cargando viajes...</p>';
-      viajesModal.classList.add('show');
-      
-      fetch('<?= basename(__FILE__) ?>?' + qs.toString())
-        .then(r => r.text())
-        .then(html => {
-          viajesContent.innerHTML = html;
-        })
-        .catch(() => {
-          viajesContent.innerHTML = '<p class="text-center text-rose-600">Error cargando viajes.</p>';
-        });
-    }
-    
-    function cerrarModalViajes() {
-      viajesModal.classList.remove('show');
-      viajesContent.innerHTML = '';
-    }
-    
-    if (viajesClose) viajesClose.addEventListener('click', cerrarModalViajes);
-    if (viajesModal) {
-      viajesModal.addEventListener('click', (e) => {
-        if (e.target === viajesModal) cerrarModalViajes();
-      });
-    }
-    
-    document.addEventListener('input', function(e) {
-      if (e.target.matches('.tarifa-input')) {
-        recalcularTodo();
-      }
-    });
-  </script>
-
-<?php
-// ===== PANELES (deben ir después del header pero antes del cierre de body) =====
-?>
-
-  <!-- Panel tarifas -->
-  <div class="side-panel" id="panel-tarifas">
-    <div class="side-panel-header">
-      <h3 class="text-lg font-semibold flex items-center gap-2">
-        <span>🚐 Tarifas por Tipo de Vehículo</span>
-        <span class="text-xs text-slate-500">(<?= count($columnas_tarifas) ?> tipos)</span>
-      </h3>
-      <button class="side-panel-close" data-panel="tarifas">✕</button>
-    </div>
-    <div class="side-panel-body">
-      <div class="flex justify-end gap-2 mb-4">
-        <button onclick="expandirTodosTarifas()" 
-                class="text-xs px-3 py-1.5 rounded-lg border border-green-300 hover:bg-green-50 transition text-green-600">
-          Expandir todos
-        </button>
-        <button onclick="colapsarTodosTarifas()" 
-                class="text-xs px-3 py-1.5 rounded-lg border border-amber-300 hover:bg-amber-50 transition text-amber-600">
-          Colapsar todos
-        </button>
-      </div>
-      
-      <!-- Tarifas agrupadas por empresa -->
-      <?php 
-      // Obtener todos los vehículos únicos de todas las empresas seleccionadas
-      $vehiculosPorEmpresa = [];
-      foreach ($empresasSeleccionadas as $empresa) {
-          $sqlVeh = "SELECT DISTINCT tipo_vehiculo FROM viajes WHERE empresa = '$empresa' AND fecha BETWEEN '$desde' AND '$hasta'";
-          $resVeh = $conn->query($sqlVeh);
-          if ($resVeh) {
-              while ($r = $resVeh->fetch_assoc()) {
-                  $vehiculosPorEmpresa[$empresa][] = $r['tipo_vehiculo'];
-              }
-          }
-      }
-      
-      foreach ($empresasSeleccionadas as $empresa): 
-        $vehiculosEmpresa = $vehiculosPorEmpresa[$empresa] ?? [];
-        if (empty($vehiculosEmpresa)) continue;
-      ?>
-      <div class="mb-6">
-        <h4 class="text-md font-bold mb-3 flex items-center gap-2 border-b pb-2">
-          <span>🏢 <?= htmlspecialchars($empresa) ?></span>
-        </h4>
-        <div id="tarifas_grid_<?= md5($empresa) ?>" class="grid grid-cols-1 gap-3">
-          <?php foreach ($vehiculosEmpresa as $veh):
-            $color_vehiculo = obtenerColorVehiculo($veh);
-            $t = $tarifas_guardadas[$empresa][$veh] ?? [];
-            $veh_id = preg_replace('/[^a-z0-9]/i', '-', strtolower($veh . '-' . $empresa));
-          ?>
-          <div class="tarjeta-tarifa-acordeon rounded-xl border <?= $color_vehiculo['border'] ?> overflow-hidden shadow-sm"
-               data-vehiculo="<?= htmlspecialchars($veh) ?>"
-               data-empresa="<?= htmlspecialchars($empresa) ?>"
-               id="acordeon-<?= $veh_id ?>"
-               style="background-color: <?= str_replace('bg-', '#', $color_vehiculo['dark']) ?>;">
-            
-            <div class="acordeon-header flex items-center justify-between px-4 py-3.5 cursor-pointer transition <?= $color_vehiculo['bg'] ?> hover:opacity-90"
-                 onclick="toggleAcordeon('<?= $veh_id ?>')"
-                 style="background-color: <?= str_replace('bg-', '#', $color_vehiculo['bg']) ?>;">
-              <div class="flex items-center gap-3">
-                <span class="acordeon-icon text-lg transition-transform duration-300 <?= $color_vehiculo['text'] ?>" id="icon-<?= $veh_id ?>">▶️</span>
-                <div>
-                  <div class="text-base font-semibold <?= $color_vehiculo['text'] ?>">
-                    <?= htmlspecialchars($veh) ?>
-                  </div>
-                  <div class="text-xs text-slate-500 mt-0.5">
-                    <?= count($columnas_tarifas) ?> tipos de tarifas
-                  </div>
                 </div>
-              </div>
-              <span class="text-xs px-2 py-1 rounded-full <?= $color_vehiculo['text'] ?> border <?= $color_vehiculo['border'] ?> bg-white/80">
-                Configurar
-              </span>
             </div>
-            
-            <div class="acordeon-content px-4 py-3 border-t <?= $color_vehiculo['border'] ?> bg-white" id="content-<?= $veh_id ?>">
-              <div class="space-y-3">
-                <?php foreach ($columnas_tarifas as $columna): 
-                  $valor = isset($t[$columna]) ? (float)$t[$columna] : 0;
-                  $etiqueta = ucfirst($columna);
-                  
-                  $etiquetas_especiales = [
-                      'completo' => 'Viaje Completo',
-                      'medio' => 'Viaje Medio',
-                      'extra' => 'Viaje Extra',
-                      'carrotanque' => 'Carrotanque',
-                      'siapana' => 'Siapana',
-                      'riohacha' => 'Riohacha',
-                      'pru' => 'Pru',
-                      'maco' => 'Maco'
-                  ];
-                  
-                  $etiqueta_final = $etiquetas_especiales[$columna] ?? $etiqueta;
-                  $estilo_clasif = obtenerEstiloClasificacion($columna);
-                ?>
-                <label class="block">
-                  <span class="block text-sm font-medium mb-1 <?= $estilo_clasif['text'] ?>">
-                    <?= htmlspecialchars($etiqueta_final) ?>
-                  </span>
-                  <div class="relative">
-                    <input type="text" step="1000" value="<?= $valor ?>"
-                           data-campo="<?= htmlspecialchars($columna) ?>"
-                           data-empresa="<?= htmlspecialchars($empresa) ?>"
-                           data-vehiculo="<?= htmlspecialchars($veh) ?>"
-                           class="w-full rounded-xl border <?= $estilo_clasif['border'] ?> px-3 py-2 pr-10 text-right bg-white outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition tarifa-input"
-                           style="border-color: <?= str_replace('border-', '#', $estilo_clasif['border']) ?>;">
-                    <span class="absolute right-3 top-1/2 transform -translate-y-1/2 text-sm font-semibold <?= $estilo_clasif['text'] ?>">
-                      $
-                    </span>
-                  </div>
-                </label>
-                <?php endforeach; ?>
-              </div>
-            </div>
-          </div>
-          <?php endforeach; ?>
         </div>
-      </div>
-      <?php endforeach; ?>
-      
-      <p class="text-xs text-slate-500 mt-4">
-        Los cambios se guardan automáticamente al modificar cualquier valor.
-      </p>
-    </div>
-  </div>
-  
-  <!-- Panel crear clasificación -->
-  <div class="side-panel" id="panel-crear-clasif">
-    <div class="side-panel-header">
-      <h3 class="text-lg font-semibold flex items-center gap-2">
-        <span>➕ Crear Nueva Clasificación</span>
-      </h3>
-      <button class="side-panel-close" data-panel="crear-clasif">✕</button>
-    </div>
-    <div class="side-panel-body">
-      <p class="text-sm text-slate-600 mb-4">
-        Crea una nueva clasificación. Se agregará a la tabla tarifas.
-      </p>
-      <div class="space-y-4">
-        <div>
-          <label class="block text-sm font-medium mb-2">Nombre de la nueva clasificación</label>
-          <input id="txt_nueva_clasificacion" type="text"
-                 class="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
-                 placeholder="Ej: Premium, Nocturno, Express...">
-        </div>
-        <div>
-          <label class="block text-sm font-medium mb-2">Texto que deben contener las rutas (opcional)</label>
-          <input id="txt_patron_ruta" type="text"
-                 class="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:ring-4 focus:ring-blue-100 focus:border-blue-500"
-                 placeholder="Dejar vacío para solo crear la clasificación">
-        </div>
-        <button type="button"
-                onclick="crearYAsignarClasificacion()"
-                class="w-full inline-flex items-center justify-center rounded-xl bg-green-600 text-white px-4 py-3 text-sm font-semibold hover:bg-green-700 active:bg-green-800 focus:ring-4 focus:ring-green-200 transition">
-          ⚙️ Crear y Aplicar
-        </button>
-      </div>
-      <p class="text-xs text-slate-500 mt-4">
-        La nueva clasificación se creará en la tabla tarifas. Vuelve a dar <strong>Filtrar</strong> para ver los cambios.
-      </p>
-    </div>
-  </div>
 
-  <!-- Panel clasificación rutas (MEJORADO: ANCHO DINÁMICO + MINI TARJETA DE EMPRESA) -->
-  <div class="side-panel" id="panel-clasif-rutas">
-    <div class="side-panel-header">
-      <h3 class="text-lg font-semibold flex items-center gap-2">
-        <span>🧭 Clasificar Rutas Existentes</span>
-        <span class="text-xs text-slate-500"><?= count($rutasUnicas ?? []) ?> rutas</span>
-      </h3>
-      <button class="side-panel-close" data-panel="clasif-rutas">✕</button>
-    </div>
-    <div class="side-panel-body">
-      <div class="border border-slate-200 rounded-xl overflow-auto">
+    <!-- ================== EDITAR MÚLTIPLES VIAJES ================== -->
+    <?php elseif ($accion == 'editar_multiple' && !empty($_SESSION['seleccionados'])): ?>
+        <?php $total_seleccionados = count($_SESSION['seleccionados']); ?>
+        <div class="row">
+            <div class="col-12">
+                <div class="card shadow">
+                    <div class="card-header bg-warning text-dark">
+                        <h3 class="mb-0">✏️ Editar Múltiples Viajes (<?= (int)$total_seleccionados ?> seleccionados)</h3>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" id="formEditarMultiple">
+                            <input type="hidden" name="editar_multiple_completo" value="1">
+                            
+                            <div class="alert alert-info">
+                                <strong>Instrucciones:</strong> 
+                                <ul class="mb-0">
+                                    <li>Puedes editar campos individuales para cada registro</li>
+                                    <li>También puedes usar los campos "Aplicar a todos" para cambiar un campo en todos los registros</li>
+                                    <li>Los campos obligatorios deben ser completados</li>
+                                </ul>
+                            </div>
+                            
+                            <div class="card mb-4">
+                                <div class="card-header bg-light">
+                                    <h5 class="mb-0">🔧 Campos generales (aplicar a todos)</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row g-3">
+                                        <div class="col-md-4">
+                                            <label class="form-label">Nombre (general)</label>
+                                            <select name="nombre_general" class="form-select select2-general">
+                                                <option value="">-- No cambiar --</option>
+                                                <?php
+                                                $res = $conexion->query("SELECT nombre FROM conductores_admin ORDER BY nombre ASC");
+                                                if ($res) {
+                                                    while($row = $res->fetch_assoc()) {
+                                                        echo '<option value="' . htmlspecialchars($row['nombre']) . '">' . htmlspecialchars($row['nombre']) . '</option>';
+                                                    }
+                                                }
+                                                ?>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Cédula (general)</label>
+                                            <input type="text" name="cedula_general" class="form-control form-control-sm" placeholder="Dejar vacío para no cambiar">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Fecha (general)</label>
+                                            <input type="date" name="fecha_general" class="form-control form-control-sm">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Pago parcial (general)</label>
+                                            <input type="number" min="0" step="1" name="pago_parcial_general" class="form-control form-control-sm" placeholder="Dejar vacío para no cambiar">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Estado de pago (general)</label>
+                                            <select name="pagado_general" class="form-select form-select-sm">
+                                                <option value="">-- No cambiar --</option>
+                                                <option value="1">✅ Pagado</option>
+                                                <option value="0">❌ Pendiente</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Ruta (general)</label>
+                                            <select name="ruta_general" class="form-select select2-general">
+                                                <option value="">-- No cambiar --</option>
+                                                <?php
+                                                $res = $conexion->query("SELECT ruta FROM rutas_admin ORDER BY ruta ASC");
+                                                if ($res) {
+                                                    while($row = $res->fetch_assoc()) {
+                                                        echo '<option value="' . htmlspecialchars($row['ruta']) . '">' . htmlspecialchars($row['ruta']) . '</option>';
+                                                    }
+                                                }
+                                                ?>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Vehículo (general)</label>
+                                            <select name="tipo_vehiculo_general" class="form-select form-select-sm select2-single">
+                                                <option value="">-- No cambiar --</option>
+                                                <?php foreach($listas['vehiculos'] as $vehItem): ?>
+                                                    <option value="<?= htmlspecialchars($vehItem) ?>"><?= htmlspecialchars($vehItem) ?></option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Empresa (general)</label>
+                                            <select name="empresa_general" class="form-select select2-general">
+                                                <option value="">-- No cambiar --</option>
+                                                <?php
+                                                $res = $conexion->query("SELECT nombre FROM empresas_admin ORDER BY nombre ASC");
+                                                if ($res) {
+                                                    while($row = $res->fetch_assoc()) {
+                                                        echo '<option value="' . htmlspecialchars($row['nombre']) . '">' . htmlspecialchars($row['nombre']) . '</option>';
+                                                    }
+                                                }
+                                                ?>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-12">
+                                            <label class="form-label">WhatsApp (general)</label>
+                                            <textarea name="whatsapp_general" class="form-control" rows="3" placeholder="Pega aquí el mensaje de WhatsApp para aplicar a todos los registros seleccionados..."></textarea>
+                                            <small class="text-muted">Si se deja vacío, no se modificará este campo en los registros.</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="table-container mb-4" style="overflow-x: auto; max-height: 60vh; overflow-y: auto;">
+                                <table class="table table-bordered table-striped table-sm align-middle" style="font-size: 13px;">
+                                    <thead class="table-dark" style="position: sticky; top: 0; z-index: 10;">
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Nombre</th>
+                                            <th>Cédula</th>
+                                            <th>Fecha</th>
+                                            <th>Ruta</th>
+                                            <th>Vehículo</th>
+                                            <th>Empresa</th>
+                                            <th>Pago parcial</th>
+                                            <th>Pagado</th>
+                                            <th>Evidencia</th>
+                                            <th>Epicrisis</th>
+                                            <th style="min-width: 250px;">WhatsApp</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach($viajes_seleccionados as $viaje_multi): 
+                                            $id_multi = (int)$viaje_multi['id'];
+                                        ?>
+                                            <tr class="<?= $viaje_multi['pagado'] ? 'pagado' : 'pendiente' ?>">
+                                                <td class="fw-bold"><?= $id_multi ?></td>
+                                                <td>
+                                                    <select name="nombre_<?= $id_multi ?>" class="form-select form-select-sm select2-fila">
+                                                        <option value="<?= htmlspecialchars($viaje_multi['nombre']) ?>"><?= htmlspecialchars($viaje_multi['nombre']) ?></option>
+                                                        <?php
+                                                        $res = $conexion->query("SELECT nombre FROM conductores_admin ORDER BY nombre ASC");
+                                                        if ($res) {
+                                                            while($row = $res->fetch_assoc()) {
+                                                                if ($row['nombre'] != $viaje_multi['nombre']) {
+                                                                    echo '<option value="' . htmlspecialchars($row['nombre']) . '">' . htmlspecialchars($row['nombre']) . '</option>';
+                                                                }
+                                                            }
+                                                        }
+                                                        ?>
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <input type="text" name="cedula_<?= $id_multi ?>" class="form-control form-control-sm" value="<?= htmlspecialchars($viaje_multi['cedula'] ?? '') ?>">
+                                                </td>
+                                                <td>
+                                                    <input type="date" name="fecha_<?= $id_multi ?>" class="form-control form-control-sm" value="<?= htmlspecialchars($viaje_multi['fecha']) ?>">
+                                                </td>
+                                                <td>
+                                                    <select name="ruta_<?= $id_multi ?>" class="form-select form-select-sm select2-fila">
+                                                        <option value="<?= htmlspecialchars($viaje_multi['ruta']) ?>"><?= htmlspecialchars($viaje_multi['ruta']) ?></option>
+                                                        <?php
+                                                        $res = $conexion->query("SELECT ruta FROM rutas_admin ORDER BY ruta ASC");
+                                                        if ($res) {
+                                                            while($row = $res->fetch_assoc()) {
+                                                                if ($row['ruta'] != $viaje_multi['ruta']) {
+                                                                    echo '<option value="' . htmlspecialchars($row['ruta']) . '">' . htmlspecialchars($row['ruta']) . '</option>';
+                                                                }
+                                                            }
+                                                        }
+                                                        ?>
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <select name="tipo_vehiculo_<?= $id_multi ?>" class="form-select form-select-sm select2-single">
+                                                        <option value="">-- Seleccionar --</option>
+                                                        <?php foreach($listas['vehiculos'] as $vehItem): ?>
+                                                            <option value="<?= htmlspecialchars($vehItem) ?>" <?= ($vehItem == $viaje_multi['tipo_vehiculo']) ? 'selected' : '' ?>><?= htmlspecialchars($vehItem) ?></option>
+                                                        <?php endforeach; ?>
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <select name="empresa_<?= $id_multi ?>" class="form-select form-select-sm select2-fila">
+                                                        <option value="">-- Ninguna --</option>
+                                                        <option value="<?= htmlspecialchars($viaje_multi['empresa'] ?? '') ?>" selected><?= htmlspecialchars($viaje_multi['empresa'] ?? '') ?></option>
+                                                        <?php
+                                                        $res = $conexion->query("SELECT nombre FROM empresas_admin ORDER BY nombre ASC");
+                                                        if ($res) {
+                                                            while($row = $res->fetch_assoc()) {
+                                                                if (($viaje_multi['empresa'] ?? '') != $row['nombre']) {
+                                                                    echo '<option value="' . htmlspecialchars($row['nombre']) . '">' . htmlspecialchars($row['nombre']) . '</option>';
+                                                                }
+                                                            }
+                                                        }
+                                                        ?>
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <input type="number" min="0" step="1" name="pago_parcial_<?= $id_multi ?>" class="form-control form-control-sm" value="<?= htmlspecialchars($viaje_multi['pago_parcial'] ?? '') ?>" placeholder="(vacío = no cambia)">
+                                                </td>
+                                                <td class="text-center">
+                                                    <input type="checkbox" name="pagado_<?= $id_multi ?>" value="1" <?= $viaje_multi['pagado'] ? 'checked' : '' ?>>
+                                                </td>
+                                                <td class="text-center">
+                                                    <?php if(!empty($viaje_multi['imagen'])): ?>
+                                                        <img src="uploads/<?= htmlspecialchars($viaje_multi['imagen']) ?>" width="40" class="rounded img-thumb" data-bs-toggle="modal" data-bs-target="#imgModal<?= $id_multi ?>">
+                                                        <div class="modal fade" id="imgModal<?= $id_multi ?>" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-body text-center"><img src="uploads/<?= htmlspecialchars($viaje_multi['imagen']) ?>" class="img-fluid rounded"></div></div></div></div>
+                                                    <?php else: ?>
+                                                        <span class="text-muted">—</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <td class="text-center">
+                                                    <?php if(!empty($viaje_multi['epicrisis'])): ?>
+                                                        <img src="uploads/<?= htmlspecialchars($viaje_multi['epicrisis']) ?>" width="40" class="rounded img-thumb" data-bs-toggle="modal" data-bs-target="#epiModal<?= $id_multi ?>">
+                                                        <div class="modal fade" id="epiModal<?= $id_multi ?>" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-body text-center"><img src="uploads/<?= htmlspecialchars($viaje_multi['epicrisis']) ?>" class="img-fluid rounded"></div></div></div></div>
+                                                    <?php else: ?>
+                                                        <span class="text-muted">—</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <td>
+                                                    <textarea name="whatsapp_<?= $id_multi ?>" class="form-control form-control-sm" rows="3" placeholder="Mensaje original de WhatsApp..." style="font-size: 11px; font-family: monospace;"><?= htmlspecialchars($viaje_multi['whatsapp'] ?? '') ?></textarea>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                            
+                            <div class="d-flex justify-content-between">
+                                <a href="?<?= htmlspecialchars(construirUrlFiltros()) ?>" class="btn btn-secondary">Cancelar</a>
+                                <button type="submit" class="btn btn-warning">Guardar Cambios en <?= (int)$total_seleccionados ?> Registros</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    <!-- ================== LISTADO PRINCIPAL CON TABLA DE ANCHO COMPLETO ================== -->
+    <?php else: ?>
+        <?php if (!empty($_SESSION['seleccionados'])): ?>
+            <div class="alert alert-info alert-dismissible fade show">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>✅ Seleccionados:</strong> <?= count($_SESSION['seleccionados']) ?> viaje(s)
+                        <span class="ms-3">IDs: <?= implode(', ', $_SESSION['seleccionados']) ?></span>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <form method="POST" class="d-inline">
+                            <input type="hidden" name="limpiar_seleccion" value="1">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Limpiar selección</button>
+                        </form>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                </div>
+            </div>
+        <?php endif; ?>
+
+        <div class="d-flex justify-content-end mb-3 gap-2">
+            <form method="GET" action="" target="_blank">
+                <?php 
+                // Pasar todos los filtros actuales al informe
+                if (!empty($_GET['nombre']) && is_array($_GET['nombre'])) {
+                    foreach($_GET['nombre'] as $v) echo '<input type="hidden" name="nombre[]" value="' . htmlspecialchars($v) . '">';
+                }
+                if (!empty($_GET['cedula']) && is_array($_GET['cedula'])) {
+                    foreach($_GET['cedula'] as $v) echo '<input type="hidden" name="cedula[]" value="' . htmlspecialchars($v) . '">';
+                }
+                if (!empty($_GET['desde'])) echo '<input type="hidden" name="desde" value="' . htmlspecialchars($_GET['desde']) . '">';
+                if (!empty($_GET['hasta'])) echo '<input type="hidden" name="hasta" value="' . htmlspecialchars($_GET['hasta']) . '">';
+                if (isset($_GET['pagado']) && $_GET['pagado'] !== '') echo '<input type="hidden" name="pagado" value="' . htmlspecialchars($_GET['pagado']) . '">';
+                if (!empty($_GET['ruta']) && is_array($_GET['ruta'])) {
+                    foreach($_GET['ruta'] as $v) echo '<input type="hidden" name="ruta[]" value="' . htmlspecialchars($v) . '">';
+                }
+                if (!empty($_GET['vehiculo']) && is_array($_GET['vehiculo'])) {
+                    foreach($_GET['vehiculo'] as $v) echo '<input type="hidden" name="vehiculo[]" value="' . htmlspecialchars($v) . '">';
+                }
+                if (!empty($_GET['empresa']) && is_array($_GET['empresa'])) {
+                    foreach($_GET['empresa'] as $v) echo '<input type="hidden" name="empresa[]" value="' . htmlspecialchars($v) . '">';
+                }
+                ?>
+                <input type="hidden" name="accion" value="informe">
+                <button type="submit" class="btn btn-success btn-informe">📄 Generar Informe</button>
+            </form>
+            
+            <div class="position-relative">
+                <button type="button" class="btn btn-outline-primary" id="btnConfigColumnas">📊 Configurar Columnas</button>
+                <div class="columnas-dropdown" id="dropdownColumnas">
+                    <h6 class="mb-3">Seleccionar columnas a mostrar:</h6>
+                    <form method="POST" id="formColumnas">
+                        <?php foreach($_SESSION['columnas_visibles'] as $key => $columna): ?>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="columnas[]" value="<?= htmlspecialchars($key) ?>" id="col_<?= htmlspecialchars($key) ?>" <?= $columna['visible'] ? 'checked' : '' ?>>
+                                <label class="form-check-label" for="col_<?= htmlspecialchars($key) ?>"><?= htmlspecialchars($columna['nombre']) ?></label>
+                            </div>
+                        <?php endforeach; ?>
+                        <input type="hidden" name="filtros_ocultos" value="<?= htmlspecialchars(construirUrlFiltros()) ?>">
+                        <div class="mt-3 d-flex justify-content-between">
+                            <button type="submit" name="actualizar_columnas" class="btn btn-sm btn-primary">Aplicar cambios</button>
+                            <button type="submit" name="restablecer_columnas" class="btn btn-sm btn-secondary">Restablecer todas</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- FILTROS (se quedan centrados dentro del container) -->
+        <div class="card shadow mb-4">
+            <div class="card-header bg-primary text-white">
+                <h3 class="mb-0">🔍 Filtros de búsqueda (multiselect)</h3>
+                <small class="text-light">Presiona Ctrl+Click o arrastra para seleccionar múltiples opciones</small>
+            </div>
+            <div class="card-body">
+                <form method="GET" class="row g-3" id="filtrosForm">
+                    <div class="col-md-3">
+                        <label class="form-label">Nombre</label>
+                        <select name="nombre[]" class="form-select select2-multiple" multiple data-placeholder="Todos los nombres">
+                            <?php
+                            $nombresSeleccionados = $_GET['nombre'] ?? [];
+                            if (!is_array($nombresSeleccionados)) $nombresSeleccionados = [];
+                            foreach($listas['nombres'] as $nom):
+                                $sel = in_array($nom, $nombresSeleccionados) ? 'selected' : '';
+                            ?>
+                                <option value="<?= htmlspecialchars($nom) ?>" <?= $sel ?>><?= htmlspecialchars($nom) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label">Cédula</label>
+                        <select name="cedula[]" class="form-select select2-multiple" multiple data-placeholder="Todas las cédulas">
+                            <?php
+                            $cedulasSeleccionadas = $_GET['cedula'] ?? [];
+                            if (!is_array($cedulasSeleccionadas)) $cedulasSeleccionadas = [];
+                            foreach($listas['cedulas'] as $ced):
+                                $sel = in_array($ced, $cedulasSeleccionadas) ? 'selected' : '';
+                            ?>
+                                <option value="<?= htmlspecialchars($ced) ?>" <?= $sel ?>><?= htmlspecialchars($ced) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <div class="col-md-2">
+                        <label class="form-label">Fecha desde</label>
+                        <input type="date" name="desde" value="<?= htmlspecialchars($_GET['desde'] ?? '') ?>" class="form-control">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Fecha hasta</label>
+                        <input type="date" name="hasta" value="<?= htmlspecialchars($_GET['hasta'] ?? '') ?>" class="form-control">
+                    </div>
+
+                    <div class="col-md-2">
+                        <label class="form-label">Estado de pago</label>
+                        <select name="pagado" class="form-select">
+                            <option value="">-- Todos --</option>
+                            <option value="1" <?= (isset($_GET['pagado']) && $_GET['pagado'] === '1') ? 'selected' : '' ?>>✅ Pagado</option>
+                            <option value="0" <?= (isset($_GET['pagado']) && $_GET['pagado'] === '0') ? 'selected' : '' ?>>❌ Pendiente</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label">Ruta</label>
+                        <select name="ruta[]" class="form-select select2-multiple" multiple data-placeholder="Todas las rutas">
+                            <?php
+                            $rutasSeleccionadas = $_GET['ruta'] ?? [];
+                            if (!is_array($rutasSeleccionadas)) $rutasSeleccionadas = [];
+                            foreach($listas['rutas'] as $ruta):
+                                $sel = in_array($ruta, $rutasSeleccionadas) ? 'selected' : '';
+                            ?>
+                                <option value="<?= htmlspecialchars($ruta) ?>" <?= $sel ?>><?= htmlspecialchars($ruta) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label">Vehículo</label>
+                        <select name="vehiculo[]" class="form-select select2-multiple" multiple data-placeholder="Todos los vehículos">
+                            <?php
+                            $vehiculosSeleccionados = $_GET['vehiculo'] ?? [];
+                            if (!is_array($vehiculosSeleccionados)) $vehiculosSeleccionados = [];
+                            foreach($listas['vehiculos'] as $veh):
+                                $sel = in_array($veh, $vehiculosSeleccionados) ? 'selected' : '';
+                            ?>
+                                <option value="<?= htmlspecialchars($veh) ?>" <?= $sel ?>><?= htmlspecialchars($veh) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label">Empresa</label>
+                        <select name="empresa[]" class="form-select select2-multiple" multiple data-placeholder="Todas las empresas">
+                            <?php
+                            $empresasSeleccionadas = $_GET['empresa'] ?? [];
+                            if (!is_array($empresasSeleccionadas)) $empresasSeleccionadas = [];
+                            foreach($listas['empresas'] as $emp):
+                                $sel = in_array($emp, $empresasSeleccionadas) ? 'selected' : '';
+                            ?>
+                                <option value="<?= htmlspecialchars($emp) ?>" <?= $sel ?>><?= htmlspecialchars($emp) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <div class="col-md-2 align-self-end">
+                        <button type="submit" class="btn btn-success w-100">🔎 Buscar</button>
+                    </div>
+                    <div class="col-md-2 align-self-end">
+                        <a href="?" class="btn btn-secondary w-100" id="limpiarFiltrosBtn">❌ Limpiar filtros</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+
         <?php
-        // Obtener rutas únicas de todas las empresas seleccionadas con DETALLE DE EMPRESA
-        $rutasUnicas = [];
-        foreach ($empresasSeleccionadas as $empresa) {
-            $sqlRutas = "SELECT DISTINCT ruta, tipo_vehiculo, empresa FROM viajes 
-                         WHERE empresa = '$empresa' AND fecha BETWEEN '$desde' AND '$hasta'";
-            $resRutas = $conn->query($sqlRutas);
-            if ($resRutas) {
-                while ($r = $resRutas->fetch_assoc()) {
-                    $key = $r['ruta'] . '|' . $r['tipo_vehiculo'] . '|' . $r['empresa'];
-                    $clasificacion = $clasif_rutas[mb_strtolower(trim($r['ruta'] . '|' . $r['tipo_vehiculo']), 'UTF-8')] ?? '';
-                    $rutasUnicas[$key] = [
-                        'ruta' => $r['ruta'],
-                        'vehiculo' => $r['tipo_vehiculo'],
-                        'empresa' => $r['empresa'],
-                        'clasificacion' => $clasificacion
-                    ];
+        // CONSTRUIR CONSULTA PARA EL LISTADO
+        $where = [];
+        $ids_visibles = [];
+
+        if (!empty($_GET['nombre']) && is_array($_GET['nombre'])) {
+            $nombres = array_map([$conexion, 'real_escape_string'], $_GET['nombre']);
+            $nombres = array_filter($nombres, function($val) { return trim($val) !== ''; });
+            if (!empty($nombres)) $where[] = "nombre IN ('" . implode("','", $nombres) . "')";
+        }
+
+        if (!empty($_GET['cedula']) && is_array($_GET['cedula'])) {
+            $cedulas = array_map([$conexion, 'real_escape_string'], $_GET['cedula']);
+            $cedulas = array_filter($cedulas, function($val) { return trim($val) !== ''; });
+            if (!empty($cedulas)) $where[] = "cedula IN ('" . implode("','", $cedulas) . "')";
+        }
+
+        if (!empty($_GET['desde']) && !empty($_GET['hasta'])) {
+            $desde = $conexion->real_escape_string($_GET['desde']);
+            $hasta = $conexion->real_escape_string($_GET['hasta']);
+            $where[] = "fecha BETWEEN '$desde' AND '$hasta'";
+        } elseif (!empty($_GET['desde'])) {
+            $desde = $conexion->real_escape_string($_GET['desde']);
+            $where[] = "fecha >= '$desde'";
+        } elseif (!empty($_GET['hasta'])) {
+            $hasta = $conexion->real_escape_string($_GET['hasta']);
+            $where[] = "fecha <= '$hasta'";
+        }
+
+        if (isset($_GET['pagado']) && $_GET['pagado'] !== '') {
+            $pagado_val = (int)$_GET['pagado'];
+            $where[] = "pagado = $pagado_val";
+        }
+
+        if (!empty($_GET['ruta']) && is_array($_GET['ruta'])) {
+            $rutas = array_map([$conexion, 'real_escape_string'], $_GET['ruta']);
+            $rutas = array_filter($rutas, function($val) { return trim($val) !== ''; });
+            if (!empty($rutas)) $where[] = "ruta IN ('" . implode("','", $rutas) . "')";
+        }
+
+        if (!empty($_GET['vehiculo']) && is_array($_GET['vehiculo'])) {
+            $vehiculos = array_map([$conexion, 'real_escape_string'], $_GET['vehiculo']);
+            $vehiculos = array_filter($vehiculos, function($val) { return trim($val) !== ''; });
+            if (!empty($vehiculos)) $where[] = "tipo_vehiculo IN ('" . implode("','", $vehiculos) . "')";
+        }
+
+        if (!empty($_GET['empresa']) && is_array($_GET['empresa'])) {
+            $empresas = array_map([$conexion, 'real_escape_string'], $_GET['empresa']);
+            $empresas = array_filter($empresas, function($val) { return trim($val) !== ''; });
+            if (!empty($empresas)) $where[] = "empresa IN ('" . implode("','", $empresas) . "')";
+        }
+
+        $sql = "SELECT * FROM viajes";
+        if (count($where) > 0) $sql .= " WHERE " . implode(" AND ", $where);
+        $sql .= " ORDER BY fecha DESC, id DESC";
+        $resultado = $conexion->query($sql);
+        ?>
+
+        <!-- TABLA DE VIAJES - ANCHO COMPLETO (FUERA DEL CONTAINER) -->
+        <div class="full-width-table">
+            <div class="table-responsive-full">
+                <div class="mb-3 d-flex justify-content-between align-items-center bg-light p-3 rounded" style="margin-left: 15px; margin-right: 15px;">
+                    <div>
+                        <strong>Selección múltiple:</strong>
+                        <form method="POST" class="d-inline ms-2" id="seleccionarTodosForm">
+                            <input type="hidden" name="seleccionar_todos" value="1">
+                            <input type="hidden" name="ids_visibles" id="idsVisibles" value="">
+                            <button type="submit" class="btn btn-sm btn-outline-primary">✅ Seleccionar todos los visibles</button>
+                        </form>
+                        <form method="POST" class="d-inline ms-2" id="deseleccionarTodosForm">
+                            <input type="hidden" name="seleccionar_todos" value="0">
+                            <input type="hidden" name="ids_visibles" id="idsVisibles2" value="">
+                            <button type="submit" class="btn btn-sm btn-outline-secondary">❌ Deseleccionar todos los visibles</button>
+                        </form>
+                    </div>
+                    <?php if (!empty($_SESSION['seleccionados'])): ?>
+                        <div class="d-flex gap-2">
+                            <form method="POST" id="editarSeleccionadosForm">
+                                <button type="submit" name="accion_multiple" value="editar" class="btn btn-warning btn-sm">✏️ Editar Seleccionados</button>
+                            </form>
+                            <form method="POST" id="eliminarSeleccionadosForm" onsubmit="return confirm('¿Eliminar los <?= count($_SESSION['seleccionados']) ?> registros seleccionados?')">
+                                <button type="submit" name="accion_multiple" value="eliminar" class="btn btn-danger btn-sm">🗑️ Eliminar</button>
+                            </form>
+                        </div>
+                    <?php endif; ?>
+                </div>
+
+                <div class="table-container" id="tableContainer" style="margin: 0 15px;">
+                    <table class="table table-bordered table-striped table-hover tabla-ancha" id="tablaViajes">
+                        <thead>
+                            <tr>
+                                <th style="width: 40px;">
+                                    <input type="checkbox" id="seleccionarTodosCheckbox" style="transform: scale(1.2);">
+                                </th>
+                                <?php 
+                                $columnas_ordenadas = $_SESSION['columnas_visibles'];
+                                uasort($columnas_ordenadas, function($a, $b) { return $a['orden'] <=> $b['orden']; });
+                                foreach($columnas_ordenadas as $key => $columna):
+                                    if (!$columna['visible']) continue;
+                                    $width = '';
+                                    if ($key == 'id') $width = 'style="width: 60px;"';
+                                    if ($key == 'imagen' || $key == 'epicrisis') $width = 'style="width: 80px;"';
+                                    if ($key == 'whatsapp') $width = 'style="width: 300px;"';
+                                    if ($key == 'pagado') $width = 'style="width: 100px;"';
+                                ?>
+                                    <th <?= $width ?>><?= htmlspecialchars($columna['nombre']) ?></th>
+                                <?php endforeach; ?>
+                                <th style="width: 80px;">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        <?php if ($resultado && $resultado->num_rows > 0): ?>
+                            <?php while($row = $resultado->fetch_assoc()): 
+                                $id_registro = (int)$row['id'];
+                                $ids_visibles[] = $id_registro;
+                                $esta_seleccionado = in_array($id_registro, $_SESSION['seleccionados']);
+                                $clase_fila = $row['pagado'] ? 'pagado' : 'pendiente';
+                            ?>
+                                <tr class="<?= $esta_seleccionado ? 'seleccionado' : '' ?> <?= $clase_fila ?>">
+                                    <td class="text-center">
+                                        <form method="POST" class="d-inline toggle-form">
+                                            <input type="hidden" name="toggle_seleccion" value="<?= $id_registro ?>">
+                                            <input type="checkbox" class="form-check-input row-selector" 
+                                                   onchange="this.form.submit()" <?= $esta_seleccionado ? 'checked' : '' ?>>
+                                        </form>
+                                    </td>
+                                    
+                                    <?php foreach($columnas_ordenadas as $key => $columna): 
+                                        if (!$columna['visible']) continue;
+                                        
+                                        switch($key):
+                                            case 'id': ?>
+                                                <td class="fw-bold"><?= $id_registro ?></td>
+                                                <?php break;
+                                            case 'nombre': ?>
+                                                <td><?= htmlspecialchars($row['nombre']) ?></td>
+                                                <?php break;
+                                            case 'cedula': ?>
+                                                <td><?= !empty($row['cedula']) ? htmlspecialchars($row['cedula']) : '<span class="text-muted">—</span>' ?></td>
+                                                <?php break;
+                                            case 'fecha': ?>
+                                                <td><?= htmlspecialchars($row['fecha']) ?></td>
+                                                <?php break;
+                                            case 'ruta': ?>
+                                                <td><?= htmlspecialchars($row['ruta']) ?></td>
+                                                <?php break;
+                                            case 'tipo_vehiculo': ?>
+                                                <td><?= htmlspecialchars($row['tipo_vehiculo']) ?></td>
+                                                <?php break;
+                                            case 'empresa': ?>
+                                                <td><?= !empty($row['empresa']) ? htmlspecialchars($row['empresa']) : '<span class="text-muted">—</span>' ?></td>
+                                                <?php break;
+                                            case 'pago_parcial': ?>
+                                                <td>
+                                                    <?php if ($row['pago_parcial'] !== null && $row['pago_parcial'] !== ''): ?>
+                                                        <span class="badge bg-info text-dark">$<?= number_format((int)$row['pago_parcial'], 0, ',', '.') ?></span>
+                                                    <?php else: ?>
+                                                        <span class="text-muted">—</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <?php break;
+                                            case 'pagado': ?>
+                                                <td>
+                                                    <?php if ($row['pagado'] == 1): ?>
+                                                        <span class="badge-pagado">✅ Pagado</span>
+                                                    <?php else: ?>
+                                                        <span class="badge-pendiente">❌ Pendiente</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <?php break;
+                                            case 'imagen': ?>
+                                                <td class="text-center">
+                                                    <?php if(!empty($row['imagen'])): ?>
+                                                        <img src="uploads/<?= htmlspecialchars($row['imagen']) ?>" width="40" class="rounded img-thumb" 
+                                                             data-bs-toggle="modal" data-bs-target="#imgModal<?= $id_registro ?>" style="cursor: pointer;">
+                                                        <div class="modal fade" id="imgModal<?= $id_registro ?>" tabindex="-1">
+                                                            <div class="modal-dialog modal-dialog-centered">
+                                                                <div class="modal-content">
+                                                                    <div class="modal-body text-center">
+                                                                        <img src="uploads/<?= htmlspecialchars($row['imagen']) ?>" class="img-fluid rounded">
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    <?php else: ?>
+                                                        <span class="text-muted">—</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <?php break;
+                                            case 'epicrisis': ?>
+                                                <td class="text-center">
+                                                    <?php if(!empty($row['epicrisis'])): ?>
+                                                        <img src="uploads/<?= htmlspecialchars($row['epicrisis']) ?>" width="40" class="rounded img-thumb" 
+                                                             data-bs-toggle="modal" data-bs-target="#epiModal<?= $id_registro ?>" style="cursor: pointer;">
+                                                        <div class="modal fade" id="epiModal<?= $id_registro ?>" tabindex="-1">
+                                                            <div class="modal-dialog modal-dialog-centered">
+                                                                <div class="modal-content">
+                                                                    <div class="modal-body text-center">
+                                                                        <img src="uploads/<?= htmlspecialchars($row['epicrisis']) ?>" class="img-fluid rounded">
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    <?php else: ?>
+                                                        <span class="text-muted">—</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <?php break;
+                                            case 'whatsapp': ?>
+                                                <td>
+                                                    <?php if(!empty($row['whatsapp'])): ?>
+                                                        <div class="whatsapp-content">
+                                                            <?= nl2br(htmlspecialchars($row['whatsapp'])) ?>
+                                                        </div>
+                                                    <?php else: ?>
+                                                        <span class="text-muted">—</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <?php break;
+                                        endswitch;
+                                    endforeach; ?>
+                                    
+                                    <td>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <a href="?accion=editar&id=<?= $id_registro ?>&<?= htmlspecialchars(construirUrlFiltros()) ?>" class="btn btn-warning btn-editar-link" title="Editar">✏️</a>
+                                            <a href="?accion=eliminar&id=<?= $id_registro ?>&<?= htmlspecialchars(construirUrlFiltros()) ?>" class="btn btn-danger" title="Eliminar" onclick="return confirm('¿Seguro de eliminar este viaje?')">🗑️</a>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endwhile; ?>
+                        <?php else: ?>
+                            <?php 
+                            $total_columnas = 1; // columna de selección
+                            foreach($columnas_ordenadas as $col) if ($col['visible']) $total_columnas++;
+                            $total_columnas++; // columna de acciones
+                            ?>
+                            <tr>
+                                <td colspan="<?= $total_columnas ?>" class="text-center py-5">
+                                    <div class="text-muted">
+                                        <p class="mt-2">No se encontraron viajes con los filtros seleccionados.</p>
+                                        <a href="?accion=crear" class="btn btn-success btn-sm">➕ Crear primer viaje</a>
+                                    </div>
+                                </td>
+                            </tr>
+                        <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+        // IDs visibles para selección múltiple
+        const idsVisiblesArray = <?= json_encode($ids_visibles) ?>;
+        document.getElementById('idsVisibles') && (document.getElementById('idsVisibles').value = idsVisiblesArray.join(','));
+        document.getElementById('idsVisibles2') && (document.getElementById('idsVisibles2').value = idsVisiblesArray.join(','));
+        
+        // ========== RESTAURAR SCROLL POSITION DESDE sessionStorage ==========
+        const tableContainer = document.getElementById('tableContainer');
+        
+        // Función para restaurar el scroll guardado
+        function restaurarScroll() {
+            if (tableContainer) {
+                const savedScroll = sessionStorage.getItem('tablaScrollPosition');
+                if (savedScroll && parseInt(savedScroll) > 0) {
+                    setTimeout(function() {
+                        tableContainer.scrollTop = parseInt(savedScroll);
+                        console.log('Scroll restaurado a:', savedScroll);
+                        // Limpiar después de restaurar para no aplicarlo en futuras recargas accidentales
+                        // sessionStorage.removeItem('tablaScrollPosition');
+                    }, 150);
                 }
             }
         }
-        ?>
-        <table class="tabla-clasif-rutas">
-          <thead class="bg-slate-100 text-slate-600 sticky top-0 z-10">
-            <tr>
-              <th class="px-4 py-3 text-left">Ruta</th>
-              <th class="px-4 py-3 text-center">Vehículo</th>
-              <th class="px-4 py-3 text-center">Empresa</th>
-              <th class="px-4 py-3 text-center">Clasificación</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100" id="tablaClasificacionRutas">
-          <?php foreach($rutasUnicas as $info): 
-            $clasificacion_actual = $info['clasificacion'] ?? '';
-            $estilo = obtenerEstiloClasificacion($clasificacion_actual);
-            $clase_fila = $clasificacion_actual ? 'fila-clasificada-' . $clasificacion_actual : '';
-            $color_vehiculo = obtenerColorVehiculo($info['vehiculo']);
-          ?>
-            <tr class="fila-ruta hover:bg-slate-50 <?= $clase_fila ?>"
-                data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
-                data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>"
-                data-empresa="<?= htmlspecialchars($info['empresa']) ?>"
-                data-clasificacion="<?= htmlspecialchars($clasificacion_actual) ?>">
-              
-              <td class="px-4 py-3 whitespace-nowrap text-left font-medium">
-                <?= htmlspecialchars($info['ruta']) ?>
-              </td>
-              
-              <td class="px-4 py-3 text-center">
-                <span class="inline-block px-3 py-1.5 rounded-md text-sm font-medium <?= $color_vehiculo['bg'] ?> <?= $color_vehiculo['text'] ?> border <?= $color_vehiculo['border'] ?>">
-                  <?= htmlspecialchars($info['vehiculo']) ?>
-                </span>
-              </td>
-              
-              <td class="px-4 py-3 text-center">
-                <!-- MINI TARJETA DE EMPRESA MEJORADA -->
-                <div class="empresa-mini-card">
-                  <span>🏢</span>
-                  <span><?= htmlspecialchars($info['empresa']) ?></span>
-                </div>
-              </td>
-              
-              <td class="px-4 py-3 text-center">
-                <select class="select-clasif-ruta rounded-full border border-slate-300 px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100 w-full"
-                        data-ruta="<?= htmlspecialchars($info['ruta']) ?>"
-                        data-vehiculo="<?= htmlspecialchars($info['vehiculo']) ?>"
-                        data-empresa="<?= htmlspecialchars($info['empresa']) ?>"
-                        onchange="actualizarColorFila(this)">
-                  <option value="">Sin clasificar</option>
-                  <?php foreach ($clasificaciones_disponibles as $clasif): 
-                    $estilo_opcion = obtenerEstiloClasificacion($clasif);
-                  ?>
-                  <option value="<?= htmlspecialchars($clasif) ?>" 
-                          <?= $info['clasificacion']===$clasif ? 'selected' : '' ?>
-                          style="background-color: <?= str_replace('bg-', '#', $estilo_opcion['bg']) ?>20; color: <?= str_replace('text-', '#', $estilo_opcion['text']) ?>;">
-                    <?= htmlspecialchars(ucfirst($clasif)) ?>
-                  </option>
-                  <?php endforeach; ?>
-                </select>
-              </td>
-            </tr>
-          <?php endforeach; ?>
-          </tbody>
-        </table>
-      </div>
-      <p class="text-xs text-slate-500 mt-4">
-        Selecciona una clasificación para cada ruta. Los cambios se guardan automáticamente.
-      </p>
-    </div>
-  </div>
-
-  <!-- Panel selector columna -->
-  <div class="side-panel" id="panel-selector-columnas">
-    <div class="side-panel-header">
-      <h3 class="text-lg font-semibold flex items-center gap-2">
-        <span>📊 Seleccionar Columnas</span>
-      </h3>
-      <button class="side-panel-close" data-panel="selector-columnas">✕</button>
-    </div>
-    <div class="side-panel-body">
-      <div class="flex flex-col gap-4">
-        <div>
-          <p class="text-sm text-slate-600 mb-3">
-            Marca/desmarca las columnas que quieres ver en las tablas.
-            <span id="contador-seleccionadas-panel" class="font-semibold text-blue-600"><?= count($columnas_seleccionadas) ?></span> de 
-            <?= count($clasificaciones_disponibles) ?> seleccionadas
-          </p>
-        </div>
         
-        <div class="flex flex-wrap gap-2">
-          <button onclick="seleccionarTodasColumnas()" 
-                  class="text-xs px-3 py-1.5 rounded-lg border border-green-300 bg-green-50 text-green-700 hover:bg-green-100 transition">
-            ✅ Seleccionar todas
-          </button>
-          <button onclick="deseleccionarTodasColumnas()" 
-                  class="text-xs px-3 py-1.5 rounded-lg border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 transition">
-            ❌ Deseleccionar todas
-          </button>
-          <button onclick="guardarSeleccionColumnas()" 
-                  class="text-xs px-3 py-1.5 rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 transition">
-            💾 Guardar selección
-          </button>
-        </div>
+        // Ejecutar restauración cuando la página esté completamente cargada
+        window.addEventListener('load', restaurarScroll);
         
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[60vh] overflow-y-auto p-2 border border-slate-200 rounded-lg">
-          <?php foreach ($clasificaciones_disponibles as $clasif): 
-            $estilo = obtenerEstiloClasificacion($clasif);
-            $seleccionada = in_array($clasif, $columnas_seleccionadas);
-          ?>
-          <div class="columna-checkbox-item flex items-center gap-2 p-3 border border-slate-200 rounded-lg cursor-pointer transition <?= $seleccionada ? 'selected' : '' ?>"
-               data-columna="<?= htmlspecialchars($clasif) ?>"
-               onclick="toggleColumna('<?= htmlspecialchars($clasif) ?>')">
-            <div class="checkbox-columna <?= $seleccionada ? 'checked' : '' ?>" 
-                 id="checkbox-<?= htmlspecialchars($clasif) ?>"></div>
-            <div class="flex-1 flex flex-col">
-              <span class="text-sm font-medium <?= $estilo['text'] ?>">
-                <?= ucfirst($clasif) ?>
-              </span>
-              <span class="text-xs text-slate-500">Columna: <?= htmlspecialchars($clasif) ?></span>
-            </div>
-            <div class="w-3 h-3 rounded-full" style="background-color: <?= str_replace('bg-', '#', $estilo['bg']) ?>;"></div>
-          </div>
-          <?php endforeach; ?>
-        </div>
-      </div>
-    </div>
-  </div>
+        // ========== GUARDAR SCROLL POSITION ==========
+        function guardarScroll() {
+            if (tableContainer) {
+                const currentScroll = tableContainer.scrollTop;
+                sessionStorage.setItem('tablaScrollPosition', currentScroll);
+                console.log('Scroll guardado:', currentScroll);
+            }
+        }
+        
+        // Guardar scroll cuando el usuario se desplaza
+        if (tableContainer) {
+            let scrollTimeout;
+            tableContainer.addEventListener('scroll', function() {
+                clearTimeout(scrollTimeout);
+                scrollTimeout = setTimeout(guardarScroll, 200);
+            });
+        }
+        
+        // ========== GUARDAR FILTROS ACTUALES EN sessionStorage ==========
+        const filtrosActuales = window.location.search;
+        if (filtrosActuales && !window.location.href.includes('accion=editar') && !window.location.href.includes('accion=crear')) {
+            sessionStorage.setItem('filtrosGuardados', filtrosActuales);
+        }
+        
+        // ========== ANTES DE SALIR DE LA PÁGINA (editar, crear, etc.) ==========
+        // Para los botones de edición
+        document.querySelectorAll('.btn-editar-link').forEach(link => {
+            link.addEventListener('click', function(e) {
+                guardarScroll();
+            });
+        });
+        
+        // Para el botón de "Editar Seleccionados"
+        const editarSeleccionadosBtn = document.querySelector('#editarSeleccionadosForm button');
+        if (editarSeleccionadosBtn) {
+            editarSeleccionadosBtn.addEventListener('click', function() {
+                guardarScroll();
+            });
+        }
+        
+        // Para el botón "Cancelar" en el formulario de edición (si existe)
+        const cancelarBtn = document.getElementById('cancelarBtn');
+        if (cancelarBtn) {
+            cancelarBtn.addEventListener('click', function() {
+                guardarScroll();
+            });
+        }
+        
+        // ========== LIMPIAR SCROLL CUANDO SE LIMPIAN FILTROS ==========
+        const limpiarFiltrosBtn = document.getElementById('limpiarFiltrosBtn');
+        if (limpiarFiltrosBtn) {
+            limpiarFiltrosBtn.addEventListener('click', function() {
+                sessionStorage.removeItem('tablaScrollPosition');
+                sessionStorage.removeItem('filtrosGuardados');
+            });
+        }
+        
+        // Cuando se hace submit del formulario de filtros, limpiar scroll guardado (porque la tabla cambia)
+        const filtrosForm = document.getElementById('filtrosForm');
+        if (filtrosForm) {
+            filtrosForm.addEventListener('submit', function() {
+                sessionStorage.removeItem('tablaScrollPosition');
+            });
+        }
+        
+        // ========== SELECCIÓN TODOS ==========
+        const selectAllCheckbox = document.getElementById('seleccionarTodosCheckbox');
+        if (selectAllCheckbox) {
+            selectAllCheckbox.addEventListener('change', function() {
+                const checkboxes = document.querySelectorAll('.row-selector');
+                checkboxes.forEach(cb => {
+                    if (cb.checked !== this.checked) {
+                        cb.checked = this.checked;
+                        const form = cb.closest('form');
+                        if (form) form.submit();
+                    }
+                });
+            });
+        }
+        </script>
+    <?php endif; ?>
+</div>
 
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/select2.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/i18n/es.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    tooltipTriggerList.map(function (tooltipTriggerEl) { return new bootstrap.Tooltip(tooltipTriggerEl); });
+    
+    $('.select2-multiple').select2({ 
+        width: '100%', 
+        placeholder: function() { return $(this).data('placeholder'); }, 
+        allowClear: true, 
+        language: 'es' 
+    });
+    
+    $('.select2-single').select2({ 
+        width: '100%', 
+        placeholder: '-- Seleccionar --', 
+        allowClear: true, 
+        language: 'es' 
+    });
+    
+    function setupCreatableSelect2(selector, tabla, valorActual = null) {
+        $(selector).select2({
+            width: '100%',
+            placeholder: '-- Buscar o escribir nuevo --',
+            allowClear: true,
+            language: 'es',
+            tags: true,
+            createTag: function(params) {
+                var term = $.trim(params.term);
+                if (term === '') return null;
+                return {
+                    id: term,
+                    text: term + ' (➕ Crear nuevo)',
+                    newOption: true
+                };
+            },
+            templateResult: function(data) {
+                if (data.newOption) {
+                    return $('<span style="color: #0d6efd; font-weight: bold;">➕ ' + data.text.replace(' (➕ Crear nuevo)', '') + '</span>');
+                }
+                return data.text;
+            },
+            templateSelection: function(data) {
+                if (data.newOption) {
+                    return data.text.replace(' (➕ Crear nuevo)', '');
+                }
+                return data.text;
+            },
+            ajax: {
+                url: window.location.href,
+                dataType: 'json',
+                delay: 300,
+                data: function(params) {
+                    return {
+                        ajax: 'buscar',
+                        tabla: tabla,
+                        term: params.term || ''
+                    };
+                },
+                processResults: function(data) {
+                    return { results: data.results || [] };
+                },
+                cache: true
+            },
+            minimumInputLength: 1
+        });
+        
+        $(selector).on('select2:select', function(e) {
+            var data = e.params.data;
+            if (data.newOption) {
+                var nuevoValor = data.text.replace(' (➕ Crear nuevo)', '');
+                $.ajax({
+                    url: window.location.href,
+                    type: 'POST',
+                    dataType: 'json',
+                    data: {
+                        ajax: 'crear',
+                        tabla: tabla,
+                        valor: nuevoValor
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            var newOption = new Option(response.valor, response.valor, true, true);
+                            $(selector).append(newOption).trigger('change');
+                            var toastHtml = '<div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1050"><div class="toast show" role="alert" data-bs-autohide="true" data-bs-delay="3000"><div class="toast-header bg-success text-white"><strong class="me-auto">✅ Éxito</strong><button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button></div><div class="toast-body">' + response.mensaje + ': ' + response.valor + '</div></div></div>';
+                            $('body').append(toastHtml);
+                            var toast = new bootstrap.Toast($('.toast').last()[0]);
+                            toast.show();
+                            setTimeout(function() { $('.position-fixed').last().remove(); }, 3500);
+                        } else {
+                            alert('Error: ' + response.mensaje);
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        alert('Error al crear: ' + error);
+                    }
+                });
+            }
+        });
+        
+        if (valorActual) {
+            $(selector).val(valorActual).trigger('change');
+        }
+    }
+    
+    <?php if ($accion == 'crear' || ($accion == 'editar' && $viaje)): ?>
+        setupCreatableSelect2('#nombreSelect', 'conductores', <?= json_encode($viaje['nombre'] ?? null) ?>);
+        setupCreatableSelect2('#rutaSelect', 'rutas', <?= json_encode($viaje['ruta'] ?? null) ?>);
+        setupCreatableSelect2('#empresaSelect', 'empresas', <?= json_encode($viaje['empresa'] ?? null) ?>);
+    <?php endif; ?>
+    
+    <?php if ($accion == 'editar_multiple'): ?>
+        $('.select2-general').each(function() {
+            var tabla = '';
+            if ($(this).attr('name') === 'nombre_general') tabla = 'conductores';
+            if ($(this).attr('name') === 'ruta_general') tabla = 'rutas';
+            if ($(this).attr('name') === 'empresa_general') tabla = 'empresas';
+            if (tabla) {
+                setupCreatableSelect2(this, tabla);
+            } else {
+                $(this).select2({ width: '100%', placeholder: '-- Seleccionar --', allowClear: true, language: 'es' });
+            }
+        });
+        
+        $('.select2-fila').each(function() {
+            var tabla = '';
+            if ($(this).attr('name') && $(this).attr('name').startsWith('nombre_')) tabla = 'conductores';
+            if ($(this).attr('name') && $(this).attr('name').startsWith('ruta_')) tabla = 'rutas';
+            if ($(this).attr('name') && $(this).attr('name').startsWith('empresa_')) tabla = 'empresas';
+            if (tabla) {
+                setupCreatableSelect2(this, tabla);
+            } else {
+                $(this).select2({ width: '100%', placeholder: '-- Seleccionar --', allowClear: true, language: 'es' });
+            }
+        });
+    <?php endif; ?>
+    
+    const btnConfig = document.getElementById('btnConfigColumnas');
+    const dropdown = document.getElementById('dropdownColumnas');
+    if (btnConfig && dropdown) {
+        btnConfig.addEventListener('click', function(e) { 
+            e.stopPropagation(); 
+            dropdown.classList.toggle('show'); 
+        });
+        document.addEventListener('click', function(e) { 
+            if (dropdown && !dropdown.contains(e.target) && !btnConfig.contains(e.target)) 
+                dropdown.classList.remove('show'); 
+        });
+        if (dropdown) dropdown.addEventListener('click', function(e) { e.stopPropagation(); });
+    }
+});
+
+document.getElementById('formEditarMultiple')?.addEventListener('submit', function(e) {
+    const totalRegistros = <?= count($viajes_seleccionados ?? []) ?>;
+    if (totalRegistros === 0) { 
+        e.preventDefault(); 
+        alert('No hay registros para editar.'); 
+        return false; 
+    }
+    if (!confirm(`¿Estás seguro de editar ${totalRegistros} registros?`)) { 
+        e.preventDefault(); 
+        return false; 
+    }
+});
+</script>
 </body>
 </html>
-<?php
-$conn->close();
-?>
