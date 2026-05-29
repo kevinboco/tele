@@ -187,7 +187,7 @@ if (isset($_POST['guardar_columnas_seleccionadas'])) {
 }
 
 /* =======================================================
-   🔹 Endpoint AJAX: viajes por conductor (MODIFICADO para respetar filtro de empresas)
+   🔹 Endpoint AJAX: viajes por conductor (ICADO para respetar filtro de empresas)
 ======================================================= */
 if (isset($_GET['viajes_conductor'])) {
     $nombre  = $conn->real_escape_string($_GET['viajes_conductor']);
