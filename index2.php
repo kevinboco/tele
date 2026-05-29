@@ -1,7 +1,7 @@
 <?php
 // index2.php - Sistema completo de gestión de viajes con INFORME y SELECTORES DINÁMICOS + CAMPO WHATSAPP
-// VERSIÓN: Encabezdo fijo + WhatsApp con altura AUTOMÁTICA (se adapta al texto)
-// VERSIÓN 2: MANTIENE FILTROS Y SCROLL después de guardar
+// VERSIÓN: Encabezado fijo + WhatsApp con altura AUTOMÁTICA (se adapta al texto)
+// VERSIÓN 3: MANTIENE FILTROS Y SCROLL POSITION CON sessionStorage
 
 // SIEMPRE primero la sesión, sin imprimir nada antes
 session_start();
@@ -423,7 +423,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             
             if ($conexion->query($sql)) {
                 $filtros_url = construirUrlFiltros();
-                $scroll_pos = isset($_POST['scroll_pos']) ? (int)$_POST['scroll_pos'] : 0;
                 
                 if ($solo_cambio_cedula && !empty($cedula_nueva)) {
                     $nombre_escapado = $conexion->real_escape_string($nombre);
@@ -434,18 +433,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     if ($conexion->query($sql_masivo)) {
                         $registros_afectados = $conexion->affected_rows;
                         if ($filtros_url) {
-                            header("Location: ?msg=editado_con_cedula&afectados=$registros_afectados&scroll_pos=$scroll_pos&nombre=" . urlencode($nombre) . "&" . $filtros_url);
+                            header("Location: ?msg=editado_con_cedula&afectados=$registros_afectados&nombre=" . urlencode($nombre) . "&" . $filtros_url);
                         } else {
-                            header("Location: ?msg=editado_con_cedula&afectados=$registros_afectados&scroll_pos=$scroll_pos&nombre=" . urlencode($nombre));
+                            header("Location: ?msg=editado_con_cedula&afectados=$registros_afectados&nombre=" . urlencode($nombre));
                         }
                         exit();
                     }
                 }
                 
                 if ($filtros_url) {
-                    header("Location: ?msg=editado&scroll_pos=$scroll_pos&" . $filtros_url);
+                    header("Location: ?msg=editado&" . $filtros_url);
                 } else {
-                    header("Location: ?msg=editado&scroll_pos=$scroll_pos");
+                    header("Location: ?msg=editado");
                 }
                 exit();
             } else {
@@ -878,9 +877,6 @@ if ($res) while($r = $res->fetch_assoc()) $listas['empresas'][] = $r['empresa'];
 
 $error_msg = $_SESSION['error'] ?? null;
 if (isset($_SESSION['error'])) unset($_SESSION['error']);
-
-// Obtener scroll position de la URL si existe
-$scroll_pos = isset($_GET['scroll_pos']) ? (int)$_GET['scroll_pos'] : 0;
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -1032,7 +1028,6 @@ $scroll_pos = isset($_GET['scroll_pos']) ? (int)$_GET['scroll_pos'] : 0;
                             <?php if ($accion == 'editar'): ?>
                                 <input type="hidden" name="id" value="<?= (int)$id ?>">
                                 <input type="hidden" name="editar" value="1">
-                                <input type="hidden" name="scroll_pos" id="scroll_pos_input" value="0">
                             <?php else: ?>
                                 <input type="hidden" name="crear" value="1">
                             <?php endif; ?>
@@ -1182,7 +1177,7 @@ $scroll_pos = isset($_GET['scroll_pos']) ? (int)$_GET['scroll_pos'] : 0;
                             </div>
                             
                             <div class="d-flex justify-content-between">
-                                <a href="?<?= htmlspecialchars(construirUrlFiltros()) ?>" class="btn btn-secondary">Cancelar</a>
+                                <a href="?<?= htmlspecialchars(construirUrlFiltros()) ?>" class="btn btn-secondary" id="cancelarBtn">Cancelar</a>
                                 <button type="submit" class="btn <?= $accion == 'crear' ? 'btn-success' : 'btn-warning' ?>">
                                     <?= $accion == 'crear' ? 'Crear Viaje' : 'Guardar Cambios' ?>
                                 </button>
@@ -1594,7 +1589,7 @@ $scroll_pos = isset($_GET['scroll_pos']) ? (int)$_GET['scroll_pos'] : 0;
                         <button type="submit" class="btn btn-success w-100">🔎 Buscar</button>
                     </div>
                     <div class="col-md-2 align-self-end">
-                        <a href="?" class="btn btn-secondary w-100">❌ Limpiar filtros</a>
+                        <a href="?" class="btn btn-secondary w-100" id="limpiarFiltrosBtn">❌ Limpiar filtros</a>
                     </div>
                 </form>
             </div>
@@ -1664,12 +1659,12 @@ $scroll_pos = isset($_GET['scroll_pos']) ? (int)$_GET['scroll_pos'] : 0;
                 <div class="mb-3 d-flex justify-content-between align-items-center bg-light p-3 rounded" style="margin-left: 15px; margin-right: 15px;">
                     <div>
                         <strong>Selección múltiple:</strong>
-                        <form method="POST" class="d-inline ms-2">
+                        <form method="POST" class="d-inline ms-2" id="seleccionarTodosForm">
                             <input type="hidden" name="seleccionar_todos" value="1">
                             <input type="hidden" name="ids_visibles" id="idsVisibles" value="">
                             <button type="submit" class="btn btn-sm btn-outline-primary">✅ Seleccionar todos los visibles</button>
                         </form>
-                        <form method="POST" class="d-inline ms-2">
+                        <form method="POST" class="d-inline ms-2" id="deseleccionarTodosForm">
                             <input type="hidden" name="seleccionar_todos" value="0">
                             <input type="hidden" name="ids_visibles" id="idsVisibles2" value="">
                             <button type="submit" class="btn btn-sm btn-outline-secondary">❌ Deseleccionar todos los visibles</button>
@@ -1677,11 +1672,11 @@ $scroll_pos = isset($_GET['scroll_pos']) ? (int)$_GET['scroll_pos'] : 0;
                     </div>
                     <?php if (!empty($_SESSION['seleccionados'])): ?>
                         <div class="d-flex gap-2">
-                            <form method="POST">
+                            <form method="POST" id="editarSeleccionadosForm">
                                 <button type="submit" name="accion_multiple" value="editar" class="btn btn-warning btn-sm">✏️ Editar Seleccionados</button>
                             </form>
-                            <form method="POST">
-                                <button type="submit" name="accion_multiple" value="eliminar" class="btn btn-danger btn-sm" onclick="return confirm('¿Eliminar los <?= count($_SESSION['seleccionados']) ?> registros seleccionados?')">🗑️ Eliminar</button>
+                            <form method="POST" id="eliminarSeleccionadosForm" onsubmit="return confirm('¿Eliminar los <?= count($_SESSION['seleccionados']) ?> registros seleccionados?')">
+                                <button type="submit" name="accion_multiple" value="eliminar" class="btn btn-danger btn-sm">🗑️ Eliminar</button>
                             </form>
                         </div>
                     <?php endif; ?>
@@ -1824,7 +1819,7 @@ $scroll_pos = isset($_GET['scroll_pos']) ? (int)$_GET['scroll_pos'] : 0;
                                     
                                     <td>
                                         <div class="btn-group btn-group-sm" role="group">
-                                            <a href="?accion=editar&id=<?= $id_registro ?>&<?= htmlspecialchars(construirUrlFiltros()) ?>&scroll_pos=' + (tableContainer?.scrollTop || 0) + '" class="btn btn-warning" title="Editar" id="editLink_<?= $id_registro ?>">✏️</a>
+                                            <a href="?accion=editar&id=<?= $id_registro ?>&<?= htmlspecialchars(construirUrlFiltros()) ?>" class="btn btn-warning btn-editar-link" title="Editar">✏️</a>
                                             <a href="?accion=eliminar&id=<?= $id_registro ?>&<?= htmlspecialchars(construirUrlFiltros()) ?>" class="btn btn-danger" title="Eliminar" onclick="return confirm('¿Seguro de eliminar este viaje?')">🗑️</a>
                                         </div>
                                     </td>
@@ -1852,49 +1847,111 @@ $scroll_pos = isset($_GET['scroll_pos']) ? (int)$_GET['scroll_pos'] : 0;
         </div>
         
         <script>
-            const idsVisiblesArray = <?= json_encode($ids_visibles) ?>;
-            document.getElementById('idsVisibles') && (document.getElementById('idsVisibles').value = idsVisiblesArray.join(','));
-            document.getElementById('idsVisibles2') && (document.getElementById('idsVisibles2').value = idsVisiblesArray.join(','));
-            
-            // RESTAURAR SCROLL POSITION
-            const tableContainer = document.getElementById('tableContainer');
-            const scrollPos = <?= (int)$scroll_pos ?>;
-            
-            if (tableContainer && scrollPos > 0) {
-                tableContainer.scrollTop = scrollPos;
+        // IDs visibles para selección múltiple
+        const idsVisiblesArray = <?= json_encode($ids_visibles) ?>;
+        document.getElementById('idsVisibles') && (document.getElementById('idsVisibles').value = idsVisiblesArray.join(','));
+        document.getElementById('idsVisibles2') && (document.getElementById('idsVisibles2').value = idsVisiblesArray.join(','));
+        
+        // ========== RESTAURAR SCROLL POSITION DESDE sessionStorage ==========
+        const tableContainer = document.getElementById('tableContainer');
+        
+        // Función para restaurar el scroll guardado
+        function restaurarScroll() {
+            if (tableContainer) {
+                const savedScroll = sessionStorage.getItem('tablaScrollPosition');
+                if (savedScroll && parseInt(savedScroll) > 0) {
+                    setTimeout(function() {
+                        tableContainer.scrollTop = parseInt(savedScroll);
+                        console.log('Scroll restaurado a:', savedScroll);
+                        // Limpiar después de restaurar para no aplicarlo en futuras recargas accidentales
+                        // sessionStorage.removeItem('tablaScrollPosition');
+                    }, 150);
+                }
             }
-            
-            // Guardar scroll position antes de enviar el formulario de edición
-            const scrollPosInput = document.getElementById('scroll_pos_input');
-            if (scrollPosInput && tableContainer) {
-                scrollPosInput.value = tableContainer.scrollTop;
+        }
+        
+        // Ejecutar restauración cuando la página esté completamente cargada
+        window.addEventListener('load', restaurarScroll);
+        
+        // ========== GUARDAR SCROLL POSITION ==========
+        function guardarScroll() {
+            if (tableContainer) {
+                const currentScroll = tableContainer.scrollTop;
+                sessionStorage.setItem('tablaScrollPosition', currentScroll);
+                console.log('Scroll guardado:', currentScroll);
             }
-            
-            // Para los enlaces de edición, añadir el scroll actual
-            document.querySelectorAll('[id^="editLink_"]').forEach(link => {
-                link.addEventListener('click', function(e) {
-                    if (tableContainer) {
-                        const currentScroll = tableContainer.scrollTop;
-                        const url = this.getAttribute('href');
-                        const separator = url.includes('?') ? '&' : '?';
-                        this.setAttribute('href', url + separator + 'scroll_pos=' + currentScroll);
+        }
+        
+        // Guardar scroll cuando el usuario se desplaza
+        if (tableContainer) {
+            let scrollTimeout;
+            tableContainer.addEventListener('scroll', function() {
+                clearTimeout(scrollTimeout);
+                scrollTimeout = setTimeout(guardarScroll, 200);
+            });
+        }
+        
+        // ========== GUARDAR FILTROS ACTUALES EN sessionStorage ==========
+        const filtrosActuales = window.location.search;
+        if (filtrosActuales && !window.location.href.includes('accion=editar') && !window.location.href.includes('accion=crear')) {
+            sessionStorage.setItem('filtrosGuardados', filtrosActuales);
+        }
+        
+        // ========== ANTES DE SALIR DE LA PÁGINA (editar, crear, etc.) ==========
+        // Para los botones de edición
+        document.querySelectorAll('.btn-editar-link').forEach(link => {
+            link.addEventListener('click', function(e) {
+                guardarScroll();
+            });
+        });
+        
+        // Para el botón de "Editar Seleccionados"
+        const editarSeleccionadosBtn = document.querySelector('#editarSeleccionadosForm button');
+        if (editarSeleccionadosBtn) {
+            editarSeleccionadosBtn.addEventListener('click', function() {
+                guardarScroll();
+            });
+        }
+        
+        // Para el botón "Cancelar" en el formulario de edición (si existe)
+        const cancelarBtn = document.getElementById('cancelarBtn');
+        if (cancelarBtn) {
+            cancelarBtn.addEventListener('click', function() {
+                guardarScroll();
+            });
+        }
+        
+        // ========== LIMPIAR SCROLL CUANDO SE LIMPIAN FILTROS ==========
+        const limpiarFiltrosBtn = document.getElementById('limpiarFiltrosBtn');
+        if (limpiarFiltrosBtn) {
+            limpiarFiltrosBtn.addEventListener('click', function() {
+                sessionStorage.removeItem('tablaScrollPosition');
+                sessionStorage.removeItem('filtrosGuardados');
+            });
+        }
+        
+        // Cuando se hace submit del formulario de filtros, limpiar scroll guardado (porque la tabla cambia)
+        const filtrosForm = document.getElementById('filtrosForm');
+        if (filtrosForm) {
+            filtrosForm.addEventListener('submit', function() {
+                sessionStorage.removeItem('tablaScrollPosition');
+            });
+        }
+        
+        // ========== SELECCIÓN TODOS ==========
+        const selectAllCheckbox = document.getElementById('seleccionarTodosCheckbox');
+        if (selectAllCheckbox) {
+            selectAllCheckbox.addEventListener('change', function() {
+                const checkboxes = document.querySelectorAll('.row-selector');
+                checkboxes.forEach(cb => {
+                    if (cb.checked !== this.checked) {
+                        cb.checked = this.checked;
+                        const form = cb.closest('form');
+                        if (form) form.submit();
                     }
                 });
             });
-            
-            const selectAllCheckbox = document.getElementById('seleccionarTodosCheckbox');
-            if (selectAllCheckbox) {
-                selectAllCheckbox.addEventListener('change', function() {
-                    const checkboxes = document.querySelectorAll('.row-selector');
-                    checkboxes.forEach(cb => {
-                        if (cb.checked !== this.checked) {
-                            cb.checked = this.checked;
-                            const form = cb.closest('form');
-                            if (form) form.submit();
-                        }
-                    });
-                });
-            }
+        }
         </script>
     <?php endif; ?>
 </div>
