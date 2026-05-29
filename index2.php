@@ -1,7 +1,7 @@
 <?php
-// index2.php - Sistema completo de gestión de viajes con INFORME y SELECTORES DINÁMICOS + CAMPO WHATSAPP
-// VERSIÓN: Encabezado fijo + WhatsApp con altura AUTOMÁTICA (se adapta al texto)
-// VERSIÓN 3: MANTIENE FILTROS Y SCROLL POSITION CON sessionStorage
+// index2.php - Sistema completo de gestión de viajes con RANGO DE FECHAS (estilo Despegar)
+// VERSIÓN: Con selector de calendario para rango de fechas (desde/hasta)
+// MANTIENE: Filtros, scroll position, selección múltiple, informes, WhatsApp, etc.
 
 // SIEMPRE primero la sesión, sin imprimir nada antes
 session_start();
@@ -886,6 +886,9 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/css/select2.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/css/select2-bootstrap-5-theme.min.css" rel="stylesheet">
+    <!-- Flatpickr para el selector de rango de fechas estilo calendario -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/material_blue.css">
     <style>
         .table-hover tbody tr:hover { background-color: rgba(0,0,0,.025); }
         .img-thumb { max-width: 70px; height: auto; cursor: pointer; }
@@ -958,6 +961,45 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         }
         .table-responsive-full {
             overflow-x: auto;
+        }
+
+        /* Estilos para el selector de rango de fechas estilo calendario */
+        .fecha-rango-wrapper {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .fecha-rango-wrapper .fecha-input-group {
+            flex: 1;
+            min-width: 150px;
+        }
+        .fecha-rango-wrapper label {
+            font-size: 0.85rem;
+            margin-bottom: 4px;
+            color: #495057;
+        }
+        .fecha-rango-wrapper .fecha-desde,
+        .fecha-rango-wrapper .fecha-hasta {
+            background-color: #fff;
+        }
+        .fecha-rango-botones {
+            display: flex;
+            gap: 5px;
+            align-items: flex-end;
+        }
+        .btn-fecha-rapida {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+        }
+        .flatpickr-calendar.rangeMode .flatpickr-day.selected.startRange,
+        .flatpickr-calendar.rangeMode .flatpickr-day.selected.endRange {
+            background: #0d6efd;
+            border-color: #0d6efd;
+        }
+        .flatpickr-calendar.rangeMode .flatpickr-day.inRange {
+            background: rgba(13, 110, 253, 0.2);
+            border-color: transparent;
         }
     </style>
 </head>
@@ -1495,7 +1537,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             </div>
         </div>
 
-        <!-- FILTROS (se quedan centrados dentro del container) -->
+        <!-- FILTROS CON SELECTOR DE RANGO DE FECHAS ESTILO CALENDARIO -->
         <div class="card shadow mb-4">
             <div class="card-header bg-primary text-white">
                 <h3 class="mb-0">🔍 Filtros de búsqueda (multiselect)</h3>
@@ -1531,13 +1573,28 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                         </select>
                     </div>
 
-                    <div class="col-md-2">
-                        <label class="form-label">Fecha desde</label>
-                        <input type="date" name="desde" value="<?= htmlspecialchars($_GET['desde'] ?? '') ?>" class="form-control">
-                    </div>
-                    <div class="col-md-2">
-                        <label class="form-label">Fecha hasta</label>
-                        <input type="date" name="hasta" value="<?= htmlspecialchars($_GET['hasta'] ?? '') ?>" class="form-control">
+                    <!-- NUEVO: Selector de rango de fechas estilo calendario (reemplaza los campos desde/hasta individuales) -->
+                    <div class="col-md-4">
+                        <label class="form-label">📅 Rango de Fechas</label>
+                        <div class="fecha-rango-wrapper">
+                            <div class="fecha-input-group">
+                                <input type="text" id="rangoFechas" class="form-control" placeholder="Selecciona rango de fechas" 
+                                       value="<?php 
+                                            if (!empty($_GET['desde']) && !empty($_GET['hasta'])) {
+                                                echo htmlspecialchars($_GET['desde']) . ' a ' . htmlspecialchars($_GET['hasta']);
+                                            }
+                                       ?>">
+                                <input type="hidden" name="desde" id="desdeInput" value="<?= htmlspecialchars($_GET['desde'] ?? '') ?>">
+                                <input type="hidden" name="hasta" id="hastaInput" value="<?= htmlspecialchars($_GET['hasta'] ?? '') ?>">
+                            </div>
+                            <div class="fecha-rango-botones">
+                                <button type="button" class="btn btn-sm btn-outline-secondary btn-fecha-rapida" data-rango="hoy">Hoy</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary btn-fecha-rapida" data-rango="semana">Esta semana</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary btn-fecha-rapida" data-rango="mes">Este mes</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary btn-fecha-rapida" data-rango="limpiar">Limpiar</button>
+                            </div>
+                        </div>
+                        <small class="text-muted">Haz clic en el calendario: primera fecha = desde, segunda fecha = hasta (se ordenan automáticamente)</small>
                     </div>
 
                     <div class="col-md-2">
@@ -1659,7 +1716,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         $resultado = $conexion->query($sql);
         ?>
 
-        <!-- TABLA DE VIAJES - ANCHO COMPLETO (FUERA DEL CONTAINER) -->
+        <!-- TABLA DE VIAJES - ANCHO COMPLETO -->
         <div class="full-width-table">
             <div class="table-responsive-full">
                 <div class="mb-3 d-flex justify-content-between align-items-center bg-light p-3 rounded" style="margin-left: 15px; margin-right: 15px;">
@@ -1833,9 +1890,9 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                             <?php endwhile; ?>
                         <?php else: ?>
                             <?php 
-                            $total_columnas = 1; // columna de selección
+                            $total_columnas = 1;
                             foreach($columnas_ordenadas as $col) if ($col['visible']) $total_columnas++;
-                            $total_columnas++; // columna de acciones
+                            $total_columnas++;
                             ?>
                             <tr>
                                 <td colspan="<?= $total_columnas ?>" class="text-center py-5">
@@ -1861,7 +1918,6 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
         // ========== RESTAURAR SCROLL POSITION DESDE sessionStorage ==========
         const tableContainer = document.getElementById('tableContainer');
         
-        // Función para restaurar el scroll guardado
         function restaurarScroll() {
             if (tableContainer) {
                 const savedScroll = sessionStorage.getItem('tablaScrollPosition');
@@ -1869,17 +1925,13 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                     setTimeout(function() {
                         tableContainer.scrollTop = parseInt(savedScroll);
                         console.log('Scroll restaurado a:', savedScroll);
-                        // Limpiar después de restaurar para no aplicarlo en futuras recargas accidentales
-                        // sessionStorage.removeItem('tablaScrollPosition');
                     }, 150);
                 }
             }
         }
         
-        // Ejecutar restauración cuando la página esté completamente cargada
         window.addEventListener('load', restaurarScroll);
         
-        // ========== GUARDAR SCROLL POSITION ==========
         function guardarScroll() {
             if (tableContainer) {
                 const currentScroll = tableContainer.scrollTop;
@@ -1888,7 +1940,6 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             }
         }
         
-        // Guardar scroll cuando el usuario se desplaza
         if (tableContainer) {
             let scrollTimeout;
             tableContainer.addEventListener('scroll', function() {
@@ -1897,21 +1948,17 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             });
         }
         
-        // ========== GUARDAR FILTROS ACTUALES EN sessionStorage ==========
         const filtrosActuales = window.location.search;
         if (filtrosActuales && !window.location.href.includes('accion=editar') && !window.location.href.includes('accion=crear')) {
             sessionStorage.setItem('filtrosGuardados', filtrosActuales);
         }
         
-        // ========== ANTES DE SALIR DE LA PÁGINA (editar, crear, etc.) ==========
-        // Para los botones de edición
         document.querySelectorAll('.btn-editar-link').forEach(link => {
             link.addEventListener('click', function(e) {
                 guardarScroll();
             });
         });
         
-        // Para el botón de "Editar Seleccionados"
         const editarSeleccionadosBtn = document.querySelector('#editarSeleccionadosForm button');
         if (editarSeleccionadosBtn) {
             editarSeleccionadosBtn.addEventListener('click', function() {
@@ -1919,7 +1966,6 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             });
         }
         
-        // Para el botón "Cancelar" en el formulario de edición (si existe)
         const cancelarBtn = document.getElementById('cancelarBtn');
         if (cancelarBtn) {
             cancelarBtn.addEventListener('click', function() {
@@ -1927,7 +1973,6 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             });
         }
         
-        // ========== LIMPIAR SCROLL CUANDO SE LIMPIAN FILTROS ==========
         const limpiarFiltrosBtn = document.getElementById('limpiarFiltrosBtn');
         if (limpiarFiltrosBtn) {
             limpiarFiltrosBtn.addEventListener('click', function() {
@@ -1936,7 +1981,6 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             });
         }
         
-        // Cuando se hace submit del formulario de filtros, limpiar scroll guardado (porque la tabla cambia)
         const filtrosForm = document.getElementById('filtrosForm');
         if (filtrosForm) {
             filtrosForm.addEventListener('submit', function() {
@@ -1944,7 +1988,6 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             });
         }
         
-        // ========== SELECCIÓN TODOS ==========
         const selectAllCheckbox = document.getElementById('seleccionarTodosCheckbox');
         if (selectAllCheckbox) {
             selectAllCheckbox.addEventListener('change', function() {
@@ -1966,6 +2009,9 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/select2.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/i18n/es.min.js"></script>
+<!-- Flatpickr para el selector de rango de fechas -->
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/es.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
@@ -2114,6 +2160,107 @@ document.addEventListener('DOMContentLoaded', function() {
                 dropdown.classList.remove('show'); 
         });
         if (dropdown) dropdown.addEventListener('click', function(e) { e.stopPropagation(); });
+    }
+
+    // ================== SELECTOR DE RANGO DE FECHAS CON FLATPICKR ==================
+    const desdeInput = document.getElementById('desdeInput');
+    const hastaInput = document.getElementById('hastaInput');
+    const rangoFechasInput = document.getElementById('rangoFechas');
+    
+    if (rangoFechasInput && desdeInput && hastaInput) {
+        // Obtener valores iniciales
+        let fechaDesde = desdeInput.value || '';
+        let fechaHasta = hastaInput.value || '';
+        
+        // Configurar Flatpickr en modo rango
+        const dateRangePicker = flatpickr(rangoFechasInput, {
+            mode: "range",
+            dateFormat: "Y-m-d",
+            locale: "es",
+            altInput: true,
+            altFormat: "d/m/Y",
+            allowInput: true,
+            onClose: function(selectedDates, dateStr, instance) {
+                if (selectedDates.length === 2) {
+                    // Ordenar fechas automáticamente (la más antigua primero)
+                    let date1 = selectedDates[0];
+                    let date2 = selectedDates[1];
+                    
+                    let fechaInicio = date1 < date2 ? date1 : date2;
+                    let fechaFin = date1 < date2 ? date2 : date1;
+                    
+                    // Formatear a YYYY-MM-DD para los inputs hidden
+                    let inicioStr = fechaInicio.toISOString().split('T')[0];
+                    let finStr = fechaFin.toISOString().split('T')[0];
+                    
+                    desdeInput.value = inicioStr;
+                    hastaInput.value = finStr;
+                    
+                    // Actualizar el texto mostrado
+                    instance.setDate([fechaInicio, fechaFin], false);
+                } else if (selectedDates.length === 1) {
+                    // Si solo seleccionó una fecha, la ponemos como "desde"
+                    let fechaUnica = selectedDates[0];
+                    desdeInput.value = fechaUnica.toISOString().split('T')[0];
+                    hastaInput.value = '';
+                } else if (selectedDates.length === 0) {
+                    // Si no hay fechas seleccionadas, limpiar
+                    desdeInput.value = '';
+                    hastaInput.value = '';
+                }
+            }
+        });
+        
+        // Si ya hay fechas guardadas, mostrarlas en el selector
+        if (fechaDesde && fechaHasta) {
+            dateRangePicker.setDate([fechaDesde, fechaHasta], false);
+            rangoFechasInput.value = fechaDesde + ' a ' + fechaHasta;
+        } else if (fechaDesde) {
+            dateRangePicker.setDate(fechaDesde, false);
+        }
+        
+        // Botones de fechas rápidas
+        document.querySelectorAll('.btn-fecha-rapida').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                const rango = this.getAttribute('data-rango');
+                const hoy = new Date();
+                let fechaInicio = null;
+                let fechaFin = null;
+                
+                switch(rango) {
+                    case 'hoy':
+                        fechaInicio = hoy;
+                        fechaFin = hoy;
+                        break;
+                    case 'semana':
+                        // Lunes de esta semana a domingo
+                        const diaSemana = hoy.getDay();
+                        const diffLunes = diaSemana === 0 ? 6 : diaSemana - 1;
+                        fechaInicio = new Date(hoy);
+                        fechaInicio.setDate(hoy.getDate() - diffLunes);
+                        fechaFin = new Date(fechaInicio);
+                        fechaFin.setDate(fechaInicio.getDate() + 6);
+                        break;
+                    case 'mes':
+                        fechaInicio = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+                        fechaFin = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
+                        break;
+                    case 'limpiar':
+                        desdeInput.value = '';
+                        hastaInput.value = '';
+                        dateRangePicker.clear();
+                        return;
+                }
+                
+                if (fechaInicio && fechaFin) {
+                    let inicioStr = fechaInicio.toISOString().split('T')[0];
+                    let finStr = fechaFin.toISOString().split('T')[0];
+                    desdeInput.value = inicioStr;
+                    hastaInput.value = finStr;
+                    dateRangePicker.setDate([fechaInicio, fechaFin], false);
+                }
+            });
+        });
     }
 });
 
