@@ -1094,7 +1094,7 @@ $(document).ready(function() {
   }
 })();
 
-/* Eliminar: crea un form temporal POST para no anidar forularios */
+/* Eliminar: crea un form temporal POST pa no anidar forularios */
 function submitDelete(id){
   if(!confirm('¿Eliminar #'+id+'?')) return;
   const f = document.createElement('form');
