@@ -3,6 +3,7 @@
  * admin_prestamos.php — CRUD + Tarjetas
  * - Filtro dinámico: deudores según empresa seleccionada
  * - Dropdowns con búsqueda (Select2)
+ * - Deudor y Prestamista conectados a tablas admin
  *********************************************************/
 include("nav.php");
 
@@ -43,6 +44,54 @@ function go($url){
 function mbnorm($s){ return mb_strtolower(trim((string)$s),'UTF-8'); }
 function mbtitle($s){ return function_exists('mb_convert_case') ? mb_convert_case((string)$s, MB_CASE_TITLE, 'UTF-8') : ucwords(strtolower((string)$s)); }
 
+// Función para asegurar que un deudor existe en la tabla deudores_admin
+function ensure_deudor($nombre, $owner_chat_id = 6133806918) {
+    if (empty($nombre)) return false;
+    $c = db();
+    $norm = mbnorm($nombre);
+    $st = $c->prepare("SELECT id FROM deudores_admin WHERE owner_chat_id = ? AND LOWER(TRIM(nombre)) = ?");
+    $st->bind_param("is", $owner_chat_id, $norm);
+    $st->execute();
+    $st->store_result();
+    if ($st->num_rows > 0) {
+        $st->close();
+        $c->close();
+        return true;
+    }
+    $st->close();
+    // Insertar si no existe
+    $st = $c->prepare("INSERT INTO deudores_admin (owner_chat_id, nombre) VALUES (?, ?)");
+    $st->bind_param("is", $owner_chat_id, $nombre);
+    $result = $st->execute();
+    $st->close();
+    $c->close();
+    return $result;
+}
+
+// Función para asegurar que un prestamista existe en la tabla prestamistas_admin
+function ensure_prestamista($nombre, $owner_chat_id = 6133806918) {
+    if (empty($nombre)) return false;
+    $c = db();
+    $norm = mbnorm($nombre);
+    $st = $c->prepare("SELECT id FROM prestamistas_admin WHERE owner_chat_id = ? AND LOWER(TRIM(nombre)) = ?");
+    $st->bind_param("is", $owner_chat_id, $norm);
+    $st->execute();
+    $st->store_result();
+    if ($st->num_rows > 0) {
+        $st->close();
+        $c->close();
+        return true;
+    }
+    $st->close();
+    // Insertar si no existe
+    $st = $c->prepare("INSERT INTO prestamistas_admin (owner_chat_id, nombre) VALUES (?, ?)");
+    $st->bind_param("is", $owner_chat_id, $nombre);
+    $result = $st->execute();
+    $st->close();
+    $c->close();
+    return $result;
+}
+
 $action = $_GET['action'] ?? 'list';
 $view   = 'cards'; // Solo tarjetas
 $id = (int)($_GET['id'] ?? 0);
@@ -78,6 +127,14 @@ if ($action==='bulk_update' && $_SERVER['REQUEST_METHOD']==='POST'){
   $new_prestamista = trim($_POST['new_prestamista'] ?? '');
   $new_monto_raw   = trim($_POST['new_monto'] ?? '');
   $new_fecha       = trim($_POST['new_fecha'] ?? '');
+
+  // Si se está actualizando deudor o prestamista, asegurar que existan en las tablas admin
+  if ($new_deudor !== '') {
+    ensure_deudor($new_deudor);
+  }
+  if ($new_prestamista !== '') {
+    ensure_prestamista($new_prestamista);
+  }
 
   $sets   = [];
   $types  = '';
@@ -196,6 +253,10 @@ if ($action==='create' && $_SERVER['REQUEST_METHOD']==='POST'){
   $img = save_image($_FILES['imagen']??null);
 
   if ($deudor && $prestamista && is_numeric($monto) && preg_match('/^\d{4}-\d{2}-\d{2}$/',$fecha)){
+    // Asegurar que el deudor y prestamista existen en las tablas admin
+    ensure_deudor($deudor);
+    ensure_prestamista($prestamista);
+    
     $c=db();
     $st=$c->prepare("INSERT INTO prestamos (deudor,prestamista,monto,fecha,imagen,created_at) VALUES (?,?,?,?,?,NOW())");
     $st->bind_param("ssdss",$deudor,$prestamista,$monto,$fecha,$img);
@@ -216,6 +277,10 @@ if ($action==='edit' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
   $img = save_image($_FILES['imagen']??null);
 
   if ($deudor && $prestamista && is_numeric($monto) && preg_match('/^\d{4}-\d{2}-\d{2}$/',$fecha)){
+    // Asegurar que el deudor y prestamista existen en las tablas admin
+    ensure_deudor($deudor);
+    ensure_prestamista($prestamista);
+    
     $c=db();
     if ($img){
       $st=$c->prepare("UPDATE prestamos SET deudor=?,prestamista=?,monto=?,fecha=?,imagen=? WHERE id=?");
@@ -328,6 +393,9 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  .select2-selection { border: 1px solid #e5e7eb !important; border-radius: 12px !important; padding: 8px !important; height: 45px !important; }
  .select2-selection__arrow { height: 43px !important; }
  .select2-search__field { border-radius: 8px !important; padding: 6px !important; }
+ 
+ /* Estilo para permitir nuevo valor en Select2 */
+ .select2-container--default .select2-search--dropdown .select2-search__field:focus { outline: none; border-color: var(--primary); }
 </style>
 </head><body>
 
@@ -362,6 +430,25 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
 <?php
 // ====== NEW / EDIT FORMS ======
 if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!=='POST')):
+
+  // Obtener datos de deudores y prestamistas para los Select2
+  $conn = db();
+  
+  // Obtener todos los deudores de la tabla deudores_admin
+  $deudores_opts = [];
+  $res_deudores = $conn->query("SELECT nombre FROM deudores_admin WHERE owner_chat_id IN (6133806918, 6674396003) ORDER BY nombre");
+  while($row = $res_deudores->fetch_assoc()) {
+    $deudores_opts[] = $row['nombre'];
+  }
+  
+  // Obtener todos los prestamistas de la tabla prestamistas_admin
+  $prestamistas_opts = [];
+  $res_prestamistas = $conn->query("SELECT nombre FROM prestamistas_admin WHERE owner_chat_id IN (6133806918, 6674396003) ORDER BY nombre");
+  while($row = $res_prestamistas->fetch_assoc()) {
+    $prestamistas_opts[] = $row['nombre'];
+  }
+  $conn->close();
+
   $row = ['deudor'=>'','prestamista'=>'','monto'=>'','fecha'=>'','imagen'=>null];
   if ($action==='edit'){
     $c=db();
@@ -384,11 +471,21 @@ if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!
       <div class="row" style="gap:12px;flex-wrap:wrap">
         <div class="field" style="min-width:220px;flex:1">
           <label>Deudor *</label>
-          <input name="deudor" required value="<?= h($row['deudor']) ?>">
+          <select name="deudor" id="deudorSelect2" required style="width:100%">
+            <option value="">Selecciona o escribe un deudor...</option>
+            <?php foreach($deudores_opts as $opt): ?>
+              <option value="<?= h($opt) ?>" <?= $row['deudor'] === $opt ? 'selected' : '' ?>><?= h($opt) ?></option>
+            <?php endforeach; ?>
+          </select>
         </div>
         <div class="field" style="min-width:220px;flex:1">
           <label>Prestamista *</label>
-          <input name="prestamista" required value="<?= h($row['prestamista']) ?>">
+          <select name="prestamista" id="prestamistaSelect2" required style="width:100%">
+            <option value="">Selecciona o escribe un prestamista...</option>
+            <?php foreach($prestamistas_opts as $opt): ?>
+              <option value="<?= h($opt) ?>" <?= $row['prestamista'] === $opt ? 'selected' : '' ?>><?= h($opt) ?></option>
+            <?php endforeach; ?>
+          </select>
         </div>
         <div class="field" style="min-width:160px">
           <label>Monto *</label>
@@ -417,6 +514,66 @@ if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!
       </div>
     </form>
   </div>
+
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+  <script>
+  $(document).ready(function() {
+      // Select2 para Deudor con capacidad de crear nuevos valores
+      $('#deudorSelect2').select2({
+          width: '100%',
+          placeholder: 'Selecciona o escribe un deudor...',
+          allowClear: true,
+          tags: true,  // Permite crear nuevas opciones
+          createTag: function(params) {
+              var term = $.trim(params.term);
+              if (term === '') {
+                  return null;
+              }
+              return {
+                  id: term,
+                  text: term,
+                  newOption: true
+              };
+          },
+          language: {
+              noResults: function() {
+                  return "Escribe para agregar un nuevo deudor";
+              },
+              searching: function() {
+                  return "Buscando...";
+              }
+          }
+      });
+      
+      // Select2 para Prestamista con capacidad de crear nuevos valores
+      $('#prestamistaSelect2').select2({
+          width: '100%',
+          placeholder: 'Selecciona o escribe un prestamista...',
+          allowClear: true,
+          tags: true,  // Permite crear nuevas opciones
+          createTag: function(params) {
+              var term = $.trim(params.term);
+              if (term === '') {
+                  return null;
+              }
+              return {
+                  id: term,
+                  text: term,
+                  newOption: true
+              };
+          },
+          language: {
+              noResults: function() {
+                  return "Escribe para agregar un nuevo prestamista";
+              },
+              searching: function() {
+                  return "Buscando...";
+              }
+          }
+      });
+  });
+  </script>
 <?php
 // ====== LIST (SOLO TARJETAS) ======
 else:
@@ -1094,7 +1251,7 @@ $(document).ready(function() {
   }
 })();
 
-/* Eliminar: crea un form temporal POST pa no anidar forularios */
+/* Eliminar: crea un form temporal POST para no anidar forularios */
 function submitDelete(id){
   if(!confirm('¿Eliminar #'+id+'?')) return;
   const f = document.createElement('form');
