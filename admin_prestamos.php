@@ -5,6 +5,7 @@
  * - Mensaje simple (sin intereses, meses ni totales)
  * - Botón copiar al portapapeles
  *********************************************************/
+session_start(); // IMPORTANTE: añadir session_start() al principio
 include("nav.php");
 
 // ======= CONFIG =======
@@ -254,7 +255,6 @@ if ($action==='create' && $_SERVER['REQUEST_METHOD']==='POST'){
   $img = save_image($_FILES['imagen']??null);
 
   if ($deudor && $prestamista && is_numeric($monto) && preg_match('/^\d{4}-\d{2}-\d{2}$/',$fecha)){
-    // Asegurar que el deudor y prestamista existen en las tablas admin
     ensure_deudor($deudor);
     ensure_prestamista($prestamista);
     
@@ -266,9 +266,9 @@ if ($action==='create' && $_SERVER['REQUEST_METHOD']==='POST'){
     $st->close(); 
     $c->close();
     
-    // Guardar en sesión para el toast
-    $_SESSION['ultimo_prestamo'] = [
-        'id' => $nuevo_id,
+    // Guardar en sesión para el toast (PERSISTENTE)
+    $_SESSION['toast_prestamo'] = [
+        'tipo' => 'creado',
         'deudor' => $deudor,
         'prestamista' => $prestamista,
         'monto' => $monto,
@@ -277,7 +277,7 @@ if ($action==='create' && $_SERVER['REQUEST_METHOD']==='POST'){
         'imagen' => $img
     ];
     
-    go('?msg=creado&view='.urlencode($view));
+    go('?view=cards');
   } else {
     $err="Completa todos los campos correctamente.";
   }
@@ -293,7 +293,6 @@ if ($action==='edit' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
   $img = save_image($_FILES['imagen']??null);
 
   if ($deudor && $prestamista && is_numeric($monto) && preg_match('/^\d{4}-\d{2}-\d{2}$/',$fecha)){
-    // Asegurar que el deudor y prestamista existen en las tablas admin
     ensure_deudor($deudor);
     ensure_prestamista($prestamista);
     
@@ -315,8 +314,8 @@ if ($action==='edit' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
     $c->close();
     
     // Guardar en sesión para el toast
-    $_SESSION['ultimo_prestamo'] = [
-        'id' => $id,
+    $_SESSION['toast_prestamo'] = [
+        'tipo' => 'editado',
         'deudor' => $deudor,
         'prestamista' => $prestamista,
         'monto' => $monto,
@@ -325,7 +324,7 @@ if ($action==='edit' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
         'imagen' => $img
     ];
     
-    go('?msg=editado&view='.urlencode($view));
+    go('?view=cards');
   } else {
     $err="Completa todos los campos correctamente.";
   }
@@ -333,7 +332,6 @@ if ($action==='edit' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
 
 if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
   $c=db();
-  // Obtener datos antes de eliminar para el toast
   $st=$c->prepare("SELECT deudor,prestamista,monto,fecha,empresa,imagen FROM prestamos WHERE id=?");
   $st->bind_param("i",$id);
   $st->execute();
@@ -352,25 +350,30 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
   
   // Guardar en sesión para el toast
   if ($row_eliminado) {
-      $_SESSION['ultimo_prestamo_eliminado'] = $row_eliminado;
+      $_SESSION['toast_prestamo'] = [
+          'tipo' => 'eliminado',
+          'deudor' => $row_eliminado['deudor'],
+          'prestamista' => $row_eliminado['prestamista'],
+          'monto' => $row_eliminado['monto'],
+          'fecha' => $row_eliminado['fecha'],
+          'empresa' => $row_eliminado['empresa'] ?? '',
+          'imagen' => $row_eliminado['imagen']
+      ];
   }
   
-  go('?msg=eliminado&view='.urlencode($view));
+  go('?view=cards');
 }
 
 // ===== UI =====
 
-// Obtener datos del último préstamo guardado/eliminado para el toast
-$ultimo_prestamo = $_SESSION['ultimo_prestamo'] ?? null;
-$ultimo_prestamo_eliminado = $_SESSION['ultimo_prestamo_eliminado'] ?? null;
-if (isset($_SESSION['ultimo_prestamo'])) unset($_SESSION['ultimo_prestamo']);
-if (isset($_SESSION['ultimo_prestamo_eliminado'])) unset($_SESSION['ultimo_prestamo_eliminado']);
+// Obtener toast de sesión y limpiarlo
+$toast_data = $_SESSION['toast_prestamo'] ?? null;
+if (isset($_SESSION['toast_prestamo'])) unset($_SESSION['toast_prestamo']);
 ?>
 <!doctype html>
 <html lang="es"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Préstamos | Admin</title>
-<!-- Incluir Select2 CSS -->
 <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
 <style>
  :root{ --bg:#f6f7fb; --fg:#222; --card:#fff; --muted:#6b7280; --primary:#0b5ed7; --gray:#6c757d; --red:#dc3545; --chip:#eef2ff; }
@@ -435,7 +438,7 @@ if (isset($_SESSION['ultimo_prestamo_eliminado'])) unset($_SESSION['ultimo_prest
  .select2-search__field { border-radius: 8px !important; padding: 6px !important; }
  .select2-container--default .select2-search--dropdown .select2-search__field:focus { outline: none; border-color: var(--primary); }
 
- /* TOAST flotante estilo viajes */
+ /* TOAST flotante */
  .toast-prestamo {
     position: fixed;
     bottom: 20px;
@@ -517,44 +520,51 @@ if (isset($_SESSION['ultimo_prestamo_eliminado'])) unset($_SESSION['ultimo_prest
   <a class="btn gray" href="?action=new&view=cards" style="margin-left:auto">➕ Crear</a>
 </div>
 
-<!-- ================== TOAST DE PRÉSTAMO GUARDADO/EDITADO/ELIMINADO ================== -->
-<?php if ($ultimo_prestamo): 
-    $mensaje_formateado = "✅ *Préstamo registrado exitosamente*\n\n";
-    $mensaje_formateado .= "👤 *Deudor:* " . h($ultimo_prestamo['deudor']) . "\n";
-    $mensaje_formateado .= "🏦 *Prestamista:* " . h($ultimo_prestamo['prestamista']) . "\n";
-    $mensaje_formateado .= "💰 *Monto:* $" . money($ultimo_prestamo['monto']) . "\n";
-    $mensaje_formateado .= "📅 *Fecha:* " . h($ultimo_prestamo['fecha']) . "\n";
-    $mensaje_formateado .= "📸 *Evidencia:* " . (!empty($ultimo_prestamo['imagen']) ? '✅ Adjuntada' : '❌ No adjuntada') . "\n";
-    if (!empty($ultimo_prestamo['empresa'])) {
-        $mensaje_formateado .= "🏢 *Empresa:* " . h($ultimo_prestamo['empresa']) . "\n";
+<!-- ================== TOAST DE PRÉSTAMO ================== -->
+<?php if ($toast_data): 
+    $titulo = match($toast_data['tipo']) {
+        'creado' => '✅ Préstamo Creado',
+        'editado' => '✏️ Préstamo Editado',
+        'eliminado' => '🗑️ Préstamo Eliminado',
+        default => 'Préstamo'
+    };
+    $color_borde = match($toast_data['tipo']) {
+        'creado' => '#0b5ed7',
+        'editado' => '#ffc107',
+        'eliminado' => '#dc3545',
+        default => '#0b5ed7'
+    };
+    $color_header = match($toast_data['tipo']) {
+        'creado' => '#0b5ed7',
+        'editado' => '#ffc107',
+        'eliminado' => '#dc3545',
+        default => '#0b5ed7'
+    };
+    
+    $mensaje_formateado = "";
+    if ($toast_data['tipo'] === 'eliminado') {
+        $mensaje_formateado = "🗑️ *Préstamo eliminado correctamente*\n\n";
+    } else {
+        $mensaje_formateado = "✅ *Préstamo registrado exitosamente*\n\n";
     }
-    $mensaje_formateado .= "\nAtajos rápidos: /prestamos /pagar";
-?>
-<div class="toast-prestamo" id="toastPrestamo">
-    <div class="toast-header">
-        <strong>✅ Préstamo <?= $action === 'create' ? 'Creado' : 'Editado' ?></strong>
-        <button type="button" class="btn-close btn-close-white ms-auto" onclick="cerrarToast()" aria-label="Cerrar"></button>
-    </div>
-    <div class="toast-body">
-        <pre class="mensaje-formateado" id="mensajeParaCopiar"><?= htmlspecialchars($mensaje_formateado) ?></pre>
-        <button class="btn-copiar-mensaje" onclick="copiarMensaje()">📋 Copiar mensaje</button>
-        <div class="mensaje-copiado" id="mensajeCopiado">¡Copiado!</div>
-    </div>
-</div>
-<?php elseif ($ultimo_prestamo_eliminado): 
-    $mensaje_formateado = "🗑️ *Préstamo eliminado correctamente*\n\n";
-    $mensaje_formateado .= "👤 *Deudor:* " . h($ultimo_prestamo_eliminado['deudor']) . "\n";
-    $mensaje_formateado .= "🏦 *Prestamista:* " . h($ultimo_prestamo_eliminado['prestamista']) . "\n";
-    $mensaje_formateado .= "💰 *Monto:* $" . money($ultimo_prestamo_eliminado['monto']) . "\n";
-    $mensaje_formateado .= "📅 *Fecha:* " . h($ultimo_prestamo_eliminado['fecha']) . "\n";
-    if (!empty($ultimo_prestamo_eliminado['empresa'])) {
-        $mensaje_formateado .= "🏢 *Empresa:* " . h($ultimo_prestamo_eliminado['empresa']) . "\n";
+    $mensaje_formateado .= "👤 *Deudor:* " . h($toast_data['deudor']) . "\n";
+    $mensaje_formateado .= "🏦 *Prestamista:* " . h($toast_data['prestamista']) . "\n";
+    $mensaje_formateado .= "💰 *Monto:* $" . money($toast_data['monto']) . "\n";
+    $mensaje_formateado .= "📅 *Fecha:* " . h($toast_data['fecha']) . "\n";
+    if ($toast_data['tipo'] !== 'eliminado') {
+        $mensaje_formateado .= "📸 *Evidencia:* " . (!empty($toast_data['imagen']) ? '✅ Adjuntada' : '❌ No adjuntada') . "\n";
+    }
+    if (!empty($toast_data['empresa'])) {
+        $mensaje_formateado .= "🏢 *Empresa:* " . h($toast_data['empresa']) . "\n";
+    }
+    if ($toast_data['tipo'] !== 'eliminado') {
+        $mensaje_formateado .= "\nAtajos rápidos: /prestamos /pagar";
     }
 ?>
-<div class="toast-prestamo" id="toastPrestamo" style="border-left-color: #dc3545;">
-    <div class="toast-header" style="background: #dc3545;">
-        <strong>🗑️ Préstamo Eliminado</strong>
-        <button type="button" class="btn-close btn-close-white ms-auto" onclick="cerrarToast()" aria-label="Cerrar"></button>
+<div class="toast-prestamo" id="toastPrestamo" style="border-left-color: <?= $color_borde ?>;">
+    <div class="toast-header" style="background: <?= $color_header ?>; <?= $toast_data['tipo'] === 'editado' ? 'color: #000;' : 'color: white;' ?>">
+        <strong><?= $titulo ?></strong>
+        <button type="button" class="btn-close <?= $toast_data['tipo'] === 'editado' ? '' : 'btn-close-white' ?> ms-auto" onclick="cerrarToast()" aria-label="Cerrar"></button>
     </div>
     <div class="toast-body">
         <pre class="mensaje-formateado" id="mensajeParaCopiar"><?= htmlspecialchars($mensaje_formateado) ?></pre>
@@ -591,24 +601,20 @@ if (isset($_SESSION['ultimo_prestamo_eliminado'])) unset($_SESSION['ultimo_prest
 // ====== NEW / EDIT FORMS ======
 if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!=='POST')):
 
-  // Obtener datos de deudores y prestamistas para los Select2
   $conn = db();
   
-  // Obtener todos los deudores de la tabla deudores_admin
   $deudores_opts = [];
   $res_deudores = $conn->query("SELECT nombre FROM deudores_admin WHERE owner_chat_id IN (6133806918, 6674396003) ORDER BY nombre");
   while($row = $res_deudores->fetch_assoc()) {
     $deudores_opts[] = $row['nombre'];
   }
   
-  // Obtener todos los prestamistas de la tabla prestamistas_admin
   $prestamistas_opts = [];
   $res_prestamistas = $conn->query("SELECT nombre FROM prestamistas_admin WHERE owner_chat_id IN (6133806918, 6674396003) ORDER BY nombre");
   while($row = $res_prestamistas->fetch_assoc()) {
     $prestamistas_opts[] = $row['nombre'];
   }
   
-  // Obtener todas las empresas
   $empresas_opts = [];
   $res_empresas = $conn->query("SELECT DISTINCT empresa FROM prestamos WHERE empresa IS NOT NULL AND empresa != '' ORDER BY empresa");
   while($row = $res_empresas->fetch_assoc()) {
@@ -695,7 +701,6 @@ if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!
   <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
   <script>
   $(document).ready(function() {
-      // Select2 para Deudor
       $('#deudorSelect2').select2({
           width: '100%',
           placeholder: 'Selecciona o escribe un deudor...',
@@ -709,7 +714,6 @@ if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!
           language: { noResults: function() { return "Escribe para agregar un nuevo deudor"; } }
       });
       
-      // Select2 para Prestamista
       $('#prestamistaSelect2').select2({
           width: '100%',
           placeholder: 'Selecciona o escribe un prestamista...',
@@ -723,7 +727,6 @@ if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!
           language: { noResults: function() { return "Escribe para agregar un nuevo prestamista"; } }
       });
       
-      // Select2 para Empresa
       $('#empresaSelect2').select2({
           width: '100%',
           placeholder: 'Selecciona o escribe una empresa...',
@@ -741,11 +744,10 @@ if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!
 // ====== LIST (SOLO TARJETAS) ======
 else:
 
-  // ==== filtros ====
   $q   = trim($_GET['q']  ?? '');
-  $fp  = trim($_GET['fp'] ?? ''); // prestamista (normalizado)
-  $fd  = trim($_GET['fd'] ?? ''); // deudor (normalizado)
-  $fe  = trim($_GET['fe'] ?? ''); // empresa (normalizado)
+  $fp  = trim($_GET['fp'] ?? '');
+  $fd  = trim($_GET['fd'] ?? '');
+  $fe  = trim($_GET['fe'] ?? '');
   $fecha_desde = trim($_GET['fecha_desde'] ?? '');
   $fecha_hasta = trim($_GET['fecha_hasta'] ?? '');
   $estado_pago = $_GET['estado_pago'] ?? 'no_pagados';
@@ -804,7 +806,6 @@ else:
   }
   if ($feNorm !== '') $stDeud->close();
 
-  // -------- TARJETAS --------
   $where = $whereBase; $types=""; $params=[];
   if ($q!==''){
     $where.=" AND (LOWER(deudor) LIKE CONCAT('%',?,'%') OR LOWER(prestamista) LIKE CONCAT('%',?,'%'))";
@@ -844,13 +845,9 @@ else:
   $st->execute();
   $rs=$st->get_result();
 
-  // Calcular sumas para el rango de fechas
   $sumas = ['capital' => 0, 'count' => 0];
   if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $feNorm!=='' || $estado_pago !== 'no_pagados') {
-    $sqlSumas = "
-        SELECT COUNT(*) AS n, SUM(monto) AS capital
-        FROM prestamos
-        WHERE $where";
+    $sqlSumas = "SELECT COUNT(*) AS n, SUM(monto) AS capital FROM prestamos WHERE $where";
     $stSumas=$conn->prepare($sqlSumas);
     if($types) $stSumas->bind_param($types, ...$params);
     $stSumas->execute();
@@ -858,7 +855,6 @@ else:
     $stSumas->close();
   }
 ?>
-    <!-- Toolbar de filtros -->
     <div class="card" style="margin-bottom:16px">
       <form class="toolbar" method="get" id="filtroForm">
         <input type="hidden" name="view" value="cards">
@@ -928,7 +924,6 @@ else:
       </form>
     </div>
 
-    <!-- Resumen cuando hay filtros -->
     <?php if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $feNorm!=='' || $estado_pago !== 'no_pagados'): ?>
       <div class="resumen-filtro">
         <div class="title">Resumen del Filtro</div>
@@ -960,7 +955,6 @@ else:
     <?php if ($rs->num_rows === 0): ?>
       <div class="card"><span class="subtitle">(sin registros)</span></div>
     <?php else: ?>
-      <!-- FORM para selección múltiple + edición en lote -->
       <form id="bulkForm" class="card" method="post" action="?action=bulk_update">
         <input type="hidden" name="view" value="cards">
 
@@ -1062,7 +1056,6 @@ else:
           <?php endwhile; ?>
         </div>
 
-        <!-- Panel de edición en lote -->
         <div class="bulkpanel" id="bulkPanel">
           <div class="subtitle" style="margin-bottom:8px">
             Aplica solo a las tarjetas seleccionadas. Deja en blanco lo que no quieras cambiar.
@@ -1095,14 +1088,13 @@ else:
 <?php
   $st->close();
   $conn->close();
-endif; // forms / list
+endif;
 ?>
 
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
 <script>
-// Inicializar Select2 en los dropdowns de filtro
 $(document).ready(function() {
   $('.select2-filter').select2({
     width: '100%',
@@ -1170,7 +1162,6 @@ $(document).ready(function() {
   });
 });
 
-// Selección múltiple
 (function(){
   const form = document.getElementById('bulkForm');
   if(!form) return;
@@ -1206,7 +1197,6 @@ function submitDelete(id){
   f.submit();
 }
 
-// Toast functions
 function cerrarToast() {
   const toast = document.getElementById('toastPrestamo');
   if (toast) {
@@ -1214,6 +1204,7 @@ function cerrarToast() {
     setTimeout(() => { toast.remove(); }, 300);
   }
 }
+
 function copiarMensaje() {
   const mensaje = document.getElementById('mensajeParaCopiar');
   const texto = mensaje.innerText || mensaje.textContent;
@@ -1223,6 +1214,7 @@ function copiarMensaje() {
     setTimeout(() => { copiado.classList.remove('show'); }, 2000);
   }).catch(err => { alert('No se pudo copiar el mensaje.'); });
 }
+
 setTimeout(() => { const toast = document.getElementById('toastPrestamo'); if (toast) cerrarToast(); }, 10000);
 </script>
 </body></html>
