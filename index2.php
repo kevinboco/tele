@@ -2219,7 +2219,7 @@ document.addEventListener('DOMContentLoaded', function() {
             dateRangePicker.setDate(fechaDesde, false);
         }
         
-        // Botones de fechas rápidas
+        // Botones de fechas 
         document.querySelectorAll('.btn-fecha-rapida').forEach(btn => {
             btn.addEventListener('click', function(e) {
                 const rango = this.getAttribute('data-rango');
