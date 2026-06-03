@@ -1,6 +1,7 @@
 <?php
 // index2.php - Sistema completo de gestión de viajes con RANGO DE FECHAS (estilo Despegar)
 // VERSIÓN: Con selector de calendario para rango de fechas (desde/hasta)
+// NUEVO: Toast flotante con mensaje formateado y botón copiar después de guardar viaje
 // MANTIENE: Filtros, scroll position, selección múltiple, informes, WhatsApp, etc.
 
 // SIEMPRE primero la sesión, sin imprimir nada antes
@@ -328,6 +329,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     VALUES ('$nombre', $cedula, '$fecha', '$ruta', '$tipo_vehiculo', $empresa, $imagen_valor, $epicrisis_valor, $whatsapp, $pago_parcial, $pagado)";
             
             if ($conexion->query($sql)) {
+                $nuevo_id = $conexion->insert_id;
+                // Obtener el registro completo para mostrar en el toast
+                $res_toast = $conexion->query("SELECT * FROM viajes WHERE id = $nuevo_id");
+                if ($res_toast && $res_toast->num_rows > 0) {
+                    $_SESSION['ultimo_viaje'] = $res_toast->fetch_assoc();
+                }
                 $filtros_url = construirUrlFiltros();
                 if ($filtros_url) {
                     header("Location: ?msg=creado&" . $filtros_url);
@@ -422,6 +429,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     WHERE id = $id";
             
             if ($conexion->query($sql)) {
+                // Obtener el registro actualizado para mostrar en el toast
+                $res_toast = $conexion->query("SELECT * FROM viajes WHERE id = $id");
+                if ($res_toast && $res_toast->num_rows > 0) {
+                    $_SESSION['ultimo_viaje'] = $res_toast->fetch_assoc();
+                }
                 $filtros_url = construirUrlFiltros();
                 
                 if ($solo_cambio_cedula && !empty($cedula_nueva)) {
@@ -805,18 +817,18 @@ if ($accion == 'informe') {
                             <tr class="<?= $clase_fila ?>">
                                 <?php foreach($columnas_visibles as $key => $columna): if (!$columna['visible']) continue; ?>
                                     <?php switch($key): 
-                                        case 'id': ?> <td><?= (int)$row['id'] ?></td> <?php break;
-                                        case 'nombre': ?> <td><?= htmlspecialchars($row['nombre']) ?></td> <?php break;
-                                        case 'cedula': ?> <td><?= !empty($row['cedula']) ? htmlspecialchars($row['cedula']) : '—' ?></td> <?php break;
-                                        case 'fecha': ?> <td><?= date('d/m/Y', strtotime($row['fecha'])) ?></td> <?php break;
-                                        case 'ruta': ?> <td><?= htmlspecialchars($row['ruta']) ?></td> <?php break;
-                                        case 'tipo_vehiculo': ?> <td><?= htmlspecialchars($row['tipo_vehiculo']) ?></td> <?php break;
-                                        case 'empresa': ?> <td><?= !empty($row['empresa']) ? htmlspecialchars($row['empresa']) : '—' ?></td> <?php break;
-                                        case 'pago_parcial': ?> <td><?php if ($row['pago_parcial'] !== null && $row['pago_parcial'] !== ''): ?>$<?= number_format((int)$row['pago_parcial'], 0, ',', '.') ?><?php else: ?>—<?php endif; ?></td> <?php break;
-                                        case 'pagado': ?> <td><?php if ($row['pagado'] == 1): ?><span class="badge-pagado">✅ Pagado</span><?php else: ?><span class="badge-pendiente">❌ Pendiente</span><?php endif; ?></td> <?php break;
-                                        case 'imagen': ?> <td><?php if(!empty($row['imagen'])): ?><img src="uploads/<?= htmlspecialchars($row['imagen']) ?>" class="img-informe" onerror="this.style.display='none'"><?php else: ?>—<?php endif; ?></td> <?php break;
-                                        case 'epicrisis': ?> <td><?php if(!empty($row['epicrisis'])): ?><img src="uploads/<?= htmlspecialchars($row['epicrisis']) ?>" class="img-informe" onerror="this.style.display='none'"><?php else: ?>—<?php endif; ?></td> <?php break;
-                                        case 'whatsapp': ?> <td><?php if(!empty($row['whatsapp'])): ?><div class="whatsapp-content-informe"><?= nl2br(htmlspecialchars($row['whatsapp'])) ?></div><?php else: ?>—<?php endif; ?></td> <?php break;
+                                        case 'id': ?>  <td><?= (int)$row['id'] ?></td> <?php break;
+                                        case 'nombre': ?>  <td><?= htmlspecialchars($row['nombre']) ?></td> <?php break;
+                                        case 'cedula': ?>  <td><?= !empty($row['cedula']) ? htmlspecialchars($row['cedula']) : '—' ?></td> <?php break;
+                                        case 'fecha': ?>  <td><?= date('d/m/Y', strtotime($row['fecha'])) ?></td> <?php break;
+                                        case 'ruta': ?>  <td><?= htmlspecialchars($row['ruta']) ?></td> <?php break;
+                                        case 'tipo_vehiculo': ?>  <td><?= htmlspecialchars($row['tipo_vehiculo']) ?></td> <?php break;
+                                        case 'empresa': ?>  <td><?= !empty($row['empresa']) ? htmlspecialchars($row['empresa']) : '—' ?></td> <?php break;
+                                        case 'pago_parcial': ?>  <td><?php if ($row['pago_parcial'] !== null && $row['pago_parcial'] !== ''): ?>$<?= number_format((int)$row['pago_parcial'], 0, ',', '.') ?><?php else: ?>—<?php endif; ?></td> <?php break;
+                                        case 'pagado': ?>  <td><?php if ($row['pagado'] == 1): ?><span class="badge-pagado">✅ Pagado</span><?php else: ?><span class="badge-pendiente">❌ Pendiente</span><?php endif; ?></td> <?php break;
+                                        case 'imagen': ?>  <td><?php if(!empty($row['imagen'])): ?><img src="uploads/<?= htmlspecialchars($row['imagen']) ?>" class="img-informe" onerror="this.style.display='none'"><?php else: ?>—<?php endif; ?></td> <?php break;
+                                        case 'epicrisis': ?>  <td><?php if(!empty($row['epicrisis'])): ?><img src="uploads/<?= htmlspecialchars($row['epicrisis']) ?>" class="img-informe" onerror="this.style.display='none'"><?php else: ?>—<?php endif; ?></td> <?php break;
+                                        case 'whatsapp': ?>  <td><?php if(!empty($row['whatsapp'])): ?><div class="whatsapp-content-informe"><?= nl2br(htmlspecialchars($row['whatsapp'])) ?></div><?php else: ?>—<?php endif; ?></td> <?php break;
                                     endswitch; ?>
                                 <?php endforeach; ?>
                             </tr>
@@ -877,6 +889,10 @@ if ($res) while($r = $res->fetch_assoc()) $listas['empresas'][] = $r['empresa'];
 
 $error_msg = $_SESSION['error'] ?? null;
 if (isset($_SESSION['error'])) unset($_SESSION['error']);
+
+// Variable para el toast (viaje recién guardado)
+$ultimo_viaje = $_SESSION['ultimo_viaje'] ?? null;
+if (isset($_SESSION['ultimo_viaje'])) unset($_SESSION['ultimo_viaje']);
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -1001,6 +1017,76 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             background: rgba(13, 110, 253, 0.2);
             border-color: transparent;
         }
+        
+        /* Estilos para el toast de viaje guardado */
+        .toast-viaje {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1100;
+            min-width: 320px;
+            max-width: 450px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px -5px rgba(0,0,0,0.2);
+            border-left: 5px solid #28a745;
+            animation: slideInRight 0.3s ease-out;
+        }
+        @keyframes slideInRight {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        .toast-viaje .toast-header {
+            background: #28a745;
+            color: white;
+            border-radius: 8px 8px 0 0;
+            padding: 12px 15px;
+        }
+        .toast-viaje .toast-body {
+            padding: 15px;
+            font-size: 13px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .toast-viaje .mensaje-copiado {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background: #28a745;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .toast-viaje .mensaje-copiado.show {
+            opacity: 1;
+        }
+        .btn-copiar-mensaje {
+            background: #0d6efd;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-copiar-mensaje:hover {
+            background: #0b5ed7;
+        }
+        pre.mensaje-formateado {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            border: 1px solid #e9ecef;
+            margin-bottom: 12px;
+        }
     </style>
 </head>
 <body class="bg-light">
@@ -1053,6 +1139,82 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
             <?= htmlspecialchars($error_msg) ?>
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
+    <?php endif; ?>
+
+    <!-- ================== TOAST DE VIAJE GUARDADO (con botón copiar) ================== -->
+    <?php if ($ultimo_viaje): ?>
+    <?php
+        // Generar mensaje formateado para el toast
+        $nombre_toast = htmlspecialchars($ultimo_viaje['nombre']);
+        $ruta_toast = htmlspecialchars($ultimo_viaje['ruta']);
+        $fecha_toast = date('d/m/Y', strtotime($ultimo_viaje['fecha']));
+        $vehiculo_toast = htmlspecialchars($ultimo_viaje['tipo_vehiculo']);
+        $empresa_toast = !empty($ultimo_viaje['empresa']) ? htmlspecialchars($ultimo_viaje['empresa']) : 'No especificada';
+        $pago_parcial_toast = $ultimo_viaje['pago_parcial'];
+        $imagen_toast = !empty($ultimo_viaje['imagen']) ? '✅ Adjuntada' : '❌ No adjuntada';
+        $epicrisis_toast = !empty($ultimo_viaje['epicrisis']) ? '✅ Adjuntada' : '❌ No adjuntada';
+        
+        $mensaje_formateado = "✅ *Viaje registrado exitosamente*\n\n";
+        $mensaje_formateado .= "👤 *Conductor:* " . $nombre_toast . "\n";
+        $mensaje_formateado .= "🛣️ *Ruta:* " . $ruta_toast . "\n";
+        $mensaje_formateado .= "📅 *Fecha:* " . $fecha_toast . "\n";
+        $mensaje_formateado .= "🚐 *Vehículo:* " . $vehiculo_toast . "\n";
+        $mensaje_formateado .= "🏢 *Empresa:* " . $empresa_toast . "\n";
+        
+        if ($pago_parcial_toast && $pago_parcial_toast > 0) {
+            $monto_formateado = number_format($pago_parcial_toast, 0, ',', '.');
+            $mensaje_formateado .= "💰 *Pago parcial:* $" . $monto_formateado . "\n";
+        }
+        
+        $mensaje_formateado .= "📸 *Evidencia:* " . $imagen_toast . "\n";
+        $mensaje_formateado .= "📋 *Epicrisis:* " . $epicrisis_toast . "\n\n";
+        $mensaje_formateado .= "Atajos rápidos: /agg /manual /p";
+    ?>
+    <div class="toast-viaje" id="toastViaje">
+        <div class="toast-header">
+            <strong>✅ Viaje Guardado</strong>
+            <button type="button" class="btn-close btn-close-white ms-auto" onclick="cerrarToast()" aria-label="Cerrar"></button>
+        </div>
+        <div class="toast-body">
+            <pre class="mensaje-formateado" id="mensajeParaCopiar"><?= htmlspecialchars($mensaje_formateado) ?></pre>
+            <button class="btn-copiar-mensaje w-100" onclick="copiarMensaje()">📋 Copiar mensaje</button>
+            <div class="mensaje-copiado" id="mensajeCopiado">¡Copiado!</div>
+        </div>
+    </div>
+    <script>
+        function cerrarToast() {
+            const toast = document.getElementById('toastViaje');
+            if (toast) {
+                toast.style.animation = 'slideOutRight 0.3s ease-out forwards';
+                setTimeout(() => { toast.remove(); }, 300);
+            }
+        }
+        function copiarMensaje() {
+            const mensaje = document.getElementById('mensajeParaCopiar');
+            const texto = mensaje.innerText || mensaje.textContent;
+            navigator.clipboard.writeText(texto).then(() => {
+                const copiado = document.getElementById('mensajeCopiado');
+                copiado.classList.add('show');
+                setTimeout(() => {
+                    copiado.classList.remove('show');
+                }, 2000);
+            }).catch(err => {
+                console.error('Error al copiar: ', err);
+                alert('No se pudo copiar el mensaje. Selecciona manualmente.');
+            });
+        }
+        // Auto-cerrar después de 10 segundos
+        setTimeout(() => {
+            const toast = document.getElementById('toastViaje');
+            if (toast) cerrarToast();
+        }, 10000);
+    </script>
+    <style>
+        @keyframes slideOutRight {
+            from { transform: translateX(0); opacity: 1; }
+            to { transform: translateX(100%); opacity: 0; }
+        }
+    </style>
     <?php endif; ?>
 
     <!-- ================== FORMULARIO CREAR/EDITAR ================== -->
@@ -1362,7 +1524,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                                         ?>
                                             <tr class="<?= $viaje_multi['pagado'] ? 'pagado' : 'pendiente' ?>">
                                                 <td class="fw-bold"><?= $id_multi ?></td>
-                                                <td>
+                                                <tr>
                                                     <select name="nombre_<?= $id_multi ?>" class="form-select form-select-sm select2-fila">
                                                         <option value="<?= htmlspecialchars($viaje_multi['nombre']) ?>"><?= htmlspecialchars($viaje_multi['nombre']) ?></option>
                                                         <?php
@@ -1573,7 +1735,7 @@ if (isset($_SESSION['error'])) unset($_SESSION['error']);
                         </select>
                     </div>
 
-                    <!-- NUEVO: Selector de rango de fechas estilo calendario (reemplaza los campos desde/hasta individuales) -->
+                    <!-- Selector de rango de fechas estilo calendario -->
                     <div class="col-md-4">
                         <label class="form-label">📅 Rango de Fechas</label>
                         <div class="fecha-rango-wrapper">
@@ -2219,7 +2381,7 @@ document.addEventListener('DOMContentLoaded', function() {
             dateRangePicker.setDate(fechaDesde, false);
         }
         
-        // Botones de fechas 
+        // Botones de fechas rápidas
         document.querySelectorAll('.btn-fecha-rapida').forEach(btn => {
             btn.addEventListener('click', function(e) {
                 const rango = this.getAttribute('data-rango');
