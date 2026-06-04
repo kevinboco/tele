@@ -1,5 +1,5 @@
 <?php
-// correccion_masiva.php - Versión rediseñada (basada en tu imagen)
+// correccion_masiva.php - Versión final con los 3 ajustes
 session_start();
 include("conexion.php");
 
@@ -183,11 +183,17 @@ $progreso = $total_viajes > 0 ? round(($indice_actual + 1) / $total_viajes * 100
             border-radius: 50px;
         }
         
+        .progreso-grupo .conteo {
+            font-size: 16px;
+            font-weight: bold;
+            color: #3b82f6;
+        }
+        
         .progreso-grupo .barra {
             width: 180px;
-            height: 6px;
+            height: 8px;
             background: #2a2a4a;
-            border-radius: 3px;
+            border-radius: 4px;
             overflow: hidden;
         }
         
@@ -196,6 +202,12 @@ $progreso = $total_viajes > 0 ? round(($indice_actual + 1) / $total_viajes * 100
             background: #22c55e;
             width: 0%;
             transition: width 0.3s;
+        }
+        
+        .progreso-grupo .porcentaje {
+            font-size: 14px;
+            font-weight: 600;
+            color: #22c55e;
         }
         
         /* CONTENIDO PRINCIPAL - 2 COLUMNAS */
@@ -236,14 +248,15 @@ $progreso = $total_viajes > 0 ? round(($indice_actual + 1) / $total_viajes * 100
             color: #1a1a2e;
         }
         
-        /* Info del viaje (debajo del WhatsApp) */
+        /* Info del viaje (debajo del WhatsApp) - EMPRESA ACTUAL MÁS GRANDE */
         .info-viaje-detalle {
             background: #0f0f1a;
-            padding: 15px 20px;
+            padding: 18px 20px;
             border-top: 1px solid #2a2a4a;
             display: flex;
             flex-wrap: wrap;
             gap: 20px;
+            align-items: center;
         }
         
         .info-item {
@@ -266,11 +279,26 @@ $progreso = $total_viajes > 0 ? round(($indice_actual + 1) / $total_viajes * 100
             font-weight: 600;
         }
         
-        .info-item .value.empresa-mal {
+        /* EMPRESA ACTUAL - MÁS GRANDE Y DESTACADA */
+        .info-item.empresa-item {
+            background: #1e1e3a;
+            padding: 5px 15px 5px 12px;
+            border-radius: 40px;
+            border-left: 4px solid #ef4444;
+        }
+        
+        .info-item.empresa-item .label {
             color: #ef4444;
-            background: rgba(239, 68, 68, 0.2);
-            padding: 3px 10px;
-            border-radius: 20px;
+            font-size: 13px;
+        }
+        
+        .info-item.empresa-item .value.empresa-mal {
+            color: #ef4444;
+            font-size: 20px;
+            font-weight: bold;
+            background: rgba(239, 68, 68, 0.15);
+            padding: 4px 12px;
+            border-radius: 30px;
         }
         
         /* COLUMNA DERECHA - EMPRESAS */
@@ -352,6 +380,7 @@ $progreso = $total_viajes > 0 ? round(($indice_actual + 1) / $total_viajes * 100
             transition: all 0.2s;
             text-decoration: none;
             display: inline-block;
+            cursor: pointer;
         }
         
         .btn-nav:hover {
@@ -372,6 +401,26 @@ $progreso = $total_viajes > 0 ? round(($indice_actual + 1) / $total_viajes * 100
         
         .btn-nav.saltar:hover {
             background: #ca8a04;
+        }
+        
+        /* CONTADOR DE VIAJES DESTACADO EN EL CENTRO */
+        .contador-destacado {
+            background: #1e1e3a;
+            padding: 8px 25px;
+            border-radius: 50px;
+            text-align: center;
+        }
+        
+        .contador-destacado .numero {
+            font-size: 24px;
+            font-weight: bold;
+            color: #3b82f6;
+        }
+        
+        .contador-destacado .texto {
+            font-size: 12px;
+            color: #888;
+            margin-left: 8px;
         }
         
         /* TOAST FLOTANTE */
@@ -455,11 +504,11 @@ $progreso = $total_viajes > 0 ? round(($indice_actual + 1) / $total_viajes * 100
         <?php endif; ?>
         
         <div class="progreso-grupo">
-            <span><strong><?= $indice_actual + 1 ?></strong>/<?= $total_viajes ?></span>
+            <span class="conteo"><strong><?= $indice_actual + 1 ?></strong>/<?= $total_viajes ?></span>
             <div class="barra">
                 <div class="barra-fill" style="width: <?= $progreso ?>%"></div>
             </div>
-            <span><?= $progreso ?>%</span>
+            <span class="porcentaje"><?= $progreso ?>%</span>
         </div>
     </div>
     
@@ -481,7 +530,7 @@ $progreso = $total_viajes > 0 ? round(($indice_actual + 1) / $total_viajes * 100
                 <?php endif; ?>
             </div>
             
-            <!-- INFO DEL VIAJE (debajo del WhatsApp) -->
+            <!-- INFO DEL VIAJE (debajo del WhatsApp) - EMPRESA ACTUAL MÁS GRANDE -->
             <div class="info-viaje-detalle">
                 <div class="info-item">
                     <span class="label">👤 CONDUCTOR:</span>
@@ -491,9 +540,9 @@ $progreso = $total_viajes > 0 ? round(($indice_actual + 1) / $total_viajes * 100
                     <span class="label">🛣️ RUTA:</span>
                     <span class="value"><?= htmlspecialchars($viaje_actual['ruta']) ?></span>
                 </div>
-                <div class="info-item">
-                    <span class="label">🏢 EMPRESA ACTUAL:</span>
-                    <span class="value empresa-mal"><?= !empty($viaje_actual['empresa']) ? htmlspecialchars($viaje_actual['empresa']) : '(VACÍO)' ?></span>
+                <div class="info-item empresa-item">
+                    <span class="label">⚠️ EMPRESA ACTUAL (MAL):</span>
+                    <span class="value empresa-mal">🏢 <?= !empty($viaje_actual['empresa']) ? htmlspecialchars($viaje_actual['empresa']) : '(VACÍO)' ?></span>
                 </div>
                 <?php if (!empty($viaje_actual['tipo_vehiculo'])): ?>
                 <div class="info-item">
@@ -522,10 +571,14 @@ $progreso = $total_viajes > 0 ? round(($indice_actual + 1) / $total_viajes * 100
         </div>
     </div>
     
-    <!-- BARRA INFERIOR - Navegación -->
+    <!-- BARRA INFERIOR - Navegación (SIN confirmación) -->
     <div class="bottom-nav">
         <a href="?desde=<?= urlencode($desde) ?>&hasta=<?= urlencode($hasta) ?>&indice=<?= max(0, $indice_actual - 1) ?>" 
            class="btn-nav" id="btnAnterior">◀ ANTERIOR</a>
+        <div class="contador-destacado">
+            <span class="numero"><?= $indice_actual + 1 ?></span>
+            <span class="texto">de <?= $total_viajes ?> viajes</span>
+        </div>
         <a href="?desde=<?= urlencode($desde) ?>&hasta=<?= urlencode($hasta) ?>&indice=<?= min($total_viajes - 1, $indice_actual + 1) ?>" 
            class="btn-nav saltar" id="btnSaltar">⏭️ SALTAR ESTE</a>
         <a href="?desde=<?= urlencode($desde) ?>&hasta=<?= urlencode($hasta) ?>&indice=<?= min($total_viajes - 1, $indice_actual + 1) ?>" 
@@ -630,7 +683,6 @@ document.querySelectorAll('.btn-empresa').forEach(btn => {
                         urlParams.set('indice', indiceActual + 1);
                         window.location.href = '?' + urlParams.toString();
                     } else {
-                        // Último viaje, mostrar completado y volver
                         mostrarToast('🎉 ¡Completaste todos los viajes!');
                         setTimeout(() => {
                             window.location.href = 'index2.php';
@@ -653,7 +705,7 @@ document.querySelectorAll('.btn-empresa').forEach(btn => {
     });
 });
 
-// Prevenir doble clic en navegación
+// Navegación SIN confirmación - solo redirige
 document.querySelectorAll('.btn-nav').forEach(btn => {
     btn.addEventListener('click', function(e) {
         if (corrigiendo) {
@@ -661,17 +713,9 @@ document.querySelectorAll('.btn-nav').forEach(btn => {
             mostrarToast('⏳ Espera a que termine la corrección', true);
             return false;
         }
+        // No hay confirmación, solo redirige
     });
 });
-
-// Confirmar al salir si quedan viajes
-<?php if ($total_viajes > 0 && $indice_actual < $total_viajes - 1): ?>
-window.addEventListener('beforeunload', function(e) {
-    e.preventDefault();
-    e.returnValue = 'Aún quedan viajes por revisar. ¿Seguro que quieres salir?';
-    return 'Aún quedan viajes por revisar. ¿Seguro que quieres salir?';
-});
-<?php endif; ?>
 </script>
 
 </body>
