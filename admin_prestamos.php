@@ -1,11 +1,9 @@
-<?php
+}<?php
 /*********************************************************
- * admin_prestamos.php — CRUD + Tarjetas + TOAST con copiar
- * - Toast flotante después de crear/editar/eliminar préstamo
- * - Mensaje simple (sin intereses, meses ni totales)
- * - Botón copiar al portapapeles
+ * admin_prestamos.php — CRUD + Tarjetas
+ * - Filtro dinámico: deudores según empresa seleccionada
+ * - Dropdowns con búsqueda (Select2)
  *********************************************************/
-session_start(); // IMPORTANTE: añadir session_start() al principio
 include("nav.php");
 
 // ======= CONFIG =======
@@ -45,54 +43,6 @@ function go($url){
 function mbnorm($s){ return mb_strtolower(trim((string)$s),'UTF-8'); }
 function mbtitle($s){ return function_exists('mb_convert_case') ? mb_convert_case((string)$s, MB_CASE_TITLE, 'UTF-8') : ucwords(strtolower((string)$s)); }
 
-// Función para asegurar que un deudor existe en la tabla deudores_admin
-function ensure_deudor($nombre, $owner_chat_id = 6133806918) {
-    if (empty($nombre)) return false;
-    $c = db();
-    $norm = mbnorm($nombre);
-    $st = $c->prepare("SELECT id FROM deudores_admin WHERE owner_chat_id = ? AND LOWER(TRIM(nombre)) = ?");
-    $st->bind_param("is", $owner_chat_id, $norm);
-    $st->execute();
-    $st->store_result();
-    if ($st->num_rows > 0) {
-        $st->close();
-        $c->close();
-        return true;
-    }
-    $st->close();
-    // Insertar si no existe
-    $st = $c->prepare("INSERT INTO deudores_admin (owner_chat_id, nombre) VALUES (?, ?)");
-    $st->bind_param("is", $owner_chat_id, $nombre);
-    $result = $st->execute();
-    $st->close();
-    $c->close();
-    return $result;
-}
-
-// Función para asegurar que un prestamista existe en la tabla prestamistas_admin
-function ensure_prestamista($nombre, $owner_chat_id = 6133806918) {
-    if (empty($nombre)) return false;
-    $c = db();
-    $norm = mbnorm($nombre);
-    $st = $c->prepare("SELECT id FROM prestamistas_admin WHERE owner_chat_id = ? AND LOWER(TRIM(nombre)) = ?");
-    $st->bind_param("is", $owner_chat_id, $norm);
-    $st->execute();
-    $st->store_result();
-    if ($st->num_rows > 0) {
-        $st->close();
-        $c->close();
-        return true;
-    }
-    $st->close();
-    // Insertar si no existe
-    $st = $c->prepare("INSERT INTO prestamistas_admin (owner_chat_id, nombre) VALUES (?, ?)");
-    $st->bind_param("is", $owner_chat_id, $nombre);
-    $result = $st->execute();
-    $st->close();
-    $c->close();
-    return $result;
-}
-
 $action = $_GET['action'] ?? 'list';
 $view   = 'cards'; // Solo tarjetas
 $id = (int)($_GET['id'] ?? 0);
@@ -128,14 +78,6 @@ if ($action==='bulk_update' && $_SERVER['REQUEST_METHOD']==='POST'){
   $new_prestamista = trim($_POST['new_prestamista'] ?? '');
   $new_monto_raw   = trim($_POST['new_monto'] ?? '');
   $new_fecha       = trim($_POST['new_fecha'] ?? '');
-
-  // Si se está actualizando deudor o prestamista, asegurar que existan en las tablas admin
-  if ($new_deudor !== '') {
-    ensure_deudor($new_deudor);
-  }
-  if ($new_prestamista !== '') {
-    ensure_prestamista($new_prestamista);
-  }
 
   $sets   = [];
   $types  = '';
@@ -251,33 +193,15 @@ if ($action==='create' && $_SERVER['REQUEST_METHOD']==='POST'){
   $prestamista = trim($_POST['prestamista']??'');
   $monto = trim($_POST['monto']??'');
   $fecha = trim($_POST['fecha']??'');
-  $empresa = trim($_POST['empresa']??'');
   $img = save_image($_FILES['imagen']??null);
 
   if ($deudor && $prestamista && is_numeric($monto) && preg_match('/^\d{4}-\d{2}-\d{2}$/',$fecha)){
-    ensure_deudor($deudor);
-    ensure_prestamista($prestamista);
-    
     $c=db();
-    $st=$c->prepare("INSERT INTO prestamos (deudor,prestamista,monto,fecha,empresa,imagen,created_at) VALUES (?,?,?,?,?,?,NOW())");
-    $st->bind_param("ssdsss",$deudor,$prestamista,$monto,$fecha,$empresa,$img);
+    $st=$c->prepare("INSERT INTO prestamos (deudor,prestamista,monto,fecha,imagen,created_at) VALUES (?,?,?,?,?,NOW())");
+    $st->bind_param("ssdss",$deudor,$prestamista,$monto,$fecha,$img);
     $st->execute();
-    $nuevo_id = $c->insert_id;
-    $st->close(); 
-    $c->close();
-    
-    // Guardar en sesión para el toast (PERSISTENTE)
-    $_SESSION['toast_prestamo'] = [
-        'tipo' => 'creado',
-        'deudor' => $deudor,
-        'prestamista' => $prestamista,
-        'monto' => $monto,
-        'fecha' => $fecha,
-        'empresa' => $empresa,
-        'imagen' => $img
-    ];
-    
-    go('?view=cards');
+    $st->close(); $c->close();
+    go('?msg=creado&view='.urlencode($view));
   } else {
     $err="Completa todos los campos correctamente.";
   }
@@ -288,43 +212,26 @@ if ($action==='edit' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
   $prestamista=trim($_POST['prestamista']??'');
   $monto=trim($_POST['monto']??'');
   $fecha=trim($_POST['fecha']??'');
-  $empresa=trim($_POST['empresa']??'');
   $keep = isset($_POST['keep']) ? 1:0;
   $img = save_image($_FILES['imagen']??null);
 
   if ($deudor && $prestamista && is_numeric($monto) && preg_match('/^\d{4}-\d{2}-\d{2}$/',$fecha)){
-    ensure_deudor($deudor);
-    ensure_prestamista($prestamista);
-    
     $c=db();
     if ($img){
-      $st=$c->prepare("UPDATE prestamos SET deudor=?,prestamista=?,monto=?,fecha=?,empresa=?,imagen=? WHERE id=?");
-      $st->bind_param("ssdsssi",$deudor,$prestamista,$monto,$fecha,$empresa,$img,$id);
+      $st=$c->prepare("UPDATE prestamos SET deudor=?,prestamista=?,monto=?,fecha=?,imagen=? WHERE id=?");
+      $st->bind_param("ssdssi",$deudor,$prestamista,$monto,$fecha,$img,$id);
     } else {
       if ($keep){
-        $st=$c->prepare("UPDATE prestamos SET deudor=?,prestamista=?,monto=?,fecha=?,empresa=? WHERE id=?");
-        $st->bind_param("ssdssi",$deudor,$prestamista,$monto,$fecha,$empresa,$id);
+        $st=$c->prepare("UPDATE prestamos SET deudor=?,prestamista=?,monto=?,fecha=? WHERE id=?");
+        $st->bind_param("ssdsi",$deudor,$prestamista,$monto,$fecha,$id);
       } else {
-        $st=$c->prepare("UPDATE prestamos SET deudor=?,prestamista=?,monto=?,fecha=?,empresa=?,imagen=NULL WHERE id=?");
-        $st->bind_param("ssdssi",$deudor,$prestamista,$monto,$fecha,$empresa,$id);
+        $st=$c->prepare("UPDATE prestamos SET deudor=?,prestamista=?,monto=?,fecha=?,imagen=NULL WHERE id=?");
+        $st->bind_param("ssdsi",$deudor,$prestamista,$monto,$fecha,$id);
       }
     }
     $st->execute();
-    $st->close(); 
-    $c->close();
-    
-    // Guardar en sesión para el toast
-    $_SESSION['toast_prestamo'] = [
-        'tipo' => 'editado',
-        'deudor' => $deudor,
-        'prestamista' => $prestamista,
-        'monto' => $monto,
-        'fecha' => $fecha,
-        'empresa' => $empresa,
-        'imagen' => $img
-    ];
-    
-    go('?view=cards');
+    $st->close(); $c->close();
+    go('?msg=editado&view='.urlencode($view));
   } else {
     $err="Completa todos los campos correctamente.";
   }
@@ -332,48 +239,27 @@ if ($action==='edit' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
 
 if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
   $c=db();
-  $st=$c->prepare("SELECT deudor,prestamista,monto,fecha,empresa,imagen FROM prestamos WHERE id=?");
+  $st=$c->prepare("SELECT imagen FROM prestamos WHERE id=?");
   $st->bind_param("i",$id);
   $st->execute();
-  $res=$st->get_result();
-  $row_eliminado=$res->fetch_assoc();
+  $st->bind_result($img);
+  $st->fetch();
   $st->close();
-  
-  if ($row_eliminado && $row_eliminado['imagen'] && is_file(UPLOAD_DIR.$row_eliminado['imagen'])) 
-      @unlink(UPLOAD_DIR.$row_eliminado['imagen']);
-  
+  if ($img && is_file(UPLOAD_DIR.$img)) @unlink(UPLOAD_DIR.$img);
   $st=$c->prepare("DELETE FROM prestamos WHERE id=?");
   $st->bind_param("i",$id);
   $st->execute();
-  $st->close(); 
-  $c->close();
-  
-  // Guardar en sesión para el toast
-  if ($row_eliminado) {
-      $_SESSION['toast_prestamo'] = [
-          'tipo' => 'eliminado',
-          'deudor' => $row_eliminado['deudor'],
-          'prestamista' => $row_eliminado['prestamista'],
-          'monto' => $row_eliminado['monto'],
-          'fecha' => $row_eliminado['fecha'],
-          'empresa' => $row_eliminado['empresa'] ?? '',
-          'imagen' => $row_eliminado['imagen']
-      ];
-  }
-  
-  go('?view=cards');
+  $st->close(); $c->close();
+  go('?msg=eliminado&view='.urlencode($view));
 }
 
 // ===== UI =====
-
-// Obtener toast de sesión y limpiarlo
-$toast_data = $_SESSION['toast_prestamo'] ?? null;
-if (isset($_SESSION['toast_prestamo'])) unset($_SESSION['toast_prestamo']);
 ?>
 <!doctype html>
 <html lang="es"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Préstamos | Admin</title>
+<!-- Incluir Select2 CSS -->
 <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
 <style>
  :root{ --bg:#f6f7fb; --fg:#222; --card:#fff; --muted:#6b7280; --primary:#0b5ed7; --gray:#6c757d; --red:#dc3545; --chip:#eef2ff; }
@@ -403,23 +289,27 @@ if (isset($_SESSION['toast_prestamo'])) unset($_SESSION['toast_prestamo']);
  .chip{display:inline-block;background:var(--chip);padding:4px 8px;border-radius:999px;font-size:12px;font-weight:600}
  @media (max-width:760px){ .pairs{grid-template-columns:1fr} }
 
+ /* NUEVO: controles de selección múltiple en tarjetas */
  .bulkbar{display:flex;gap:10px;align-items:center;margin:8px 0 0;flex-wrap:wrap}
  .bulkpanel{display:none;margin-top:10px;border:1px dashed #e5e7eb;border-radius:12px;padding:12px;background:#fafafa}
  .badge{background:#111;color:#fff;border-radius:999px;padding:2px 8px;font-size:12px;font-weight:700}
  .cardSel{display:flex;align-items:center;gap:8px;margin-bottom:6px}
  .sticky-actions{position:sticky; top:10px; align-self:flex-start}
 
+ /* Estilos para comisiones en tarjetas */
  .card-comision { border-left: 4px solid #0b5ed7; background: #F0F9FF !important; }
  .comision-badge { background: #0b5ed7 !important; color: white !important; }
  .comision-info { background: #EAF5FF !important; border: 1px solid #BAE6FD !important; }
  .comision-text { color: #0369A1 !important; font-weight: 600; }
 
+ /* Estilos para resumen de filtros */
  .resumen-filtro { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
  .resumen-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 12px; }
  .resumen-item { background: white; border-radius: 8px; padding: 12px; text-align: center; }
  .resumen-valor { font-size: 18px; font-weight: 800; color: #0369a1; }
  .resumen-label { font-size: 12px; color: #6b7280; margin-top: 4px; }
 
+ /* Estilos para switch de estado de pago (3 estados) */
  .switch-container { display: flex; align-items: center; gap: 8px; background: #f8f9fa; padding: 8px 12px; border-radius: 12px; border: 1px solid #e5e7eb; }
  .switch-label { font-size: 14px; font-weight: 600; color: #374151; }
  .switch-group { display:flex; gap:6px; }
@@ -428,90 +318,16 @@ if (isset($_SESSION['toast_prestamo'])) unset($_SESSION['toast_prestamo']);
  .switch-pill span { font-size:12px; padding:4px 10px; border-radius:999px; border:1px solid #e5e7eb; background:#fff; cursor:pointer; }
  .switch-pill input:checked + span { background:#0b5ed7; color:#fff; border-color:#0b5ed7; }
 
+ /* Estilos para préstamos pagados */
  .card-pagado { border-left: 4px solid #10b981; background: #f0fdf4 !important; opacity: 0.8; }
  .pagado-badge { background: #10b981 !important; color: white !important; }
  .text-pagado { color: #065f46 !important; font-weight: 600; }
 
+ /* Select2 personalizado */
  .select2-container { width: 100% !important; }
  .select2-selection { border: 1px solid #e5e7eb !important; border-radius: 12px !important; padding: 8px !important; height: 45px !important; }
  .select2-selection__arrow { height: 43px !important; }
  .select2-search__field { border-radius: 8px !important; padding: 6px !important; }
- .select2-container--default .select2-search--dropdown .select2-search__field:focus { outline: none; border-color: var(--primary); }
-
- /* TOAST flotante */
- .toast-prestamo {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    z-index: 1100;
-    min-width: 320px;
-    max-width: 450px;
-    background: white;
-    border-radius: 12px;
-    box-shadow: 0 10px 25px -5px rgba(0,0,0,0.2);
-    border-left: 5px solid #0b5ed7;
-    animation: slideInRight 0.3s ease-out;
- }
- @keyframes slideInRight {
-    from { transform: translateX(100%); opacity: 0; }
-    to { transform: translateX(0); opacity: 1; }
- }
- @keyframes slideOutRight {
-    from { transform: translateX(0); opacity: 1; }
-    to { transform: translateX(100%); opacity: 0; }
- }
- .toast-prestamo .toast-header {
-    background: #0b5ed7;
-    color: white;
-    border-radius: 8px 8px 0 0;
-    padding: 12px 15px;
- }
- .toast-prestamo .toast-body {
-    padding: 15px;
-    font-size: 13px;
-    max-height: 400px;
-    overflow-y: auto;
- }
- .toast-prestamo .mensaje-copiado {
-    position: absolute;
-    bottom: 10px;
-    right: 10px;
-    background: #0b5ed7;
-    color: white;
-    padding: 4px 10px;
-    border-radius: 20px;
-    font-size: 11px;
-    opacity: 0;
-    transition: opacity 0.3s;
- }
- .toast-prestamo .mensaje-copiado.show {
-    opacity: 1;
- }
- .btn-copiar-mensaje {
-    background: #0b5ed7;
-    border: none;
-    padding: 8px 16px;
-    border-radius: 6px;
-    color: white;
-    font-weight: bold;
-    cursor: pointer;
-    transition: background 0.2s;
-    width: 100%;
- }
- .btn-copiar-mensaje:hover {
-    background: #0a58ca;
- }
- pre.mensaje-formateado {
-    background: #f8f9fa;
-    padding: 12px;
-    border-radius: 8px;
-    font-family: monospace;
-    font-size: 12px;
-    white-space: pre-wrap;
-    word-break: break-word;
-    border: 1px solid #e9ecef;
-    margin-bottom: 12px;
- }
 </style>
 </head><body>
 
@@ -519,60 +335,6 @@ if (isset($_SESSION['toast_prestamo'])) unset($_SESSION['toast_prestamo']);
   <a class="active" href="?view=cards">📇 Tarjetas</a>
   <a class="btn gray" href="?action=new&view=cards" style="margin-left:auto">➕ Crear</a>
 </div>
-
-<!-- ================== TOAST DE PRÉSTAMO ================== -->
-<?php if ($toast_data): 
-    $titulo = match($toast_data['tipo']) {
-        'creado' => '✅ Préstamo Creado',
-        'editado' => '✏️ Préstamo Editado',
-        'eliminado' => '🗑️ Préstamo Eliminado',
-        default => 'Préstamo'
-    };
-    $color_borde = match($toast_data['tipo']) {
-        'creado' => '#0b5ed7',
-        'editado' => '#ffc107',
-        'eliminado' => '#dc3545',
-        default => '#0b5ed7'
-    };
-    $color_header = match($toast_data['tipo']) {
-        'creado' => '#0b5ed7',
-        'editado' => '#ffc107',
-        'eliminado' => '#dc3545',
-        default => '#0b5ed7'
-    };
-    
-    $mensaje_formateado = "";
-    if ($toast_data['tipo'] === 'eliminado') {
-        $mensaje_formateado = "🗑️ *Préstamo eliminado correctamente*\n\n";
-    } else {
-        $mensaje_formateado = "✅ *Préstamo registrado exitosamente*\n\n";
-    }
-    $mensaje_formateado .= "👤 *Deudor:* " . h($toast_data['deudor']) . "\n";
-    $mensaje_formateado .= "🏦 *Prestamista:* " . h($toast_data['prestamista']) . "\n";
-    $mensaje_formateado .= "💰 *Monto:* $" . money($toast_data['monto']) . "\n";
-    $mensaje_formateado .= "📅 *Fecha:* " . h($toast_data['fecha']) . "\n";
-    if ($toast_data['tipo'] !== 'eliminado') {
-        $mensaje_formateado .= "📸 *Evidencia:* " . (!empty($toast_data['imagen']) ? '✅ Adjuntada' : '❌ No adjuntada') . "\n";
-    }
-    if (!empty($toast_data['empresa'])) {
-        $mensaje_formateado .= "🏢 *Empresa:* " . h($toast_data['empresa']) . "\n";
-    }
-    if ($toast_data['tipo'] !== 'eliminado') {
-        $mensaje_formateado .= "\nAtajos rápidos: /prestamos /pagar";
-    }
-?>
-<div class="toast-prestamo" id="toastPrestamo" style="border-left-color: <?= $color_borde ?>;">
-    <div class="toast-header" style="background: <?= $color_header ?>; <?= $toast_data['tipo'] === 'editado' ? 'color: #000;' : 'color: white;' ?>">
-        <strong><?= $titulo ?></strong>
-        <button type="button" class="btn-close <?= $toast_data['tipo'] === 'editado' ? '' : 'btn-close-white' ?> ms-auto" onclick="cerrarToast()" aria-label="Cerrar"></button>
-    </div>
-    <div class="toast-body">
-        <pre class="mensaje-formateado" id="mensajeParaCopiar"><?= htmlspecialchars($mensaje_formateado) ?></pre>
-        <button class="btn-copiar-mensaje" onclick="copiarMensaje()">📋 Copiar mensaje</button>
-        <div class="mensaje-copiado" id="mensajeCopiado">¡Copiado!</div>
-    </div>
-</div>
-<?php endif; ?>
 
 <?php if (!empty($_GET['msg'])): ?>
   <div class="msg" style="margin-bottom:14px">
@@ -600,32 +362,10 @@ if (isset($_SESSION['toast_prestamo'])) unset($_SESSION['toast_prestamo']);
 <?php
 // ====== NEW / EDIT FORMS ======
 if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!=='POST')):
-
-  $conn = db();
-  
-  $deudores_opts = [];
-  $res_deudores = $conn->query("SELECT nombre FROM deudores_admin WHERE owner_chat_id IN (6133806918, 6674396003) ORDER BY nombre");
-  while($row = $res_deudores->fetch_assoc()) {
-    $deudores_opts[] = $row['nombre'];
-  }
-  
-  $prestamistas_opts = [];
-  $res_prestamistas = $conn->query("SELECT nombre FROM prestamistas_admin WHERE owner_chat_id IN (6133806918, 6674396003) ORDER BY nombre");
-  while($row = $res_prestamistas->fetch_assoc()) {
-    $prestamistas_opts[] = $row['nombre'];
-  }
-  
-  $empresas_opts = [];
-  $res_empresas = $conn->query("SELECT DISTINCT empresa FROM prestamos WHERE empresa IS NOT NULL AND empresa != '' ORDER BY empresa");
-  while($row = $res_empresas->fetch_assoc()) {
-    $empresas_opts[] = $row['empresa'];
-  }
-  $conn->close();
-
-  $row = ['deudor'=>'','prestamista'=>'','monto'=>'','fecha'=>'','empresa'=>'','imagen'=>null];
+  $row = ['deudor'=>'','prestamista'=>'','monto'=>'','fecha'=>'','imagen'=>null];
   if ($action==='edit'){
     $c=db();
-    $st=$c->prepare("SELECT deudor,prestamista,monto,fecha,empresa,imagen FROM prestamos WHERE id=?");
+    $st=$c->prepare("SELECT deudor,prestamista,monto,fecha,imagen FROM prestamos WHERE id=?");
     $st->bind_param("i",$id);
     $st->execute();
     $res=$st->get_result();
@@ -644,21 +384,11 @@ if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!
       <div class="row" style="gap:12px;flex-wrap:wrap">
         <div class="field" style="min-width:220px;flex:1">
           <label>Deudor *</label>
-          <select name="deudor" id="deudorSelect2" required style="width:100%">
-            <option value="">Selecciona o escribe un deudor...</option>
-            <?php foreach($deudores_opts as $opt): ?>
-              <option value="<?= h($opt) ?>" <?= $row['deudor'] === $opt ? 'selected' : '' ?>><?= h($opt) ?></option>
-            <?php endforeach; ?>
-          </select>
+          <input name="deudor" required value="<?= h($row['deudor']) ?>">
         </div>
         <div class="field" style="min-width:220px;flex:1">
           <label>Prestamista *</label>
-          <select name="prestamista" id="prestamistaSelect2" required style="width:100%">
-            <option value="">Selecciona o escribe un prestamista...</option>
-            <?php foreach($prestamistas_opts as $opt): ?>
-              <option value="<?= h($opt) ?>" <?= $row['prestamista'] === $opt ? 'selected' : '' ?>><?= h($opt) ?></option>
-            <?php endforeach; ?>
-          </select>
+          <input name="prestamista" required value="<?= h($row['prestamista']) ?>">
         </div>
         <div class="field" style="min-width:160px">
           <label>Monto *</label>
@@ -667,15 +397,6 @@ if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!
         <div class="field" style="min-width:160px">
           <label>Fecha *</label>
           <input name="fecha" type="date" required value="<?= h($row['fecha']) ?>">
-        </div>
-        <div class="field" style="min-width:200px;flex:1">
-          <label>Empresa (opcional)</label>
-          <select name="empresa" id="empresaSelect2" style="width:100%">
-            <option value="">-- Sin empresa --</option>
-            <?php foreach($empresas_opts as $opt): ?>
-              <option value="<?= h($opt) ?>" <?= ($row['empresa'] ?? '') === $opt ? 'selected' : '' ?>><?= h($opt) ?></option>
-            <?php endforeach; ?>
-          </select>
         </div>
         <div class="field" style="min-width:240px;flex:1">
           <label>Imagen (opcional)</label>
@@ -696,61 +417,19 @@ if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!
       </div>
     </form>
   </div>
-
-  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
-  <script>
-  $(document).ready(function() {
-      $('#deudorSelect2').select2({
-          width: '100%',
-          placeholder: 'Selecciona o escribe un deudor...',
-          allowClear: true,
-          tags: true,
-          createTag: function(params) {
-              var term = $.trim(params.term);
-              if (term === '') return null;
-              return { id: term, text: term, newOption: true };
-          },
-          language: { noResults: function() { return "Escribe para agregar un nuevo deudor"; } }
-      });
-      
-      $('#prestamistaSelect2').select2({
-          width: '100%',
-          placeholder: 'Selecciona o escribe un prestamista...',
-          allowClear: true,
-          tags: true,
-          createTag: function(params) {
-              var term = $.trim(params.term);
-              if (term === '') return null;
-              return { id: term, text: term, newOption: true };
-          },
-          language: { noResults: function() { return "Escribe para agregar un nuevo prestamista"; } }
-      });
-      
-      $('#empresaSelect2').select2({
-          width: '100%',
-          placeholder: 'Selecciona o escribe una empresa...',
-          allowClear: true,
-          tags: true,
-          createTag: function(params) {
-              var term = $.trim(params.term);
-              if (term === '') return null;
-              return { id: term, text: term, newOption: true };
-          }
-      });
-  });
-  </script>
 <?php
 // ====== LIST (SOLO TARJETAS) ======
 else:
 
+  // ==== filtros ====
   $q   = trim($_GET['q']  ?? '');
-  $fp  = trim($_GET['fp'] ?? '');
-  $fd  = trim($_GET['fd'] ?? '');
-  $fe  = trim($_GET['fe'] ?? '');
+  $fp  = trim($_GET['fp'] ?? ''); // prestamista (normalizado)
+  $fd  = trim($_GET['fd'] ?? ''); // deudor (normalizado)
+  $fe  = trim($_GET['fe'] ?? ''); // empresa (normalizado)
   $fecha_desde = trim($_GET['fecha_desde'] ?? '');
   $fecha_hasta = trim($_GET['fecha_hasta'] ?? '');
-  $estado_pago = $_GET['estado_pago'] ?? 'no_pagados';
+  // Filtro de estado de pago
+  $estado_pago = $_GET['estado_pago'] ?? 'no_pagados'; // 'no_pagados', 'pagados', 'todos'
 
   $qNorm  = mbnorm($q);
   $fpNorm = mbnorm($fp);
@@ -759,6 +438,7 @@ else:
 
   $conn=db();
 
+  // Filtrar según el estado de pago seleccionado
   $whereBase = "1=1";
   if ($estado_pago === 'no_pagados') {
     $whereBase = "pagado = 0";
@@ -766,6 +446,7 @@ else:
     $whereBase = "pagado = 1";
   }
 
+  // ==== COMBO prestamistas (siempre todos) ====
   $prestMap = [];
   $resPL = $conn->query("SELECT prestamista FROM prestamos WHERE $whereBase");
   while($rowPL=$resPL->fetch_row()){
@@ -775,6 +456,7 @@ else:
   }
   ksort($prestMap, SORT_NATURAL);
 
+  // ==== COMBO empresas (siempre todos) ====
   $empMap = [];
   $resEL = $conn->query("SELECT empresa FROM prestamos WHERE $whereBase");
   if ($resEL) {
@@ -787,14 +469,17 @@ else:
     ksort($empMap, SORT_NATURAL);
   }
 
+  // ==== COMBO deudores (filtrado dinámicamente) ====
   $deudMap = [];
   if ($feNorm !== '') {
+    // Si hay empresa seleccionada, cargar solo deudores de esa empresa
     $sqlDeud = "SELECT DISTINCT deudor FROM prestamos WHERE LOWER(TRIM(empresa)) = ? AND $whereBase ORDER BY deudor";
     $stDeud = $conn->prepare($sqlDeud);
     $stDeud->bind_param("s", $feNorm);
     $stDeud->execute();
     $resDeud = $stDeud->get_result();
   } else {
+    // Si no hay empresa seleccionada, cargar todos los deudores
     $resDeud = $conn->query("SELECT DISTINCT deudor FROM prestamos WHERE $whereBase ORDER BY deudor");
   }
   
@@ -802,10 +487,13 @@ else:
     $deudorValor = $feNorm !== '' ? $rowDL['deudor'] : $rowDL[0];
     $norm = mbnorm($deudorValor);
     if ($norm === '') continue;
-    if (!isset($deudMap[$norm])) $deudMap[$norm] = $deudorValor;
+    if (!isset($deudMap[$norm])) {
+      $deudMap[$norm] = $deudorValor;
+    }
   }
   if ($feNorm !== '') $stDeud->close();
 
+  // -------- TARJETAS --------
   $where = $whereBase; $types=""; $params=[];
   if ($q!==''){
     $where.=" AND (LOWER(deudor) LIKE CONCAT('%',?,'%') OR LOWER(prestamista) LIKE CONCAT('%',?,'%'))";
@@ -832,11 +520,45 @@ else:
     $types.="s"; $params[]=$fecha_hasta;
   }
 
+  // Incluir campo pagado y calcular interés correctamente con tasa variable
   $sql = "
       SELECT id,deudor,prestamista,monto,fecha,imagen,created_at,pagado,pagado_at,
              empresa,
              comision_gestor_nombre, comision_gestor_porcentaje, comision_base_monto, 
-             comision_origen_prestamista, comision_origen_porcentaje
+             comision_origen_prestamista, comision_origen_porcentaje,
+             CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS meses,
+             
+             /* Interés del prestamista (dueño del capital) - TASA VARIABLE */
+             (monto * 
+              CASE 
+                WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
+                ELSE COALESCE(comision_origen_porcentaje, 10)
+              END / 100 *
+              CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes_prestamista,
+             
+             /* Comisión del gestor */
+             (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100 *
+              CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS comision_gestor,
+             
+             /* Interés total (prestamista + gestor) */
+             ((monto * 
+               CASE 
+                 WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
+                 ELSE COALESCE(comision_origen_porcentaje, 10)
+               END / 100) + 
+              (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
+              CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS interes_total,
+             
+             /* Total a pagar (monto + interés total) */
+             (monto + 
+              (((monto * 
+                CASE 
+                  WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
+                  ELSE COALESCE(comision_origen_porcentaje, 10)
+                END / 100) + 
+               (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
+               CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
+              
       FROM prestamos
       WHERE $where
       ORDER BY pagado ASC, id DESC";
@@ -845,9 +567,29 @@ else:
   $st->execute();
   $rs=$st->get_result();
 
-  $sumas = ['capital' => 0, 'count' => 0];
-  if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $feNorm!=='' || $estado_pago !== 'no_pagados') {
-    $sqlSumas = "SELECT COUNT(*) AS n, SUM(monto) AS capital FROM prestamos WHERE $where";
+  // Calcular sumas para el rango de fechas / filtros seleccionado
+  $sumas = ['capital' => 0, 'interes' => 0, 'total' => 0, 'count' => 0];
+  if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $feNorm !== '' || $estado_pago !== 'no_pagados') {
+    $sqlSumas = "
+        SELECT COUNT(*) AS n,
+               SUM(monto) AS capital,
+               SUM(((monto * 
+                    CASE 
+                      WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
+                      ELSE COALESCE(comision_origen_porcentaje, 10)
+                    END / 100) + 
+                   (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
+                   CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes,
+               SUM(monto + 
+                   (((monto * 
+                     CASE 
+                       WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
+                       ELSE COALESCE(comision_origen_porcentaje, 10)
+                     END / 100) + 
+                    (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
+                    CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
+        FROM prestamos
+        WHERE $where";
     $stSumas=$conn->prepare($sqlSumas);
     if($types) $stSumas->bind_param($types, ...$params);
     $stSumas->execute();
@@ -855,14 +597,16 @@ else:
     $stSumas->close();
   }
 ?>
+    <!-- Toolbar de filtros -->
     <div class="card" style="margin-bottom:16px">
       <form class="toolbar" method="get" id="filtroForm">
         <input type="hidden" name="view" value="cards">
         <input name="q" placeholder="🔎 Buscar (deudor / prestamista)" value="<?= h($q) ?>" style="flex:1;min-width:220px">
         
+        <!-- Prestamista con Select2 -->
         <div class="field" style="min-width:200px;flex:1">
           <label>Prestamista</label>
-          <select name="fp" id="prestamistaSelect" class="select2-filter">
+          <select name="fp" id="prestamistaSelect" title="Prestamista" class="select2-filter">
             <option value="">Todos los prestamistas</option>
             <?php foreach($prestMap as $norm=>$label): ?>
               <option value="<?= h($norm) ?>" <?= $fpNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
@@ -870,9 +614,10 @@ else:
           </select>
         </div>
 
+        <!-- Empresa con Select2 -->
         <div class="field" style="min-width:200px;flex:1">
           <label>Empresa</label>
-          <select name="fe" id="empresaSelect" class="select2-filter">
+          <select name="fe" id="empresaSelect" title="Empresa" class="select2-filter">
             <option value="">Todas las empresas</option>
             <?php foreach($empMap as $norm=>$label): ?>
               <option value="<?= h($norm) ?>" <?= $feNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
@@ -880,9 +625,10 @@ else:
           </select>
         </div>
 
+        <!-- Deudor con Select2 (se actualiza dinámicamente) -->
         <div class="field" style="min-width:200px;flex:1">
           <label>Deudor</label>
-          <select name="fd" id="deudorSelect" class="select2-filter">
+          <select name="fd" id="deudorSelect" title="Deudor" class="select2-filter">
             <option value="">Todos los deudores</option>
             <?php foreach($deudMap as $norm=>$label): ?>
               <option value="<?= h($norm) ?>" <?= $fdNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
@@ -899,19 +645,26 @@ else:
           <input name="fecha_hasta" type="date" value="<?= h($fecha_hasta) ?>">
         </div>
         
+        <!-- SWITCH 3 ESTADOS: No pagados / Pagados / Todos -->
         <div class="switch-container">
           <span class="switch-label">Estado:</span>
           <div class="switch-group">
             <label class="switch-pill">
-              <input type="radio" name="estado_pago" value="no_pagados" <?= $estado_pago === 'no_pagados' ? 'checked' : '' ?> onchange="this.form.submit()">
+              <input type="radio" name="estado_pago" value="no_pagados"
+                     <?= $estado_pago === 'no_pagados' ? 'checked' : '' ?>
+                     onchange="this.form.submit()">
               <span>No pagados</span>
             </label>
             <label class="switch-pill">
-              <input type="radio" name="estado_pago" value="pagados" <?= $estado_pago === 'pagados' ? 'checked' : '' ?> onchange="this.form.submit()">
+              <input type="radio" name="estado_pago" value="pagados"
+                     <?= $estado_pago === 'pagados' ? 'checked' : '' ?>
+                     onchange="this.form.submit()">
               <span>Pagados</span>
             </label>
             <label class="switch-pill">
-              <input type="radio" name="estado_pago" value="todos" <?= $estado_pago === 'todos' ? 'checked' : '' ?> onchange="this.form.submit()">
+              <input type="radio" name="estado_pago" value="todos"
+                     <?= $estado_pago === 'todos' ? 'checked' : '' ?>
+                     onchange="this.form.submit()">
               <span>Todos</span>
             </label>
           </div>
@@ -922,8 +675,10 @@ else:
           <a class="btn gray" href="?view=cards">Quitar filtro</a>
         <?php endif; ?>
       </form>
+      <div class="subtitle">Interés variable: 13% desde 2025-10-29, 10% para préstamos anteriores.</div>
     </div>
 
+    <!-- Resumen cuando hay filtros -->
     <?php if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $feNorm!=='' || $estado_pago !== 'no_pagados'): ?>
       <div class="resumen-filtro">
         <div class="title">Resumen del Filtro</div>
@@ -941,12 +696,20 @@ else:
         </div>
         <div class="resumen-grid">
           <div class="resumen-item">
-            <div class="resumen-valor"><?= (int)($sumas['n'] ?? 0) ?></div>
+            <div class="resumen-valor"><?= (int)($sumas['n'] ?? $sumas['count'] ?? 0) ?></div>
             <div class="resumen-label">Préstamos</div>
           </div>
           <div class="resumen-item">
             <div class="resumen-valor">$ <?= money($sumas['capital'] ?? 0) ?></div>
-            <div class="resumen-label">Capital Total</div>
+            <div class="resumen-label">Capital</div>
+          </div>
+          <div class="resumen-item">
+            <div class="resumen-valor">$ <?= money($sumas['interes'] ?? 0) ?></div>
+            <div class="resumen-label">Interés</div>
+          </div>
+          <div class="resumen-item">
+            <div class="resumen-valor">$ <?= money($sumas['total'] ?? 0) ?></div>
+            <div class="resumen-label">Total</div>
           </div>
         </div>
       </div>
@@ -955,6 +718,7 @@ else:
     <?php if ($rs->num_rows === 0): ?>
       <div class="card"><span class="subtitle">(sin registros)</span></div>
     <?php else: ?>
+      <!-- FORM para selección múltiple + edición en lote -->
       <form id="bulkForm" class="card" method="post" action="?action=bulk_update">
         <input type="hidden" name="view" value="cards">
 
@@ -965,16 +729,33 @@ else:
               <input id="chkAll" type="checkbox"> Seleccionar todo (página)
             </label>
             <button type="button" class="btn gray small" id="btnToggleBulk">✏️ Editar selección</button>
-            <button type="submit" class="btn small" formaction="?action=bulk_mark_paid" onclick="return confirm('¿Marcar como pagados los préstamos seleccionados?')">✔ Préstamo pagado</button>
-            <button type="submit" class="btn gray small" formaction="?action=bulk_mark_unpaid" onclick="return confirm('¿Marcar como NO pagados los préstamos seleccionados?')">↩ NO pagado</button>
+            <!-- Botón: marcar como pagados los seleccionados -->
+            <button 
+              type="submit" 
+              class="btn small" 
+              formaction="?action=bulk_mark_paid"
+              onclick="return confirm('¿Marcar como pagados los préstamos seleccionados?')">
+              ✔ Préstamo pagado
+            </button>
+            <!-- Botón: marcar como NO pagados los seleccionados -->
+            <button 
+              type="submit" 
+              class="btn gray small" 
+              formaction="?action=bulk_mark_unpaid"
+              onclick="return confirm('¿Marcar como NO pagados los préstamos seleccionados?')">
+              ↩ NO pagado
+            </button>
             <span class="badge" id="selCount">0 seleccionadas</span>
           </div>
         </div>
 
         <div class="grid-cards">
           <?php while($r=$rs->fetch_assoc()):
+            // Determinar si es una comisión
             $esComision = !empty($r['comision_gestor_nombre']);
             $esPagado = (bool)($r['pagado'] ?? false);
+            
+            // Determinar clases CSS según estado
             $cardClass = '';
             $badgeClass = 'chip';
             
@@ -985,6 +766,11 @@ else:
               $cardClass = 'card-pagado';
               $badgeClass = 'pagado-badge';
             }
+            
+            // Calcular porcentaje total
+            $porcentajeTotal = (float)($r['comision_origen_porcentaje'] ?? 
+              (strtotime($r['fecha']) >= strtotime('2025-10-29') ? 13 : 10)) + 
+              (float)($r['comision_gestor_porcentaje'] ?? 0);
           ?>
             <div class="card <?= $cardClass ?>">
               <div class="cardSel">
@@ -1017,6 +803,7 @@ else:
                 <span class="chip"><?= h($r['fecha']) ?></span>
               </div>
 
+              <!-- Información de comisión si existe -->
               <?php if ($esComision): ?>
                 <div class="pairs comision-info" style="margin-top:8px; padding:8px; border-radius:8px;">
                   <div class="item">
@@ -1028,12 +815,20 @@ else:
                     <div class="v comision-text"><?= h($r['comision_gestor_porcentaje']) ?>%</div>
                   </div>
                   <div class="item">
+                    <div class="k comision-text">Base Comisión</div>
+                    <div class="v comision-text">$ <?= money($r['comision_base_monto']) ?></div>
+                  </div>
+                  <div class="item">
                     <div class="k comision-text">Origen</div>
                     <div class="v comision-text"><?= h($r['comision_origen_prestamista']) ?></div>
                   </div>
                   <div class="item">
                     <div class="k comision-text">% Origen</div>
                     <div class="v comision-text"><?= h($r['comision_origen_porcentaje']) ?>%</div>
+                  </div>
+                  <div class="item">
+                    <div class="k comision-text">% Total</div>
+                    <div class="v comision-text"><?= $porcentajeTotal ?>%</div>
                   </div>
                 </div>
               <?php endif; ?>
@@ -1043,12 +838,39 @@ else:
                   <div class="k">Monto</div>
                   <div class="v">$ <?= money($r['monto']) ?></div>
                 </div>
+                <div class="item">
+                  <div class="k">Meses</div>
+                  <div class="v"><?= h($r['meses']) ?></div>
+                </div>
+                <div class="item">
+                  <div class="k">Interés</div>
+                  <div class="v">$ <?= money($r['interes_total']) ?></div>
+                </div>
+                <div class="item">
+                  <div class="k">Total</div>
+                  <div class="v">$ <?= money($r['total']) ?></div>
+                </div>
               </div>
+
+              <!-- Desglose interés si hay comisión -->
+              <?php if ($esComision): ?>
+                <div class="pairs" style="margin-top:8px; font-size:12px;">
+                  <div class="item">
+                    <div class="k">Interés Prestamista</div>
+                    <div class="v">$ <?= money($r['interes_prestamista']) ?></div>
+                  </div>
+                  <div class="item">
+                    <div class="k">Comisión Gestor</div>
+                    <div class="v">$ <?= money($r['comision_gestor']) ?></div>
+                  </div>
+                </div>
+              <?php endif; ?>
 
               <div class="row" style="margin-top:12px">
                 <div class="subtitle">Creado: <?= h($r['created_at']) ?></div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap">
                   <a class="btn gray small" href="?action=edit&id=<?= $r['id'] ?>&view=cards">✏️ Editar</a>
+                  <!-- Botón Eliminar sin formulario anidado -->
                   <button class="btn red small" type="button" onclick="submitDelete(<?= (int)$r['id'] ?>)">🗑️ Eliminar</button>
                 </div>
               </div>
@@ -1056,6 +878,7 @@ else:
           <?php endwhile; ?>
         </div>
 
+        <!-- Panel de edición en lote -->
         <div class="bulkpanel" id="bulkPanel">
           <div class="subtitle" style="margin-bottom:8px">
             Aplica solo a las tarjetas seleccionadas. Deja en blanco lo que no quieras cambiar.
@@ -1079,7 +902,9 @@ else:
             </div>
           </div>
           <div class="row" style="margin-top:10px">
-            <button class="btn" type="submit" onclick="return confirm('¿Aplicar cambios a la selección?')">💾 Aplicar a seleccionadas</button>
+            <button class="btn" type="submit" onclick="return confirm('¿Aplicar cambios a la selección?')">
+              💾 Aplicar a seleccionadas
+            </button>
             <button class="btn gray" type="button" id="btnCloseBulk">Cerrar</button>
           </div>
         </div>
@@ -1088,83 +913,150 @@ else:
 <?php
   $st->close();
   $conn->close();
-endif;
+endif; // forms / list
 ?>
 
+<!-- Incluir jQuery y Select2 JS -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
 <script>
+// Inicializar Select2 en los dropdowns de filtro
 $(document).ready(function() {
+  // Aplicar Select2 a los filtros
   $('.select2-filter').select2({
     width: '100%',
     placeholder: 'Seleccionar...',
     allowClear: true,
-    language: { noResults: function() { return "No se encontraron resultados"; } }
+    language: {
+      noResults: function() {
+        return "No se encontraron resultados";
+      }
+    }
   });
   
+  // Guardar referencia a los selects
   const empresaSelect = $('#empresaSelect');
   const deudorSelect = $('#deudorSelect');
   const estadoPagoRadios = document.querySelectorAll('input[name="estado_pago"]');
+  
+  // Variable para guardar el deudor seleccionado antes de cambiar
   let deudorSeleccionado = deudorSelect.val();
   
+  // Función para cargar deudores según empresa
   function cargarDeudoresPorEmpresa(empresaNormalizada, estadoPago) {
     if (!empresaNormalizada) {
+      // Si no hay empresa, cargar todos los deudores
       cargarTodosDeudores(estadoPago);
       return;
     }
+    
+    // Mostrar loading
     deudorSelect.html('<option value="">Cargando deudores...</option>');
+    
+    // Hacer petición AJAX
     fetch(`ajax_cargar_deudores.php?empresa=${encodeURIComponent(empresaNormalizada)}&estado=${estadoPago}`)
-      .then(response => response.json())
+      .then(response => {
+        if (!response.ok) throw new Error('Error en la respuesta');
+        return response.json();
+      })
       .then(data => {
+        // Reconstruir el dropdown
         let options = '<option value="">Todos los deudores</option>';
+        
         data.forEach(deudor => {
           const selected = (deudor.norm === deudorSeleccionado) ? 'selected' : '';
           options += `<option value="${deudor.norm}" ${selected}>${deudor.nombre}</option>`;
         });
+        
         deudorSelect.html(options);
-        deudorSelect.select2({ width: '100%', placeholder: 'Seleccionar deudor...', allowClear: true });
-        if (deudorSeleccionado) deudorSelect.val(deudorSeleccionado).trigger('change');
+        
+        // Re-aplicar Select2
+        deudorSelect.select2({
+          width: '100%',
+          placeholder: 'Seleccionar deudor...',
+          allowClear: true
+        });
+        
+        // Restaurar selección si existe
+        if (deudorSeleccionado) {
+          deudorSelect.val(deudorSeleccionado).trigger('change');
+        }
       })
-      .catch(error => { console.error('Error:', error); deudorSelect.html('<option value="">Error</option>'); });
+      .catch(error => {
+        console.error('Error cargando deudores:', error);
+        deudorSelect.html('<option value="">Error cargando deudores</option>');
+      });
   }
   
+  // Función para cargar todos los deudores
   function cargarTodosDeudores(estadoPago) {
-    deudorSelect.html('<option value="">Cargando...</option>');
+    // Mostrar loading
+    deudorSelect.html('<option value="">Cargando todos los deudores...</option>');
+    
     fetch(`ajax_cargar_deudores.php?empresa=&estado=${estadoPago}`)
       .then(response => response.json())
       .then(data => {
         let options = '<option value="">Todos los deudores</option>';
+        
         data.forEach(deudor => {
           const selected = (deudor.norm === deudorSeleccionado) ? 'selected' : '';
           options += `<option value="${deudor.norm}" ${selected}>${deudor.nombre}</option>`;
         });
+        
         deudorSelect.html(options);
-        deudorSelect.select2({ width: '100%', placeholder: 'Seleccionar deudor...', allowClear: true });
-        if (deudorSeleccionado) deudorSelect.val(deudorSeleccionado).trigger('change');
+        deudorSelect.select2({
+          width: '100%',
+          placeholder: 'Seleccionar deudor...',
+          allowClear: true
+        });
+        
+        if (deudorSeleccionado) {
+          deudorSelect.val(deudorSeleccionado).trigger('change');
+        }
       })
-      .catch(error => { console.error('Error:', error); });
+      .catch(error => {
+        console.error('Error:', error);
+        deudorSelect.html('<option value="">Error cargando deudores</option>');
+      });
   }
   
+  // Evento cuando cambia la empresa
   empresaSelect.on('change', function() {
-    deudorSeleccionado = deudorSelect.val();
+    const empresaNormalizada = $(this).val();
     const estadoPago = document.querySelector('input[name="estado_pago"]:checked')?.value || 'no_pagados';
-    cargarDeudoresPorEmpresa($(this).val(), estadoPago);
+    
+    // Guardar el deudor seleccionado antes de cambiar
+    deudorSeleccionado = deudorSelect.val();
+    
+    // Cargar deudores según la empresa seleccionada
+    cargarDeudoresPorEmpresa(empresaNormalizada, estadoPago);
   });
   
+  // Evento cuando cambia el estado de pago
   estadoPagoRadios.forEach(radio => {
     radio.addEventListener('change', function() {
+      const empresaNormalizada = empresaSelect.val();
+      const estadoPago = this.value;
+      
+      // Guardar el deudor seleccionado
       deudorSeleccionado = deudorSelect.val();
-      const empresa = empresaSelect.val();
-      if (empresa) cargarDeudoresPorEmpresa(empresa, this.value);
-      else cargarTodosDeudores(this.value);
+      
+      // Recargar deudores con el nuevo estado
+      if (empresaNormalizada) {
+        cargarDeudoresPorEmpresa(empresaNormalizada, estadoPago);
+      } else {
+        cargarTodosDeudores(estadoPago);
+      }
     });
   });
 });
 
+// JS: selección múltiple + eliminar sin anidar formularios
 (function(){
   const form = document.getElementById('bulkForm');
   if(!form) return;
+
   const chkAll   = document.getElementById('chkAll');
   const chkRows  = Array.from(form.querySelectorAll('.chkRow'));
   const selCount = document.getElementById('selCount');
@@ -1175,19 +1067,34 @@ $(document).ready(function() {
   function updateCount(){
     const n = chkRows.filter(c=>c.checked).length;
     selCount.textContent = n + ' seleccionadas';
-    if(chkAll) chkAll.checked = n === chkRows.length;
   }
-  if (chkAll) chkAll.addEventListener('change', () => { chkRows.forEach(c => { c.checked = chkAll.checked; }); updateCount(); });
+
+  if (chkAll){
+    chkAll.addEventListener('change', () => {
+      chkRows.forEach(c => { c.checked = chkAll.checked; });
+      updateCount();
+    });
+  }
+
   chkRows.forEach(c => c.addEventListener('change', updateCount));
   updateCount();
-  if (btnTog) btnTog.addEventListener('click', () => { 
-    const any = chkRows.some(c=>c.checked);
-    if (!any) { alert('Selecciona al menos una tarjeta para editar.'); return; }
-    panel.style.display = (panel.style.display==='none'||panel.style.display==='')?'block':'none';
-  });
-  if (btnClose) btnClose.addEventListener('click', () => { panel.style.display = 'none'; });
+
+  if (btnTog){
+    btnTog.addEventListener('click', () => {
+      const any = chkRows.some(c=>c.checked);
+      if (!any) { alert('Selecciona al menos una tarjeta para editar.'); return; }
+      panel.style.display = (panel.style.display==='none' || panel.style.display==='') ? 'block' : 'none';
+      const first = panel.querySelector('input[name="new_deudor"]');
+      if (first) first.focus();
+    });
+  }
+
+  if (btnClose){
+    btnClose.addEventListener('click', () => { panel.style.display = 'none'; });
+  }
 })();
 
+/* Eliminar: crea un form temporal POST pa no anidar forularios */
 function submitDelete(id){
   if(!confirm('¿Eliminar #'+id+'?')) return;
   const f = document.createElement('form');
@@ -1196,25 +1103,6 @@ function submitDelete(id){
   document.body.appendChild(f);
   f.submit();
 }
-
-function cerrarToast() {
-  const toast = document.getElementById('toastPrestamo');
-  if (toast) {
-    toast.style.animation = 'slideOutRight 0.3s ease-out forwards';
-    setTimeout(() => { toast.remove(); }, 300);
-  }
-}
-
-function copiarMensaje() {
-  const mensaje = document.getElementById('mensajeParaCopiar');
-  const texto = mensaje.innerText || mensaje.textContent;
-  navigator.clipboard.writeText(texto).then(() => {
-    const copiado = document.getElementById('mensajeCopiado');
-    copiado.classList.add('show');
-    setTimeout(() => { copiado.classList.remove('show'); }, 2000);
-  }).catch(err => { alert('No se pudo copiar el mensaje.'); });
-}
-
-setTimeout(() => { const toast = document.getElementById('toastPrestamo'); if (toast) cerrarToast(); }, 10000);
 </script>
+
 </body></html>
