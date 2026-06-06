@@ -33,7 +33,7 @@ function db(): mysqli {
 function h($s){ return htmlspecialchars((string)$s, ENT_QUOTES,'UTF-8'); }
 function money($n){ return number_format((float)$n,0,',','.'); }
 
-/* Redirección robusta: si ya se enviaron headers, usa JS + meta */
+/* Redirección robusta */
 function go($url){
   if (!headers_sent()){
     header("Location: ".$url, true, 302);
@@ -48,34 +48,58 @@ function mbnorm($s){ return mb_strtolower(trim((string)$s),'UTF-8'); }
 function mbtitle($s){ return function_exists('mb_convert_case') ? mb_convert_case((string)$s, MB_CASE_TITLE, 'UTF-8') : ucwords(strtolower((string)$s)); }
 
 $action = $_GET['action'] ?? 'list';
-$view   = 'cards'; // Solo tarjetas
+$view   = 'cards';
 $id = (int)($_GET['id'] ?? 0);
 
-// Modo de cálculo especial (8% por días exactos) - se pasa por URL o por POST
+// Modo de cálculo especial
 $modo_especial = isset($_GET['modo_especial']) ? (int)$_GET['modo_especial'] : (isset($_POST['modo_especial']) ? (int)$_POST['modo_especial'] : 0);
 
-// ===== PROCESAR NUEVO DEUDOR (desde modal) =====
+// ===== PROCESAR NUEVO DEUDOR (desde modal) - CORREGIDO =====
 if (isset($_POST['nuevo_deudor_nombre']) && trim($_POST['nuevo_deudor_nombre']) !== '') {
   $nombre = trim($_POST['nuevo_deudor_nombre']);
+  $modo_especial_actual = isset($_POST['modo_especial_actual']) ? (int)$_POST['modo_especial_actual'] : 0;
+  
   $conn = db();
-  $stmt = $conn->prepare("INSERT INTO deudores_admin (owner_chat_id, nombre) VALUES (?, ?)");
+  // Verificar si ya existe
+  $stmt = $conn->prepare("SELECT id FROM deudores_admin WHERE owner_chat_id = ? AND nombre = ?");
   $stmt->bind_param("is", DEFAULT_OWNER_CHAT_ID, $nombre);
   $stmt->execute();
+  $res = $stmt->get_result();
+  if ($res->num_rows === 0) {
+    $stmt = $conn->prepare("INSERT INTO deudores_admin (owner_chat_id, nombre) VALUES (?, ?)");
+    $stmt->bind_param("is", DEFAULT_OWNER_CHAT_ID, $nombre);
+    $stmt->execute();
+  }
   $stmt->close();
   $conn->close();
-  go('?action=new&view=cards&modo_especial='.$modo_especial);
+  
+  // Redirigir correctamente a la página de nuevo préstamo
+  header("Location: ?action=new&view=cards&modo_especial=" . $modo_especial_actual);
+  exit;
 }
 
-// ===== PROCESAR NUEVO PRESTAMISTA (desde modal) =====
+// ===== PROCESAR NUEVO PRESTAMISTA (desde modal) - CORREGIDO =====
 if (isset($_POST['nuevo_prestamista_nombre']) && trim($_POST['nuevo_prestamista_nombre']) !== '') {
   $nombre = trim($_POST['nuevo_prestamista_nombre']);
+  $modo_especial_actual = isset($_POST['modo_especial_actual']) ? (int)$_POST['modo_especial_actual'] : 0;
+  
   $conn = db();
-  $stmt = $conn->prepare("INSERT INTO prestamistas_admin (owner_chat_id, nombre) VALUES (?, ?)");
+  // Verificar si ya existe
+  $stmt = $conn->prepare("SELECT id FROM prestamistas_admin WHERE owner_chat_id = ? AND nombre = ?");
   $stmt->bind_param("is", DEFAULT_OWNER_CHAT_ID, $nombre);
   $stmt->execute();
+  $res = $stmt->get_result();
+  if ($res->num_rows === 0) {
+    $stmt = $conn->prepare("INSERT INTO prestamistas_admin (owner_chat_id, nombre) VALUES (?, ?)");
+    $stmt->bind_param("is", DEFAULT_OWNER_CHAT_ID, $nombre);
+    $stmt->execute();
+  }
   $stmt->close();
   $conn->close();
-  go('?action=new&view=cards&modo_especial='.$modo_especial);
+  
+  // Redirigir correctamente a la página de nuevo préstamo
+  header("Location: ?action=new&view=cards&modo_especial=" . $modo_especial_actual);
+  exit;
 }
 
 // ===== Upload helper =====
@@ -442,7 +466,7 @@ $conn->close();
 
 <div class="tabs">
   <a class="active" href="?view=cards">📇 Tarjetas</a>
-  <a class="btn gray" href="?action=new&view=cards" style="margin-left:auto">➕ Crear</a>
+  <a class="btn gray" href="?action=new&view=cards&modo_especial=<?= $modo_especial ?>" style="margin-left:auto">➕ Crear</a>
 </div>
 
 <?php if (!empty($_GET['msg'])): ?>
@@ -506,12 +530,13 @@ if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!
     $c->close();
   }
 ?>
-  <!-- Modal para nuevo deudor -->
+  <!-- Modal para nuevo deudor - CORREGIDO -->
   <div id="modalDeudor" class="modal">
     <div class="modal-content">
       <h3 style="margin-bottom: 16px;">Nuevo Deudor</h3>
       <form method="post">
         <input type="text" name="nuevo_deudor_nombre" placeholder="Nombre del deudor" style="width: 100%; margin-bottom: 16px; padding: 10px; border-radius: 12px; border: 1px solid #ddd;" required>
+        <input type="hidden" name="modo_especial_actual" value="<?= $modo_especial ?>">
         <div style="display: flex; gap: 12px;">
           <button type="submit" class="btn">Guardar</button>
           <button type="button" class="btn gray" onclick="document.getElementById('modalDeudor').style.display='none'">Cancelar</button>
@@ -520,12 +545,13 @@ if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!
     </div>
   </div>
   
-  <!-- Modal para nuevo prestamista -->
+  <!-- Modal para nuevo prestamista - CORREGIDO -->
   <div id="modalPrestamista" class="modal">
     <div class="modal-content">
       <h3 style="margin-bottom: 16px;">Nuevo Prestamista</h3>
       <form method="post">
         <input type="text" name="nuevo_prestamista_nombre" placeholder="Nombre del prestamista" style="width: 100%; margin-bottom: 16px; padding: 10px; border-radius: 12px; border: 1px solid #ddd;" required>
+        <input type="hidden" name="modo_especial_actual" value="<?= $modo_especial ?>">
         <div style="display: flex; gap: 12px;">
           <button type="submit" class="btn">Guardar</button>
           <button type="button" class="btn gray" onclick="document.getElementById('modalPrestamista').style.display='none'">Cancelar</button>
@@ -600,13 +626,12 @@ else:
 
   // ==== filtros ====
   $q   = trim($_GET['q']  ?? '');
-  $fp  = trim($_GET['fp'] ?? ''); // prestamista (normalizado)
-  $fd  = trim($_GET['fd'] ?? ''); // deudor (normalizado)
-  $fe  = trim($_GET['fe'] ?? ''); // empresa (normalizado)
+  $fp  = trim($_GET['fp'] ?? '');
+  $fd  = trim($_GET['fd'] ?? '');
+  $fe  = trim($_GET['fe'] ?? '');
   $fecha_desde = trim($_GET['fecha_desde'] ?? '');
   $fecha_hasta = trim($_GET['fecha_hasta'] ?? '');
-  // Filtro de estado de pago
-  $estado_pago = $_GET['estado_pago'] ?? 'no_pagados'; // 'no_pagados', 'pagados', 'todos'
+  $estado_pago = $_GET['estado_pago'] ?? 'no_pagados';
 
   $qNorm  = mbnorm($q);
   $fpNorm = mbnorm($fp);
@@ -615,7 +640,6 @@ else:
 
   $conn=db();
 
-  // Filtrar según el estado de pago seleccionado
   $whereBase = "1=1";
   if ($estado_pago === 'no_pagados') {
     $whereBase = "pagado = 0";
@@ -623,7 +647,7 @@ else:
     $whereBase = "pagado = 1";
   }
 
-  // ==== COMBO prestamistas (siempre todos) ====
+  // COMBO prestamistas
   $prestMap = [];
   $resPL = $conn->query("SELECT prestamista FROM prestamos WHERE $whereBase");
   while($rowPL=$resPL->fetch_row()){
@@ -633,7 +657,7 @@ else:
   }
   ksort($prestMap, SORT_NATURAL);
 
-  // ==== COMBO empresas (siempre todos) ====
+  // COMBO empresas
   $empMap = [];
   $resEL = $conn->query("SELECT empresa FROM prestamos WHERE $whereBase");
   if ($resEL) {
@@ -646,17 +670,15 @@ else:
     ksort($empMap, SORT_NATURAL);
   }
 
-  // ==== COMBO deudores (filtrado dinámicamente) ====
+  // COMBO deudores
   $deudMap = [];
   if ($feNorm !== '') {
-    // Si hay empresa seleccionada, cargar solo deudores de esa empresa
     $sqlDeud = "SELECT DISTINCT deudor FROM prestamos WHERE LOWER(TRIM(empresa)) = ? AND $whereBase ORDER BY deudor";
     $stDeud = $conn->prepare($sqlDeud);
     $stDeud->bind_param("s", $feNorm);
     $stDeud->execute();
     $resDeud = $stDeud->get_result();
   } else {
-    // Si no hay empresa seleccionada, cargar todos los deudores
     $resDeud = $conn->query("SELECT DISTINCT deudor FROM prestamos WHERE $whereBase ORDER BY deudor");
   }
   
@@ -670,7 +692,7 @@ else:
   }
   if ($feNorm !== '') $stDeud->close();
 
-  // -------- TARJETAS --------
+  // WHERE
   $where = $whereBase; $types=""; $params=[];
   if ($q!==''){
     $where.=" AND (LOWER(deudor) LIKE CONCAT('%',?,'%') OR LOWER(prestamista) LIKE CONCAT('%',?,'%'))";
@@ -697,57 +719,42 @@ else:
     $types.="s"; $params[]=$fecha_hasta;
   }
 
-  // ============================================================
-  // CONSTRUCCIÓN DE LA CONSULTA SEGÚN MODO ESPECIAL O NORMAL
-  // ============================================================
-  
+  // CONSULTA SEGÚN MODO
   if ($modo_especial == 1) {
-    // ===== MODO ESPECIAL: 8% mensual por DÍAS EXACTOS =====
     $sql = "
       SELECT 
         id, deudor, prestamista, monto, fecha, imagen, created_at, pagado, pagado_at,
         empresa,
         comision_gestor_nombre, comision_gestor_porcentaje, comision_base_monto, 
         comision_origen_prestamista, comision_origen_porcentaje,
-        
         GREATEST(0, DATEDIFF(CURDATE(), fecha)) AS dias,
-        
         (monto * 0.08 / 30 * GREATEST(0, DATEDIFF(CURDATE(), fecha))) AS interes_total,
-        
         (monto * 0.08 / 30 * GREATEST(0, DATEDIFF(CURDATE(), fecha))) * 
           (COALESCE(comision_origen_porcentaje, 
             CASE WHEN fecha >= '2025-10-29' THEN 13 ELSE 10 END) / 100) AS interes_prestamista,
-        
         (monto * 0.08 / 30 * GREATEST(0, DATEDIFF(CURDATE(), fecha))) * 
           (COALESCE(comision_gestor_porcentaje, 0) / 100) AS comision_gestor,
-        
         (monto + (monto * 0.08 / 30 * GREATEST(0, DATEDIFF(CURDATE(), fecha)))) AS total
-        
       FROM prestamos
       WHERE $where
       ORDER BY pagado ASC, id DESC
     ";
   } else {
-    // ===== MODO NORMAL: meses completos con tasa variable =====
     $sql = "
       SELECT 
         id, deudor, prestamista, monto, fecha, imagen, created_at, pagado, pagado_at,
         empresa,
         comision_gestor_nombre, comision_gestor_porcentaje, comision_base_monto, 
         comision_origen_prestamista, comision_origen_porcentaje,
-        
         CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS meses,
-        
         (monto * 
           CASE 
             WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
             ELSE COALESCE(comision_origen_porcentaje, 10)
           END / 100 *
           CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes_prestamista,
-        
         (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100 *
           CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS comision_gestor,
-        
         ((monto * 
             CASE 
               WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
@@ -755,7 +762,6 @@ else:
             END / 100) + 
           (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
           CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS interes_total,
-        
         (monto + 
           (((monto * 
               CASE 
@@ -764,7 +770,6 @@ else:
               END / 100) + 
             (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
             CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
-            
       FROM prestamos
       WHERE $where
       ORDER BY pagado ASC, id DESC
@@ -776,9 +781,7 @@ else:
   $st->execute();
   $rs=$st->get_result();
 
-  // ============================================================
-  // DESGLOSE POR PRESTAMISTA (SOLO MODO ESPECIAL)
-  // ============================================================
+  // DESGLOSE
   $desglose_prestamistas = [];
   $resumen_general = ['capital' => 0, 'interes' => 0, 'total' => 0, 'count' => 0];
   
@@ -799,7 +802,6 @@ else:
     if($types) $stDesglose->bind_param($types, ...$params);
     $stDesglose->execute();
     $rsDesglose = $stDesglose->get_result();
-    
     while($rowDesg = $rsDesglose->fetch_assoc()) {
       $desglose_prestamistas[] = $rowDesg;
       $resumen_general['capital'] += $rowDesg['capital_total'];
@@ -853,7 +855,6 @@ else:
       <form class="toolbar" method="get" id="filtroForm">
         <input type="hidden" name="view" value="cards">
         
-        <!-- Toggle switch para modo especial 8% por días -->
         <div class="modo-especial-container">
           <span class="modo-especial-label">⚡ Modo 8% por días</span>
           <label class="toggle-switch">
@@ -869,10 +870,9 @@ else:
         
         <input name="q" placeholder="🔎 Buscar (deudor / prestamista)" value="<?= h($q) ?>" style="flex:1;min-width:220px">
         
-        <!-- Prestamista con Select2 -->
         <div class="field" style="min-width:200px;flex:1">
           <label>Prestamista</label>
-          <select name="fp" id="prestamistaSelect" title="Prestamista" class="select2-filter">
+          <select name="fp" id="prestamistaSelect" class="select2-filter">
             <option value="">Todos los prestamistas</option>
             <?php foreach($prestMap as $norm=>$label): ?>
               <option value="<?= h($norm) ?>" <?= $fpNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
@@ -880,10 +880,9 @@ else:
           </select>
         </div>
 
-        <!-- Empresa con Select2 -->
         <div class="field" style="min-width:200px;flex:1">
           <label>Empresa</label>
-          <select name="fe" id="empresaSelect" title="Empresa" class="select2-filter">
+          <select name="fe" id="empresaSelect" class="select2-filter">
             <option value="">Todas las empresas</option>
             <?php foreach($empMap as $norm=>$label): ?>
               <option value="<?= h($norm) ?>" <?= $feNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
@@ -891,10 +890,9 @@ else:
           </select>
         </div>
 
-        <!-- Deudor con Select2 (se actualiza dinámicamente) -->
         <div class="field" style="min-width:200px;flex:1">
           <label>Deudor</label>
-          <select name="fd" id="deudorSelect" title="Deudor" class="select2-filter">
+          <select name="fd" id="deudorSelect" class="select2-filter">
             <option value="">Todos los deudores</option>
             <?php foreach($deudMap as $norm=>$label): ?>
               <option value="<?= h($norm) ?>" <?= $fdNorm===$norm?'selected':'' ?>><?= h(mbtitle($label)) ?></option>
@@ -911,26 +909,19 @@ else:
           <input name="fecha_hasta" type="date" value="<?= h($fecha_hasta) ?>">
         </div>
         
-        <!-- SWITCH 3 ESTADOS: No pagados / Pagados / Todos -->
         <div class="switch-container">
           <span class="switch-label">Estado:</span>
           <div class="switch-group">
             <label class="switch-pill">
-              <input type="radio" name="estado_pago" value="no_pagados"
-                     <?= $estado_pago === 'no_pagados' ? 'checked' : '' ?>
-                     onchange="this.form.submit()">
+              <input type="radio" name="estado_pago" value="no_pagados" <?= $estado_pago === 'no_pagados' ? 'checked' : '' ?> onchange="this.form.submit()">
               <span>No pagados</span>
             </label>
             <label class="switch-pill">
-              <input type="radio" name="estado_pago" value="pagados"
-                     <?= $estado_pago === 'pagados' ? 'checked' : '' ?>
-                     onchange="this.form.submit()">
+              <input type="radio" name="estado_pago" value="pagados" <?= $estado_pago === 'pagados' ? 'checked' : '' ?> onchange="this.form.submit()">
               <span>Pagados</span>
             </label>
             <label class="switch-pill">
-              <input type="radio" name="estado_pago" value="todos"
-                     <?= $estado_pago === 'todos' ? 'checked' : '' ?>
-                     onchange="this.form.submit()">
+              <input type="radio" name="estado_pago" value="todos" <?= $estado_pago === 'todos' ? 'checked' : '' ?> onchange="this.form.submit()">
               <span>Todos</span>
             </label>
           </div>
@@ -944,15 +935,13 @@ else:
       
       <?php if ($modo_especial == 1): ?>
         <div class="subtitle" style="margin-top:8px; background:#fef3c7; padding:6px 12px; border-radius:12px;">
-          📐 <strong>Modo especial activado:</strong> Interés fijo del 8% mensual calculado por días exactos. 
-          Fórmula: Capital × (0.08/30) × días transcurridos.
+          📐 <strong>Modo especial activado:</strong> Interés fijo del 8% mensual calculado por días exactos.
         </div>
       <?php else: ?>
-        <div class="subtitle">Interés variable: 13% desde 2025-10-29, 10% para préstamos anteriores. Cálculo por meses completos.</div>
+        <div class="subtitle">Interés variable: 13% desde 2025-10-29, 10% para préstamos anteriores.</div>
       <?php endif; ?>
     </div>
 
-    <!-- Resumen del filtro -->
     <?php if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $feNorm!=='' || $estado_pago !== 'no_pagados'): ?>
       <div class="resumen-filtro">
         <div class="title">Resumen del Filtro</div>
@@ -965,7 +954,7 @@ else:
             if ($fpNorm !== '') $filtros[] = "Prestamista: " . h(mbtitle($prestMap[$fpNorm] ?? $fpNorm));
             if ($feNorm !== '') $filtros[] = "Empresa: " . h(mbtitle($empMap[$feNorm] ?? $feNorm));
             $filtros[] = "Estado: " . ($estado_pago === 'todos' ? 'Todos' : ($estado_pago === 'pagados' ? 'Pagados' : 'No pagados'));
-            if ($modo_especial == 1) $filtros[] = "🔘 MODO ESPECIAL (8% por días)";
+            if ($modo_especial == 1) $filtros[] = "🔘 MODO ESPECIAL";
             echo implode(' • ', $filtros);
           ?>
         </div>
@@ -989,23 +978,11 @@ else:
           </div>
         </div>
         
-        <!-- DESGLOSE POR PRESTAMISTA - SOLO CUANDO MODO ESPECIAL ESTÁ ACTIVADO -->
         <?php if ($modo_especial == 1 && !empty($desglose_prestamistas)): ?>
           <div class="desglose-prestamistas">
-            <div class="desglose-titulo">
-              <span>💰 Desglose por Prestamista</span>
-              <span class="subtitle">(Modo 8% por días activo)</span>
-            </div>
+            <div class="desglose-titulo">💰 Desglose por Prestamista (Modo 8% activo)</div>
             <table class="desglose-tabla">
-              <thead>
-                <tr>
-                  <th>Prestamista</th>
-                  <th>Préstamos</th>
-                  <th>Capital Total</th>
-                  <th>Interés (8% por días)</th>
-                  <th>Total a Pagar</th>
-                </tr>
-              </thead>
+              <thead><tr><th>Prestamista</th><th>Préstamos</th><th>Capital</th><th>Interés</th><th>Total a Pagar</th></tr></thead>
               <tbody>
                 <?php foreach($desglose_prestamistas as $dp): ?>
                 <tr>
@@ -1035,70 +1012,30 @@ else:
     <?php if ($rs->num_rows === 0): ?>
       <div class="card"><span class="subtitle">(sin registros)</span></div>
     <?php else: ?>
-      <!-- FORM para selección múltiple + edición en lote -->
       <form id="bulkForm" class="card" method="post" action="?action=bulk_update&modo_especial=<?= $modo_especial ?>">
         <input type="hidden" name="view" value="cards">
-
         <div class="row" style="margin-bottom:8px">
           <div class="title">Selecciona tarjetas</div>
           <div class="sticky-actions" style="display:flex;gap:8px;align-items:center">
-            <label class="subtitle" style="display:flex;gap:8px;align-items:center">
-              <input id="chkAll" type="checkbox"> Seleccionar todo (página)
-            </label>
+            <label><input id="chkAll" type="checkbox"> Seleccionar todo</label>
             <button type="button" class="btn gray small" id="btnToggleBulk">✏️ Editar selección</button>
-            <!-- Botón: marcar como pagados los seleccionados -->
-            <button 
-              type="submit" 
-              class="btn small" 
-              formaction="?action=bulk_mark_paid&modo_especial=<?= $modo_especial ?>"
-              onclick="return confirm('¿Marcar como pagados los préstamos seleccionados?')">
-              ✔ Préstamo pagado
-            </button>
-            <!-- Botón: marcar como NO pagados los seleccionados -->
-            <button 
-              type="submit" 
-              class="btn gray small" 
-              formaction="?action=bulk_mark_unpaid&modo_especial=<?= $modo_especial ?>"
-              onclick="return confirm('¿Marcar como NO pagados los préstamos seleccionados?')">
-              ↩ NO pagado
-            </button>
-            <span class="badge" id="selCount">0 seleccionadas</span>
+            <button type="submit" class="btn small" formaction="?action=bulk_mark_paid&modo_especial=<?= $modo_especial ?>" onclick="return confirm('¿Marcar como pagados?')">✔ Pagado</button>
+            <button type="submit" class="btn gray small" formaction="?action=bulk_mark_unpaid&modo_especial=<?= $modo_especial ?>" onclick="return confirm('¿Marcar como NO pagados?')">↩ NO pagado</button>
+            <span class="badge" id="selCount">0</span>
           </div>
         </div>
-
         <div class="grid-cards">
           <?php while($r=$rs->fetch_assoc()):
-            // Determinar si es una comisión
             $esComision = !empty($r['comision_gestor_nombre']);
             $esPagado = (bool)($r['pagado'] ?? false);
-            
-            // Determinar clases CSS según estado
-            $cardClass = '';
-            $badgeClass = 'chip';
-            
-            if ($esComision) {
-              $cardClass = 'card-comision';
-              $badgeClass = 'comision-badge';
-            } elseif ($esPagado) {
-              $cardClass = 'card-pagado';
-              $badgeClass = 'pagado-badge';
-            }
-            
-            // Calcular porcentaje total para modo normal
-            $porcentajeTotal = 0;
-            if ($modo_especial == 0) {
-              $porcentajeTotal = (float)($r['comision_origen_porcentaje'] ?? 
-                (strtotime($r['fecha']) >= strtotime('2025-10-29') ? 13 : 10)) + 
-                (float)($r['comision_gestor_porcentaje'] ?? 0);
-            }
-            
-            // Calcular días para modo especial
+            $cardClass = $esComision ? 'card-comision' : ($esPagado ? 'card-pagado' : '');
+            $badgeClass = $esComision ? 'comision-badge' : ($esPagado ? 'pagado-badge' : 'chip');
             $diasMostrar = $modo_especial == 1 ? ($r['dias'] ?? 0) : 0;
           ?>
             <div class="card <?= $cardClass ?>">
               <div class="cardSel">
                 <input class="chkRow" type="checkbox" name="ids[]" value="<?= (int)$r['id'] ?>">
-                <div class="subtitle">#<?= h($r['id']) ?></div>
+                <div class="subtitle">#<?= $r['id'] ?></div>
                 <?php if ($modo_especial == 1): ?>
                   <span class="chip" style="background:#fef3c7; color:#92400e; margin-left:auto">📆 <?= $diasMostrar ?> días</span>
                 <?php elseif ($esComision): ?>
@@ -1107,13 +1044,9 @@ else:
                   <span class="<?= $badgeClass ?>" style="margin-left:auto">✅ Pagado</span>
                 <?php endif; ?>
               </div>
-
               <?php if (!empty($r['imagen'])): ?>
-                <a href="uploads/<?= h($r['imagen']) ?>" target="_blank">
-                  <img class="thumb" src="uploads/<?= h($r['imagen']) ?>" alt="">
-                </a>
+                <a href="uploads/<?= h($r['imagen']) ?>" target="_blank"><img class="thumb" src="uploads/<?= h($r['imagen']) ?>" alt=""></a>
               <?php endif; ?>
-
               <div class="row" style="margin-top:8px">
                 <div>
                   <div class="title"><?= h($r['deudor']) ?></div>
@@ -1121,100 +1054,22 @@ else:
                   <?php if (!empty($r['empresa'])): ?>
                     <div class="subtitle">Empresa: <strong><?= h($r['empresa']) ?></strong></div>
                   <?php endif; ?>
-                  <?php if ($esPagado && !empty($r['pagado_at'])): ?>
-                    <div class="subtitle text-pagado">Pagado el: <?= h($r['pagado_at']) ?></div>
-                  <?php endif; ?>
-                  <?php if ($modo_especial == 1): ?>
-                    <div class="subtitle" style="color:#92400e">📅 Desde: <?= h($r['fecha']) ?> • <?= $diasMostrar ?> días</div>
-                  <?php endif; ?>
                 </div>
-                <span class="chip"><?= h($r['fecha']) ?></span>
+                <span class="chip"><?= $r['fecha'] ?></span>
               </div>
-
-              <!-- Información de comisión si existe (solo en modo normal) -->
-              <?php if ($esComision && $modo_especial == 0): ?>
-                <div class="pairs comision-info" style="margin-top:8px; padding:8px; border-radius:8px;">
-                  <div class="item">
-                    <div class="k comision-text">Gestor Comisión</div>
-                    <div class="v comision-text"><?= h($r['comision_gestor_nombre']) ?></div>
-                  </div>
-                  <div class="item">
-                    <div class="k comision-text">% Comisión</div>
-                    <div class="v comision-text"><?= h($r['comision_gestor_porcentaje']) ?>%</div>
-                  </div>
-                  <div class="item">
-                    <div class="k comision-text">Base Comisión</div>
-                    <div class="v comision-text">$ <?= money($r['comision_base_monto']) ?></div>
-                  </div>
-                  <div class="item">
-                    <div class="k comision-text">Origen</div>
-                    <div class="v comision-text"><?= h($r['comision_origen_prestamista']) ?></div>
-                  </div>
-                  <div class="item">
-                    <div class="k comision-text">% Origen</div>
-                    <div class="v comision-text"><?= h($r['comision_origen_porcentaje']) ?>%</div>
-                  </div>
-                  <div class="item">
-                    <div class="k comision-text">% Total</div>
-                    <div class="v comision-text"><?= $porcentajeTotal ?>%</div>
-                  </div>
-                </div>
-              <?php endif; ?>
-
               <div class="pairs" style="margin-top:12px">
-                <div class="item">
-                  <div class="k">Monto</div>
-                  <div class="v">$ <?= money($r['monto']) ?></div>
-                </div>
+                <div class="item"><div class="k">Monto</div><div class="v">$ <?= money($r['monto']) ?></div></div>
                 <?php if ($modo_especial == 1): ?>
-                  <div class="item">
-                    <div class="k">Días / Tasa</div>
-                    <div class="v"><?= $diasMostrar ?> días • 8%</div>
-                  </div>
+                  <div class="item"><div class="k">Días / Tasa</div><div class="v"><?= $diasMostrar ?> días • 8%</div></div>
                 <?php else: ?>
-                  <div class="item">
-                    <div class="k">Meses</div>
-                    <div class="v"><?= h($r['meses'] ?? 0) ?></div>
-                  </div>
+                  <div class="item"><div class="k">Meses</div><div class="v"><?= $r['meses'] ?? 0 ?></div></div>
                 <?php endif; ?>
-                <div class="item">
-                  <div class="k">Interés</div>
-                  <div class="v">$ <?= money($r['interes_total']) ?></div>
-                </div>
-                <div class="item">
-                  <div class="k">Total</div>
-                  <div class="v">$ <?= money($r['total']) ?></div>
-                </div>
+                <div class="item"><div class="k">Interés</div><div class="v">$ <?= money($r['interes_total']) ?></div></div>
+                <div class="item"><div class="k">Total</div><div class="v">$ <?= money($r['total']) ?></div></div>
               </div>
-
-              <!-- Desglose interés si hay comisión o modo especial -->
-              <?php if ($esComision && $modo_especial == 0): ?>
-                <div class="pairs" style="margin-top:8px; font-size:12px;">
-                  <div class="item">
-                    <div class="k">Interés Prestamista</div>
-                    <div class="v">$ <?= money($r['interes_prestamista']) ?></div>
-                  </div>
-                  <div class="item">
-                    <div class="k">Comisión Gestor</div>
-                    <div class="v">$ <?= money($r['comision_gestor']) ?></div>
-                  </div>
-                </div>
-              <?php elseif ($modo_especial == 1 && (!empty($r['comision_gestor_nombre']) || !empty($r['comision_origen_prestamista']))): ?>
-                <div class="pairs" style="margin-top:8px; font-size:12px; background:#fef3c7; border-radius:8px; padding:8px;">
-                  <div class="item">
-                    <div class="k">Interés Prestamista (<?= h($r['comision_origen_porcentaje'] ?? '?') ?>%)</div>
-                    <div class="v">$ <?= money($r['interes_prestamista'] ?? 0) ?></div>
-                  </div>
-                  <div class="item">
-                    <div class="k">Comisión Gestor (<?= h($r['comision_gestor_porcentaje'] ?? '0') ?>%)</div>
-                    <div class="v">$ <?= money($r['comision_gestor'] ?? 0) ?></div>
-                  </div>
-                </div>
-              <?php endif; ?>
-
               <div class="row" style="margin-top:12px">
-                <div class="subtitle">Creado: <?= h($r['created_at']) ?></div>
-                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <div class="subtitle">Creado: <?= $r['created_at'] ?></div>
+                <div style="display:flex;gap:8px">
                   <a class="btn gray small" href="?action=edit&id=<?= $r['id'] ?>&view=cards&modo_especial=<?= $modo_especial ?>">✏️ Editar</a>
                   <button class="btn red small" type="button" onclick="submitDelete(<?= (int)$r['id'] ?>)">🗑️ Eliminar</button>
                 </div>
@@ -1222,34 +1077,16 @@ else:
             </div>
           <?php endwhile; ?>
         </div>
-
-        <!-- Panel de edición en lote -->
         <div class="bulkpanel" id="bulkPanel">
-          <div class="subtitle" style="margin-bottom:8px">
-            Aplica solo a las tarjetas seleccionadas. Deja en blanco lo que no quieras cambiar.
-          </div>
-          <div class="row" style="gap:12px;flex-wrap:wrap">
-            <div class="field" style="min-width:220px;flex:1">
-              <label>Nuevo Deudor (opcional)</label>
-              <input name="new_deudor" placeholder="Ej: Juan Pérez">
-            </div>
-            <div class="field" style="min-width:220px;flex:1">
-              <label>Nuevo Prestamista (opcional)</label>
-              <input name="new_prestamista" placeholder="Ej: ATZN">
-            </div>
-            <div class="field" style="min-width:160px">
-              <label>Nuevo Monto (opcional)</label>
-              <input name="new_monto" type="number" step="1" min="0" placeholder="Ej: 1200000">
-            </div>
-            <div class="field" style="min-width:160px">
-              <label>Nueva Fecha (opcional)</label>
-              <input name="new_fecha" type="date">
-            </div>
+          <div class="subtitle">Aplica solo a las seleccionadas. Deja en blanco lo que no quieras cambiar.</div>
+          <div class="row" style="gap:12px;flex-wrap:wrap; margin-top:8px">
+            <div class="field" style="flex:1"><label>Nuevo Deudor</label><input name="new_deudor" placeholder="Ej: Juan Pérez"></div>
+            <div class="field" style="flex:1"><label>Nuevo Prestamista</label><input name="new_prestamista" placeholder="Ej: ATZN"></div>
+            <div class="field"><label>Nuevo Monto</label><input name="new_monto" type="number" step="1" placeholder="1200000"></div>
+            <div class="field"><label>Nueva Fecha</label><input name="new_fecha" type="date"></div>
           </div>
           <div class="row" style="margin-top:10px">
-            <button class="btn" type="submit" onclick="return confirm('¿Aplicar cambios a la selección?')">
-              💾 Aplicar a seleccionadas
-            </button>
+            <button class="btn" type="submit" onclick="return confirm('¿Aplicar cambios?')">💾 Aplicar</button>
             <button class="btn gray" type="button" id="btnCloseBulk">Cerrar</button>
           </div>
         </div>
@@ -1258,189 +1095,96 @@ else:
 <?php
   $st->close();
   $conn->close();
-endif; // forms / list
+endif;
 ?>
 
-<!-- Incluir jQuery y Select2 JS -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
 <script>
-// Inicializar Select2 en los dropdowns de filtro
 $(document).ready(function() {
-  // Aplicar Select2 a los filtros
-  $('.select2-filter').select2({
-    width: '100%',
-    placeholder: 'Seleccionar...',
-    allowClear: true,
-    language: {
-      noResults: function() {
-        return "No se encontraron resultados";
-      }
-    }
-  });
+  $('.select2-filter').select2({ width: '100%', placeholder: 'Seleccionar...', allowClear: true });
+  $('#deudorSelect2').select2({ width: '100%', placeholder: 'Buscar deudor...', allowClear: true });
+  $('#prestamistaSelect2').select2({ width: '100%', placeholder: 'Buscar prestamista...', allowClear: true });
   
-  // Inicializar Select2 para deudor y prestamista en el formulario
-  $('#deudorSelect2').select2({
-    width: '100%',
-    placeholder: 'Buscar deudor...',
-    allowClear: true
-  });
+  $('#btnNuevoDeudor').click(function() { $('#modalDeudor').css('display', 'flex'); });
+  $('#btnNuevoPrestamista').click(function() { $('#modalPrestamista').css('display', 'flex'); });
   
-  $('#prestamistaSelect2').select2({
-    width: '100%',
-    placeholder: 'Buscar prestamista...',
-    allowClear: true
-  });
-  
-  // Botones para abrir modales
-  $('#btnNuevoDeudor').click(function() {
-    $('#modalDeudor').css('display', 'flex');
-  });
-  
-  $('#btnNuevoPrestamista').click(function() {
-    $('#modalPrestamista').css('display', 'flex');
-  });
-  
-  // Cerrar modal haciendo clic fuera
   window.onclick = function(event) {
-    if (event.target.classList.contains('modal')) {
-      event.target.style.display = 'none';
-    }
+    if (event.target.classList.contains('modal')) event.target.style.display = 'none';
   };
   
-  // Guardar referencia a los selects
   const empresaSelect = $('#empresaSelect');
   const deudorSelect = $('#deudorSelect');
   const estadoPagoRadios = document.querySelectorAll('input[name="estado_pago"]');
   const modoEspecialCheckbox = document.getElementById('modoEspecialToggle');
-  
   let deudorSeleccionado = deudorSelect.val();
   
-  function cargarDeudoresPorEmpresa(empresaNormalizada, estadoPago, modoEspecial) {
-    if (!empresaNormalizada) {
-      cargarTodosDeudores(estadoPago, modoEspecial);
-      return;
-    }
-    
-    deudorSelect.html('<option value="">Cargando deudores...</option>');
-    
-    fetch(`ajax_cargar_deudores.php?empresa=${encodeURIComponent(empresaNormalizada)}&estado=${estadoPago}&modo_especial=${modoEspecial}`)
-      .then(response => response.json())
-      .then(data => {
-        let options = '<option value="">Todos los deudores</option>';
-        data.forEach(deudor => {
-          const selected = (deudor.norm === deudorSeleccionado) ? 'selected' : '';
-          options += `<option value="${deudor.norm}" ${selected}>${deudor.nombre}</option>`;
-        });
-        deudorSelect.html(options);
-        deudorSelect.select2({
-          width: '100%',
-          placeholder: 'Seleccionar deudor...',
-          allowClear: true
-        });
-        if (deudorSeleccionado) {
-          deudorSelect.val(deudorSeleccionado).trigger('change');
-        }
-      })
-      .catch(error => {
-        console.error('Error cargando deudores:', error);
-        deudorSelect.html('<option value="">Error cargando deudores</option>');
-      });
+  function cargarDeudoresPorEmpresa(empresa, estado, modo) {
+    if (!empresa) { cargarTodosDeudores(estado, modo); return; }
+    deudorSelect.html('<option>Cargando...</option>');
+    fetch(`ajax_cargar_deudores.php?empresa=${encodeURIComponent(empresa)}&estado=${estado}&modo_especial=${modo}`)
+      .then(r => r.json()).then(data => {
+        let opts = '<option value="">Todos los deudores</option>';
+        data.forEach(d => opts += `<option value="${d.norm}" ${d.norm === deudorSeleccionado ? 'selected' : ''}>${d.nombre}</option>`);
+        deudorSelect.html(opts);
+        deudorSelect.select2({ width: '100%', placeholder: 'Seleccionar deudor...', allowClear: true });
+        if (deudorSeleccionado) deudorSelect.val(deudorSeleccionado).trigger('change');
+      }).catch(e => { deudorSelect.html('<option>Error</option>'); });
   }
   
-  function cargarTodosDeudores(estadoPago, modoEspecial) {
-    deudorSelect.html('<option value="">Cargando todos los deudores...</option>');
-    fetch(`ajax_cargar_deudores.php?empresa=&estado=${estadoPago}&modo_especial=${modoEspecial}`)
-      .then(response => response.json())
-      .then(data => {
-        let options = '<option value="">Todos los deudores</option>';
-        data.forEach(deudor => {
-          const selected = (deudor.norm === deudorSeleccionado) ? 'selected' : '';
-          options += `<option value="${deudor.norm}" ${selected}>${deudor.nombre}</option>`;
-        });
-        deudorSelect.html(options);
-        deudorSelect.select2({
-          width: '100%',
-          placeholder: 'Seleccionar deudor...',
-          allowClear: true
-        });
-        if (deudorSeleccionado) {
-          deudorSelect.val(deudorSeleccionado).trigger('change');
-        }
-      })
-      .catch(error => {
-        console.error('Error:', error);
-        deudorSelect.html('<option value="">Error cargando deudores</option>');
-      });
+  function cargarTodosDeudores(estado, modo) {
+    deudorSelect.html('<option>Cargando...</option>');
+    fetch(`ajax_cargar_deudores.php?empresa=&estado=${estado}&modo_especial=${modo}`)
+      .then(r => r.json()).then(data => {
+        let opts = '<option value="">Todos los deudores</option>';
+        data.forEach(d => opts += `<option value="${d.norm}" ${d.norm === deudorSeleccionado ? 'selected' : ''}>${d.nombre}</option>`);
+        deudorSelect.html(opts);
+        deudorSelect.select2({ width: '100%', placeholder: 'Seleccionar deudor...', allowClear: true });
+        if (deudorSeleccionado) deudorSelect.val(deudorSeleccionado).trigger('change');
+      }).catch(e => { deudorSelect.html('<option>Error</option>'); });
   }
   
   empresaSelect.on('change', function() {
-    const empresaNormalizada = $(this).val();
-    const estadoPago = document.querySelector('input[name="estado_pago"]:checked')?.value || 'no_pagados';
-    const modoEspecial = modoEspecialCheckbox?.checked ? 1 : 0;
+    const empresa = $(this).val();
+    const estado = document.querySelector('input[name="estado_pago"]:checked')?.value || 'no_pagados';
+    const modo = modoEspecialCheckbox?.checked ? 1 : 0;
     deudorSeleccionado = deudorSelect.val();
-    cargarDeudoresPorEmpresa(empresaNormalizada, estadoPago, modoEspecial);
+    cargarDeudoresPorEmpresa(empresa, estado, modo);
   });
   
   estadoPagoRadios.forEach(radio => {
     radio.addEventListener('change', function() {
-      const empresaNormalizada = empresaSelect.val();
-      const estadoPago = this.value;
-      const modoEspecial = modoEspecialCheckbox?.checked ? 1 : 0;
+      const empresa = empresaSelect.val();
+      const estado = this.value;
+      const modo = modoEspecialCheckbox?.checked ? 1 : 0;
       deudorSeleccionado = deudorSelect.val();
-      if (empresaNormalizada) {
-        cargarDeudoresPorEmpresa(empresaNormalizada, estadoPago, modoEspecial);
-      } else {
-        cargarTodosDeudores(estadoPago, modoEspecial);
-      }
+      if (empresa) cargarDeudoresPorEmpresa(empresa, estado, modo);
+      else cargarTodosDeudores(estado, modo);
     });
   });
 });
 
-// JS: selección múltiple + eliminar sin anidar formularios
 (function(){
   const form = document.getElementById('bulkForm');
   if(!form) return;
-
-  const chkAll   = document.getElementById('chkAll');
-  const chkRows  = Array.from(form.querySelectorAll('.chkRow'));
+  const chkAll = document.getElementById('chkAll');
+  const chkRows = Array.from(form.querySelectorAll('.chkRow'));
   const selCount = document.getElementById('selCount');
-  const panel    = document.getElementById('bulkPanel');
-  const btnTog   = document.getElementById('btnToggleBulk');
+  const panel = document.getElementById('bulkPanel');
+  const btnTog = document.getElementById('btnToggleBulk');
   const btnClose = document.getElementById('btnCloseBulk');
-
-  function updateCount(){
-    const n = chkRows.filter(c=>c.checked).length;
-    selCount.textContent = n + ' seleccionadas';
-  }
-
-  if (chkAll){
-    chkAll.addEventListener('change', () => {
-      chkRows.forEach(c => { c.checked = chkAll.checked; });
-      updateCount();
-    });
-  }
-
+  function updateCount(){ selCount.textContent = chkRows.filter(c=>c.checked).length + ' seleccionadas'; }
+  if(chkAll) chkAll.addEventListener('change', () => { chkRows.forEach(c => c.checked = chkAll.checked); updateCount(); });
   chkRows.forEach(c => c.addEventListener('change', updateCount));
   updateCount();
-
-  if (btnTog){
-    btnTog.addEventListener('click', () => {
-      const any = chkRows.some(c=>c.checked);
-      if (!any) { alert('Selecciona al menos una tarjeta para editar.'); return; }
-      panel.style.display = (panel.style.display==='none' || panel.style.display==='') ? 'block' : 'none';
-      const first = panel.querySelector('input[name="new_deudor"]');
-      if (first) first.focus();
-    });
-  }
-
-  if (btnClose){
-    btnClose.addEventListener('click', () => { panel.style.display = 'none'; });
-  }
+  if(btnTog) btnTog.addEventListener('click', () => {
+    if(!chkRows.some(c=>c.checked)) return alert('Selecciona al menos una tarjeta');
+    panel.style.display = panel.style.display === 'none' || panel.style.display === '' ? 'block' : 'none';
+  });
+  if(btnClose) btnClose.addEventListener('click', () => { panel.style.display = 'none'; });
 })();
 
-/* Eliminar: crea un form temporal POST pa no anidar forularios */
 function submitDelete(id){
   if(!confirm('¿Eliminar #'+id+'?')) return;
   const f = document.createElement('form');
