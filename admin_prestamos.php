@@ -3,6 +3,7 @@
  * admin_prestamos.php — CRUD + Tarjetas
  * - Filtro dinámico: deudores según empresa seleccionada
  * - Toggle switch: Modo 8% por días exactos
+ * - Desglose por prestamista (solo en modo especial)
  *********************************************************/
 include("nav.php");
 
@@ -49,7 +50,6 @@ $id = (int)($_GET['id'] ?? 0);
 
 // Modo de cálculo especial (8% por días exactos) - se pasa por URL o por POST
 $modo_especial = isset($_GET['modo_especial']) ? (int)$_GET['modo_especial'] : (isset($_POST['modo_especial']) ? (int)$_POST['modo_especial'] : 0);
-// También puede venir de la sesión si quieres persistencia durante la sesión, pero por ahora solo URL
 
 // ===== Upload helper =====
 function save_image($file): ?string {
@@ -343,6 +343,15 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  input:checked + .toggle-slider { background-color: #f59e0b; }
  input:checked + .toggle-slider:before { transform: translateX(26px); }
  .modo-activo-badge { background: #f59e0b; color: #fff; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; }
+
+ /* Tabla desglose por prestamista */
+ .desglose-prestamistas { margin-top: 16px; border-top: 1px solid #e5e7eb; padding-top: 12px; }
+ .desglose-tabla { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+ .desglose-tabla th, .desglose-tabla td { padding: 10px 8px; text-align: left; border-bottom: 1px solid #e5e7eb; }
+ .desglose-tabla th { background: #f8fafc; font-weight: 700; color: #1e293b; }
+ .desglose-tabla tr:hover { background: #fef3c7; }
+ .desglose-tabla .total-row { background: #fef3c7; font-weight: 700; border-top: 2px solid #fde68a; }
+ .desglose-titulo { font-size: 14px; font-weight: 700; color: #92400e; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
 </style>
 </head><body>
 
@@ -625,53 +634,78 @@ else:
   $st->execute();
   $rs=$st->get_result();
 
-  // Calcular sumas para el rango de fechas / filtros seleccionado
-  $sumas = ['capital' => 0, 'interes' => 0, 'total' => 0, 'count' => 0];
+  // ============================================================
+  // DESGLOSE POR PRESTAMISTA (SOLO MODO ESPECIAL)
+  // ============================================================
+  $desglose_prestamistas = [];
+  $resumen_general = ['capital' => 0, 'interes' => 0, 'total' => 0, 'count' => 0];
   
-  // Para el modo especial, necesitamos un query diferente para sumas
-  if ($modo_especial == 1 && ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $feNorm !== '' || $estado_pago !== 'no_pagados')) {
-    $sqlSumas = "
+  if ($modo_especial == 1) {
+    // Construir query de desglose por prestamista
+    $sqlDesglose = "
       SELECT 
-        COUNT(*) AS n,
-        SUM(monto) AS capital,
-        SUM(monto * 0.08 / 30 * GREATEST(0, DATEDIFF(CURDATE(), fecha))) AS interes,
-        SUM(monto + (monto * 0.08 / 30 * GREATEST(0, DATEDIFF(CURDATE(), fecha)))) AS total
+        prestamista,
+        COUNT(*) AS num_prestamos,
+        SUM(monto) AS capital_total,
+        SUM(monto * 0.08 / 30 * GREATEST(0, DATEDIFF(CURDATE(), fecha))) AS interes_total,
+        SUM(monto + (monto * 0.08 / 30 * GREATEST(0, DATEDIFF(CURDATE(), fecha)))) AS total_a_pagar
       FROM prestamos
       WHERE $where
+      GROUP BY prestamista
+      ORDER BY prestamista
     ";
-    $stSumas=$conn->prepare($sqlSumas);
-    if($types) $stSumas->bind_param($types, ...$params);
-    $stSumas->execute();
-    $sumas = $stSumas->get_result()->fetch_assoc() ?: $sumas;
-    $stSumas->close();
-  } elseif ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $feNorm !== '' || $estado_pago !== 'no_pagados') {
-    $sqlSumas = "
-      SELECT 
-        COUNT(*) AS n,
-        SUM(monto) AS capital,
-        SUM(((monto * 
-              CASE 
-                WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
-                ELSE COALESCE(comision_origen_porcentaje, 10)
-              END / 100) + 
-            (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
-            CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes,
-        SUM(monto + 
-            (((monto * 
+    $stDesglose = $conn->prepare($sqlDesglose);
+    if($types) $stDesglose->bind_param($types, ...$params);
+    $stDesglose->execute();
+    $rsDesglose = $stDesglose->get_result();
+    
+    while($rowDesg = $rsDesglose->fetch_assoc()) {
+      $desglose_prestamistas[] = $rowDesg;
+      $resumen_general['capital'] += $rowDesg['capital_total'];
+      $resumen_general['interes'] += $rowDesg['interes_total'];
+      $resumen_general['total'] += $rowDesg['total_a_pagar'];
+      $resumen_general['count'] += $rowDesg['num_prestamos'];
+    }
+    $stDesglose->close();
+  } else {
+    // Modo normal: sumas generales sin desglose
+    if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $feNorm !== '' || $estado_pago !== 'no_pagados') {
+      $sqlSumas = "
+        SELECT 
+          COUNT(*) AS n,
+          SUM(monto) AS capital,
+          SUM(((monto * 
                 CASE 
                   WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
                   ELSE COALESCE(comision_origen_porcentaje, 10)
                 END / 100) + 
               (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
-              CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
-      FROM prestamos
-      WHERE $where
-    ";
-    $stSumas=$conn->prepare($sqlSumas);
-    if($types) $stSumas->bind_param($types, ...$params);
-    $stSumas->execute();
-    $sumas = $stSumas->get_result()->fetch_assoc() ?: $sumas;
-    $stSumas->close();
+              CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes,
+          SUM(monto + 
+              (((monto * 
+                  CASE 
+                    WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
+                    ELSE COALESCE(comision_origen_porcentaje, 10)
+                  END / 100) + 
+                (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
+                CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
+        FROM prestamos
+        WHERE $where
+      ";
+      $stSumas = $conn->prepare($sqlSumas);
+      if($types) $stSumas->bind_param($types, ...$params);
+      $stSumas->execute();
+      $sumasNorm = $stSumas->get_result()->fetch_assoc();
+      if($sumasNorm) {
+        $resumen_general = [
+          'count' => $sumasNorm['n'],
+          'capital' => $sumasNorm['capital'],
+          'interes' => $sumasNorm['interes'],
+          'total' => $sumasNorm['total']
+        ];
+      }
+      $stSumas->close();
+    }
   }
 ?>
     <!-- Toolbar de filtros -->
@@ -778,7 +812,7 @@ else:
       <?php endif; ?>
     </div>
 
-    <!-- Resumen cuando hay filtros -->
+    <!-- Resumen del filtro (siempre visible cuando hay filtros) -->
     <?php if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $feNorm!=='' || $estado_pago !== 'no_pagados'): ?>
       <div class="resumen-filtro">
         <div class="title">Resumen del Filtro</div>
@@ -795,24 +829,67 @@ else:
             echo implode(' • ', $filtros);
           ?>
         </div>
+        
+        <!-- Resumen general (siempre visible) -->
         <div class="resumen-grid">
           <div class="resumen-item">
-            <div class="resumen-valor"><?= (int)($sumas['n'] ?? $sumas['count'] ?? 0) ?></div>
+            <div class="resumen-valor"><?= (int)($resumen_general['count'] ?? 0) ?></div>
             <div class="resumen-label">Préstamos</div>
           </div>
           <div class="resumen-item">
-            <div class="resumen-valor">$ <?= money($sumas['capital'] ?? 0) ?></div>
+            <div class="resumen-valor">$ <?= money($resumen_general['capital'] ?? 0) ?></div>
             <div class="resumen-label">Capital</div>
           </div>
           <div class="resumen-item">
-            <div class="resumen-valor">$ <?= money($sumas['interes'] ?? 0) ?></div>
+            <div class="resumen-valor">$ <?= money($resumen_general['interes'] ?? 0) ?></div>
             <div class="resumen-label">Interés</div>
           </div>
           <div class="resumen-item">
-            <div class="resumen-valor">$ <?= money($sumas['total'] ?? 0) ?></div>
+            <div class="resumen-valor">$ <?= money($resumen_general['total'] ?? 0) ?></div>
             <div class="resumen-label">Total</div>
           </div>
         </div>
+        
+        <!-- DESGLOSE POR PRESTAMISTA - SOLO CUANDO MODO ESPECIAL ESTÁ ACTIVADO -->
+        <?php if ($modo_especial == 1 && !empty($desglose_prestamistas)): ?>
+          <div class="desglose-prestamistas">
+            <div class="desglose-titulo">
+              <span>💰 Desglose por Prestamista</span>
+              <span class="subtitle">(Modo 8% por días activo)</span>
+            </div>
+            <table class="desglose-tabla">
+              <thead>
+                <tr>
+                  <th>Prestamista</th>
+                  <th>Préstamos</th>
+                  <th>Capital Total</th>
+                  <th>Interés (8% por días)</th>
+                  <th>Total a Pagar</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php foreach($desglose_prestamistas as $dp): ?>
+                <tr>
+                  <td><strong><?= h(mbtitle($dp['prestamista'])) ?></strong></td>
+                  <td><?= (int)$dp['num_prestamos'] ?></td>
+                  <td>$ <?= money($dp['capital_total']) ?></td>
+                  <td>$ <?= money($dp['interes_total']) ?></td>
+                  <td><strong>$ <?= money($dp['total_a_pagar']) ?></strong></td>
+                </tr>
+                <?php endforeach; ?>
+              </tbody>
+              <tfoot>
+                <tr class="total-row">
+                  <td><strong>TOTAL GENERAL</strong></td>
+                  <td><strong><?= (int)($resumen_general['count'] ?? 0) ?></strong></td>
+                  <td><strong>$ <?= money($resumen_general['capital'] ?? 0) ?></strong></td>
+                  <td><strong>$ <?= money($resumen_general['interes'] ?? 0) ?></strong></td>
+                  <td><strong>$ <?= money($resumen_general['total'] ?? 0) ?></strong></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        <?php endif; ?>
       </div>
     <?php endif; ?>
 
