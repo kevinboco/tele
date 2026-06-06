@@ -1,9 +1,8 @@
-<?php
+}<?php
 /*********************************************************
  * admin_prestamos.php — CRUD + Tarjetas
  * - Filtro dinámico: deudores según empresa seleccionada
  * - Dropdowns con búsqueda (Select2)
- * - Jorge Eduardo Palmar: interés 8% por días corridos
  *********************************************************/
 include("nav.php");
 
@@ -41,22 +40,8 @@ function go($url){
   exit;
 }
 
-function mbnorm($s){ return mb_strtolower(trim(preg_replace('/\s+/', ' ', (string)$s)),'UTF-8'); }
+function mbnorm($s){ return mb_strtolower(trim((string)$s),'UTF-8'); }
 function mbtitle($s){ return function_exists('mb_convert_case') ? mb_convert_case((string)$s, MB_CASE_TITLE, 'UTF-8') : ucwords(strtolower((string)$s)); }
-
-// Función mejorada para detectar si es Jorge Eduardo Palmar (flexible)
-function esJorgeEduardoPalmar($prestamista): bool {
-    $normalizado = mbnorm($prestamista);
-    // Buscar que contenga "jorge" y "palmar" (sin importar espacios o mayúsculas)
-    return str_contains($normalizado, 'jorge') && str_contains($normalizado, 'palmar');
-}
-
-// Función para calcular días corridos (para préstamos de Jorge)
-function calcularDias($fecha) {
-    if (strtotime($fecha) > strtotime(date('Y-m-d'))) return 0;
-    $diff = date_diff(date_create($fecha), date_create(date('Y-m-d')));
-    return $diff->days;
-}
 
 $action = $_GET['action'] ?? 'list';
 $view   = 'cards'; // Solo tarjetas
@@ -316,10 +301,6 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  .comision-badge { background: #0b5ed7 !important; color: white !important; }
  .comision-info { background: #EAF5FF !important; border: 1px solid #BAE6FD !important; }
  .comision-text { color: #0369A1 !important; font-weight: 600; }
- 
- /* Estilo especial para préstamos de Jorge Eduardo Palmar */
- .card-jorge { border-left: 4px solid #8b5cf6; background: #f5f3ff !important; }
- .jorge-badge { background: #8b5cf6 !important; color: white !important; }
 
  /* Estilos para resumen de filtros */
  .resumen-filtro { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
@@ -539,100 +520,48 @@ else:
     $types.="s"; $params[]=$fecha_hasta;
   }
 
-  // SQL CON LÓGICA MEJORADA PARA JORGE EDUARDO PALMAR (usando LIKE para detección flexible)
+  // Incluir campo pagado y calcular interés correctamente con tasa variable
   $sql = "
-      SELECT 
-          id, deudor, prestamista, monto, fecha, imagen, created_at, pagado, pagado_at,
-          empresa,
-          comision_gestor_nombre, comision_gestor_porcentaje, comision_base_monto, 
-          comision_origen_prestamista, comision_origen_porcentaje,
-          
-          /* --- CÁLCULO DE DÍAS PARA PRÉSTAMOS DE JORGE --- */
-          CASE 
-              WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN
-                  CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END
-              ELSE 0
-          END AS dias,
-          
-          /* --- CÁLCULO DE MESES PARA PRÉSTAMOS NORMALES --- */
-          CASE 
-              WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN 0
-              WHEN CURDATE() < fecha THEN 0 
-              ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 
-          END AS meses,
-          
-          /* --- INTERÉS PRESTAMISTA (JORGE: 8% POR DÍAS) --- */
-          CASE 
-              WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN
-                  ROUND(monto * 0.08 / 365 * CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END, 0)
-              ELSE
-                  ROUND(monto * 
-                      CASE 
-                          WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
-                          ELSE COALESCE(comision_origen_porcentaje, 10)
-                      END / 100 *
-                      CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END, 0)
-          END AS interes_prestamista,
-          
-          /* --- COMISIÓN GESTOR (Jorge: basado en días / 30.44) --- */
-          ROUND(COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100 *
+      SELECT id,deudor,prestamista,monto,fecha,imagen,created_at,pagado,pagado_at,
+             empresa,
+             comision_gestor_nombre, comision_gestor_porcentaje, comision_base_monto, 
+             comision_origen_prestamista, comision_origen_porcentaje,
+             CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS meses,
+             
+             /* Interés del prestamista (dueño del capital) - TASA VARIABLE */
+             (monto * 
               CASE 
-                  WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN
-                      CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END / 30.44
-                  ELSE
-                      CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
-              END, 0) AS comision_gestor,
-          
-          /* --- INTERÉS TOTAL --- */
-          ROUND(
-              (CASE 
-                  WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN
-                      /* Jorge: 8% por días */
-                      monto * 0.08 / 365 * CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END
-                  ELSE
-                      /* Normal: interés mensual */
-                      monto * 
-                          CASE 
-                              WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
-                              ELSE COALESCE(comision_origen_porcentaje, 10)
-                          END / 100 *
-                          CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
-              END) +
-              (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100 *
-                  CASE 
-                      WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN
-                          CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END / 30.44
-                      ELSE
-                          CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
-                  END)
-          , 0) AS interes_total,
-          
-          /* --- TOTAL A PAGAR --- */
-          ROUND(monto + 
-              (CASE 
-                  WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN
-                      monto * 0.08 / 365 * CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END
-                  ELSE
-                      monto * 
-                          CASE 
-                              WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
-                              ELSE COALESCE(comision_origen_porcentaje, 10)
-                          END / 100 *
-                          CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
-              END) +
-              (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100 *
-                  CASE 
-                      WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN
-                          CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END / 30.44
-                      ELSE
-                          CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
-                  END)
-          , 0) AS total
+                WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
+                ELSE COALESCE(comision_origen_porcentaje, 10)
+              END / 100 *
+              CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes_prestamista,
+             
+             /* Comisión del gestor */
+             (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100 *
+              CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS comision_gestor,
+             
+             /* Interés total (prestamista + gestor) */
+             ((monto * 
+               CASE 
+                 WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
+                 ELSE COALESCE(comision_origen_porcentaje, 10)
+               END / 100) + 
+              (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
+              CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS interes_total,
+             
+             /* Total a pagar (monto + interés total) */
+             (monto + 
+              (((monto * 
+                CASE 
+                  WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
+                  ELSE COALESCE(comision_origen_porcentaje, 10)
+                END / 100) + 
+               (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
+               CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
               
       FROM prestamos
       WHERE $where
       ORDER BY pagado ASC, id DESC";
-      
   $st=$conn->prepare($sql);
   if($types) $st->bind_param($types, ...$params);
   $st->execute();
@@ -644,46 +573,21 @@ else:
     $sqlSumas = "
         SELECT COUNT(*) AS n,
                SUM(monto) AS capital,
-               SUM(
-                   CASE 
-                       WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN
-                           ROUND(monto * 0.08 / 365 * CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END, 0)
-                       ELSE
-                           ROUND(monto * 
-                               CASE 
-                                   WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
-                                   ELSE COALESCE(comision_origen_porcentaje, 10)
-                               END / 100 *
-                               CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END, 0)
-                   END +
-                   ROUND(COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100 *
-                       CASE 
-                           WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN
-                               CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END / 30.44
-                           ELSE
-                               CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
-                       END, 0)
-               ) AS interes,
+               SUM(((monto * 
+                    CASE 
+                      WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
+                      ELSE COALESCE(comision_origen_porcentaje, 10)
+                    END / 100) + 
+                   (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
+                   CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes,
                SUM(monto + 
-                   CASE 
-                       WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN
-                           ROUND(monto * 0.08 / 365 * CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END, 0)
-                       ELSE
-                           ROUND(monto * 
-                               CASE 
-                                   WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
-                                   ELSE COALESCE(comision_origen_porcentaje, 10)
-                               END / 100 *
-                               CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END, 0)
-                   END +
-                   ROUND(COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100 *
-                       CASE 
-                           WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN
-                               CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END / 30.44
-                           ELSE
-                               CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
-                       END, 0)
-               ) AS total
+                   (((monto * 
+                     CASE 
+                       WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
+                       ELSE COALESCE(comision_origen_porcentaje, 10)
+                     END / 100) + 
+                    (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
+                    CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
         FROM prestamos
         WHERE $where";
     $stSumas=$conn->prepare($sqlSumas);
@@ -771,7 +675,7 @@ else:
           <a class="btn gray" href="?view=cards">Quitar filtro</a>
         <?php endif; ?>
       </form>
-      <div class="subtitle">Interés variable: 13% desde 2025-10-29, 10% para préstamos anteriores. <strong>Jorge Eduardo Palmar: 8% anual por días corridos.</strong></div>
+      <div class="subtitle">Interés variable: 13% desde 2025-10-29, 10% para préstamos anteriores.</div>
     </div>
 
     <!-- Resumen cuando hay filtros -->
@@ -850,16 +754,12 @@ else:
             // Determinar si es una comisión
             $esComision = !empty($r['comision_gestor_nombre']);
             $esPagado = (bool)($r['pagado'] ?? false);
-            $esJorge = (stripos($r['prestamista'], 'jorge') !== false && stripos($r['prestamista'], 'palmar') !== false);
             
             // Determinar clases CSS según estado
             $cardClass = '';
             $badgeClass = 'chip';
             
-            if ($esJorge) {
-              $cardClass = 'card-jorge';
-              $badgeClass = 'jorge-badge';
-            } elseif ($esComision) {
+            if ($esComision) {
               $cardClass = 'card-comision';
               $badgeClass = 'comision-badge';
             } elseif ($esPagado) {
@@ -868,22 +768,15 @@ else:
             }
             
             // Calcular porcentaje total
-            $porcentajeTotal = 0;
-            if ($esJorge) {
-              $porcentajeTotal = 8; // Jorge tiene 8% fijo
-            } else {
-              $porcentajeTotal = (float)($r['comision_origen_porcentaje'] ?? 
-                (strtotime($r['fecha']) >= strtotime('2025-10-29') ? 13 : 10)) + 
-                (float)($r['comision_gestor_porcentaje'] ?? 0);
-            }
+            $porcentajeTotal = (float)($r['comision_origen_porcentaje'] ?? 
+              (strtotime($r['fecha']) >= strtotime('2025-10-29') ? 13 : 10)) + 
+              (float)($r['comision_gestor_porcentaje'] ?? 0);
           ?>
             <div class="card <?= $cardClass ?>">
               <div class="cardSel">
                 <input class="chkRow" type="checkbox" name="ids[]" value="<?= (int)$r['id'] ?>">
                 <div class="subtitle">#<?= h($r['id']) ?></div>
-                <?php if ($esJorge): ?>
-                  <span class="<?= $badgeClass ?>" style="margin-left:auto">👤 Jorge E. Palmar (8% por días)</span>
-                <?php elseif ($esComision): ?>
+                <?php if ($esComision): ?>
                   <span class="<?= $badgeClass ?>" style="margin-left:auto">💰 Comisión</span>
                 <?php elseif ($esPagado): ?>
                   <span class="<?= $badgeClass ?>" style="margin-left:auto">✅ Pagado</span>
@@ -910,8 +803,8 @@ else:
                 <span class="chip"><?= h($r['fecha']) ?></span>
               </div>
 
-              <!-- Información de comisión si existe y no es Jorge -->
-              <?php if ($esComision && !$esJorge): ?>
+              <!-- Información de comisión si existe -->
+              <?php if ($esComision): ?>
                 <div class="pairs comision-info" style="margin-top:8px; padding:8px; border-radius:8px;">
                   <div class="item">
                     <div class="k comision-text">Gestor Comisión</div>
@@ -938,17 +831,6 @@ else:
                     <div class="v comision-text"><?= $porcentajeTotal ?>%</div>
                   </div>
                 </div>
-              <?php elseif ($esJorge): ?>
-                <div class="pairs" style="margin-top:8px; padding:8px; border-radius:8px; background:#f3e8ff; border:1px solid #d8b4fe;">
-                  <div class="item">
-                    <div class="k">Tasa especial</div>
-                    <div class="v">8% anual (por días corridos)</div>
-                  </div>
-                  <div class="item">
-                    <div class="k">Días transcurridos</div>
-                    <div class="v"><?= (int)$r['dias'] ?> días</div>
-                  </div>
-                </div>
               <?php endif; ?>
 
               <div class="pairs" style="margin-top:12px">
@@ -957,8 +839,8 @@ else:
                   <div class="v">$ <?= money($r['monto']) ?></div>
                 </div>
                 <div class="item">
-                  <div class="k"><?= $esJorge ? 'Días' : 'Meses' ?></div>
-                  <div class="v"><?= $esJorge ? h($r['dias']) : h($r['meses']) ?></div>
+                  <div class="k">Meses</div>
+                  <div class="v"><?= h($r['meses']) ?></div>
                 </div>
                 <div class="item">
                   <div class="k">Interés</div>
@@ -970,8 +852,8 @@ else:
                 </div>
               </div>
 
-              <!-- Desglose interés si hay comisión o es Jorge -->
-              <?php if ($esComision && !$esJorge): ?>
+              <!-- Desglose interés si hay comisión -->
+              <?php if ($esComision): ?>
                 <div class="pairs" style="margin-top:8px; font-size:12px;">
                   <div class="item">
                     <div class="k">Interés Prestamista</div>
@@ -980,13 +862,6 @@ else:
                   <div class="item">
                     <div class="k">Comisión Gestor</div>
                     <div class="v">$ <?= money($r['comision_gestor']) ?></div>
-                  </div>
-                </div>
-              <?php elseif ($esJorge): ?>
-                <div class="pairs" style="margin-top:8px; font-size:12px;">
-                  <div class="item">
-                    <div class="k">Interés Jorge (8% días)</div>
-                    <div class="v">$ <?= money($r['interes_prestamista']) ?></div>
                   </div>
                 </div>
               <?php endif; ?>
