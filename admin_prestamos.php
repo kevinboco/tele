@@ -989,7 +989,7 @@ $(document).ready(function() {
       });
   }
   
-  // Función para cargar todos los deudores
+  // Función para cargar todos los deudore
   function cargarTodosDeudores(estadoPago) {
     // Mostrar loading
     deudorSelect.html('<option value="">Cargando todos los deudores...</option>');
