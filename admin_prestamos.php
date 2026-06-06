@@ -46,32 +46,10 @@ function go($url){
 function mbnorm($s){ return mb_strtolower(trim((string)$s),'UTF-8'); }
 function mbtitle($s){ return function_exists('mb_convert_case') ? mb_convert_case((string)$s, MB_CASE_TITLE, 'UTF-8') : ucwords(strtolower((string)$s)); }
 
-$action = $_GET['action'] ?? 'list';
-$view   = 'cards'; // Solo tarjetas
-$id = (int)($_GET['id'] ?? 0);
+// ===== PRIMERO: Manejar todas las peticiones AJAX antes que cualquier otra cosa =====
 
-// Modo de cálculo especial (8% por días exactos) - se pasa por URL o por POST
-$modo_especial = isset($_GET['modo_especial']) ? (int)$_GET['modo_especial'] : (isset($_POST['modo_especial']) ? (int)$_POST['modo_especial'] : 0);
-
-// ===== Upload helper =====
-function save_image($file): ?string {
-  if (empty($file) || ($file['error']??4) === 4) return null;
-  if ($file['error'] !== UPLOAD_ERR_OK) return null;
-  if ($file['size'] > MAX_UPLOAD_BYTES) return null;
-  $finfo = new finfo(FILEINFO_MIME_TYPE);
-  $mime = $finfo->file($file['tmp_name']);
-  $ext = match ($mime) {
-    'image/jpeg'=>'jpg','image/png'=>'png','image/webp'=>'webp','image/gif'=>'gif',
-    default=>null
-  };
-  if(!$ext) return null;
-  $name = time().'_'.bin2hex(random_bytes(4)).'.'.$ext;
-  if (!move_uploaded_file($file['tmp_name'], UPLOAD_DIR.$name)) return null;
-  return $name;
-}
-
-// ===== AJAX para buscar/crear deudores =====
-if ($action === 'ajax_deudores' && isset($_GET['q'])) {
+// AJAX para buscar deudores
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'deudores' && isset($_GET['q'])) {
   header('Content-Type: application/json');
   $search = trim($_GET['q']);
   $conn = db();
@@ -103,7 +81,7 @@ if ($action === 'ajax_deudores' && isset($_GET['q'])) {
 }
 
 // AJAX para crear nuevo deudor
-if ($action === 'ajax_crear_deudor' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'crear_deudor' && $_SERVER['REQUEST_METHOD'] === 'POST') {
   header('Content-Type: application/json');
   $nombre = trim($_POST['nombre'] ?? '');
   if ($nombre === '') {
@@ -139,7 +117,7 @@ if ($action === 'ajax_crear_deudor' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // AJAX para buscar prestamistas
-if ($action === 'ajax_prestamistas' && isset($_GET['q'])) {
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'prestamistas' && isset($_GET['q'])) {
   header('Content-Type: application/json');
   $search = trim($_GET['q']);
   $conn = db();
@@ -171,7 +149,7 @@ if ($action === 'ajax_prestamistas' && isset($_GET['q'])) {
 }
 
 // AJAX para crear nuevo prestamista
-if ($action === 'ajax_crear_prestamista' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+if (isset($_GET['ajax']) && $_GET['ajax'] === 'crear_prestamista' && $_SERVER['REQUEST_METHOD'] === 'POST') {
   header('Content-Type: application/json');
   $nombre = trim($_POST['nombre'] ?? '');
   if ($nombre === '') {
@@ -204,6 +182,30 @@ if ($action === 'ajax_crear_prestamista' && $_SERVER['REQUEST_METHOD'] === 'POST
   $stmt->close();
   $conn->close();
   exit;
+}
+
+$action = $_GET['action'] ?? 'list';
+$view   = 'cards'; // Solo tarjetas
+$id = (int)($_GET['id'] ?? 0);
+
+// Modo de cálculo especial (8% por días exactos) - se pasa por URL o por POST
+$modo_especial = isset($_GET['modo_especial']) ? (int)$_GET['modo_especial'] : (isset($_POST['modo_especial']) ? (int)$_POST['modo_especial'] : 0);
+
+// ===== Upload helper =====
+function save_image($file): ?string {
+  if (empty($file) || ($file['error']??4) === 4) return null;
+  if ($file['error'] !== UPLOAD_ERR_OK) return null;
+  if ($file['size'] > MAX_UPLOAD_BYTES) return null;
+  $finfo = new finfo(FILEINFO_MIME_TYPE);
+  $mime = $finfo->file($file['tmp_name']);
+  $ext = match ($mime) {
+    'image/jpeg'=>'jpg','image/png'=>'png','image/webp'=>'webp','image/gif'=>'gif',
+    default=>null
+  };
+  if(!$ext) return null;
+  $name = time().'_'.bin2hex(random_bytes(4)).'.'.$ext;
+  if (!move_uploaded_file($file['tmp_name'], UPLOAD_DIR.$name)) return null;
+  return $name;
 }
 
 /* ===== Acción: Edición en Lote desde TARJETAS ===== */
@@ -1328,8 +1330,8 @@ endif;
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
 <script>
-// Inicializar Select2 en los dropdowns de filtro
 $(document).ready(function() {
+  // Select2 para filtros
   $('.select2-filter').select2({
     width: '100%',
     placeholder: 'Seleccionar...',
@@ -1347,7 +1349,7 @@ $(document).ready(function() {
     placeholder: 'Buscar o agregar deudor...',
     allowClear: true,
     ajax: {
-      url: '?action=ajax_deudores',
+      url: '?ajax=deudores',
       dataType: 'json',
       delay: 300,
       data: function(params) {
@@ -1357,15 +1359,6 @@ $(document).ready(function() {
         return { results: data.results };
       },
       cache: true
-    },
-    createTag: function(params) {
-      var term = $.trim(params.term);
-      if (term === '') return null;
-      return {
-        id: term,
-        text: term,
-        newTag: true
-      };
     },
     createTag: function(params) {
       var term = $.trim(params.term);
@@ -1396,7 +1389,7 @@ $(document).ready(function() {
     if (data.newTag) {
       var nuevoNombre = data.originalText || data.id;
       $.ajax({
-        url: '?action=ajax_crear_deudor',
+        url: '?ajax=crear_deudor',
         type: 'POST',
         data: { nombre: nuevoNombre },
         dataType: 'json',
@@ -1409,7 +1402,8 @@ $(document).ready(function() {
             alert('Error al crear deudor: ' + (res.error || 'desconocido'));
           }
         },
-        error: function() {
+        error: function(xhr, status, error) {
+          console.error('Error:', error);
           alert('Error de conexión al crear deudor');
         }
       });
@@ -1426,7 +1420,7 @@ $(document).ready(function() {
     placeholder: 'Buscar o agregar prestamista...',
     allowClear: true,
     ajax: {
-      url: '?action=ajax_prestamistas',
+      url: '?ajax=prestamistas',
       dataType: 'json',
       delay: 300,
       data: function(params) {
@@ -1466,7 +1460,7 @@ $(document).ready(function() {
     if (data.newTag) {
       var nuevoNombre = data.originalText || data.id;
       $.ajax({
-        url: '?action=ajax_crear_prestamista',
+        url: '?ajax=crear_prestamista',
         type: 'POST',
         data: { nombre: nuevoNombre },
         dataType: 'json',
@@ -1479,7 +1473,8 @@ $(document).ready(function() {
             alert('Error al crear prestamista: ' + (res.error || 'desconocido'));
           }
         },
-        error: function() {
+        error: function(xhr, status, error) {
+          console.error('Error:', error);
           alert('Error de conexión al crear prestamista');
         }
       });
