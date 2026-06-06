@@ -2,9 +2,10 @@
 /*********************************************************
  * admin_prestamos.php — CRUD + Tarjetas
  * - Filtro dinámico: deudores según empresa seleccionada
+ * - Dropdowns con búsqueda (Select2)
  * - Toggle switch: Modo 8% por días exactos
  * - Desglose por prestamista (solo en modo especial)
- * - Select2 con búsqueda y creación para Deudor/Prestamista
+ * - Select2 con datos desde deudores_admin y prestamistas_admin
  *********************************************************/
 include("nav.php");
 
@@ -15,10 +16,10 @@ define('DB_PASS', 'Bucaramanga3011');
 define('DB_NAME', 'u648222299_viajes');
 const UPLOAD_DIR = __DIR__ . '/uploads/';
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const DEFAULT_OWNER_CHAT_ID = 6133806918;
 
 // URL absoluta para volver a Tarjetas después del bulk update
 const BASE_URL = 'https://asociacion.asociaciondetransportistaszonanorte.io/tele/admin_prestamos.php';
-const DEFAULT_OWNER_CHAT_ID = 6133806918; // Owner fijo para nuevos deudores/prestamistas
 
 if (!is_dir(UPLOAD_DIR)) @mkdir(UPLOAD_DIR, 0775, true);
 
@@ -46,150 +47,36 @@ function go($url){
 function mbnorm($s){ return mb_strtolower(trim((string)$s),'UTF-8'); }
 function mbtitle($s){ return function_exists('mb_convert_case') ? mb_convert_case((string)$s, MB_CASE_TITLE, 'UTF-8') : ucwords(strtolower((string)$s)); }
 
-// ===== PRIMERO: Manejar todas las peticiones AJAX antes que cualquier otra cosa =====
-
-// AJAX para buscar deudores
-if (isset($_GET['ajax']) && $_GET['ajax'] === 'deudores' && isset($_GET['q'])) {
-  header('Content-Type: application/json');
-  $search = trim($_GET['q']);
-  $conn = db();
-  $results = [];
-  
-  if ($search !== '') {
-    $stmt = $conn->prepare("SELECT id, nombre FROM deudores_admin WHERE owner_chat_id = ? AND LOWER(nombre) LIKE LOWER(?) ORDER BY nombre LIMIT 20");
-    $like = "%{$search}%";
-    $stmt->bind_param("is", DEFAULT_OWNER_CHAT_ID, $like);
-    $stmt->execute();
-    $res = $stmt->get_result();
-    while ($row = $res->fetch_assoc()) {
-      $results[] = ['id' => $row['id'], 'text' => $row['nombre']];
-    }
-    $stmt->close();
-  } else {
-    $stmt = $conn->prepare("SELECT id, nombre FROM deudores_admin WHERE owner_chat_id = ? ORDER BY nombre LIMIT 30");
-    $stmt->bind_param("i", DEFAULT_OWNER_CHAT_ID);
-    $stmt->execute();
-    $res = $stmt->get_result();
-    while ($row = $res->fetch_assoc()) {
-      $results[] = ['id' => $row['id'], 'text' => $row['nombre']];
-    }
-    $stmt->close();
-  }
-  $conn->close();
-  echo json_encode(['results' => $results]);
-  exit;
-}
-
-// AJAX para crear nuevo deudor
-if (isset($_GET['ajax']) && $_GET['ajax'] === 'crear_deudor' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-  header('Content-Type: application/json');
-  $nombre = trim($_POST['nombre'] ?? '');
-  if ($nombre === '') {
-    echo json_encode(['success' => false, 'error' => 'Nombre vacío']);
-    exit;
-  }
-  $conn = db();
-  // Verificar si ya existe
-  $stmt = $conn->prepare("SELECT id FROM deudores_admin WHERE owner_chat_id = ? AND LOWER(nombre) = LOWER(?)");
-  $stmt->bind_param("is", DEFAULT_OWNER_CHAT_ID, $nombre);
-  $stmt->execute();
-  $res = $stmt->get_result();
-  if ($row = $res->fetch_assoc()) {
-    echo json_encode(['success' => true, 'id' => $row['id'], 'text' => $nombre]);
-    $stmt->close();
-    $conn->close();
-    exit;
-  }
-  $stmt->close();
-  
-  // Insertar nuevo
-  $stmt = $conn->prepare("INSERT INTO deudores_admin (owner_chat_id, nombre) VALUES (?, ?)");
-  $stmt->bind_param("is", DEFAULT_OWNER_CHAT_ID, $nombre);
-  if ($stmt->execute()) {
-    $newId = $conn->insert_id;
-    echo json_encode(['success' => true, 'id' => $newId, 'text' => $nombre]);
-  } else {
-    echo json_encode(['success' => false, 'error' => $conn->error]);
-  }
-  $stmt->close();
-  $conn->close();
-  exit;
-}
-
-// AJAX para buscar prestamistas
-if (isset($_GET['ajax']) && $_GET['ajax'] === 'prestamistas' && isset($_GET['q'])) {
-  header('Content-Type: application/json');
-  $search = trim($_GET['q']);
-  $conn = db();
-  $results = [];
-  
-  if ($search !== '') {
-    $stmt = $conn->prepare("SELECT id, nombre FROM prestamistas_admin WHERE owner_chat_id = ? AND LOWER(nombre) LIKE LOWER(?) ORDER BY nombre LIMIT 20");
-    $like = "%{$search}%";
-    $stmt->bind_param("is", DEFAULT_OWNER_CHAT_ID, $like);
-    $stmt->execute();
-    $res = $stmt->get_result();
-    while ($row = $res->fetch_assoc()) {
-      $results[] = ['id' => $row['id'], 'text' => $row['nombre']];
-    }
-    $stmt->close();
-  } else {
-    $stmt = $conn->prepare("SELECT id, nombre FROM prestamistas_admin WHERE owner_chat_id = ? ORDER BY nombre LIMIT 30");
-    $stmt->bind_param("i", DEFAULT_OWNER_CHAT_ID);
-    $stmt->execute();
-    $res = $stmt->get_result();
-    while ($row = $res->fetch_assoc()) {
-      $results[] = ['id' => $row['id'], 'text' => $row['nombre']];
-    }
-    $stmt->close();
-  }
-  $conn->close();
-  echo json_encode(['results' => $results]);
-  exit;
-}
-
-// AJAX para crear nuevo prestamista
-if (isset($_GET['ajax']) && $_GET['ajax'] === 'crear_prestamista' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-  header('Content-Type: application/json');
-  $nombre = trim($_POST['nombre'] ?? '');
-  if ($nombre === '') {
-    echo json_encode(['success' => false, 'error' => 'Nombre vacío']);
-    exit;
-  }
-  $conn = db();
-  // Verificar si ya existe
-  $stmt = $conn->prepare("SELECT id FROM prestamistas_admin WHERE owner_chat_id = ? AND LOWER(nombre) = LOWER(?)");
-  $stmt->bind_param("is", DEFAULT_OWNER_CHAT_ID, $nombre);
-  $stmt->execute();
-  $res = $stmt->get_result();
-  if ($row = $res->fetch_assoc()) {
-    echo json_encode(['success' => true, 'id' => $row['id'], 'text' => $nombre]);
-    $stmt->close();
-    $conn->close();
-    exit;
-  }
-  $stmt->close();
-  
-  // Insertar nuevo
-  $stmt = $conn->prepare("INSERT INTO prestamistas_admin (owner_chat_id, nombre) VALUES (?, ?)");
-  $stmt->bind_param("is", DEFAULT_OWNER_CHAT_ID, $nombre);
-  if ($stmt->execute()) {
-    $newId = $conn->insert_id;
-    echo json_encode(['success' => true, 'id' => $newId, 'text' => $nombre]);
-  } else {
-    echo json_encode(['success' => false, 'error' => $conn->error]);
-  }
-  $stmt->close();
-  $conn->close();
-  exit;
-}
-
 $action = $_GET['action'] ?? 'list';
 $view   = 'cards'; // Solo tarjetas
 $id = (int)($_GET['id'] ?? 0);
 
 // Modo de cálculo especial (8% por días exactos) - se pasa por URL o por POST
 $modo_especial = isset($_GET['modo_especial']) ? (int)$_GET['modo_especial'] : (isset($_POST['modo_especial']) ? (int)$_POST['modo_especial'] : 0);
+
+// ===== PROCESAR NUEVO DEUDOR (desde modal) =====
+if (isset($_POST['nuevo_deudor_nombre']) && trim($_POST['nuevo_deudor_nombre']) !== '') {
+  $nombre = trim($_POST['nuevo_deudor_nombre']);
+  $conn = db();
+  $stmt = $conn->prepare("INSERT INTO deudores_admin (owner_chat_id, nombre) VALUES (?, ?)");
+  $stmt->bind_param("is", DEFAULT_OWNER_CHAT_ID, $nombre);
+  $stmt->execute();
+  $stmt->close();
+  $conn->close();
+  go('?action=new&view=cards&modo_especial='.$modo_especial);
+}
+
+// ===== PROCESAR NUEVO PRESTAMISTA (desde modal) =====
+if (isset($_POST['nuevo_prestamista_nombre']) && trim($_POST['nuevo_prestamista_nombre']) !== '') {
+  $nombre = trim($_POST['nuevo_prestamista_nombre']);
+  $conn = db();
+  $stmt = $conn->prepare("INSERT INTO prestamistas_admin (owner_chat_id, nombre) VALUES (?, ?)");
+  $stmt->bind_param("is", DEFAULT_OWNER_CHAT_ID, $nombre);
+  $stmt->execute();
+  $stmt->close();
+  $conn->close();
+  go('?action=new&view=cards&modo_especial='.$modo_especial);
+}
 
 // ===== Upload helper =====
 function save_image($file): ?string {
@@ -333,40 +220,30 @@ if ($action==='bulk_mark_unpaid' && $_SERVER['REQUEST_METHOD']==='POST'){
 
 /* ===== CRUD ===== */
 if ($action==='create' && $_SERVER['REQUEST_METHOD']==='POST'){
-  // Obtener el nombre real del deudor y prestamista (no el ID del select2)
   $deudor_id = (int)($_POST['deudor_id'] ?? 0);
   $prestamista_id = (int)($_POST['prestamista_id'] ?? 0);
-  $deudor_nombre = trim($_POST['deudor_nombre'] ?? '');
-  $prestamista_nombre = trim($_POST['prestamista_nombre'] ?? '');
-  
-  // Si viene ID, buscar el nombre en la tabla correspondiente
-  $conn = db();
-  if ($deudor_id > 0) {
-    $stmt = $conn->prepare("SELECT nombre FROM deudores_admin WHERE id = ?");
-    $stmt->bind_param("i", $deudor_id);
-    $stmt->execute();
-    $res = $stmt->get_result();
-    if ($row = $res->fetch_assoc()) {
-      $deudor_nombre = $row['nombre'];
-    }
-    $stmt->close();
-  }
-  
-  if ($prestamista_id > 0) {
-    $stmt = $conn->prepare("SELECT nombre FROM prestamistas_admin WHERE id = ?");
-    $stmt->bind_param("i", $prestamista_id);
-    $stmt->execute();
-    $res = $stmt->get_result();
-    if ($row = $res->fetch_assoc()) {
-      $prestamista_nombre = $row['nombre'];
-    }
-    $stmt->close();
-  }
-  $conn->close();
-  
   $monto = trim($_POST['monto']??'');
   $fecha = trim($_POST['fecha']??'');
   $img = save_image($_FILES['imagen']??null);
+  
+  // Obtener nombres desde las tablas
+  $conn = db();
+  $deudor_nombre = '';
+  $stmt = $conn->prepare("SELECT nombre FROM deudores_admin WHERE id = ?");
+  $stmt->bind_param("i", $deudor_id);
+  $stmt->execute();
+  $res = $stmt->get_result();
+  if ($row = $res->fetch_assoc()) $deudor_nombre = $row['nombre'];
+  $stmt->close();
+  
+  $prestamista_nombre = '';
+  $stmt = $conn->prepare("SELECT nombre FROM prestamistas_admin WHERE id = ?");
+  $stmt->bind_param("i", $prestamista_id);
+  $stmt->execute();
+  $res = $stmt->get_result();
+  if ($row = $res->fetch_assoc()) $prestamista_nombre = $row['nombre'];
+  $stmt->close();
+  $conn->close();
 
   if ($deudor_nombre && $prestamista_nombre && is_numeric($monto) && preg_match('/^\d{4}-\d{2}-\d{2}$/',$fecha)){
     $c=db();
@@ -383,37 +260,29 @@ if ($action==='create' && $_SERVER['REQUEST_METHOD']==='POST'){
 if ($action==='edit' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
   $deudor_id = (int)($_POST['deudor_id'] ?? 0);
   $prestamista_id = (int)($_POST['prestamista_id'] ?? 0);
-  $deudor_nombre = trim($_POST['deudor_nombre'] ?? '');
-  $prestamista_nombre = trim($_POST['prestamista_nombre'] ?? '');
-  
-  $conn = db();
-  if ($deudor_id > 0) {
-    $stmt = $conn->prepare("SELECT nombre FROM deudores_admin WHERE id = ?");
-    $stmt->bind_param("i", $deudor_id);
-    $stmt->execute();
-    $res = $stmt->get_result();
-    if ($row = $res->fetch_assoc()) {
-      $deudor_nombre = $row['nombre'];
-    }
-    $stmt->close();
-  }
-  
-  if ($prestamista_id > 0) {
-    $stmt = $conn->prepare("SELECT nombre FROM prestamistas_admin WHERE id = ?");
-    $stmt->bind_param("i", $prestamista_id);
-    $stmt->execute();
-    $res = $stmt->get_result();
-    if ($row = $res->fetch_assoc()) {
-      $prestamista_nombre = $row['nombre'];
-    }
-    $stmt->close();
-  }
-  $conn->close();
-  
   $monto=trim($_POST['monto']??'');
   $fecha=trim($_POST['fecha']??'');
   $keep = isset($_POST['keep']) ? 1:0;
   $img = save_image($_FILES['imagen']??null);
+  
+  // Obtener nombres desde las tablas
+  $conn = db();
+  $deudor_nombre = '';
+  $stmt = $conn->prepare("SELECT nombre FROM deudores_admin WHERE id = ?");
+  $stmt->bind_param("i", $deudor_id);
+  $stmt->execute();
+  $res = $stmt->get_result();
+  if ($row = $res->fetch_assoc()) $deudor_nombre = $row['nombre'];
+  $stmt->close();
+  
+  $prestamista_nombre = '';
+  $stmt = $conn->prepare("SELECT nombre FROM prestamistas_admin WHERE id = ?");
+  $stmt->bind_param("i", $prestamista_id);
+  $stmt->execute();
+  $res = $stmt->get_result();
+  if ($row = $res->fetch_assoc()) $prestamista_nombre = $row['nombre'];
+  $stmt->close();
+  $conn->close();
 
   if ($deudor_nombre && $prestamista_nombre && is_numeric($monto) && preg_match('/^\d{4}-\d{2}-\d{2}$/',$fecha)){
     $c=db();
@@ -453,6 +322,21 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
   go('?msg=eliminado&view='.urlencode($view).'&modo_especial='.$modo_especial);
 }
 
+// ===== Cargar datos para los selects =====
+$conn = db();
+$todos_deudores = [];
+$res = $conn->query("SELECT id, nombre FROM deudores_admin WHERE owner_chat_id = " . DEFAULT_OWNER_CHAT_ID . " ORDER BY nombre");
+while ($row = $res->fetch_assoc()) {
+  $todos_deudores[] = $row;
+}
+
+$todos_prestamistas = [];
+$res = $conn->query("SELECT id, nombre FROM prestamistas_admin WHERE owner_chat_id = " . DEFAULT_OWNER_CHAT_ID . " ORDER BY nombre");
+while ($row = $res->fetch_assoc()) {
+  $todos_prestamistas[] = $row;
+}
+$conn->close();
+
 // ===== UI =====
 ?>
 <!doctype html>
@@ -468,6 +352,7 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  a{text-decoration:none}
  .btn{display:inline-flex;align-items:center;gap:8px;padding:9px 12px;border-radius:12px;background:var(--primary);color:#fff;font-weight:600;border:0;cursor:pointer}
  .btn.gray{background:var(--gray)} .btn.red{background:var(--red)} .btn.small{padding:7px 10px;border-radius:10px}
+ .btn.yellow{background:#f59e0b;color:#fff}
  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
  .tabs a{background:#e5e7eb;color:#111;padding:8px 12px;border-radius:10px;font-weight:700}
  .tabs a.active{background:var(--primary);color:#fff}
@@ -548,6 +433,10 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  .desglose-tabla tr:hover { background: #fef3c7; }
  .desglose-tabla .total-row { background: #fef3c7; font-weight: 700; border-top: 2px solid #fde68a; }
  .desglose-titulo { font-size: 14px; font-weight: 700; color: #92400e; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+ 
+ /* Modal */
+ .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; }
+ .modal-content { background: white; border-radius: 16px; padding: 24px; width: 90%; max-width: 400px; }
 </style>
 </head><body>
 
@@ -583,8 +472,8 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
 // ====== NEW / EDIT FORMS ======
 if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!=='POST')):
   $row = ['deudor'=>'','prestamista'=>'','monto'=>'','fecha'=>'','imagen'=>null];
-  $deudor_id = 0;
-  $prestamista_id = 0;
+  $deudor_seleccionado = 0;
+  $prestamista_seleccionado = 0;
   
   if ($action==='edit'){
     $c=db();
@@ -596,27 +485,55 @@ if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!
     $st->close();
     
     // Buscar si el deudor existe en deudores_admin
-    $stmt = $c->prepare("SELECT id FROM deudores_admin WHERE owner_chat_id = ? AND LOWER(nombre) = LOWER(?)");
+    $stmt = $c->prepare("SELECT id FROM deudores_admin WHERE owner_chat_id = ? AND nombre = ?");
     $stmt->bind_param("is", DEFAULT_OWNER_CHAT_ID, $row['deudor']);
     $stmt->execute();
     $res = $stmt->get_result();
     if ($drow = $res->fetch_assoc()) {
-      $deudor_id = $drow['id'];
+      $deudor_seleccionado = $drow['id'];
     }
     $stmt->close();
     
     // Buscar si el prestamista existe en prestamistas_admin
-    $stmt = $c->prepare("SELECT id FROM prestamistas_admin WHERE owner_chat_id = ? AND LOWER(nombre) = LOWER(?)");
+    $stmt = $c->prepare("SELECT id FROM prestamistas_admin WHERE owner_chat_id = ? AND nombre = ?");
     $stmt->bind_param("is", DEFAULT_OWNER_CHAT_ID, $row['prestamista']);
     $stmt->execute();
     $res = $stmt->get_result();
     if ($prow = $res->fetch_assoc()) {
-      $prestamista_id = $prow['id'];
+      $prestamista_seleccionado = $prow['id'];
     }
     $stmt->close();
     $c->close();
   }
 ?>
+  <!-- Modal para nuevo deudor -->
+  <div id="modalDeudor" class="modal">
+    <div class="modal-content">
+      <h3 style="margin-bottom: 16px;">Nuevo Deudor</h3>
+      <form method="post">
+        <input type="text" name="nuevo_deudor_nombre" placeholder="Nombre del deudor" style="width: 100%; margin-bottom: 16px; padding: 10px; border-radius: 12px; border: 1px solid #ddd;" required>
+        <div style="display: flex; gap: 12px;">
+          <button type="submit" class="btn">Guardar</button>
+          <button type="button" class="btn gray" onclick="document.getElementById('modalDeudor').style.display='none'">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  
+  <!-- Modal para nuevo prestamista -->
+  <div id="modalPrestamista" class="modal">
+    <div class="modal-content">
+      <h3 style="margin-bottom: 16px;">Nuevo Prestamista</h3>
+      <form method="post">
+        <input type="text" name="nuevo_prestamista_nombre" placeholder="Nombre del prestamista" style="width: 100%; margin-bottom: 16px; padding: 10px; border-radius: 12px; border: 1px solid #ddd;" required>
+        <div style="display: flex; gap: 12px;">
+          <button type="submit" class="btn">Guardar</button>
+          <button type="button" class="btn gray" onclick="document.getElementById('modalPrestamista').style.display='none'">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div class="card">
     <div class="row" style="margin-bottom:10px">
       <div class="title"><?= $action==='new'?'Nuevo préstamo':'Editar préstamo #'.h($id) ?></div>
@@ -628,25 +545,27 @@ if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!
       <div class="row" style="gap:12px;flex-wrap:wrap">
         <div class="field" style="min-width:220px;flex:1">
           <label>Deudor *</label>
-          <select name="deudor_id" id="deudorSelect2" class="select2-persona" style="width:100%">
-            <?php if ($deudor_id > 0): ?>
-              <option value="<?= $deudor_id ?>" selected><?= h($row['deudor']) ?></option>
-            <?php elseif ($row['deudor'] !== ''): ?>
-              <option value="<?= h($row['deudor']) ?>" selected><?= h($row['deudor']) ?></option>
-            <?php endif; ?>
-          </select>
-          <input type="hidden" name="deudor_nombre" id="deudor_nombre" value="<?= h($row['deudor']) ?>">
+          <div style="display: flex; gap: 8px;">
+            <select name="deudor_id" id="deudorSelect2" style="flex: 1;" required>
+              <option value="0">-- Seleccionar deudor --</option>
+              <?php foreach($todos_deudores as $d): ?>
+                <option value="<?= $d['id'] ?>" <?= $deudor_seleccionado == $d['id'] ? 'selected' : '' ?>><?= h($d['nombre']) ?></option>
+              <?php endforeach; ?>
+            </select>
+            <button type="button" class="btn yellow" id="btnNuevoDeudor" style="padding: 9px 12px;">➕</button>
+          </div>
         </div>
         <div class="field" style="min-width:220px;flex:1">
           <label>Prestamista *</label>
-          <select name="prestamista_id" id="prestamistaSelect2" class="select2-persona" style="width:100%">
-            <?php if ($prestamista_id > 0): ?>
-              <option value="<?= $prestamista_id ?>" selected><?= h($row['prestamista']) ?></option>
-            <?php elseif ($row['prestamista'] !== ''): ?>
-              <option value="<?= h($row['prestamista']) ?>" selected><?= h($row['prestamista']) ?></option>
-            <?php endif; ?>
-          </select>
-          <input type="hidden" name="prestamista_nombre" id="prestamista_nombre" value="<?= h($row['prestamista']) ?>">
+          <div style="display: flex; gap: 8px;">
+            <select name="prestamista_id" id="prestamistaSelect2" style="flex: 1;" required>
+              <option value="0">-- Seleccionar prestamista --</option>
+              <?php foreach($todos_prestamistas as $p): ?>
+                <option value="<?= $p['id'] ?>" <?= $prestamista_seleccionado == $p['id'] ? 'selected' : '' ?>><?= h($p['nombre']) ?></option>
+              <?php endforeach; ?>
+            </select>
+            <button type="button" class="btn yellow" id="btnNuevoPrestamista" style="padding: 9px 12px;">➕</button>
+          </div>
         </div>
         <div class="field" style="min-width:160px">
           <label>Monto *</label>
@@ -809,7 +728,7 @@ else:
       ORDER BY pagado ASC, id DESC
     ";
   } else {
-    // ===== MODO NORMAL =====
+    // ===== MODO NORMAL: meses completos con tasa variable =====
     $sql = "
       SELECT 
         id, deudor, prestamista, monto, fecha, imagen, created_at, pagado, pagado_at,
@@ -934,6 +853,7 @@ else:
       <form class="toolbar" method="get" id="filtroForm">
         <input type="hidden" name="view" value="cards">
         
+        <!-- Toggle switch para modo especial 8% por días -->
         <div class="modo-especial-container">
           <span class="modo-especial-label">⚡ Modo 8% por días</span>
           <label class="toggle-switch">
@@ -949,6 +869,7 @@ else:
         
         <input name="q" placeholder="🔎 Buscar (deudor / prestamista)" value="<?= h($q) ?>" style="flex:1;min-width:220px">
         
+        <!-- Prestamista con Select2 -->
         <div class="field" style="min-width:200px;flex:1">
           <label>Prestamista</label>
           <select name="fp" id="prestamistaSelect" title="Prestamista" class="select2-filter">
@@ -959,6 +880,7 @@ else:
           </select>
         </div>
 
+        <!-- Empresa con Select2 -->
         <div class="field" style="min-width:200px;flex:1">
           <label>Empresa</label>
           <select name="fe" id="empresaSelect" title="Empresa" class="select2-filter">
@@ -969,6 +891,7 @@ else:
           </select>
         </div>
 
+        <!-- Deudor con Select2 (se actualiza dinámicamente) -->
         <div class="field" style="min-width:200px;flex:1">
           <label>Deudor</label>
           <select name="fd" id="deudorSelect" title="Deudor" class="select2-filter">
@@ -988,6 +911,7 @@ else:
           <input name="fecha_hasta" type="date" value="<?= h($fecha_hasta) ?>">
         </div>
         
+        <!-- SWITCH 3 ESTADOS: No pagados / Pagados / Todos -->
         <div class="switch-container">
           <span class="switch-label">Estado:</span>
           <div class="switch-group">
@@ -1065,6 +989,7 @@ else:
           </div>
         </div>
         
+        <!-- DESGLOSE POR PRESTAMISTA - SOLO CUANDO MODO ESPECIAL ESTÁ ACTIVADO -->
         <?php if ($modo_especial == 1 && !empty($desglose_prestamistas)): ?>
           <div class="desglose-prestamistas">
             <div class="desglose-titulo">
@@ -1110,6 +1035,7 @@ else:
     <?php if ($rs->num_rows === 0): ?>
       <div class="card"><span class="subtitle">(sin registros)</span></div>
     <?php else: ?>
+      <!-- FORM para selección múltiple + edición en lote -->
       <form id="bulkForm" class="card" method="post" action="?action=bulk_update&modo_especial=<?= $modo_especial ?>">
         <input type="hidden" name="view" value="cards">
 
@@ -1120,6 +1046,7 @@ else:
               <input id="chkAll" type="checkbox"> Seleccionar todo (página)
             </label>
             <button type="button" class="btn gray small" id="btnToggleBulk">✏️ Editar selección</button>
+            <!-- Botón: marcar como pagados los seleccionados -->
             <button 
               type="submit" 
               class="btn small" 
@@ -1127,6 +1054,7 @@ else:
               onclick="return confirm('¿Marcar como pagados los préstamos seleccionados?')">
               ✔ Préstamo pagado
             </button>
+            <!-- Botón: marcar como NO pagados los seleccionados -->
             <button 
               type="submit" 
               class="btn gray small" 
@@ -1140,9 +1068,11 @@ else:
 
         <div class="grid-cards">
           <?php while($r=$rs->fetch_assoc()):
+            // Determinar si es una comisión
             $esComision = !empty($r['comision_gestor_nombre']);
             $esPagado = (bool)($r['pagado'] ?? false);
             
+            // Determinar clases CSS según estado
             $cardClass = '';
             $badgeClass = 'chip';
             
@@ -1154,6 +1084,7 @@ else:
               $badgeClass = 'pagado-badge';
             }
             
+            // Calcular porcentaje total para modo normal
             $porcentajeTotal = 0;
             if ($modo_especial == 0) {
               $porcentajeTotal = (float)($r['comision_origen_porcentaje'] ?? 
@@ -1161,6 +1092,7 @@ else:
                 (float)($r['comision_gestor_porcentaje'] ?? 0);
             }
             
+            // Calcular días para modo especial
             $diasMostrar = $modo_especial == 1 ? ($r['dias'] ?? 0) : 0;
           ?>
             <div class="card <?= $cardClass ?>">
@@ -1199,6 +1131,7 @@ else:
                 <span class="chip"><?= h($r['fecha']) ?></span>
               </div>
 
+              <!-- Información de comisión si existe (solo en modo normal) -->
               <?php if ($esComision && $modo_especial == 0): ?>
                 <div class="pairs comision-info" style="margin-top:8px; padding:8px; border-radius:8px;">
                   <div class="item">
@@ -1254,6 +1187,7 @@ else:
                 </div>
               </div>
 
+              <!-- Desglose interés si hay comisión o modo especial -->
               <?php if ($esComision && $modo_especial == 0): ?>
                 <div class="pairs" style="margin-top:8px; font-size:12px;">
                   <div class="item">
@@ -1289,6 +1223,7 @@ else:
           <?php endwhile; ?>
         </div>
 
+        <!-- Panel de edición en lote -->
         <div class="bulkpanel" id="bulkPanel">
           <div class="subtitle" style="margin-bottom:8px">
             Aplica solo a las tarjetas seleccionadas. Deja en blanco lo que no quieras cambiar.
@@ -1323,15 +1258,17 @@ else:
 <?php
   $st->close();
   $conn->close();
-endif;
+endif; // forms / list
 ?>
 
+<!-- Incluir jQuery y Select2 JS -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
 <script>
+// Inicializar Select2 en los dropdowns de filtro
 $(document).ready(function() {
-  // Select2 para filtros
+  // Aplicar Select2 a los filtros
   $('.select2-filter').select2({
     width: '100%',
     placeholder: 'Seleccionar...',
@@ -1343,146 +1280,34 @@ $(document).ready(function() {
     }
   });
   
-  // ========== SELECT2 PARA DEUDOR (con creación) ==========
+  // Inicializar Select2 para deudor y prestamista en el formulario
   $('#deudorSelect2').select2({
     width: '100%',
-    placeholder: 'Buscar o agregar deudor...',
-    allowClear: true,
-    ajax: {
-      url: '?ajax=deudores',
-      dataType: 'json',
-      delay: 300,
-      data: function(params) {
-        return { q: params.term };
-      },
-      processResults: function(data) {
-        return { results: data.results };
-      },
-      cache: true
-    },
-    createTag: function(params) {
-      var term = $.trim(params.term);
-      if (term === '') return null;
-      return {
-        id: term,
-        text: '➕ Agregar "' + term + '" como nuevo deudor',
-        newTag: true,
-        originalText: term
-      };
-    },
-    templateResult: function(data) {
-      if (data.newTag) {
-        return $('<span style="color:#f59e0b;">' + data.text + '</span>');
-      }
-      return data.text;
-    },
-    templateSelection: function(data) {
-      if (data.newTag) {
-        return data.originalText || data.text.replace('➕ Agregar "', '').replace('" como nuevo deudor', '');
-      }
-      return data.text;
-    }
+    placeholder: 'Buscar deudor...',
+    allowClear: true
   });
   
-  $('#deudorSelect2').on('select2:select', function(e) {
-    var data = e.params.data;
-    if (data.newTag) {
-      var nuevoNombre = data.originalText || data.id;
-      $.ajax({
-        url: '?ajax=crear_deudor',
-        type: 'POST',
-        data: { nombre: nuevoNombre },
-        dataType: 'json',
-        success: function(res) {
-          if (res.success) {
-            var newOption = new Option(res.text, res.id, true, true);
-            $('#deudorSelect2').append(newOption).trigger('change');
-            $('#deudor_nombre').val(res.text);
-          } else {
-            alert('Error al crear deudor: ' + (res.error || 'desconocido'));
-          }
-        },
-        error: function(xhr, status, error) {
-          console.error('Error:', error);
-          alert('Error de conexión al crear deudor');
-        }
-      });
-    } else {
-      // Si es un ID existente, buscar el texto
-      var text = data.text;
-      $('#deudor_nombre').val(text);
-    }
-  });
-  
-  // ========== SELECT2 PARA PRESTAMISTA (con creación) ==========
   $('#prestamistaSelect2').select2({
     width: '100%',
-    placeholder: 'Buscar o agregar prestamista...',
-    allowClear: true,
-    ajax: {
-      url: '?ajax=prestamistas',
-      dataType: 'json',
-      delay: 300,
-      data: function(params) {
-        return { q: params.term };
-      },
-      processResults: function(data) {
-        return { results: data.results };
-      },
-      cache: true
-    },
-    createTag: function(params) {
-      var term = $.trim(params.term);
-      if (term === '') return null;
-      return {
-        id: term,
-        text: '➕ Agregar "' + term + '" como nuevo prestamista',
-        newTag: true,
-        originalText: term
-      };
-    },
-    templateResult: function(data) {
-      if (data.newTag) {
-        return $('<span style="color:#f59e0b;">' + data.text + '</span>');
-      }
-      return data.text;
-    },
-    templateSelection: function(data) {
-      if (data.newTag) {
-        return data.originalText || data.text.replace('➕ Agregar "', '').replace('" como nuevo prestamista', '');
-      }
-      return data.text;
-    }
+    placeholder: 'Buscar prestamista...',
+    allowClear: true
   });
   
-  $('#prestamistaSelect2').on('select2:select', function(e) {
-    var data = e.params.data;
-    if (data.newTag) {
-      var nuevoNombre = data.originalText || data.id;
-      $.ajax({
-        url: '?ajax=crear_prestamista',
-        type: 'POST',
-        data: { nombre: nuevoNombre },
-        dataType: 'json',
-        success: function(res) {
-          if (res.success) {
-            var newOption = new Option(res.text, res.id, true, true);
-            $('#prestamistaSelect2').append(newOption).trigger('change');
-            $('#prestamista_nombre').val(res.text);
-          } else {
-            alert('Error al crear prestamista: ' + (res.error || 'desconocido'));
-          }
-        },
-        error: function(xhr, status, error) {
-          console.error('Error:', error);
-          alert('Error de conexión al crear prestamista');
-        }
-      });
-    } else {
-      var text = data.text;
-      $('#prestamista_nombre').val(text);
-    }
+  // Botones para abrir modales
+  $('#btnNuevoDeudor').click(function() {
+    $('#modalDeudor').css('display', 'flex');
   });
+  
+  $('#btnNuevoPrestamista').click(function() {
+    $('#modalPrestamista').css('display', 'flex');
+  });
+  
+  // Cerrar modal haciendo clic fuera
+  window.onclick = function(event) {
+    if (event.target.classList.contains('modal')) {
+      event.target.style.display = 'none';
+    }
+  };
   
   // Guardar referencia a los selects
   const empresaSelect = $('#empresaSelect');
@@ -1573,7 +1398,7 @@ $(document).ready(function() {
   });
 });
 
-// Selección múltiple + eliminar
+// JS: selección múltiple + eliminar sin anidar formularios
 (function(){
   const form = document.getElementById('bulkForm');
   if(!form) return;
@@ -1615,6 +1440,7 @@ $(document).ready(function() {
   }
 })();
 
+/* Eliminar: crea un form temporal POST pa no anidar forularios */
 function submitDelete(id){
   if(!confirm('¿Eliminar #'+id+'?')) return;
   const f = document.createElement('form');
