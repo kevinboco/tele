@@ -1,8 +1,8 @@
-}<?php
+<?php
 /*********************************************************
  * admin_prestamos.php — CRUD + Tarjetas
  * - Filtro dinámico: deudores según empresa seleccionada
- * - Dropdowns con búsqueda (Select2)
+ * - Toggle switch: Modo 8% por días exactos
  *********************************************************/
 include("nav.php");
 
@@ -46,6 +46,10 @@ function mbtitle($s){ return function_exists('mb_convert_case') ? mb_convert_cas
 $action = $_GET['action'] ?? 'list';
 $view   = 'cards'; // Solo tarjetas
 $id = (int)($_GET['id'] ?? 0);
+
+// Modo de cálculo especial (8% por días exactos) - se pasa por URL o por POST
+$modo_especial = isset($_GET['modo_especial']) ? (int)$_GET['modo_especial'] : (isset($_POST['modo_especial']) ? (int)$_POST['modo_especial'] : 0);
+// También puede venir de la sesión si quieres persistencia durante la sesión, pero por ahora solo URL
 
 // ===== Upload helper =====
 function save_image($file): ?string {
@@ -120,7 +124,7 @@ if ($action==='bulk_update' && $_SERVER['REQUEST_METHOD']==='POST'){
   $st->close(); $c->close();
 
   $msg = $ok ? 'bulkok' : 'bulkoops';
-  go(BASE_URL.'?view=cards&msg='.$msg);
+  go(BASE_URL.'?view=cards&msg='.$msg.'&modo_especial='.$modo_especial);
 }
 
 /* ===== Acción masiva "Préstamo pagado" ===== */
@@ -152,7 +156,7 @@ if ($action==='bulk_mark_paid' && $_SERVER['REQUEST_METHOD']==='POST'){
 
   $c->close();
   $msg = $ok ? 'bulkpaid' : 'bulkpaidoops';
-  go(BASE_URL.'?view=cards&msg='.$msg);
+  go(BASE_URL.'?view=cards&msg='.$msg.'&modo_especial='.$modo_especial);
 }
 
 /* ===== Acción masiva "Marcar como NO pagado" ===== */
@@ -184,7 +188,7 @@ if ($action==='bulk_mark_unpaid' && $_SERVER['REQUEST_METHOD']==='POST'){
 
   $c->close();
   $msg = $ok ? 'bulkunpaid' : 'bulkunpaidoops';
-  go(BASE_URL.'?view=cards&msg='.$msg);
+  go(BASE_URL.'?view=cards&msg='.$msg.'&modo_especial='.$modo_especial);
 }
 
 /* ===== CRUD ===== */
@@ -201,7 +205,7 @@ if ($action==='create' && $_SERVER['REQUEST_METHOD']==='POST'){
     $st->bind_param("ssdss",$deudor,$prestamista,$monto,$fecha,$img);
     $st->execute();
     $st->close(); $c->close();
-    go('?msg=creado&view='.urlencode($view));
+    go('?msg=creado&view='.urlencode($view).'&modo_especial='.$modo_especial);
   } else {
     $err="Completa todos los campos correctamente.";
   }
@@ -231,7 +235,7 @@ if ($action==='edit' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
     }
     $st->execute();
     $st->close(); $c->close();
-    go('?msg=editado&view='.urlencode($view));
+    go('?msg=editado&view='.urlencode($view).'&modo_especial='.$modo_especial);
   } else {
     $err="Completa todos los campos correctamente.";
   }
@@ -250,7 +254,7 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
   $st->bind_param("i",$id);
   $st->execute();
   $st->close(); $c->close();
-  go('?msg=eliminado&view='.urlencode($view));
+  go('?msg=eliminado&view='.urlencode($view).'&modo_especial='.$modo_especial);
 }
 
 // ===== UI =====
@@ -328,6 +332,17 @@ if ($action==='delete' && $_SERVER['REQUEST_METHOD']==='POST' && $id>0){
  .select2-selection { border: 1px solid #e5e7eb !important; border-radius: 12px !important; padding: 8px !important; height: 45px !important; }
  .select2-selection__arrow { height: 43px !important; }
  .select2-search__field { border-radius: 8px !important; padding: 6px !important; }
+
+ /* Toggle switch para modo especial 8% por días */
+ .modo-especial-container { display: flex; align-items: center; gap: 12px; background: #fef3c7; padding: 6px 16px; border-radius: 40px; border: 1px solid #fde68a; }
+ .modo-especial-label { font-size: 13px; font-weight: 700; color: #92400e; }
+ .toggle-switch { position: relative; display: inline-block; width: 52px; height: 26px; }
+ .toggle-switch input { opacity: 0; width: 0; height: 0; }
+ .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: 0.3s; border-radius: 26px; }
+ .toggle-slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px; background-color: white; transition: 0.3s; border-radius: 50%; }
+ input:checked + .toggle-slider { background-color: #f59e0b; }
+ input:checked + .toggle-slider:before { transform: translateX(26px); }
+ .modo-activo-badge { background: #f59e0b; color: #fff; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; }
 </style>
 </head><body>
 
@@ -380,7 +395,7 @@ if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!
     <?php if(!empty($err)): ?>
       <div class="error" style="margin-bottom:10px"><?= h($err) ?></div>
     <?php endif; ?>
-    <form method="post" enctype="multipart/form-data" action="?action=<?= $action==='new'?'create':'edit&id='.$id ?>&view=cards">
+    <form method="post" enctype="multipart/form-data" action="?action=<?= $action==='new'?'create':'edit&id='.$id ?>&view=cards&modo_especial=<?= $modo_especial ?>">
       <div class="row" style="gap:12px;flex-wrap:wrap">
         <div class="field" style="min-width:220px;flex:1">
           <label>Deudor *</label>
@@ -413,7 +428,7 @@ if ($action==='new' || ($action==='edit' && $id>0 && $_SERVER['REQUEST_METHOD']!
       </div>
       <div class="row" style="margin-top:12px">
         <button class="btn" type="submit">💾 Guardar</button>
-        <a class="btn gray" href="?view=cards">Cancelar</a>
+        <a class="btn gray" href="?view=cards&modo_especial=<?= $modo_especial ?>">Cancelar</a>
       </div>
     </form>
   </div>
@@ -520,48 +535,91 @@ else:
     $types.="s"; $params[]=$fecha_hasta;
   }
 
-  // Incluir campo pagado y calcular interés correctamente con tasa variable
-  $sql = "
-      SELECT id,deudor,prestamista,monto,fecha,imagen,created_at,pagado,pagado_at,
-             empresa,
-             comision_gestor_nombre, comision_gestor_porcentaje, comision_base_monto, 
-             comision_origen_prestamista, comision_origen_porcentaje,
-             CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS meses,
-             
-             /* Interés del prestamista (dueño del capital) - TASA VARIABLE */
-             (monto * 
+  // ============================================================
+  // CONSTRUCCIÓN DE LA CONSULTA SEGÚN MODO ESPECIAL O NORMAL
+  // ============================================================
+  
+  if ($modo_especial == 1) {
+    // ===== MODO ESPECIAL: 8% mensual por DÍAS EXACTOS =====
+    // Fórmula: Interés = Capital × (0.08 / 30) × días_transcurridos
+    // días_transcurridos = DATEDIFF(CURDATE(), fecha) (si fecha <= hoy, sino 0)
+    $sql = "
+      SELECT 
+        id, deudor, prestamista, monto, fecha, imagen, created_at, pagado, pagado_at,
+        empresa,
+        comision_gestor_nombre, comision_gestor_porcentaje, comision_base_monto, 
+        comision_origen_prestamista, comision_origen_porcentaje,
+        
+        -- Días transcurridos (0 si fecha es futura)
+        GREATEST(0, DATEDIFF(CURDATE(), fecha)) AS dias,
+        
+        -- Interés total (prestamista + comisión gestor) con 8% mensual por días
+        (monto * 0.08 / 30 * GREATEST(0, DATEDIFF(CURDATE(), fecha))) AS interes_total,
+        
+        -- Interés del prestamista (parte proporcional según su porcentaje original sobre el 8%)
+        (monto * 0.08 / 30 * GREATEST(0, DATEDIFF(CURDATE(), fecha))) * 
+          (COALESCE(comision_origen_porcentaje, 
+            CASE WHEN fecha >= '2025-10-29' THEN 13 ELSE 10 END) / 100) AS interes_prestamista,
+        
+        -- Comisión del gestor (parte proporcional según su porcentaje sobre el 8%)
+        (monto * 0.08 / 30 * GREATEST(0, DATEDIFF(CURDATE(), fecha))) * 
+          (COALESCE(comision_gestor_porcentaje, 0) / 100) AS comision_gestor,
+        
+        -- Total a pagar (monto + interés total)
+        (monto + (monto * 0.08 / 30 * GREATEST(0, DATEDIFF(CURDATE(), fecha)))) AS total
+        
+      FROM prestamos
+      WHERE $where
+      ORDER BY pagado ASC, id DESC
+    ";
+  } else {
+    // ===== MODO NORMAL: meses completos con tasa variable =====
+    $sql = "
+      SELECT 
+        id, deudor, prestamista, monto, fecha, imagen, created_at, pagado, pagado_at,
+        empresa,
+        comision_gestor_nombre, comision_gestor_porcentaje, comision_base_monto, 
+        comision_origen_prestamista, comision_origen_porcentaje,
+        
+        CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS meses,
+        
+        /* Interés del prestamista (dueño del capital) - TASA VARIABLE */
+        (monto * 
+          CASE 
+            WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
+            ELSE COALESCE(comision_origen_porcentaje, 10)
+          END / 100 *
+          CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes_prestamista,
+        
+        /* Comisión del gestor */
+        (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100 *
+          CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS comision_gestor,
+        
+        /* Interés total (prestamista + gestor) */
+        ((monto * 
+            CASE 
+              WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
+              ELSE COALESCE(comision_origen_porcentaje, 10)
+            END / 100) + 
+          (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
+          CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS interes_total,
+        
+        /* Total a pagar (monto + interés total) */
+        (monto + 
+          (((monto * 
               CASE 
                 WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
                 ELSE COALESCE(comision_origen_porcentaje, 10)
-              END / 100 *
-              CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes_prestamista,
-             
-             /* Comisión del gestor */
-             (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100 *
-              CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS comision_gestor,
-             
-             /* Interés total (prestamista + gestor) */
-             ((monto * 
-               CASE 
-                 WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
-                 ELSE COALESCE(comision_origen_porcentaje, 10)
-               END / 100) + 
-              (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
-              CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS interes_total,
-             
-             /* Total a pagar (monto + interés total) */
-             (monto + 
-              (((monto * 
-                CASE 
-                  WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
-                  ELSE COALESCE(comision_origen_porcentaje, 10)
-                END / 100) + 
-               (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
-               CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
-              
+              END / 100) + 
+            (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
+            CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
+            
       FROM prestamos
       WHERE $where
-      ORDER BY pagado ASC, id DESC";
+      ORDER BY pagado ASC, id DESC
+    ";
+  }
+  
   $st=$conn->prepare($sql);
   if($types) $st->bind_param($types, ...$params);
   $st->execute();
@@ -569,27 +627,46 @@ else:
 
   // Calcular sumas para el rango de fechas / filtros seleccionado
   $sumas = ['capital' => 0, 'interes' => 0, 'total' => 0, 'count' => 0];
-  if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $feNorm !== '' || $estado_pago !== 'no_pagados') {
+  
+  // Para el modo especial, necesitamos un query diferente para sumas
+  if ($modo_especial == 1 && ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $feNorm !== '' || $estado_pago !== 'no_pagados')) {
     $sqlSumas = "
-        SELECT COUNT(*) AS n,
-               SUM(monto) AS capital,
-               SUM(((monto * 
-                    CASE 
-                      WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
-                      ELSE COALESCE(comision_origen_porcentaje, 10)
-                    END / 100) + 
-                   (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
-                   CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes,
-               SUM(monto + 
-                   (((monto * 
-                     CASE 
-                       WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
-                       ELSE COALESCE(comision_origen_porcentaje, 10)
-                     END / 100) + 
-                    (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
-                    CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
-        FROM prestamos
-        WHERE $where";
+      SELECT 
+        COUNT(*) AS n,
+        SUM(monto) AS capital,
+        SUM(monto * 0.08 / 30 * GREATEST(0, DATEDIFF(CURDATE(), fecha))) AS interes,
+        SUM(monto + (monto * 0.08 / 30 * GREATEST(0, DATEDIFF(CURDATE(), fecha)))) AS total
+      FROM prestamos
+      WHERE $where
+    ";
+    $stSumas=$conn->prepare($sqlSumas);
+    if($types) $stSumas->bind_param($types, ...$params);
+    $stSumas->execute();
+    $sumas = $stSumas->get_result()->fetch_assoc() ?: $sumas;
+    $stSumas->close();
+  } elseif ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $feNorm !== '' || $estado_pago !== 'no_pagados') {
+    $sqlSumas = "
+      SELECT 
+        COUNT(*) AS n,
+        SUM(monto) AS capital,
+        SUM(((monto * 
+              CASE 
+                WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
+                ELSE COALESCE(comision_origen_porcentaje, 10)
+              END / 100) + 
+            (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
+            CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes,
+        SUM(monto + 
+            (((monto * 
+                CASE 
+                  WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
+                  ELSE COALESCE(comision_origen_porcentaje, 10)
+                END / 100) + 
+              (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
+              CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
+      FROM prestamos
+      WHERE $where
+    ";
     $stSumas=$conn->prepare($sqlSumas);
     if($types) $stSumas->bind_param($types, ...$params);
     $stSumas->execute();
@@ -601,6 +678,21 @@ else:
     <div class="card" style="margin-bottom:16px">
       <form class="toolbar" method="get" id="filtroForm">
         <input type="hidden" name="view" value="cards">
+        
+        <!-- Toggle switch para modo especial 8% por días -->
+        <div class="modo-especial-container">
+          <span class="modo-especial-label">⚡ Modo 8% por días</span>
+          <label class="toggle-switch">
+            <input type="checkbox" name="modo_especial" value="1" id="modoEspecialToggle" onchange="this.form.submit()" <?= $modo_especial == 1 ? 'checked' : '' ?>>
+            <span class="toggle-slider"></span>
+          </label>
+          <?php if ($modo_especial == 1): ?>
+            <span class="modo-activo-badge">ACTIVO • Cálculo por días exactos al 8% mensual</span>
+          <?php else: ?>
+            <span class="subtitle" style="font-size:11px">Modo normal • meses completos</span>
+          <?php endif; ?>
+        </div>
+        
         <input name="q" placeholder="🔎 Buscar (deudor / prestamista)" value="<?= h($q) ?>" style="flex:1;min-width:220px">
         
         <!-- Prestamista con Select2 -->
@@ -672,10 +764,18 @@ else:
 
         <button class="btn" type="submit">Filtrar</button>
         <?php if ($q!=='' || $fpNorm!=='' || $fdNorm!=='' || $feNorm!=='' || $fecha_desde!=='' || $fecha_hasta!=='' || $estado_pago !== 'no_pagados'): ?>
-          <a class="btn gray" href="?view=cards">Quitar filtro</a>
+          <a class="btn gray" href="?view=cards&modo_especial=<?= $modo_especial ?>">Quitar filtro</a>
         <?php endif; ?>
       </form>
-      <div class="subtitle">Interés variable: 13% desde 2025-10-29, 10% para préstamos anteriores.</div>
+      
+      <?php if ($modo_especial == 1): ?>
+        <div class="subtitle" style="margin-top:8px; background:#fef3c7; padding:6px 12px; border-radius:12px;">
+          📐 <strong>Modo especial activado:</strong> Interés fijo del 8% mensual calculado por días exactos. 
+          Fórmula: Capital × (0.08/30) × días transcurridos.
+        </div>
+      <?php else: ?>
+        <div class="subtitle">Interés variable: 13% desde 2025-10-29, 10% para préstamos anteriores. Cálculo por meses completos.</div>
+      <?php endif; ?>
     </div>
 
     <!-- Resumen cuando hay filtros -->
@@ -691,6 +791,7 @@ else:
             if ($fpNorm !== '') $filtros[] = "Prestamista: " . h(mbtitle($prestMap[$fpNorm] ?? $fpNorm));
             if ($feNorm !== '') $filtros[] = "Empresa: " . h(mbtitle($empMap[$feNorm] ?? $feNorm));
             $filtros[] = "Estado: " . ($estado_pago === 'todos' ? 'Todos' : ($estado_pago === 'pagados' ? 'Pagados' : 'No pagados'));
+            if ($modo_especial == 1) $filtros[] = "🔘 MODO ESPECIAL (8% por días)";
             echo implode(' • ', $filtros);
           ?>
         </div>
@@ -719,7 +820,7 @@ else:
       <div class="card"><span class="subtitle">(sin registros)</span></div>
     <?php else: ?>
       <!-- FORM para selección múltiple + edición en lote -->
-      <form id="bulkForm" class="card" method="post" action="?action=bulk_update">
+      <form id="bulkForm" class="card" method="post" action="?action=bulk_update&modo_especial=<?= $modo_especial ?>">
         <input type="hidden" name="view" value="cards">
 
         <div class="row" style="margin-bottom:8px">
@@ -733,7 +834,7 @@ else:
             <button 
               type="submit" 
               class="btn small" 
-              formaction="?action=bulk_mark_paid"
+              formaction="?action=bulk_mark_paid&modo_especial=<?= $modo_especial ?>"
               onclick="return confirm('¿Marcar como pagados los préstamos seleccionados?')">
               ✔ Préstamo pagado
             </button>
@@ -741,7 +842,7 @@ else:
             <button 
               type="submit" 
               class="btn gray small" 
-              formaction="?action=bulk_mark_unpaid"
+              formaction="?action=bulk_mark_unpaid&modo_especial=<?= $modo_especial ?>"
               onclick="return confirm('¿Marcar como NO pagados los préstamos seleccionados?')">
               ↩ NO pagado
             </button>
@@ -767,16 +868,24 @@ else:
               $badgeClass = 'pagado-badge';
             }
             
-            // Calcular porcentaje total
-            $porcentajeTotal = (float)($r['comision_origen_porcentaje'] ?? 
-              (strtotime($r['fecha']) >= strtotime('2025-10-29') ? 13 : 10)) + 
-              (float)($r['comision_gestor_porcentaje'] ?? 0);
+            // Calcular porcentaje total para modo normal
+            $porcentajeTotal = 0;
+            if ($modo_especial == 0) {
+              $porcentajeTotal = (float)($r['comision_origen_porcentaje'] ?? 
+                (strtotime($r['fecha']) >= strtotime('2025-10-29') ? 13 : 10)) + 
+                (float)($r['comision_gestor_porcentaje'] ?? 0);
+            }
+            
+            // Calcular días para modo especial
+            $diasMostrar = $modo_especial == 1 ? ($r['dias'] ?? 0) : 0;
           ?>
             <div class="card <?= $cardClass ?>">
               <div class="cardSel">
                 <input class="chkRow" type="checkbox" name="ids[]" value="<?= (int)$r['id'] ?>">
                 <div class="subtitle">#<?= h($r['id']) ?></div>
-                <?php if ($esComision): ?>
+                <?php if ($modo_especial == 1): ?>
+                  <span class="chip" style="background:#fef3c7; color:#92400e; margin-left:auto">📆 <?= $diasMostrar ?> días</span>
+                <?php elseif ($esComision): ?>
                   <span class="<?= $badgeClass ?>" style="margin-left:auto">💰 Comisión</span>
                 <?php elseif ($esPagado): ?>
                   <span class="<?= $badgeClass ?>" style="margin-left:auto">✅ Pagado</span>
@@ -799,12 +908,15 @@ else:
                   <?php if ($esPagado && !empty($r['pagado_at'])): ?>
                     <div class="subtitle text-pagado">Pagado el: <?= h($r['pagado_at']) ?></div>
                   <?php endif; ?>
+                  <?php if ($modo_especial == 1): ?>
+                    <div class="subtitle" style="color:#92400e">📅 Desde: <?= h($r['fecha']) ?> • <?= $diasMostrar ?> días</div>
+                  <?php endif; ?>
                 </div>
                 <span class="chip"><?= h($r['fecha']) ?></span>
               </div>
 
-              <!-- Información de comisión si existe -->
-              <?php if ($esComision): ?>
+              <!-- Información de comisión si existe (solo en modo normal) -->
+              <?php if ($esComision && $modo_especial == 0): ?>
                 <div class="pairs comision-info" style="margin-top:8px; padding:8px; border-radius:8px;">
                   <div class="item">
                     <div class="k comision-text">Gestor Comisión</div>
@@ -838,10 +950,17 @@ else:
                   <div class="k">Monto</div>
                   <div class="v">$ <?= money($r['monto']) ?></div>
                 </div>
-                <div class="item">
-                  <div class="k">Meses</div>
-                  <div class="v"><?= h($r['meses']) ?></div>
-                </div>
+                <?php if ($modo_especial == 1): ?>
+                  <div class="item">
+                    <div class="k">Días / Tasa</div>
+                    <div class="v"><?= $diasMostrar ?> días • 8%</div>
+                  </div>
+                <?php else: ?>
+                  <div class="item">
+                    <div class="k">Meses</div>
+                    <div class="v"><?= h($r['meses'] ?? 0) ?></div>
+                  </div>
+                <?php endif; ?>
                 <div class="item">
                   <div class="k">Interés</div>
                   <div class="v">$ <?= money($r['interes_total']) ?></div>
@@ -852,8 +971,8 @@ else:
                 </div>
               </div>
 
-              <!-- Desglose interés si hay comisión -->
-              <?php if ($esComision): ?>
+              <!-- Desglose interés si hay comisión o modo especial -->
+              <?php if ($esComision && $modo_especial == 0): ?>
                 <div class="pairs" style="margin-top:8px; font-size:12px;">
                   <div class="item">
                     <div class="k">Interés Prestamista</div>
@@ -864,13 +983,23 @@ else:
                     <div class="v">$ <?= money($r['comision_gestor']) ?></div>
                   </div>
                 </div>
+              <?php elseif ($modo_especial == 1 && (!empty($r['comision_gestor_nombre']) || !empty($r['comision_origen_prestamista']))): ?>
+                <div class="pairs" style="margin-top:8px; font-size:12px; background:#fef3c7; border-radius:8px; padding:8px;">
+                  <div class="item">
+                    <div class="k">Interés Prestamista (<?= h($r['comision_origen_porcentaje'] ?? '?') ?>%)</div>
+                    <div class="v">$ <?= money($r['interes_prestamista'] ?? 0) ?></div>
+                  </div>
+                  <div class="item">
+                    <div class="k">Comisión Gestor (<?= h($r['comision_gestor_porcentaje'] ?? '0') ?>%)</div>
+                    <div class="v">$ <?= money($r['comision_gestor'] ?? 0) ?></div>
+                  </div>
+                </div>
               <?php endif; ?>
 
               <div class="row" style="margin-top:12px">
                 <div class="subtitle">Creado: <?= h($r['created_at']) ?></div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap">
-                  <a class="btn gray small" href="?action=edit&id=<?= $r['id'] ?>&view=cards">✏️ Editar</a>
-                  <!-- Botón Eliminar sin formulario anidado -->
+                  <a class="btn gray small" href="?action=edit&id=<?= $r['id'] ?>&view=cards&modo_especial=<?= $modo_especial ?>">✏️ Editar</a>
                   <button class="btn red small" type="button" onclick="submitDelete(<?= (int)$r['id'] ?>)">🗑️ Eliminar</button>
                 </div>
               </div>
@@ -939,15 +1068,16 @@ $(document).ready(function() {
   const empresaSelect = $('#empresaSelect');
   const deudorSelect = $('#deudorSelect');
   const estadoPagoRadios = document.querySelectorAll('input[name="estado_pago"]');
+  const modoEspecialCheckbox = document.getElementById('modoEspecialToggle');
   
   // Variable para guardar el deudor seleccionado antes de cambiar
   let deudorSeleccionado = deudorSelect.val();
   
-  // Función para cargar deudores según empresa
-  function cargarDeudoresPorEmpresa(empresaNormalizada, estadoPago) {
+  // Función para cargar deudores según empresa y estado de pago
+  function cargarDeudoresPorEmpresa(empresaNormalizada, estadoPago, modoEspecial) {
     if (!empresaNormalizada) {
       // Si no hay empresa, cargar todos los deudores
-      cargarTodosDeudores(estadoPago);
+      cargarTodosDeudores(estadoPago, modoEspecial);
       return;
     }
     
@@ -955,7 +1085,7 @@ $(document).ready(function() {
     deudorSelect.html('<option value="">Cargando deudores...</option>');
     
     // Hacer petición AJAX
-    fetch(`ajax_cargar_deudores.php?empresa=${encodeURIComponent(empresaNormalizada)}&estado=${estadoPago}`)
+    fetch(`ajax_cargar_deudores.php?empresa=${encodeURIComponent(empresaNormalizada)}&estado=${estadoPago}&modo_especial=${modoEspecial}`)
       .then(response => {
         if (!response.ok) throw new Error('Error en la respuesta');
         return response.json();
@@ -990,11 +1120,11 @@ $(document).ready(function() {
   }
   
   // Función para cargar todos los deudores
-  function cargarTodosDeudores(estadoPago) {
+  function cargarTodosDeudores(estadoPago, modoEspecial) {
     // Mostrar loading
     deudorSelect.html('<option value="">Cargando todos los deudores...</option>');
     
-    fetch(`ajax_cargar_deudores.php?empresa=&estado=${estadoPago}`)
+    fetch(`ajax_cargar_deudores.php?empresa=&estado=${estadoPago}&modo_especial=${modoEspecial}`)
       .then(response => response.json())
       .then(data => {
         let options = '<option value="">Todos los deudores</option>';
@@ -1025,12 +1155,13 @@ $(document).ready(function() {
   empresaSelect.on('change', function() {
     const empresaNormalizada = $(this).val();
     const estadoPago = document.querySelector('input[name="estado_pago"]:checked')?.value || 'no_pagados';
+    const modoEspecial = modoEspecialCheckbox?.checked ? 1 : 0;
     
     // Guardar el deudor seleccionado antes de cambiar
     deudorSeleccionado = deudorSelect.val();
     
     // Cargar deudores según la empresa seleccionada
-    cargarDeudoresPorEmpresa(empresaNormalizada, estadoPago);
+    cargarDeudoresPorEmpresa(empresaNormalizada, estadoPago, modoEspecial);
   });
   
   // Evento cuando cambia el estado de pago
@@ -1038,18 +1169,27 @@ $(document).ready(function() {
     radio.addEventListener('change', function() {
       const empresaNormalizada = empresaSelect.val();
       const estadoPago = this.value;
+      const modoEspecial = modoEspecialCheckbox?.checked ? 1 : 0;
       
       // Guardar el deudor seleccionado
       deudorSeleccionado = deudorSelect.val();
       
       // Recargar deudores con el nuevo estado
       if (empresaNormalizada) {
-        cargarDeudoresPorEmpresa(empresaNormalizada, estadoPago);
+        cargarDeudoresPorEmpresa(empresaNormalizada, estadoPago, modoEspecial);
       } else {
-        cargarTodosDeudores(estadoPago);
+        cargarTodosDeudores(estadoPago, modoEspecial);
       }
     });
   });
+  
+  // Evento cuando cambia el modo especial (toggle)
+  if (modoEspecialCheckbox) {
+    modoEspecialCheckbox.addEventListener('change', function() {
+      // El formulario se envía automáticamente por el onchange del checkbox
+      // Esto recargará la página con el nuevo modo
+    });
+  }
 });
 
 // JS: selección múltiple + eliminar sin anidar formularios
@@ -1099,7 +1239,7 @@ function submitDelete(id){
   if(!confirm('¿Eliminar #'+id+'?')) return;
   const f = document.createElement('form');
   f.method = 'post';
-  f.action = '?action=delete&id='+id;
+  f.action = '?action=delete&id='+id+'&modo_especial=<?= $modo_especial ?>';
   document.body.appendChild(f);
   f.submit();
 }
