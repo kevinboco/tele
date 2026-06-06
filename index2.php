@@ -1895,6 +1895,7 @@ if (isset($_SESSION['ultimo_viaje'])) unset($_SESSION['ultimo_viaje']);
                             <button type="submit" class="btn btn-sm btn-outline-secondary">❌ Deseleccionar todos los visibles</button>
                         </form>
                     </div>
+                    <a href="https://asociacion.asociaciondetransportistaszonanorte.io/tele/correccion_masiva.php"
                     <?php if (!empty($_SESSION['seleccionados'])): ?>
                         <div class="d-flex gap-2">
                             <form method="POST" id="editarSeleccionadosForm">
