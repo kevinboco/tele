@@ -18,9 +18,6 @@ const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 // URL absoluta para volver a Tarjetas después del bulk update
 const BASE_URL = 'https://asociacion.asociaciondetransportistaszonanorte.io/tele/admin_prestamos.php';
 
-// Normalizado para detectar a Jorge Eduardo Palmar
-const JORGE_NORMALIZADO = 'jorge eduardo palmar';
-
 if (!is_dir(UPLOAD_DIR)) @mkdir(UPLOAD_DIR, 0775, true);
 
 // ===== Helpers =====
@@ -44,19 +41,14 @@ function go($url){
   exit;
 }
 
-function mbnorm($s){ return mb_strtolower(trim((string)$s),'UTF-8'); }
+function mbnorm($s){ return mb_strtolower(trim(preg_replace('/\s+/', ' ', (string)$s)),'UTF-8'); }
 function mbtitle($s){ return function_exists('mb_convert_case') ? mb_convert_case((string)$s, MB_CASE_TITLE, 'UTF-8') : ucwords(strtolower((string)$s)); }
 
-// Función para determinar si un préstamo es de Jorge Eduardo Palmar
+// Función mejorada para detectar si es Jorge Eduardo Palmar (flexible)
 function esJorgeEduardoPalmar($prestamista): bool {
-    return mbnorm($prestamista) === JORGE_NORMALIZADO;
-}
-
-// Función para calcular meses (solo para préstamos normales)
-function calcularMeses($fecha) {
-    if (strtotime($fecha) > strtotime(date('Y-m-d'))) return 0;
-    $diff = date_diff(date_create($fecha), date_create(date('Y-m-d')));
-    return ($diff->y * 12) + $diff->m + 1; // +1 para incluir el mes actual
+    $normalizado = mbnorm($prestamista);
+    // Buscar que contenga "jorge" y "palmar" (sin importar espacios o mayúsculas)
+    return str_contains($normalizado, 'jorge') && str_contains($normalizado, 'palmar');
 }
 
 // Función para calcular días corridos (para préstamos de Jorge)
@@ -547,7 +539,7 @@ else:
     $types.="s"; $params[]=$fecha_hasta;
   }
 
-  // SQL CON LÓGICA MEJORADA PARA JORGE EDUARDO PALMAR
+  // SQL CON LÓGICA MEJORADA PARA JORGE EDUARDO PALMAR (usando LIKE para detección flexible)
   $sql = "
       SELECT 
           id, deudor, prestamista, monto, fecha, imagen, created_at, pagado, pagado_at,
@@ -555,46 +547,46 @@ else:
           comision_gestor_nombre, comision_gestor_porcentaje, comision_base_monto, 
           comision_origen_prestamista, comision_origen_porcentaje,
           
-          /* --- CÁLCULO DE MESES PARA PRÉSTAMOS NORMALES --- */
-          CASE 
-              WHEN LOWER(TRIM(prestamista)) = 'jorge eduardo palmar' THEN 0
-              WHEN CURDATE() < fecha THEN 0 
-              ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 
-          END AS meses,
-          
           /* --- CÁLCULO DE DÍAS PARA PRÉSTAMOS DE JORGE --- */
           CASE 
-              WHEN LOWER(TRIM(prestamista)) = 'jorge eduardo palmar' THEN
+              WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN
                   CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END
               ELSE 0
           END AS dias,
           
+          /* --- CÁLCULO DE MESES PARA PRÉSTAMOS NORMALES --- */
+          CASE 
+              WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN 0
+              WHEN CURDATE() < fecha THEN 0 
+              ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 
+          END AS meses,
+          
           /* --- INTERÉS PRESTAMISTA (JORGE: 8% POR DÍAS) --- */
           CASE 
-              WHEN LOWER(TRIM(prestamista)) = 'jorge eduardo palmar' THEN
-                  ROUND(monto * 0.08 / 365 * CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END, 2)
+              WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN
+                  ROUND(monto * 0.08 / 365 * CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END, 0)
               ELSE
                   ROUND(monto * 
                       CASE 
                           WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
                           ELSE COALESCE(comision_origen_porcentaje, 10)
                       END / 100 *
-                      CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END, 2)
+                      CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END, 0)
           END AS interes_prestamista,
           
-          /* --- COMISIÓN GESTOR (igual para todos) --- */
+          /* --- COMISIÓN GESTOR (Jorge: basado en días / 30.44) --- */
           ROUND(COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100 *
               CASE 
-                  WHEN LOWER(TRIM(prestamista)) = 'jorge eduardo palmar' THEN
+                  WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN
                       CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END / 30.44
                   ELSE
                       CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
-              END, 2) AS comision_gestor,
+              END, 0) AS comision_gestor,
           
           /* --- INTERÉS TOTAL --- */
           ROUND(
               (CASE 
-                  WHEN LOWER(TRIM(prestamista)) = 'jorge eduardo palmar' THEN
+                  WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN
                       /* Jorge: 8% por días */
                       monto * 0.08 / 365 * CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END
                   ELSE
@@ -608,17 +600,17 @@ else:
               END) +
               (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100 *
                   CASE 
-                      WHEN LOWER(TRIM(prestamista)) = 'jorge eduardo palmar' THEN
+                      WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN
                           CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END / 30.44
                       ELSE
                           CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
                   END)
-          , 2) AS interes_total,
+          , 0) AS interes_total,
           
           /* --- TOTAL A PAGAR --- */
           ROUND(monto + 
               (CASE 
-                  WHEN LOWER(TRIM(prestamista)) = 'jorge eduardo palmar' THEN
+                  WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN
                       monto * 0.08 / 365 * CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END
                   ELSE
                       monto * 
@@ -630,12 +622,12 @@ else:
               END) +
               (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100 *
                   CASE 
-                      WHEN LOWER(TRIM(prestamista)) = 'jorge eduardo palmar' THEN
+                      WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN
                           CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END / 30.44
                       ELSE
                           CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
                   END)
-          , 2) AS total
+          , 0) AS total
               
       FROM prestamos
       WHERE $where
@@ -654,43 +646,43 @@ else:
                SUM(monto) AS capital,
                SUM(
                    CASE 
-                       WHEN LOWER(TRIM(prestamista)) = 'jorge eduardo palmar' THEN
-                           ROUND(monto * 0.08 / 365 * CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END, 2)
+                       WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN
+                           ROUND(monto * 0.08 / 365 * CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END, 0)
                        ELSE
                            ROUND(monto * 
                                CASE 
                                    WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
                                    ELSE COALESCE(comision_origen_porcentaje, 10)
                                END / 100 *
-                               CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END, 2)
+                               CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END, 0)
                    END +
                    ROUND(COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100 *
                        CASE 
-                           WHEN LOWER(TRIM(prestamista)) = 'jorge eduardo palmar' THEN
+                           WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN
                                CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END / 30.44
                            ELSE
                                CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
-                       END, 2)
+                       END, 0)
                ) AS interes,
                SUM(monto + 
                    CASE 
-                       WHEN LOWER(TRIM(prestamista)) = 'jorge eduardo palmar' THEN
-                           ROUND(monto * 0.08 / 365 * CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END, 2)
+                       WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN
+                           ROUND(monto * 0.08 / 365 * CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END, 0)
                        ELSE
                            ROUND(monto * 
                                CASE 
                                    WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
                                    ELSE COALESCE(comision_origen_porcentaje, 10)
                                END / 100 *
-                               CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END, 2)
+                               CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END, 0)
                    END +
                    ROUND(COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100 *
                        CASE 
-                           WHEN LOWER(TRIM(prestamista)) = 'jorge eduardo palmar' THEN
+                           WHEN (LOWER(TRIM(prestamista)) LIKE '%jorge%' AND LOWER(TRIM(prestamista)) LIKE '%palmar%') THEN
                                CASE WHEN CURDATE() < fecha THEN 0 ELSE DATEDIFF(CURDATE(), fecha) END / 30.44
                            ELSE
                                CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END
-                       END, 2)
+                       END, 0)
                ) AS total
         FROM prestamos
         WHERE $where";
@@ -779,7 +771,7 @@ else:
           <a class="btn gray" href="?view=cards">Quitar filtro</a>
         <?php endif; ?>
       </form>
-      <div class="subtitle">Interés variable: 13% desde 2025-10-29, 10% para préstamos anteriores. <strong>Jorge Eduardo Palmar: 8% por días corridos.</strong></div>
+      <div class="subtitle">Interés variable: 13% desde 2025-10-29, 10% para préstamos anteriores. <strong>Jorge Eduardo Palmar: 8% anual por días corridos.</strong></div>
     </div>
 
     <!-- Resumen cuando hay filtros -->
@@ -858,7 +850,7 @@ else:
             // Determinar si es una comisión
             $esComision = !empty($r['comision_gestor_nombre']);
             $esPagado = (bool)($r['pagado'] ?? false);
-            $esJorge = mbnorm($r['prestamista']) === JORGE_NORMALIZADO;
+            $esJorge = (stripos($r['prestamista'], 'jorge') !== false && stripos($r['prestamista'], 'palmar') !== false);
             
             // Determinar clases CSS según estado
             $cardClass = '';
@@ -875,14 +867,14 @@ else:
               $badgeClass = 'pagado-badge';
             }
             
-            // Calcular porcentaje total (solo para préstamos normales con comisión)
+            // Calcular porcentaje total
             $porcentajeTotal = 0;
-            if (!$esJorge) {
+            if ($esJorge) {
+              $porcentajeTotal = 8; // Jorge tiene 8% fijo
+            } else {
               $porcentajeTotal = (float)($r['comision_origen_porcentaje'] ?? 
                 (strtotime($r['fecha']) >= strtotime('2025-10-29') ? 13 : 10)) + 
                 (float)($r['comision_gestor_porcentaje'] ?? 0);
-            } else {
-              $porcentajeTotal = 8; // Jorge tiene 8% fijo
             }
           ?>
             <div class="card <?= $cardClass ?>">
