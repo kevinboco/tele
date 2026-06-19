@@ -1,7 +1,9 @@
 <?php
 /**
  * Bot de Telegram para Registro de Viajes
- * Versión: 1.3 - Guarda mensaje original en whatsapp y solo nombre de imagen
+ * Versión: 2.0 - Extracción inteligente basada en patrones reales
+ * 
+ * Basado en análisis de mensajes reales de la base de datos
  */
 
 // ============================================================
@@ -17,7 +19,7 @@ define('DB_NAME', 'u648222299_viajes');
 // Token del Bot de Telegram
 define('BOT_TOKEN', '8714260096:AAFEKzX-OYXh9NO4bo_jAiNfdaod3iM5TEs');
 
-// Directorio para guardar imágenes (RAÍZ /uploads)
+// Directorio para guardar imágenes
 define('UPLOAD_DIR', __DIR__ . '/uploads/');
 
 // Crear directorio si no existe
@@ -29,62 +31,42 @@ if (!is_dir(UPLOAD_DIR)) {
 // 2. FUNCIONES DE TELEGRAM
 // ============================================================
 
-/**
- * Envía un mensaje a Telegram
- */
 function sendTelegramMessage($chat_id, $text, $keyboard = null, $parse_mode = 'HTML') {
     $url = "https://api.telegram.org/bot" . BOT_TOKEN . "/sendMessage";
-    
     $data = [
         'chat_id' => $chat_id,
         'text' => $text,
         'parse_mode' => $parse_mode
     ];
-    
     if ($keyboard) {
         $data['reply_markup'] = json_encode($keyboard);
     }
-    
     return callTelegramAPI($url, $data);
 }
 
-/**
- * Envía un mensaje con teclado inline
- */
 function sendTelegramInlineKeyboard($chat_id, $text, $inline_keyboard, $parse_mode = 'HTML') {
     $url = "https://api.telegram.org/bot" . BOT_TOKEN . "/sendMessage";
-    
     $data = [
         'chat_id' => $chat_id,
         'text' => $text,
         'parse_mode' => $parse_mode,
         'reply_markup' => json_encode(['inline_keyboard' => $inline_keyboard])
     ];
-    
     return callTelegramAPI($url, $data);
 }
 
-/**
- * Responde a una callback query
- */
 function answerCallbackQuery($callback_query_id, $text = null, $show_alert = false) {
     $url = "https://api.telegram.org/bot" . BOT_TOKEN . "/answerCallbackQuery";
-    
     $data = [
         'callback_query_id' => $callback_query_id,
         'show_alert' => $show_alert
     ];
-    
     if ($text) {
         $data['text'] = $text;
     }
-    
     return callTelegramAPI($url, $data);
 }
 
-/**
- * Función genérica para llamar a la API de Telegram
- */
 function callTelegramAPI($url, $data) {
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
@@ -92,15 +74,8 @@ function callTelegramAPI($url, $data) {
     curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    
     $response = curl_exec($ch);
-    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
-    
-    if ($http_code != 200) {
-        error_log("Error en API Telegram: HTTP $http_code - $response");
-    }
-    
     return json_decode($response, true);
 }
 
@@ -108,93 +83,346 @@ function callTelegramAPI($url, $data) {
 // 3. BASE DE DATOS
 // ============================================================
 
-/**
- * Obtiene conexión a la base de datos
- */
 function getDBConnection() {
     $conn = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
-    
     if ($conn->connect_error) {
-        error_log("Error de conexión: " . $conn->connect_error);
-        throw new Exception("Error de conexión a la base de datos");
+        throw new Exception("Error de conexión: " . $conn->connect_error);
     }
-    
     $conn->set_charset("utf8mb4");
     return $conn;
 }
 
+// ============================================================
+// 4. EXTRACCIÓN INTELIGENTE DE DATOS
+// ============================================================
+
 /**
- * Extrae ruta y conductor del mensaje
+ * Diccionario de nombres de lugares comunes
+ */
+function getLugaresMap() {
+    return [
+        'maíaco' => 'Maicao',
+        'maicao' => 'Maicao',
+        'nazareth' => 'Nazareth',
+        'siapana' => 'Siapana',
+        'paraíso' => 'Paraiso',
+        'paraiso' => 'Paraiso',
+        'uribia' => 'Uribia',
+        'riohacha' => 'Riohacha',
+        'puerto estrella' => 'Puerto Estrella',
+        'puerto estrella' => 'Puerto Estrella',
+        'villa fatima' => 'Villa Fátima',
+        'villafatima' => 'Villa Fátima',
+        'villa fátima' => 'Villa Fátima',
+        'flor de la guajira' => 'Flor de la Guajira',
+        'puerto nuevo' => 'Puerto Nuevo',
+        'uribis' => 'Uribis',
+        'taroa' => 'Taroa',
+        'punta espada' => 'Punta Espada',
+        'chimare' => 'Chimare',
+        'cuestecita' => 'Cuestecita',
+        'yolijalu' => 'Yolijalu',
+        'ulisimou' => 'Ulisimou',
+        'warerpa' => 'Warerpa',
+        'jasariru' => 'Jasariru',
+        'tawaira' => 'Tawaira',
+        'cocomana' => 'Cocomana',
+        'siliamana' => 'Siliamana',
+        'sharimana' => 'Sharimana'
+    ];
+}
+
+/**
+ * Diccionario de conductores comunes
+ */
+function getConductoresMap() {
+    return [
+        'franco pimienta' => 'Franco Pimienta',
+        'francisco pimienta' => 'Franco Pimienta',
+        'fco pimienta' => 'Franco Pimienta',
+        'guney gonzalez' => 'Guney González',
+        'guney gonzále' => 'Guney González',
+        'luis hernández' => 'Luis Hernández Polanco',
+        'luis hernandez' => 'Luis Hernández Polanco',
+        'luis hernandez polanco' => 'Luis Hernández Polanco',
+        'luis hernández polanco' => 'Luis Hernández Polanco',
+        'virgilio ortiz' => 'Virgilio Ortiz',
+        'jorge palmar' => 'Jorge Eduardo Palmar',
+        'jorge eduardo palmar' => 'Jorge Eduardo Palmar',
+        'halder suárez' => 'Halder Enrrique Suárez Machado',
+        'halder suarez' => 'Halder Enrrique Suárez Machado',
+        'halder enrrique suárez machado' => 'Halder Enrrique Suárez Machado',
+        'bernaudino suárez' => 'Bernardino Suárez',
+        'bernardino suarez' => 'Bernardino Suárez',
+        'ricardo gonzález' => 'Ricardo González Polanco',
+        'ricardo gonzalez' => 'Ricardo González Polanco',
+        'ricardo prieto' => 'Ricardo Prieto',
+        'jaifer iguaran' => 'Jaifer Luis Iguaran',
+        'jaifer luis iguaran' => 'Jaifer Luis Iguaran',
+        'lino lópez' => 'Lino López',
+        'lino lopez' => 'Lino López',
+        'adalberto' => 'Adalberto',
+        'roman iguarán' => 'Roman Oswaldo Iguarán Paz',
+        'roman iguaran' => 'Roman Oswaldo Iguarán Paz',
+        'yulian carreño' => 'Yulian Carreño',
+        'yulian carreno' => 'Yulian Carreño',
+        'yusein arregoces' => 'Yusein Arregoces',
+        'lucio adán iguaran' => 'Lucio Adán Iguaran',
+        'lucio adan iguaran' => 'Lucio Adán Iguaran',
+        'cesar fernández' => 'César Fernández',
+        'cesar fernandez' => 'César Fernández',
+        'edixon castillo' => 'Edixon Castillo Fernández',
+        'javier ospino' => 'Javier Arturo Ospino',
+        'javier arturo ospino' => 'Javier Arturo Ospino',
+        'francisco cambar' => 'Francisco Cambar',
+        'elider ortiz' => 'Elider Ortiz Montiel',
+        'constantino kuasth' => 'Constantino José Kuasth',
+        'ricardo polanco' => 'Ricardo Polanco Hernandez',
+        'benjamín castañeda' => 'Benjamín Castañeda',
+        'benjamin castañeda' => 'Benjamín Castañeda',
+        'alexis brito' => 'Alexis Brito',
+        'osnaider iguaran' => 'Osnaider Iguaran',
+        'tulio forero' => 'Tulio Forero',
+        'ramón uriana' => 'Ramón Uriana',
+        'ramon uriana' => 'Ramón Uriana'
+    ];
+}
+
+/**
+ * Extrae datos del mensaje basado en patrones reales
  */
 function extraerDatosDelMensaje($texto) {
-    $texto = strtolower(trim($texto));
+    $texto_original = $texto;
+    $texto_limpio = trim($texto);
+    
     $resultado = [
-        'ruta' => null,
         'conductor' => null,
-        'tipo_vehiculo' => null,
+        'ruta' => null,
         'origen' => null,
         'destino' => null,
-        'empresa' => null,
-        'paciente' => null
+        'empresa' => 'Hospital',
+        'tipo_viaje' => 'ida_y_vuelta',
+        'tipo_vehiculo' => 'Burbuja',
+        'texto_original' => $texto_original,
+        'paciente' => null,
+        'completo' => false
     ];
     
-    // 1. Extraer conductor: "conductor [nombre]"
-    if (preg_match('/conductor\s+([\w\sáéíóúñ.]+)/i', $texto, $matches)) {
-        $resultado['conductor'] = ucwords(trim($matches[1]));
+    // ============================================================
+    // PASO 1: EXTRAER CONDUCTOR
+    // ============================================================
+    
+    $conductor_encontrado = null;
+    
+    // Patrón 1: "conductor" seguido de nombre
+    if (preg_match('/conductor\s*[:.]?\s*([\w\sáéíóúñ.]+?)(?:\s+desde|\s+traslado|\s+con\s+retorno|\s+retorno|\s+hospital|\s+de\s+campaña|\s+para|\s*$)/i', $texto_original, $matches)) {
+        $nombre = trim($matches[1]);
+        // Limpiar texto adicional
+        $nombre = preg_replace('/\s+con\s+retorno/i', '', $nombre);
+        $nombre = preg_replace('/\s+retorno/i', '', $nombre);
+        $nombre = preg_replace('/\s+hospital\s+de\s+campaña/i', '', $nombre);
+        $nombre = preg_replace('/\s+hospital\s+nazareth/i', '', $nombre);
+        $nombre = trim($nombre);
+        if (!empty($nombre)) {
+            $conductor_encontrado = ucwords(strtolower($nombre));
+        }
     }
     
-    // 2. Extraer paciente: "paciente [nombre]" o "de paciente [nombre]"
-    if (preg_match('/(?:paciente|de\s+paciente)\s+([\w\sáéíóúñ.]+?)(?:\s+desde|\s+a|\s+conductor|$)/i', $texto, $matches)) {
-        $resultado['paciente'] = ucwords(trim($matches[1]));
+    // Patrón 2: "conductor" al final del mensaje
+    if (!$conductor_encontrado) {
+        if (preg_match('/conductor\s+([\w\sáéíóúñ.]+)$/i', trim($texto_original), $matches)) {
+            $nombre = trim($matches[1]);
+            if (!empty($nombre)) {
+                $conductor_encontrado = ucwords(strtolower($nombre));
+            }
+        }
     }
     
-    // 3. Extraer ruta: "desde [origen] a [destino]"
-    if (preg_match('/desde\s+([\w\sáéíóúñ]+?)\s+a\s+([\w\sáéíóúñ]+?)(?:\s+conductor|\s+para|\s*$)/i', $texto, $matches)) {
-        $resultado['origen'] = ucwords(trim($matches[1]));
-        $resultado['destino'] = ucwords(trim($matches[2]));
-        $resultado['ruta'] = $resultado['origen'] . '-' . $resultado['destino'];
-    } 
-    elseif (preg_match('/([\w\s]+?)\s*[-–]\s*([\w\s]+)/i', $texto, $matches)) {
-        $resultado['origen'] = ucwords(trim($matches[1]));
-        $resultado['destino'] = ucwords(trim($matches[2]));
-        $resultado['ruta'] = $resultado['origen'] . '-' . $resultado['destino'];
-    } 
-    elseif (preg_match('/([\w\s]+?)\s+(?:a|para)\s+([\w\s]+?)(?:\s+conductor|\s*$)/i', $texto, $matches)) {
-        $resultado['origen'] = ucwords(trim($matches[1]));
-        $resultado['destino'] = ucwords(trim($matches[2]));
-        $resultado['ruta'] = $resultado['origen'] . '-' . $resultado['destino'];
+    // Patrón 3: "conducido por"
+    if (!$conductor_encontrado) {
+        if (preg_match('/conducido\s+por\s+([\w\sáéíóúñ.]+?)(?:\s+desde|\s+traslado|\s*$)/i', $texto_original, $matches)) {
+            $nombre = trim($matches[1]);
+            if (!empty($nombre)) {
+                $conductor_encontrado = ucwords(strtolower($nombre));
+            }
+        }
     }
     
-    // 4. Extraer empresa
-    $empresas = ['hospital', 'icbf', 'sunny app', 'acpm', 'cava', 'p.campaña', 'p.nazareth', 'p.siapana'];
-    foreach ($empresas as $emp) {
-        if (preg_match('/\b' . preg_quote($emp, '/') . '\b/i', $texto)) {
-            $resultado['empresa'] = ucwords($emp);
+    // Normalizar conductor con el mapa de nombres
+    if ($conductor_encontrado) {
+        $nombre_lower = strtolower($conductor_encontrado);
+        $conductores_map = getConductoresMap();
+        foreach ($conductores_map as $key => $value) {
+            if (strpos($nombre_lower, $key) !== false || strpos($key, $nombre_lower) !== false) {
+                $conductor_encontrado = $value;
+                break;
+            }
+        }
+        $resultado['conductor'] = $conductor_encontrado;
+    }
+    
+    // ============================================================
+    // PASO 2: EXTRAER RUTA
+    // ============================================================
+    
+    $origen = null;
+    $destino = null;
+    $ruta = null;
+    
+    // Patrón 1: "desde X a Y" o "desde X hasta Y"
+    if (preg_match('/desde\s+([\w\sáéíóúñ]+?)\s+(?:a|hasta)\s+([\w\sáéíóúñ]+?)(?:\s+conductor|\s+para|\s+con\s+retorno|\s+retorno|\s+hospital|\s*$)/i', $texto_original, $matches)) {
+        $origen = limpiarLugar(trim($matches[1]));
+        $destino = limpiarLugar(trim($matches[2]));
+        $ruta = $origen . '-' . $destino;
+    }
+    
+    // Patrón 2: "X - Y" o "X-Y"
+    if (!$ruta) {
+        if (preg_match('/([\w\sáéíóúñ]+?)\s*[-–]\s*([\w\sáéíóúñ]+?)(?:\s+conductor|\s+para|\s+con\s+retorno|\s+retorno|\s+hospital|\s*$)/i', $texto_original, $matches)) {
+            $origen = limpiarLugar(trim($matches[1]));
+            $destino = limpiarLugar(trim($matches[2]));
+            $ruta = $origen . '-' . $destino;
+        }
+    }
+    
+    // Patrón 3: "X a Y" (sin "desde")
+    if (!$ruta) {
+        if (preg_match('/([\w\sáéíóúñ]+?)\s+a\s+([\w\sáéíóúñ]+?)(?:\s+conductor|\s+para|\s+con\s+retorno|\s+retorno|\s+hospital|\s*$)/i', $texto_original, $matches)) {
+            $origen = limpiarLugar(trim($matches[1]));
+            $destino = limpiarLugar(trim($matches[2]));
+            $ruta = $origen . '-' . $destino;
+        }
+    }
+    
+    // Patrón 4: Rutas con múltiples puntos (ej: "Nazareth-Siapana-Maicao")
+    if (!$ruta) {
+        if (preg_match('/([\w\sáéíóúñ]+?)\s*[-–]\s*([\w\sáéíóúñ]+?)\s*[-–]\s*([\w\sáéíóúñ]+?)/i', $texto_original, $matches)) {
+            $origen = limpiarLugar(trim($matches[1]));
+            $destino = limpiarLugar(trim($matches[3]));
+            $ruta = $origen . '-' . $destino;
+        }
+    }
+    
+    // Limpiar texto adicional de la ruta
+    if ($ruta) {
+        $palabras_eliminar = ['hospital', 'de', 'campaña', 'con', 'retorno', 'carpa', 'nazareth', 'maicao', 'siapana', 'paraíso'];
+        foreach ($palabras_eliminar as $palabra) {
+            $ruta = preg_replace('/\s*' . preg_quote($palabra, '/') . '\s*/i', '', $ruta);
+        }
+        $ruta = trim($ruta);
+        // Eliminar guiones dobles
+        $ruta = preg_replace('/-+/', '-', $ruta);
+        $ruta = trim($ruta, '-');
+        
+        // Capitalizar correctamente
+        $partes = explode('-', $ruta);
+        $partes = array_map(function($p) {
+            return ucwords(strtolower(trim($p)));
+        }, $partes);
+        $ruta = implode('-', $partes);
+        
+        $resultado['origen'] = $origen;
+        $resultado['destino'] = $destino;
+        $resultado['ruta'] = $ruta;
+    }
+    
+    // ============================================================
+    // PASO 3: EXTRAER EMPRESA
+    // ============================================================
+    
+    $empresas = [
+        '/icbf/i' => 'ICBF',
+        '/sunny\s+app/i' => 'Sunny App',
+        '/acpm/i' => 'ACPM',
+        '/cava/i' => 'Cava',
+        '/p\.campaña/i' => 'P.Campaña',
+        '/p\.nazareth/i' => 'P.Nazareth',
+        '/p\.siapana/i' => 'P.Siapana',
+        '/p\.paraiso/i' => 'P.Paraiso',
+        '/p\.villa\s+fátima/i' => 'P.Villa Fátima',
+        '/p\.flor\s+de\s+la\s+guajira/i' => 'P.Flor de la Guajira',
+        '/p\.puerto\s+estrella/i' => 'P.Puerto Estrella',
+        '/hospital\s+de\s+campaña/i' => 'Hospital Campaña',
+        '/hospital\s+nazareth/i' => 'Hospital Nazareth'
+    ];
+    
+    foreach ($empresas as $patron => $empresa) {
+        if (preg_match($patron, $texto_original)) {
+            $resultado['empresa'] = $empresa;
             break;
         }
     }
-    if (!$resultado['empresa']) {
-        $resultado['empresa'] = 'Hospital';
+    
+    // ============================================================
+    // PASO 4: DETECTAR TIPO DE VIAJE
+    // ============================================================
+    
+    if (preg_match('/con\s+retorno|retorno/i', $texto_original)) {
+        $resultado['tipo_viaje'] = 'con_retorno';
+    } elseif (preg_match('/solo\s+subida|subida/i', $texto_original)) {
+        $resultado['tipo_viaje'] = 'solo_subida';
+    } elseif (preg_match('/solo\s+bajada|bajada/i', $texto_original)) {
+        $resultado['tipo_viaje'] = 'solo_bajada';
     }
     
-    // 5. Extraer tipo de vehículo
-    $vehiculos = ['burbuja', 'camión 350', 'camión 750', 'carrotanque', 'volqueta', 'camioneta', 'copetrana'];
-    foreach ($vehiculos as $veh) {
-        if (preg_match('/\b' . preg_quote($veh, '/') . '\b/i', $texto)) {
-            $resultado['tipo_vehiculo'] = ucwords($veh);
+    // ============================================================
+    // PASO 5: EXTRAER TIPO DE VEHÍCULO
+    // ============================================================
+    
+    $vehiculos = [
+        '/burbuja/i' => 'Burbuja',
+        '/camión\s+350/i' => 'Camión 350',
+        '/camión\s+750/i' => 'Camión 750',
+        '/carrotanque/i' => 'Carrotanque',
+        '/volqueta/i' => 'Volqueta',
+        '/camioneta/i' => 'Camioneta',
+        '/copetrana/i' => 'Copetrana'
+    ];
+    
+    foreach ($vehiculos as $patron => $vehiculo) {
+        if (preg_match($patron, $texto_original)) {
+            $resultado['tipo_vehiculo'] = $vehiculo;
             break;
         }
     }
-    if (!$resultado['tipo_vehiculo']) {
-        $resultado['tipo_vehiculo'] = 'Burbuja';
-    }
+    
+    // ============================================================
+    // PASO 6: VERIFICAR SI ESTÁ COMPLETO
+    // ============================================================
+    
+    $resultado['completo'] = ($resultado['conductor'] && $resultado['ruta']);
     
     return $resultado;
 }
 
 /**
- * Guarda el viaje en la base de datos
+ * Limpia y normaliza nombres de lugares
  */
+function limpiarLugar($lugar) {
+    $lugar = trim($lugar);
+    
+    // Si tiene muchas palabras, tomar las primeras 2
+    $palabras = explode(' ', $lugar);
+    if (count($palabras) > 2) {
+        $lugar = $palabras[0] . ' ' . $palabras[1];
+    }
+    
+    // Normalizar con el mapa de lugares
+    $lugares_map = getLugaresMap();
+    $lugar_lower = strtolower($lugar);
+    foreach ($lugares_map as $key => $value) {
+        if (strpos($lugar_lower, $key) !== false) {
+            return $value;
+        }
+    }
+    
+    return ucwords(strtolower($lugar));
+}
+
+// ============================================================
+// 5. GUARDAR VIAJE EN BASE DE DATOS
+// ============================================================
+
 function guardarViaje($data) {
     $conn = getDBConnection();
     
@@ -207,8 +435,8 @@ function guardarViaje($data) {
     $ruta = $data['ruta'] ?? null;
     $tipo_vehiculo = $data['tipo_vehiculo'] ?? 'Burbuja';
     $empresa = $data['empresa'] ?? 'Hospital';
-    $pago_parcial = isset($data['pago_parcial']) ? $data['pago_parcial'] : null;
-    $pagado = isset($data['pagado']) ? $data['pagado'] : 0;
+    $pago_parcial = $data['pago_parcial'] ?? null;
+    $pagado = $data['pagado'] ?? 0;
     
     $sql = "INSERT INTO viajes 
             (nombre, cedula, fecha, imagen, epicrisis, whatsapp, ruta, tipo_vehiculo, empresa, pago_parcial, pagado) 
@@ -243,45 +471,10 @@ function guardarViaje($data) {
     throw new Exception("Error al guardar viaje: " . $error);
 }
 
-/**
- * Obtiene conductores existentes
- */
-function obtenerConductores() {
-    $conn = getDBConnection();
-    $sql = "SELECT DISTINCT nombre FROM viajes WHERE nombre IS NOT NULL AND nombre != '' ORDER BY nombre LIMIT 50";
-    $result = $conn->query($sql);
-    
-    $conductores = [];
-    while ($row = $result->fetch_assoc()) {
-        $conductores[] = $row['nombre'];
-    }
-    $conn->close();
-    return $conductores;
-}
-
-/**
- * Obtiene rutas existentes
- */
-function obtenerRutas() {
-    $conn = getDBConnection();
-    $sql = "SELECT DISTINCT ruta FROM viajes WHERE ruta IS NOT NULL AND ruta != '' ORDER BY ruta LIMIT 50";
-    $result = $conn->query($sql);
-    
-    $rutas = [];
-    while ($row = $result->fetch_assoc()) {
-        $rutas[] = $row['ruta'];
-    }
-    $conn->close();
-    return $rutas;
-}
-
 // ============================================================
-// 4. MANEJADOR DEL BOT
+// 6. BOT HANDLER PRINCIPAL
 // ============================================================
 
-/**
- * Clase principal del Bot
- */
 class BotHandler {
     private $chat_id;
     private $user_data = [];
@@ -315,9 +508,6 @@ class BotHandler {
         $this->user_data = ['step' => 'idle'];
     }
     
-    /**
-     * Maneja mensajes de texto
-     */
     public function handleMessage($message) {
         $text = isset($message['text']) ? trim($message['text']) : '';
         $chat_id = $this->chat_id;
@@ -326,22 +516,12 @@ class BotHandler {
         if ($text === '/start') {
             return $this->sendWelcome();
         }
-        
         if ($text === '/cancel' || $text === '/cancelar') {
             $this->clearUserData();
             return sendTelegramMessage($chat_id, "✅ Operación cancelada. Envía /start para comenzar de nuevo.");
         }
-        
         if ($text === '/help' || $text === '/ayuda') {
             return $this->sendHelp();
-        }
-        
-        if ($text === '/conductores') {
-            return $this->listarConductores();
-        }
-        
-        if ($text === '/rutas') {
-            return $this->listarRutas();
         }
         
         // Si el usuario está en proceso de confirmación
@@ -350,18 +530,15 @@ class BotHandler {
                 return $this->guardarViajeFinal();
             } elseif (strpos($text, 'no') !== false || $text === '❌' || $text === '❌ Cancelar') {
                 $this->clearUserData();
-                return sendTelegramMessage($chat_id, "❌ Viaje cancelado. Envía /start para comenzar de nuevo.");
+                return sendTelegramMessage($chat_id, "❌ Viaje cancelado.");
             }
             return $this->sendConfirmationKeyboard();
         }
         
-        // Procesar mensaje de texto normal
+        // Procesar mensaje de texto
         return $this->procesarTexto($text);
     }
     
-    /**
-     * Maneja el envío de fotos
-     */
     public function handlePhoto($photo) {
         $chat_id = $this->chat_id;
         
@@ -375,7 +552,6 @@ class BotHandler {
         }
         
         try {
-            // Obtener la foto de mejor calidad (última de la lista)
             $file_id = $photo[count($photo) - 1]['file_id'];
             $file_path = $this->downloadImage($file_id);
             
@@ -395,9 +571,6 @@ class BotHandler {
         }
     }
     
-    /**
-     * Maneja respuestas de callback_query (botones inline)
-     */
     public function handleCallbackQuery($callback_query) {
         $data = $callback_query['data'];
         $callback_id = $callback_query['id'];
@@ -409,15 +582,11 @@ class BotHandler {
         } elseif ($data === 'confirm_no') {
             answerCallbackQuery($callback_id, "❌ Viaje cancelado");
             $this->clearUserData();
-            return sendTelegramMessage($chat_id, "❌ Viaje cancelado. Envía /start para comenzar de nuevo.");
+            return sendTelegramMessage($chat_id, "❌ Viaje cancelado.");
         }
-        
         return null;
     }
     
-    /**
-     * Procesa el texto para extraer datos
-     */
     private function procesarTexto($texto) {
         $chat_id = $this->chat_id;
         
@@ -425,8 +594,7 @@ class BotHandler {
         if (strpos($texto, '📝 Nuevo viaje') !== false || strpos($texto, 'nuevo viaje') !== false) {
             $this->clearUserData();
             return sendTelegramMessage($chat_id, 
-                "📝 Envía la información del viaje en este formato:\n\n" .
-                "Traslado de paciente desde [origen] a [destino] conductor [nombre]\n\n" .
+                "📝 Envía la información del viaje.\n\n" .
                 "Ejemplo:\n" .
                 "Traslado de paciente desde Paraíso a Nazareth conductor Franco Pimienta"
             );
@@ -435,16 +603,17 @@ class BotHandler {
         // Extraer datos
         $datos = extraerDatosDelMensaje($texto);
         
-        if (!$datos['ruta'] || !$datos['conductor']) {
-            $mensaje = "❌ No pude extraer la información correctamente.\n\n" .
-                       "📝 Por favor usa el formato:\n" .
-                       "<b>Traslado de paciente desde [origen] a [destino] conductor [nombre]</b>\n\n" .
-                       "📌 <b>Ejemplo:</b>\n" .
-                       "Traslado de paciente desde Paraíso a Nazareth conductor Franco Pimienta\n\n" .
-                       "💡 <b>Consejos:</b>\n" .
-                       "• Puedes agregar el tipo de vehículo (Burbuja, Camión 350, etc.)\n" .
-                       "• Puedes especificar la empresa (Hospital, ICBF, etc.)\n" .
-                       "• Escribe /help para más ayuda";
+        // Si falta conductor o ruta, pedir corrección
+        if (!$datos['completo']) {
+            $mensaje = "🤔 No entendí completamente el mensaje.\n\n";
+            $mensaje .= "📝 <b>Lo que detecté:</b>\n";
+            $mensaje .= "🚗 Conductor: " . ($datos['conductor'] ?? '❌ No detectado') . "\n";
+            $mensaje .= "🗺️ Ruta: " . ($datos['ruta'] ?? '❌ No detectada') . "\n";
+            $mensaje .= "🏢 Empresa: " . $datos['empresa'] . "\n\n";
+            $mensaje .= "🔄 <b>Por favor, escribe el mensaje con el formato:</b>\n";
+            $mensaje .= "<code>Traslado de paciente desde [origen] a [destino] conductor [nombre]</code>\n\n";
+            $mensaje .= "💡 <b>Ejemplo:</b>\n";
+            $mensaje .= "Traslado de paciente desde Paraíso a Nazareth conductor Franco Pimienta";
             
             return sendTelegramMessage($chat_id, $mensaje);
         }
@@ -453,20 +622,19 @@ class BotHandler {
         $this->user_data = [
             'step' => 'awaiting_image',
             'datos' => $datos,
-            'texto_original' => $texto  // ✅ Guardamos el mensaje original completo
+            'texto_original' => $texto
         ];
         $this->saveUserData();
         
         $mensaje = "✅ <b>Información extraída correctamente</b>\n\n" .
                    "🚗 <b>Conductor:</b> " . htmlspecialchars($datos['conductor']) . "\n" .
                    "🗺️ <b>Ruta:</b> " . htmlspecialchars($datos['ruta']) . "\n" .
-                   "🚙 <b>Vehículo:</b> " . htmlspecialchars($datos['tipo_vehiculo'] ?? 'No especificado') . "\n" .
-                   "🏢 <b>Empresa:</b> " . htmlspecialchars($datos['empresa'] ?? 'Hospital') . "\n" .
-                   "👤 <b>Paciente:</b> " . htmlspecialchars($datos['paciente'] ?? 'No especificado') . "\n\n" .
+                   "🚙 <b>Vehículo:</b> " . htmlspecialchars($datos['tipo_vehiculo']) . "\n" .
+                   "🏢 <b>Empresa:</b> " . htmlspecialchars($datos['empresa']) . "\n" .
+                   "🔄 <b>Tipo:</b> " . htmlspecialchars($datos['tipo_viaje']) . "\n\n" .
                    "📸 <b>Ahora envía la imagen del viaje</b>\n\n" .
                    "💡 Puedes cancelar escribiendo /cancel";
         
-        // Teclado personalizado
         $keyboard = [
             'keyboard' => [
                 ['❌ Cancelar']
@@ -478,9 +646,6 @@ class BotHandler {
         return sendTelegramMessage($chat_id, $mensaje, $keyboard);
     }
     
-    /**
-     * Envía teclado de confirmación
-     */
     private function sendConfirmationKeyboard() {
         $chat_id = $this->chat_id;
         $datos = $this->user_data['datos'];
@@ -488,13 +653,12 @@ class BotHandler {
         $mensaje = "📋 <b>Confirmar datos del viaje</b>\n\n" .
                    "🚗 <b>Conductor:</b> " . htmlspecialchars($datos['conductor']) . "\n" .
                    "🗺️ <b>Ruta:</b> " . htmlspecialchars($datos['ruta']) . "\n" .
-                   "🚙 <b>Vehículo:</b> " . htmlspecialchars($datos['tipo_vehiculo'] ?? 'No especificado') . "\n" .
-                   "🏢 <b>Empresa:</b> " . htmlspecialchars($datos['empresa'] ?? 'Hospital') . "\n" .
-                   "👤 <b>Paciente:</b> " . htmlspecialchars($datos['paciente'] ?? 'No especificado') . "\n" .
+                   "🚙 <b>Vehículo:</b> " . htmlspecialchars($datos['tipo_vehiculo']) . "\n" .
+                   "🏢 <b>Empresa:</b> " . htmlspecialchars($datos['empresa']) . "\n" .
+                   "🔄 <b>Tipo:</b> " . htmlspecialchars($datos['tipo_viaje']) . "\n" .
                    "📸 <b>Imagen:</b> Adjuntada ✅\n\n" .
                    "✅ <b>¿Confirmas guardar este viaje?</b>";
         
-        // Teclado inline
         $inline_keyboard = [
             [
                 ['text' => '✅ Sí, Guardar', 'callback_data' => 'confirm_yes'],
@@ -508,51 +672,38 @@ class BotHandler {
         return sendTelegramInlineKeyboard($chat_id, $mensaje, $inline_keyboard);
     }
     
-    /**
-     * Guarda el viaje final
-     */
     private function guardarViajeFinal() {
         $chat_id = $this->chat_id;
         $datos = $this->user_data['datos'];
         $imagen_path = $this->user_data['imagen'] ?? null;
-        $texto_original = $this->user_data['texto_original'] ?? null; // ✅ Recuperamos el mensaje original
+        $texto_original = $this->user_data['texto_original'] ?? null;
         
         try {
-            // Preparar datos - Guarda mensaje original en whatsapp y solo nombre de imagen
             $viaje_data = [
                 'conductor' => $datos['conductor'],
                 'ruta' => $datos['ruta'],
                 'tipo_vehiculo' => $datos['tipo_vehiculo'] ?? 'Burbuja',
                 'empresa' => $datos['empresa'] ?? 'Hospital',
-                'imagen' => $imagen_path ? basename($imagen_path) : null, // ✅ Solo el nombre del archivo
-                'whatsapp' => $texto_original, // ✅ Mensaje completo y exacto del usuario
+                'imagen' => $imagen_path ? basename($imagen_path) : null,
+                'whatsapp' => $texto_original,
                 'fecha' => date('Y-m-d'),
                 'pagado' => 0
             ];
             
-            // Guardar en base de datos
             $id = guardarViaje($viaje_data);
-            
-            // Limpiar datos del usuario
             $this->clearUserData();
-            
-            // Obtener el nombre del archivo de imagen
-            $nombre_imagen = $imagen_path ? basename($imagen_path) : 'No disponible';
             
             $mensaje = "✅ <b>¡Viaje registrado exitosamente!</b> 🎉\n\n" .
                        "📋 <b>ID:</b> <code>#$id</code>\n" .
                        "🚗 <b>Conductor:</b> " . htmlspecialchars($datos['conductor']) . "\n" .
                        "🗺️ <b>Ruta:</b> " . htmlspecialchars($datos['ruta']) . "\n" .
-                       "🚙 <b>Vehículo:</b> " . htmlspecialchars($datos['tipo_vehiculo'] ?? 'No especificado') . "\n" .
-                       "🏢 <b>Empresa:</b> " . htmlspecialchars($datos['empresa'] ?? 'Hospital') . "\n" .
+                       "🚙 <b>Vehículo:</b> " . htmlspecialchars($datos['tipo_vehiculo']) . "\n" .
+                       "🏢 <b>Empresa:</b> " . htmlspecialchars($datos['empresa']) . "\n" .
+                       "🔄 <b>Tipo:</b> " . htmlspecialchars($datos['tipo_viaje']) . "\n" .
                        "📅 <b>Fecha:</b> " . date('d/m/Y H:i') . "\n" .
-                       "📸 <b>Imagen:</b> " . $nombre_imagen . "\n" .
-                       "💬 <b>Mensaje original:</b> " . htmlspecialchars($texto_original ?? 'No disponible') . "\n\n" .
-                       "🔄 Envía otro viaje o usa los comandos:\n" .
-                       "/conductores - Ver conductores registrados\n" .
-                       "/rutas - Ver rutas registradas";
+                       "📸 <b>Imagen:</b> " . ($imagen_path ? basename($imagen_path) : 'No disponible') . "\n\n" .
+                       "🔄 Envía otro viaje o escribe /help para ayuda.";
             
-            // Teclado para continuar
             $keyboard = [
                 'keyboard' => [
                     ['📝 Nuevo viaje']
@@ -568,14 +719,11 @@ class BotHandler {
             return sendTelegramMessage($chat_id, 
                 "❌ Error al guardar el viaje.\n\n" .
                 "Detalle: " . $e->getMessage() . "\n\n" .
-                "Intenta nuevamente o contacta al administrador."
+                "Intenta nuevamente."
             );
         }
     }
     
-    /**
-     * Descarga una imagen de Telegram
-     */
     private function downloadImage($file_id) {
         $url = "https://api.telegram.org/bot" . BOT_TOKEN . "/getFile?file_id=" . $file_id;
         $response = file_get_contents($url);
@@ -593,11 +741,9 @@ class BotHandler {
             $extension = 'jpg';
         }
         
-        // Guardar DIRECTAMENTE en /uploads
         $nombre_archivo = 'viaje_' . date('Ymd_His') . '_' . uniqid() . '.' . $extension;
         $ruta_completa = UPLOAD_DIR . $nombre_archivo;
         
-        // Descargar archivo
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $download_url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -614,20 +760,16 @@ class BotHandler {
         curl_close($ch);
         
         if (empty($image_data)) {
-            throw new Exception("No se pudo descargar la imagen (datos vacíos)");
+            throw new Exception("No se pudo descargar la imagen");
         }
         
-        // Guardar imagen en /uploads
         if (file_put_contents($ruta_completa, $image_data) === false) {
-            throw new Exception("No se pudo guardar la imagen en /uploads");
+            throw new Exception("No se pudo guardar la imagen");
         }
         
         return $ruta_completa;
     }
     
-    /**
-     * Envía mensaje de bienvenida
-     */
     private function sendWelcome() {
         $chat_id = $this->chat_id;
         $this->clearUserData();
@@ -638,142 +780,68 @@ class BotHandler {
                    "2️⃣ El bot extraerá los datos automáticamente\n" .
                    "3️⃣ Envía una foto del viaje\n" .
                    "4️⃣ Confirma y ¡listo!\n\n" .
-                   "📌 <b>Formato del mensaje:</b>\n" .
+                   "📌 <b>Formato recomendado:</b>\n" .
                    "<code>Traslado de paciente desde [origen] a [destino] conductor [nombre]</code>\n\n" .
                    "📌 <b>Ejemplo:</b>\n" .
                    "Traslado de paciente desde Paraíso a Nazareth conductor Franco Pimienta\n\n" .
-                   "📋 <b>Comandos disponibles:</b>\n" .
+                   "📋 <b>Comandos:</b>\n" .
                    "/start - Iniciar bot\n" .
                    "/help - Mostrar ayuda\n" .
-                   "/conductores - Listar conductores\n" .
-                   "/rutas - Listar rutas\n" .
                    "/cancel - Cancelar operación";
         
         return sendTelegramMessage($chat_id, $mensaje);
     }
     
-    /**
-     * Envía ayuda
-     */
     private function sendHelp() {
         $chat_id = $this->chat_id;
         
-        $mensaje = "📖 <b>Guía completa del Bot</b>\n\n" .
-                   "🔹 <b>Paso 1: Enviar información</b>\n" .
-                   "Envía un mensaje con este formato:\n" .
-                   "<code>Traslado de paciente desde [origen] a [destino] conductor [nombre]</code>\n\n" .
-                   "🔹 <b>Paso 2: Enviar imagen</b>\n" .
-                   "Después de extraer los datos, envía la foto del viaje.\n\n" .
-                   "🔹 <b>Paso 3: Confirmar</b>\n" .
-                   "Revisa los datos y confirma para guardar.\n\n" .
-                   "📌 <b>Ejemplos:</b>\n" .
-                   "• Traslado de paciente desde Nazareth a Maicao conductor Luis Hernández\n" .
-                   "• Traslado desde Paraíso a Nazareth conductor Franco Pimienta (sin 'paciente')\n" .
-                   "• Maicao - Nazareth conductor Guney González Hospital de campaña\n\n" .
+        $mensaje = "📖 <b>Guía del Bot</b>\n\n" .
+                   "🔹 <b>Paso 1:</b> Envía el mensaje con la información\n" .
+                   "🔹 <b>Paso 2:</b> Envía la foto del viaje\n" .
+                   "🔹 <b>Paso 3:</b> Confirma los datos\n\n" .
+                   "📌 <b>Formatos aceptados:</b>\n" .
+                   "• Traslado de paciente desde X a Y conductor Z\n" .
+                   "• X - Y conductor Z\n" .
+                   "• desde X a Y conductor Z\n\n" .
                    "📋 <b>Comandos:</b>\n" .
-                   "/start - Iniciar bot\n" .
-                   "/help - Mostrar ayuda\n" .
-                   "/conductores - Listar conductores registrados\n" .
-                   "/rutas - Listar rutas registradas\n" .
-                   "/cancel - Cancelar operación actual\n\n" .
-                   "💡 <b>Tips:</b>\n" .
-                   "• Puedes agregar el tipo de vehículo (Burbuja, Camión 350, etc.)\n" .
-                   "• Puedes especificar la empresa (Hospital, ICBF, Sunny app, etc.)\n" .
-                   "• El bot reconoce diferentes formatos de mensaje";
+                   "/start - Iniciar\n" .
+                   "/help - Ayuda\n" .
+                   "/cancel - Cancelar";
         
         return sendTelegramMessage($chat_id, $mensaje);
     }
-    
-    /**
-     * Lista conductores registrados
-     */
-    private function listarConductores() {
-        $chat_id = $this->chat_id;
-        $conductores = obtenerConductores();
-        
-        if (empty($conductores)) {
-            return sendTelegramMessage($chat_id, "📋 No hay conductores registrados aún.");
-        }
-        
-        $cantidad = count($conductores);
-        $lista = "🚗 <b>Conductores registrados ({$cantidad})</b>\n\n";
-        
-        foreach ($conductores as $conductor) {
-            $lista .= "• " . htmlspecialchars($conductor) . "\n";
-        }
-        
-        $lista .= "\n💡 Usa estos nombres en tus mensajes para que el bot los reconozca.";
-        
-        return sendTelegramMessage($chat_id, $lista, null, 'HTML');
-    }
-    
-    /**
-     * Lista rutas registradas
-     */
-    private function listarRutas() {
-        $chat_id = $this->chat_id;
-        $rutas = obtenerRutas();
-        
-        if (empty($rutas)) {
-            return sendTelegramMessage($chat_id, "📋 No hay rutas registradas aún.");
-        }
-        
-        $cantidad = count($rutas);
-        $lista = "🗺️ <b>Rutas registradas ({$cantidad})</b>\n\n";
-        
-        sort($rutas);
-        foreach ($rutas as $ruta) {
-            $lista .= "• " . htmlspecialchars($ruta) . "\n";
-        }
-        
-        return sendTelegramMessage($chat_id, $lista, null, 'HTML');
-    }
 }
 
 // ============================================================
-// 5. PROCESAMIENTO DE WEBHOOK
+// 7. PROCESAMIENTO DEL WEBHOOK
 // ============================================================
 
-// Obtener el contenido de la petición
 $content = file_get_contents("php://input");
 $update = json_decode($content, true);
 
-// Si no hay datos, responder con un mensaje de prueba
 if (!$update) {
-    die("Bot de Viajes funcionando correctamente. Versión 1.3");
+    die("Bot de Viajes funcionando correctamente. Versión 2.0");
 }
 
-// Procesar el mensaje
 try {
     if (isset($update['message'])) {
         $message = $update['message'];
         $chat_id = $message['chat']['id'];
-        
-        // Crear instancia del handler
         $handler = new BotHandler($chat_id);
         
-        // Verificar si es una foto
         if (isset($message['photo'])) {
-            $response = $handler->handlePhoto($message['photo']);
-        } 
-        // Verificar si es un mensaje de texto
-        elseif (isset($message['text'])) {
-            $response = $handler->handleMessage($message);
-        }
-        // Otros tipos de mensaje
-        else {
+            $handler->handlePhoto($message['photo']);
+        } elseif (isset($message['text'])) {
+            $handler->handleMessage($message);
+        } else {
             sendTelegramMessage($chat_id, "📝 Por favor, envía un mensaje de texto o una foto.");
         }
-    }
-    // Manejar callback queries (botones inline)
-    elseif (isset($update['callback_query'])) {
+    } elseif (isset($update['callback_query'])) {
         $callback_query = $update['callback_query'];
         $chat_id = $callback_query['message']['chat']['id'];
-        
         $handler = new BotHandler($chat_id);
         $handler->handleCallbackQuery($callback_query);
     }
-    
 } catch (Exception $e) {
     error_log("Error en el bot: " . $e->getMessage());
     if (isset($chat_id)) {
