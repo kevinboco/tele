@@ -1,7 +1,7 @@
 <?php
 /**
  * Bot de Telegram para Registro de Viajes
- * Versión: 1.2 - Guarda solo el nombre de la imagen
+ * Versión: 1.3 - Guarda mensaje original en whatsapp y solo nombre de imagen
  */
 
 // ============================================================
@@ -453,7 +453,7 @@ class BotHandler {
         $this->user_data = [
             'step' => 'awaiting_image',
             'datos' => $datos,
-            'texto_original' => $texto
+            'texto_original' => $texto  // ✅ Guardamos el mensaje original completo
         ];
         $this->saveUserData();
         
@@ -515,15 +515,17 @@ class BotHandler {
         $chat_id = $this->chat_id;
         $datos = $this->user_data['datos'];
         $imagen_path = $this->user_data['imagen'] ?? null;
+        $texto_original = $this->user_data['texto_original'] ?? null; // ✅ Recuperamos el mensaje original
         
         try {
-            // Preparar datos - GUARDA SOLO EL NOMBRE DE LA IMAGEN
+            // Preparar datos - Guarda mensaje original en whatsapp y solo nombre de imagen
             $viaje_data = [
                 'conductor' => $datos['conductor'],
                 'ruta' => $datos['ruta'],
                 'tipo_vehiculo' => $datos['tipo_vehiculo'] ?? 'Burbuja',
                 'empresa' => $datos['empresa'] ?? 'Hospital',
                 'imagen' => $imagen_path ? basename($imagen_path) : null, // ✅ Solo el nombre del archivo
+                'whatsapp' => $texto_original, // ✅ Mensaje completo y exacto del usuario
                 'fecha' => date('Y-m-d'),
                 'pagado' => 0
             ];
@@ -544,7 +546,8 @@ class BotHandler {
                        "🚙 <b>Vehículo:</b> " . htmlspecialchars($datos['tipo_vehiculo'] ?? 'No especificado') . "\n" .
                        "🏢 <b>Empresa:</b> " . htmlspecialchars($datos['empresa'] ?? 'Hospital') . "\n" .
                        "📅 <b>Fecha:</b> " . date('d/m/Y H:i') . "\n" .
-                       "📸 <b>Imagen:</b> " . $nombre_imagen . "\n\n" .
+                       "📸 <b>Imagen:</b> " . $nombre_imagen . "\n" .
+                       "💬 <b>Mensaje original:</b> " . htmlspecialchars($texto_original ?? 'No disponible') . "\n\n" .
                        "🔄 Envía otro viaje o usa los comandos:\n" .
                        "/conductores - Ver conductores registrados\n" .
                        "/rutas - Ver rutas registradas";
@@ -737,7 +740,7 @@ $update = json_decode($content, true);
 
 // Si no hay datos, responder con un mensaje de prueba
 if (!$update) {
-    die("Bot de Viajes funcionando correctamente. Versión 1.2");
+    die("Bot de Viajes funcionando correctamente. Versión 1.3");
 }
 
 // Procesar el mensaje
