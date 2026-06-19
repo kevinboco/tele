@@ -1,7 +1,7 @@
 <?php
 /**
  * Bot de Telegram para Registro de Viajes
- * Versión: 1.4 - Mejora en extracción de conductor
+ * Versión: 1.5 - Extracción mejorada con feedback detallado
  */
 
 // ============================================================
@@ -124,11 +124,12 @@ function getDBConnection() {
 }
 
 /**
- * Extrae ruta y conductor del mensaje - VERSIÓN MEJORADA
+ * Extrae TODOS los datos posibles del mensaje - VERSIÓN MEJORADA CON FEEDBACK
  */
 function extraerDatosDelMensaje($texto) {
     $texto_original = $texto;
     $texto = trim($texto);
+    
     $resultado = [
         'ruta' => null,
         'conductor' => null,
@@ -136,7 +137,16 @@ function extraerDatosDelMensaje($texto) {
         'origen' => null,
         'destino' => null,
         'empresa' => null,
-        'paciente' => null
+        'paciente' => null,
+        'auxiliar' => null,
+        'acompanante' => null,
+        'hora_salida' => null,
+        // Para feedback
+        'encontrado_conductor' => false,
+        'encontrado_ruta' => false,
+        'encontrado_origen' => false,
+        'encontrado_destino' => false,
+        'mensaje_feedback' => []
     ];
     
     // ============================================================
@@ -153,7 +163,8 @@ function extraerDatosDelMensaje($texto) {
         '/\bconductores\b/i',         // plural
         '/\bconduc\b/i',              // abreviado
         '/\bcondcutor\b/i',           // error común
-        '/\bconductor\s+/i',          // con espacio
+        '/\bconductor\s*:/i',         // con dos puntos
+        '/\bconductor\s*-\s*/i',      // con guión
     ];
     
     $nombre_conductor = null;
@@ -188,7 +199,10 @@ function extraerDatosDelMensaje($texto) {
             '/\bp\.nazareth\b/i', '/\bp\.siapana\b/i',
             '/\bburbuja\b/i', '/\bcamión\s+350\b/i', '/\bcamión\s+750\b/i',
             '/\bcarrotanque\b/i', '/\bvolqueta\b/i', '/\bcamioneta\b/i',
-            '/\bcopetrana\b/i', '/\bpara\b/i', '/\ben\b/i'
+            '/\bcopetrana\b/i', '/\bpara\b/i', '/\ben\b/i',
+            '/\bdestino\b/i', '/\borigen\b/i', '/\bhora\b/i',
+            '/\bsalida\b/i', '/\bretorno\b/i', '/\bauxiliar\b/i',
+            '/\bacompañante\b/i', '/\bpaciente\b/i'
         ];
         
         // Eliminar palabras clave del nombre
@@ -204,37 +218,50 @@ function extraerDatosDelMensaje($texto) {
         if (!empty($nombre_completo)) {
             $nombre_completo = ucwords(strtolower($nombre_completo));
             $resultado['conductor'] = $nombre_completo;
+            $resultado['encontrado_conductor'] = true;
+            $resultado['mensaje_feedback'][] = "✅ Conductor: <b>" . htmlspecialchars($nombre_completo) . "</b>";
         }
+    } else {
+        $resultado['mensaje_feedback'][] = "❌ Conductor: <b>No encontrado</b> (busca 'conductor' en el texto)";
     }
     
     // ============================================================
-    // 2. EXTRAER PACIENTE
+    // 2. EXTRAER AUXILIAR
     // ============================================================
-    
-    // Primero, eliminar la parte del conductor del texto para buscar paciente
-    $texto_sin_conductor = $texto;
-    if ($resultado['conductor']) {
-        // Buscar y eliminar la parte del conductor
-        foreach ($patrones_conductor as $patron) {
-            if (preg_match($patron, $texto_sin_conductor, $matches, PREG_OFFSET_CAPTURE)) {
-                $pos = $matches[0][1];
-                $palabra = $matches[0][0];
-                $texto_sin_conductor = substr($texto_sin_conductor, 0, $pos) . 
-                                      substr($texto_sin_conductor, $pos + strlen($palabra) + strlen($resultado['conductor']));
-                break;
-            }
-        }
+    if (preg_match('/auxiliar\s+([\w\sáéíóúñ.]+?)(?:\s+conductor|\s+desde|\s+a|\s+para|\s*$)/i', $texto, $matches)) {
+        $resultado['auxiliar'] = ucwords(strtolower(trim($matches[1])));
+        $resultado['mensaje_feedback'][] = "👤 Auxiliar: <b>" . htmlspecialchars($resultado['auxiliar']) . "</b>";
     }
     
-    if (preg_match('/(?:paciente|de\s+paciente)\s+([\w\sáéíóúñ.]+?)(?:\s+desde|\s+a|\s+para|\s*$)/i', $texto_sin_conductor, $matches)) {
+    // ============================================================
+    // 3. EXTRAER ACOMPAÑANTE
+    // ============================================================
+    if (preg_match('/acompañante\s+([\w\sáéíóúñ.]+?)(?:\s+auxiliar|\s+conductor|\s+desde|\s*$)/i', $texto, $matches)) {
+        $resultado['acompanante'] = ucwords(strtolower(trim($matches[1])));
+        $resultado['mensaje_feedback'][] = "👤 Acompañante: <b>" . htmlspecialchars($resultado['acompanante']) . "</b>";
+    }
+    
+    // ============================================================
+    // 4. EXTRAER PACIENTE
+    // ============================================================
+    if (preg_match('/(?:paciente|de\s+paciente)\s+([\w\sáéíóúñ.]+?)(?:\s+desde|\s+a|\s+para|\s+conductor|\s+auxiliar|\s*$)/i', $texto, $matches)) {
         $resultado['paciente'] = ucwords(strtolower(trim($matches[1])));
+        $resultado['mensaje_feedback'][] = "👤 Paciente: <b>" . htmlspecialchars($resultado['paciente']) . "</b>";
     }
     
     // ============================================================
-    // 3. EXTRAER RUTA (origen - destino)
+    // 5. EXTRAER HORA DE SALIDA
+    // ============================================================
+    if (preg_match('/hora\s*(?:de\s*)?salida\s*[:]\s*([\d:]+)/i', $texto, $matches)) {
+        $resultado['hora_salida'] = trim($matches[1]);
+        $resultado['mensaje_feedback'][] = "🕐 Hora salida: <b>" . htmlspecialchars($resultado['hora_salida']) . "</b>";
+    }
+    
+    // ============================================================
+    // 6. EXTRAER RUTA (origen - destino) - MEJORADO
     // ============================================================
     
-    // Eliminar la parte del conductor para extraer ruta
+    // Primero, eliminar la parte del conductor para extraer ruta
     $texto_para_ruta = $texto;
     if ($resultado['conductor']) {
         foreach ($patrones_conductor as $patron) {
@@ -247,51 +274,95 @@ function extraerDatosDelMensaje($texto) {
         }
     }
     
-    // Buscar ruta en el texto
-    if (preg_match('/desde\s+([\w\sáéíóúñ]+?)\s+a\s+([\w\sáéíóúñ]+?)(?:\s+conductor|\s+para|\s*$)/i', $texto_para_ruta, $matches)) {
+    // Intentar múltiples patrones para extraer ruta
+    
+    // Patrón 1: "desde [origen] a [destino]"
+    if (preg_match('/desde\s+([\w\sáéíóúñ]+?)\s+a\s+([\w\sáéíóúñ]+?)(?:\s+conductor|\s+para|\s+retorno|\s*$)/i', $texto_para_ruta, $matches)) {
         $resultado['origen'] = ucwords(strtolower(trim($matches[1])));
         $resultado['destino'] = ucwords(strtolower(trim($matches[2])));
-        $resultado['ruta'] = $resultado['origen'] . '-' . $resultado['destino'];
+        $resultado['ruta'] = $resultado['origen'] . ' - ' . $resultado['destino'];
+        $resultado['encontrado_ruta'] = true;
+        $resultado['encontrado_origen'] = true;
+        $resultado['encontrado_destino'] = true;
+        $resultado['mensaje_feedback'][] = "🗺️ Ruta: <b>" . htmlspecialchars($resultado['ruta']) . "</b>";
     } 
-    elseif (preg_match('/([\w\s]+?)\s*[-–]\s*([\w\s]+?)(?:\s+conductor|\s*$)/i', $texto_para_ruta, $matches)) {
+    // Patrón 2: "[origen] - [destino]" con guión
+    elseif (preg_match('/([\w\s]+?)\s*[-–]\s*([\w\s]+?)(?:\s+conductor|\s+retorno|\s*$)/i', $texto_para_ruta, $matches)) {
         $resultado['origen'] = ucwords(strtolower(trim($matches[1])));
         $resultado['destino'] = ucwords(strtolower(trim($matches[2])));
-        $resultado['ruta'] = $resultado['origen'] . '-' . $resultado['destino'];
-    } 
-    elseif (preg_match('/([\w\s]+?)\s+(?:a|para)\s+([\w\s]+?)(?:\s+conductor|\s*$)/i', $texto_para_ruta, $matches)) {
+        $resultado['ruta'] = $resultado['origen'] . ' - ' . $resultado['destino'];
+        $resultado['encontrado_ruta'] = true;
+        $resultado['encontrado_origen'] = true;
+        $resultado['encontrado_destino'] = true;
+        $resultado['mensaje_feedback'][] = "🗺️ Ruta: <b>" . htmlspecialchars($resultado['ruta']) . "</b>";
+    }
+    // Patrón 3: "[origen] a [destino]" sin "desde"
+    elseif (preg_match('/([\w\s]+?)\s+(?:a|para)\s+([\w\s]+?)(?:\s+conductor|\s+retorno|\s*$)/i', $texto_para_ruta, $matches)) {
         $resultado['origen'] = ucwords(strtolower(trim($matches[1])));
         $resultado['destino'] = ucwords(strtolower(trim($matches[2])));
-        $resultado['ruta'] = $resultado['origen'] . '-' . $resultado['destino'];
+        $resultado['ruta'] = $resultado['origen'] . ' - ' . $resultado['destino'];
+        $resultado['encontrado_ruta'] = true;
+        $resultado['encontrado_origen'] = true;
+        $resultado['encontrado_destino'] = true;
+        $resultado['mensaje_feedback'][] = "🗺️ Ruta: <b>" . htmlspecialchars($resultado['ruta']) . "</b>";
+    }
+    // Patrón 4: Buscar "destino" específicamente
+    elseif (preg_match('/destino\s+([\w\sáéíóúñ]+?)(?:\s+conductor|\s*$)/i', $texto, $matches)) {
+        $resultado['destino'] = ucwords(strtolower(trim($matches[1])));
+        $resultado['encontrado_destino'] = true;
+        $resultado['mensaje_feedback'][] = "📍 Destino: <b>" . htmlspecialchars($resultado['destino']) . "</b>";
+    }
+    // Patrón 5: Buscar "origen" específicamente
+    elseif (preg_match('/origen\s+([\w\sáéíóúñ]+?)(?:\s+destino|\s*$)/i', $texto, $matches)) {
+        $resultado['origen'] = ucwords(strtolower(trim($matches[1])));
+        $resultado['encontrado_origen'] = true;
+        $resultado['mensaje_feedback'][] = "📍 Origen: <b>" . htmlspecialchars($resultado['origen']) . "</b>";
+    }
+    
+    // Si no se encontró ruta completa pero hay origen o destino parcial
+    if (!$resultado['encontrado_ruta']) {
+        if ($resultado['origen'] && $resultado['destino']) {
+            $resultado['ruta'] = $resultado['origen'] . ' - ' . $resultado['destino'];
+            $resultado['encontrado_ruta'] = true;
+        } elseif ($resultado['origen']) {
+            $resultado['mensaje_feedback'][] = "⚠️ Solo se encontró <b>origen</b>: " . htmlspecialchars($resultado['origen']);
+        } elseif ($resultado['destino']) {
+            $resultado['mensaje_feedback'][] = "⚠️ Solo se encontró <b>destino</b>: " . htmlspecialchars($resultado['destino']);
+        } else {
+            $resultado['mensaje_feedback'][] = "❌ Ruta: <b>No encontrada</b> (busca 'desde ... a ...' o 'origen - destino')";
+        }
     }
     
     // ============================================================
-    // 4. EXTRAER EMPRESA
+    // 7. EXTRAER EMPRESA
     // ============================================================
-    
     $empresas = ['hospital', 'icbf', 'sunny app', 'acpm', 'cava', 'p.campaña', 'p.nazareth', 'p.siapana'];
     foreach ($empresas as $emp) {
         if (preg_match('/\b' . preg_quote($emp, '/') . '\b/i', $texto)) {
             $resultado['empresa'] = ucwords($emp);
+            $resultado['mensaje_feedback'][] = "🏢 Empresa: <b>" . htmlspecialchars($resultado['empresa']) . "</b>";
             break;
         }
     }
     if (!$resultado['empresa']) {
         $resultado['empresa'] = 'Hospital';
+        $resultado['mensaje_feedback'][] = "🏢 Empresa: <b>Hospital</b> (por defecto)";
     }
     
     // ============================================================
-    // 5. EXTRAER TIPO DE VEHÍCULO
+    // 8. EXTRAER TIPO DE VEHÍCULO
     // ============================================================
-    
     $vehiculos = ['burbuja', 'camión 350', 'camión 750', 'carrotanque', 'volqueta', 'camioneta', 'copetrana'];
     foreach ($vehiculos as $veh) {
         if (preg_match('/\b' . preg_quote($veh, '/') . '\b/i', $texto)) {
             $resultado['tipo_vehiculo'] = ucwords($veh);
+            $resultado['mensaje_feedback'][] = "🚙 Vehículo: <b>" . htmlspecialchars($resultado['tipo_vehiculo']) . "</b>";
             break;
         }
     }
     if (!$resultado['tipo_vehiculo']) {
         $resultado['tipo_vehiculo'] = 'Burbuja';
+        $resultado['mensaje_feedback'][] = "🚙 Vehículo: <b>Burbuja</b> (por defecto)";
     }
     
     return $resultado;
@@ -521,7 +592,7 @@ class BotHandler {
     }
     
     /**
-     * Procesa el texto para extraer datos
+     * Procesa el texto para extraer datos - CON FEEDBACK DETALLADO
      */
     private function procesarTexto($texto) {
         $chat_id = $this->chat_id;
@@ -530,33 +601,92 @@ class BotHandler {
         if (strpos($texto, '📝 Nuevo viaje') !== false || strpos($texto, 'nuevo viaje') !== false) {
             $this->clearUserData();
             return sendTelegramMessage($chat_id, 
-                "📝 Envía la información del viaje en este formato:\n\n" .
-                "Traslado de paciente desde [origen] a [destino] conductor [nombre]\n\n" .
-                "Ejemplo:\n" .
-                "Traslado de paciente desde Paraíso a Nazareth conductor Franco Pimienta"
+                "📝 Envía la información del viaje.\n\n" .
+                "El bot extraerá automáticamente:\n" .
+                "• Conductor (busca la palabra 'conductor')\n" .
+                "• Ruta (busca 'desde ... a ...' o 'origen - destino')\n" .
+                "• Paciente, auxiliar, acompañante\n" .
+                "• Hora de salida\n" .
+                "• Empresa y tipo de vehículo\n\n" .
+                "📌 <b>Ejemplos:</b>\n" .
+                "• Traslado de paciente desde Paraíso a Nazareth conductor Mario Bocanegra\n" .
+                "• Conductor Jorge Palmar desde Maicao a Nazareth\n" .
+                "• Acompañante icela Hernández, Auxiliar María Antonia Velázquez, Conductor David Ricardo pimienta, Destino hospital San José de Maicao\n\n" .
+                "💡 El bot te mostrará <b>qué datos encontró</b> y qué no."
             );
         }
         
-        // Extraer datos
+        // Extraer datos (con feedback)
         $datos = extraerDatosDelMensaje($texto);
         
-        if (!$datos['ruta'] || !$datos['conductor']) {
-            $mensaje = "❌ No pude extraer la información correctamente.\n\n" .
-                       "📝 Por favor usa el formato:\n" .
-                       "<b>Traslado de paciente desde [origen] a [destino] conductor [nombre]</b>\n\n" .
-                       "📌 <b>Ejemplos:</b>\n" .
-                       "• Traslado de paciente desde Paraíso a Nazareth conductor Mario Bocanegra\n" .
-                       "• conductor Jorge Palmar desde Maicao a Nazareth\n" .
-                       "• Desde Paraíso a Nazareth conductr Luis Hernandez\n\n" .
-                       "💡 <b>El bot reconoce:</b>\n" .
-                       "• 'conductor' en mayúscula/minúscula\n" .
-                       "• 'conductr' (sin 'o')\n" .
-                       "• 'conductór' (con tilde)\n" .
-                       "• 'conduktor' (error común)\n\n" .
-                       "📋 Escribe /help para más ayuda";
+        // ============================================================
+        // CONSTRUIR MENSAJE DE FEEDBACK DETALLADO
+        // ============================================================
+        
+        $feedback = "📊 <b>ANÁLISIS DEL MENSAJE</b>\n\n";
+        $feedback .= "🔍 <b>Datos encontrados:</b>\n";
+        $feedback .= implode("\n", $datos['mensaje_feedback']);
+        
+        // Determinar si hay datos suficientes para guardar
+        $tiene_conductor = $datos['encontrado_conductor'];
+        $tiene_ruta = $datos['encontrado_ruta'];
+        $tiene_origen = $datos['encontrado_origen'];
+        $tiene_destino = $datos['encontrado_destino'];
+        
+        // Si NO tiene conductor, es un error crítico
+        if (!$tiene_conductor) {
+            $feedback .= "\n\n⚠️ <b>No se encontró el CONDUCTOR</b>\n";
+            $feedback .= "Debes incluir la palabra 'conductor' seguida del nombre.\n";
+            $feedback .= "Ejemplo: <code>... conductor Mario Bocanegra</code>\n\n";
+            $feedback .= "📝 <b>Consejos:</b>\n";
+            $feedback .= "• El bot reconoce: conductor, CONDUCTOR, Conductor, conductr, conductór\n";
+            $feedback .= "• El nombre puede tener apellidos compuestos (ej: 'Mario José Bocanegra')\n";
             
-            return sendTelegramMessage($chat_id, $mensaje);
+            return sendTelegramMessage($chat_id, $feedback);
         }
+        
+        // Si tiene conductor pero no ruta completa, mostrar advertencia pero permitir continuar
+        $advertencia = "";
+        if (!$tiene_ruta) {
+            $advertencia .= "\n⚠️ <b>No se encontró una RUTA completa</b>\n";
+            if ($tiene_origen && !$tiene_destino) {
+                $advertencia .= "Solo se encontró el origen: " . htmlspecialchars($datos['origen']) . "\n";
+                $advertencia .= "Sugerencia: usa 'desde [origen] a [destino]'\n";
+            } elseif (!$tiene_origen && $tiene_destino) {
+                $advertencia .= "Solo se encontró el destino: " . htmlspecialchars($datos['destino']) . "\n";
+                $advertencia .= "Sugerencia: usa 'desde [origen] a [destino]'\n";
+            } else {
+                $advertencia .= "Sugerencia: usa 'desde [origen] a [destino]' o '[origen] - [destino]'\n";
+            }
+        }
+        
+        $feedback .= "\n" . $advertencia;
+        
+        // Resumen para confirmar
+        $feedback .= "\n📋 <b>Resumen para guardar:</b>\n";
+        $feedback .= "🚗 Conductor: " . htmlspecialchars($datos['conductor'] ?? 'No disponible') . "\n";
+        $feedback .= "🗺️ Ruta: " . htmlspecialchars($datos['ruta'] ?? 'No disponible') . "\n";
+        $feedback .= "🚙 Vehículo: " . htmlspecialchars($datos['tipo_vehiculo'] ?? 'No especificado') . "\n";
+        $feedback .= "🏢 Empresa: " . htmlspecialchars($datos['empresa'] ?? 'Hospital') . "\n";
+        if ($datos['paciente']) {
+            $feedback .= "👤 Paciente: " . htmlspecialchars($datos['paciente']) . "\n";
+        }
+        if ($datos['auxiliar']) {
+            $feedback .= "👤 Auxiliar: " . htmlspecialchars($datos['auxiliar']) . "\n";
+        }
+        if ($datos['acompanante']) {
+            $feedback .= "👤 Acompañante: " . htmlspecialchars($datos['acompanante']) . "\n";
+        }
+        if ($datos['hora_salida']) {
+            $feedback .= "🕐 Hora salida: " . htmlspecialchars($datos['hora_salida']) . "\n";
+        }
+        
+        // Si falta la ruta, preguntar si quiere continuar igual
+        $feedback .= "\n📸 <b>Ahora envía la imagen del viaje</b>\n";
+        if (!$tiene_ruta) {
+            $feedback .= "⚠️ Puedes continuar, pero la ruta quedará incompleta.\n";
+        }
+        $feedback .= "\n💡 Escribe /cancel para cancelar";
         
         // Guardar datos temporalmente
         $this->user_data = [
@@ -565,15 +695,6 @@ class BotHandler {
             'texto_original' => $texto
         ];
         $this->saveUserData();
-        
-        $mensaje = "✅ <b>Información extraída correctamente</b>\n\n" .
-                   "🚗 <b>Conductor:</b> " . htmlspecialchars($datos['conductor']) . "\n" .
-                   "🗺️ <b>Ruta:</b> " . htmlspecialchars($datos['ruta']) . "\n" .
-                   "🚙 <b>Vehículo:</b> " . htmlspecialchars($datos['tipo_vehiculo'] ?? 'No especificado') . "\n" .
-                   "🏢 <b>Empresa:</b> " . htmlspecialchars($datos['empresa'] ?? 'Hospital') . "\n" .
-                   "👤 <b>Paciente:</b> " . htmlspecialchars($datos['paciente'] ?? 'No especificado') . "\n\n" .
-                   "📸 <b>Ahora envía la imagen del viaje</b>\n\n" .
-                   "💡 Puedes cancelar escribiendo /cancel";
         
         // Teclado personalizado
         $keyboard = [
@@ -584,7 +705,7 @@ class BotHandler {
             'one_time_keyboard' => true
         ];
         
-        return sendTelegramMessage($chat_id, $mensaje, $keyboard);
+        return sendTelegramMessage($chat_id, $feedback, $keyboard);
     }
     
     /**
@@ -596,12 +717,25 @@ class BotHandler {
         
         $mensaje = "📋 <b>Confirmar datos del viaje</b>\n\n" .
                    "🚗 <b>Conductor:</b> " . htmlspecialchars($datos['conductor']) . "\n" .
-                   "🗺️ <b>Ruta:</b> " . htmlspecialchars($datos['ruta']) . "\n" .
+                   "🗺️ <b>Ruta:</b> " . htmlspecialchars($datos['ruta'] ?? 'No disponible') . "\n" .
                    "🚙 <b>Vehículo:</b> " . htmlspecialchars($datos['tipo_vehiculo'] ?? 'No especificado') . "\n" .
-                   "🏢 <b>Empresa:</b> " . htmlspecialchars($datos['empresa'] ?? 'Hospital') . "\n" .
-                   "👤 <b>Paciente:</b> " . htmlspecialchars($datos['paciente'] ?? 'No especificado') . "\n" .
-                   "📸 <b>Imagen:</b> Adjuntada ✅\n\n" .
-                   "✅ <b>¿Confirmas guardar este viaje?</b>";
+                   "🏢 <b>Empresa:</b> " . htmlspecialchars($datos['empresa'] ?? 'Hospital') . "\n";
+        
+        if ($datos['paciente']) {
+            $mensaje .= "👤 <b>Paciente:</b> " . htmlspecialchars($datos['paciente']) . "\n";
+        }
+        if ($datos['auxiliar']) {
+            $mensaje .= "👤 <b>Auxiliar:</b> " . htmlspecialchars($datos['auxiliar']) . "\n";
+        }
+        if ($datos['acompanante']) {
+            $mensaje .= "👤 <b>Acompañante:</b> " . htmlspecialchars($datos['acompanante']) . "\n";
+        }
+        if ($datos['hora_salida']) {
+            $mensaje .= "🕐 <b>Hora salida:</b> " . htmlspecialchars($datos['hora_salida']) . "\n";
+        }
+        
+        $mensaje .= "\n📸 <b>Imagen:</b> Adjuntada ✅\n\n" .
+                    "✅ <b>¿Confirmas guardar este viaje?</b>";
         
         // Teclado inline
         $inline_keyboard = [
@@ -630,7 +764,7 @@ class BotHandler {
             // Preparar datos
             $viaje_data = [
                 'conductor' => $datos['conductor'],
-                'ruta' => $datos['ruta'],
+                'ruta' => $datos['ruta'] ?? 'Sin ruta especificada',
                 'tipo_vehiculo' => $datos['tipo_vehiculo'] ?? 'Burbuja',
                 'empresa' => $datos['empresa'] ?? 'Hospital',
                 'imagen' => $imagen_path ? basename($imagen_path) : null,
@@ -651,12 +785,11 @@ class BotHandler {
             $mensaje = "✅ <b>¡Viaje registrado exitosamente!</b> 🎉\n\n" .
                        "📋 <b>ID:</b> <code>#$id</code>\n" .
                        "🚗 <b>Conductor:</b> " . htmlspecialchars($datos['conductor']) . "\n" .
-                       "🗺️ <b>Ruta:</b> " . htmlspecialchars($datos['ruta']) . "\n" .
+                       "🗺️ <b>Ruta:</b> " . htmlspecialchars($datos['ruta'] ?? 'Sin ruta') . "\n" .
                        "🚙 <b>Vehículo:</b> " . htmlspecialchars($datos['tipo_vehiculo'] ?? 'No especificado') . "\n" .
                        "🏢 <b>Empresa:</b> " . htmlspecialchars($datos['empresa'] ?? 'Hospital') . "\n" .
                        "📅 <b>Fecha:</b> " . date('d/m/Y H:i') . "\n" .
-                       "📸 <b>Imagen:</b> " . $nombre_imagen . "\n" .
-                       "💬 <b>Mensaje original:</b> " . htmlspecialchars($texto_original ?? 'No disponible') . "\n\n" .
+                       "📸 <b>Imagen:</b> " . $nombre_imagen . "\n\n" .
                        "🔄 Envía otro viaje o usa los comandos:\n" .
                        "/conductores - Ver conductores registrados\n" .
                        "/rutas - Ver rutas registradas";
@@ -744,16 +877,20 @@ class BotHandler {
         $mensaje = "🚑 <b>¡Bienvenido al Bot de Registro de Viajes!</b>\n\n" .
                    "📝 <b>¿Cómo funciona?</b>\n" .
                    "1️⃣ Envía la información del viaje\n" .
-                   "2️⃣ El bot extraerá los datos automáticamente\n" .
+                   "2️⃣ El bot analizará el mensaje y te mostrará <b>QUÉ encontró</b>\n" .
                    "3️⃣ Envía una foto del viaje\n" .
                    "4️⃣ Confirma y ¡listo!\n\n" .
-                   "📌 <b>Formato del mensaje:</b>\n" .
-                   "<code>Traslado de paciente desde [origen] a [destino] conductor [nombre]</code>\n\n" .
+                   "📌 <b>El bot extrae automáticamente:</b>\n" .
+                   "• Conductor (busca 'conductor')\n" .
+                   "• Ruta (busca 'desde ... a ...' o 'origen - destino')\n" .
+                   "• Paciente, auxiliar, acompañante\n" .
+                   "• Hora de salida\n" .
+                   "• Empresa y tipo de vehículo\n\n" .
                    "📌 <b>Ejemplos:</b>\n" .
                    "• Traslado de paciente desde Paraíso a Nazareth conductor Mario Bocanegra\n" .
-                   "• conductor Jorge Palmar desde Maicao a Nazareth\n" .
-                   "• Desde Paraíso a Nazareth conductr Luis Hernandez\n\n" .
-                   "📋 <b>Comandos disponibles:</b>\n" .
+                   "• Conductor Jorge Palmar desde Maicao a Nazareth\n" .
+                   "• Acompañante icela Hernández, Auxiliar María Antonia Velázquez, Conductor David Ricardo pimienta, Destino hospital San José de Maicao\n\n" .
+                   "📋 <b>Comandos:</b>\n" .
                    "/start - Iniciar bot\n" .
                    "/help - Mostrar ayuda\n" .
                    "/conductores - Listar conductores\n" .
@@ -770,31 +907,28 @@ class BotHandler {
         $chat_id = $this->chat_id;
         
         $mensaje = "📖 <b>Guía completa del Bot</b>\n\n" .
-                   "🔹 <b>Paso 1: Enviar información</b>\n" .
-                   "Envía un mensaje con este formato:\n" .
-                   "<code>Traslado de paciente desde [origen] a [destino] conductor [nombre]</code>\n\n" .
-                   "🔹 <b>Paso 2: Enviar imagen</b>\n" .
-                   "Después de extraer los datos, envía la foto del viaje.\n\n" .
-                   "🔹 <b>Paso 3: Confirmar</b>\n" .
-                   "Revisa los datos y confirma para guardar.\n\n" .
-                   "📌 <b>Ejemplos:</b>\n" .
+                   "🔹 <b>El bot analiza tu mensaje y extrae:</b>\n\n" .
+                   "📍 <b>Conductor</b> - Busca la palabra 'conductor'\n" .
+                   "   Variantes: conductor, CONDUCTOR, Conductor, conductr, conductór\n" .
+                   "   Ejemplo: <code>... conductor Mario Bocanegra</code>\n\n" .
+                   "📍 <b>Ruta</b> - Busca 'desde ... a ...' o '[origen] - [destino]'\n" .
+                   "   Ejemplo: <code>desde Paraíso a Nazareth</code>\n" .
+                   "   Ejemplo: <code>Maicao - Nazareth</code>\n\n" .
+                   "📍 <b>Paciente</b> - Busca 'paciente [nombre]'\n" .
+                   "📍 <b>Auxiliar</b> - Busca 'auxiliar [nombre]'\n" .
+                   "📍 <b>Acompañante</b> - Busca 'acompañante [nombre]'\n" .
+                   "📍 <b>Hora salida</b> - Busca 'hora salida: [hora]'\n\n" .
+                   "📌 <b>Ejemplos completos:</b>\n" .
                    "• Traslado de paciente desde Paraíso a Nazareth conductor Mario Bocanegra\n" .
-                   "• conductor Jorge Palmar desde Maicao a Nazareth\n" .
-                   "• Desde Paraíso a Nazareth conductr Luis Hernandez\n" .
-                   "• Maicao - Nazareth conductor Guney González\n\n" .
+                   "• Conductor Jorge Palmar desde Maicao a Nazareth\n" .
+                   "• Acompañante icela Hernández, Auxiliar María Antonia Velázquez, Conductor David Ricardo pimienta, Destino hospital San José de Maicao, Hora salida: 5:30\n\n" .
+                   "💡 <b>El bot te mostrará qué encontró y qué no</b>\n" .
                    "📋 <b>Comandos:</b>\n" .
                    "/start - Iniciar bot\n" .
                    "/help - Mostrar ayuda\n" .
                    "/conductores - Listar conductores registrados\n" .
                    "/rutas - Listar rutas registradas\n" .
-                   "/cancel - Cancelar operación actual\n\n" .
-                   "💡 <b>El bot reconoce estas variantes de 'conductor':</b>\n" .
-                   "• conductor (correcto)\n" .
-                   "• conductr (sin 'o')\n" .
-                   "• conductór (con tilde)\n" .
-                   "• conduktor (error común)\n" .
-                   "• conductorr (doble r)\n" .
-                   "• conductores (plural)";
+                   "/cancel - Cancelar operación actual";
         
         return sendTelegramMessage($chat_id, $mensaje);
     }
@@ -855,7 +989,7 @@ $update = json_decode($content, true);
 
 // Si no hay datos, responder con un mensaje de prueba
 if (!$update) {
-    die("Bot de Viajes funcionando correctamente. Versión 1.4");
+    die("Bot de Viajes funcionando correctamente. Versión 1.5");
 }
 
 // Procesar el mensaje
