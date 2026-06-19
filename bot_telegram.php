@@ -1,7 +1,7 @@
 <?php
 /**
  * Bot de Telegram para Registro de Viajes
- * Versión: 1.1 - Imágenes guardadas en /uploads
+ * Versión: 1.2 - Guarda solo el nombre de la imagen
  */
 
 // ============================================================
@@ -517,13 +517,13 @@ class BotHandler {
         $imagen_path = $this->user_data['imagen'] ?? null;
         
         try {
-            // Preparar datos
+            // Preparar datos - GUARDA SOLO EL NOMBRE DE LA IMAGEN
             $viaje_data = [
                 'conductor' => $datos['conductor'],
                 'ruta' => $datos['ruta'],
                 'tipo_vehiculo' => $datos['tipo_vehiculo'] ?? 'Burbuja',
                 'empresa' => $datos['empresa'] ?? 'Hospital',
-                'imagen' => $imagen_path,
+                'imagen' => $imagen_path ? basename($imagen_path) : null, // ✅ Solo el nombre del archivo
                 'fecha' => date('Y-m-d'),
                 'pagado' => 0
             ];
@@ -534,7 +534,7 @@ class BotHandler {
             // Limpiar datos del usuario
             $this->clearUserData();
             
-            // Obtener el nombre del archivo de imagen para mostrar
+            // Obtener el nombre del archivo de imagen
             $nombre_imagen = $imagen_path ? basename($imagen_path) : 'No disponible';
             
             $mensaje = "✅ <b>¡Viaje registrado exitosamente!</b> 🎉\n\n" .
@@ -544,7 +544,7 @@ class BotHandler {
                        "🚙 <b>Vehículo:</b> " . htmlspecialchars($datos['tipo_vehiculo'] ?? 'No especificado') . "\n" .
                        "🏢 <b>Empresa:</b> " . htmlspecialchars($datos['empresa'] ?? 'Hospital') . "\n" .
                        "📅 <b>Fecha:</b> " . date('d/m/Y H:i') . "\n" .
-                       "📸 <b>Imagen:</b> /uploads/" . $nombre_imagen . "\n\n" .
+                       "📸 <b>Imagen:</b> " . $nombre_imagen . "\n\n" .
                        "🔄 Envía otro viaje o usa los comandos:\n" .
                        "/conductores - Ver conductores registrados\n" .
                        "/rutas - Ver rutas registradas";
@@ -572,7 +572,6 @@ class BotHandler {
     
     /**
      * Descarga una imagen de Telegram
-     * MODIFICADO: Guarda directamente en /uploads
      */
     private function downloadImage($file_id) {
         $url = "https://api.telegram.org/bot" . BOT_TOKEN . "/getFile?file_id=" . $file_id;
@@ -738,7 +737,7 @@ $update = json_decode($content, true);
 
 // Si no hay datos, responder con un mensaje de prueba
 if (!$update) {
-    die("Bot de Viajes funcionando correctamente. Versión 1.1");
+    die("Bot de Viajes funcionando correctamente. Versión 1.2");
 }
 
 // Procesar el mensaje
