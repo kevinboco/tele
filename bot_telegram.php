@@ -1,9 +1,7 @@
 <?php
 /**
  * Bot de Telegram para Registro de Viajes
- * Versión: 1.0
- * Descripción: Recibe mensajes con información de viajes, extrae ruta y conductor,
- * solicita imagen y guarda en la base de datos.
+ * Versión: 1.1 - Imágenes guardadas en /uploads
  */
 
 // ============================================================
@@ -19,8 +17,8 @@ define('DB_NAME', 'u648222299_viajes');
 // Token del Bot de Telegram
 define('BOT_TOKEN', '8714260096:AAFEKzX-OYXh9NO4bo_jAiNfdaod3iM5TEs');
 
-// Directorio para guardar imágenes
-define('UPLOAD_DIR', __DIR__ . '/uploads/viajes/');
+// Directorio para guardar imágenes (RAÍZ /uploads)
+define('UPLOAD_DIR', __DIR__ . '/uploads/');
 
 // Crear directorio si no existe
 if (!is_dir(UPLOAD_DIR)) {
@@ -151,26 +149,23 @@ function extraerDatosDelMensaje($texto) {
     }
     
     // 3. Extraer ruta: "desde [origen] a [destino]"
-    // Intentar primero con "desde... a..."
     if (preg_match('/desde\s+([\w\sáéíóúñ]+?)\s+a\s+([\w\sáéíóúñ]+?)(?:\s+conductor|\s+para|\s*$)/i', $texto, $matches)) {
         $resultado['origen'] = ucwords(trim($matches[1]));
         $resultado['destino'] = ucwords(trim($matches[2]));
         $resultado['ruta'] = $resultado['origen'] . '-' . $resultado['destino'];
     } 
-    // Si no, intentar con "origen - destino"
     elseif (preg_match('/([\w\s]+?)\s*[-–]\s*([\w\s]+)/i', $texto, $matches)) {
         $resultado['origen'] = ucwords(trim($matches[1]));
         $resultado['destino'] = ucwords(trim($matches[2]));
         $resultado['ruta'] = $resultado['origen'] . '-' . $resultado['destino'];
     } 
-    // Si no, intentar con "origen a destino" sin "desde"
     elseif (preg_match('/([\w\s]+?)\s+(?:a|para)\s+([\w\s]+?)(?:\s+conductor|\s*$)/i', $texto, $matches)) {
         $resultado['origen'] = ucwords(trim($matches[1]));
         $resultado['destino'] = ucwords(trim($matches[2]));
         $resultado['ruta'] = $resultado['origen'] . '-' . $resultado['destino'];
     }
     
-    // 4. Extraer empresa (Hospital, ICBF, etc.)
+    // 4. Extraer empresa
     $empresas = ['hospital', 'icbf', 'sunny app', 'acpm', 'cava', 'p.campaña', 'p.nazareth', 'p.siapana'];
     foreach ($empresas as $emp) {
         if (preg_match('/\b' . preg_quote($emp, '/') . '\b/i', $texto)) {
@@ -178,8 +173,6 @@ function extraerDatosDelMensaje($texto) {
             break;
         }
     }
-    
-    // Si no se encontró empresa, poner por defecto "Hospital"
     if (!$resultado['empresa']) {
         $resultado['empresa'] = 'Hospital';
     }
@@ -192,8 +185,6 @@ function extraerDatosDelMensaje($texto) {
             break;
         }
     }
-    
-    // Si no se encontró vehículo, poner por defecto "Burbuja"
     if (!$resultado['tipo_vehiculo']) {
         $resultado['tipo_vehiculo'] = 'Burbuja';
     }
@@ -543,6 +534,9 @@ class BotHandler {
             // Limpiar datos del usuario
             $this->clearUserData();
             
+            // Obtener el nombre del archivo de imagen para mostrar
+            $nombre_imagen = $imagen_path ? basename($imagen_path) : 'No disponible';
+            
             $mensaje = "✅ <b>¡Viaje registrado exitosamente!</b> 🎉\n\n" .
                        "📋 <b>ID:</b> <code>#$id</code>\n" .
                        "🚗 <b>Conductor:</b> " . htmlspecialchars($datos['conductor']) . "\n" .
@@ -550,7 +544,7 @@ class BotHandler {
                        "🚙 <b>Vehículo:</b> " . htmlspecialchars($datos['tipo_vehiculo'] ?? 'No especificado') . "\n" .
                        "🏢 <b>Empresa:</b> " . htmlspecialchars($datos['empresa'] ?? 'Hospital') . "\n" .
                        "📅 <b>Fecha:</b> " . date('d/m/Y H:i') . "\n" .
-                       "📸 <b>Imagen:</b> Guardada ✅\n\n" .
+                       "📸 <b>Imagen:</b> /uploads/" . $nombre_imagen . "\n\n" .
                        "🔄 Envía otro viaje o usa los comandos:\n" .
                        "/conductores - Ver conductores registrados\n" .
                        "/rutas - Ver rutas registradas";
@@ -578,6 +572,7 @@ class BotHandler {
     
     /**
      * Descarga una imagen de Telegram
+     * MODIFICADO: Guarda directamente en /uploads
      */
     private function downloadImage($file_id) {
         $url = "https://api.telegram.org/bot" . BOT_TOKEN . "/getFile?file_id=" . $file_id;
@@ -596,6 +591,7 @@ class BotHandler {
             $extension = 'jpg';
         }
         
+        // Guardar DIRECTAMENTE en /uploads
         $nombre_archivo = 'viaje_' . date('Ymd_His') . '_' . uniqid() . '.' . $extension;
         $ruta_completa = UPLOAD_DIR . $nombre_archivo;
         
@@ -619,9 +615,9 @@ class BotHandler {
             throw new Exception("No se pudo descargar la imagen (datos vacíos)");
         }
         
-        // Guardar imagen
+        // Guardar imagen en /uploads
         if (file_put_contents($ruta_completa, $image_data) === false) {
-            throw new Exception("No se pudo guardar la imagen en el servidor");
+            throw new Exception("No se pudo guardar la imagen en /uploads");
         }
         
         return $ruta_completa;
@@ -697,33 +693,11 @@ class BotHandler {
             return sendTelegramMessage($chat_id, "📋 No hay conductores registrados aún.");
         }
         
-        $lista = "🚗 <b>Conductores registrados ({$cantidad})</b>\n\n";
         $cantidad = count($conductores);
+        $lista = "🚗 <b>Conductores registrados ({$cantidad})</b>\n\n";
         
-        // Mostrar en columnas
-        $columnas = 3;
-        $por_columna = ceil($cantidad / $columnas);
-        $chunks = array_chunk($conductores, $por_columna);
-        
-        $max_length = 0;
-        foreach ($chunks as $chunk) {
-            foreach ($chunk as $nombre) {
-                $max_length = max($max_length, strlen($nombre));
-            }
-        }
-        $max_length += 2;
-        
-        for ($i = 0; $i < $por_columna; $i++) {
-            $fila = "";
-            for ($j = 0; $j < $columnas; $j++) {
-                if (isset($chunks[$j][$i])) {
-                    $nombre = $chunks[$j][$i];
-                    $fila .= str_pad($nombre, $max_length, " ");
-                }
-            }
-            if (trim($fila)) {
-                $lista .= "• " . trim($fila) . "\n";
-            }
+        foreach ($conductores as $conductor) {
+            $lista .= "• " . htmlspecialchars($conductor) . "\n";
         }
         
         $lista .= "\n💡 Usa estos nombres en tus mensajes para que el bot los reconozca.";
@@ -742,14 +716,10 @@ class BotHandler {
             return sendTelegramMessage($chat_id, "📋 No hay rutas registradas aún.");
         }
         
-        $lista = "🗺️ <b>Rutas registradas</b>\n\n";
         $cantidad = count($rutas);
+        $lista = "🗺️ <b>Rutas registradas ({$cantidad})</b>\n\n";
         
-        // Ordenar y agrupar
         sort($rutas);
-        
-        $lista .= "📌 <b>Total:</b> $cantidad rutas\n\n";
-        
         foreach ($rutas as $ruta) {
             $lista .= "• " . htmlspecialchars($ruta) . "\n";
         }
@@ -768,7 +738,7 @@ $update = json_decode($content, true);
 
 // Si no hay datos, responder con un mensaje de prueba
 if (!$update) {
-    die("Bot de Viajes funcionando correctamente. Versión 1.0");
+    die("Bot de Viajes funcionando correctamente. Versión 1.1");
 }
 
 // Procesar el mensaje
