@@ -1,7 +1,7 @@
 <?php
 /**
  * Bot de Telegram para Registro de Viajes
- * Versión: 1.3 - Guarda mensaje original en whatsapp y solo nombre de imagen
+ * Versión: 1.4 - Mejora en extracción de conductor
  */
 
 // ============================================================
@@ -124,10 +124,11 @@ function getDBConnection() {
 }
 
 /**
- * Extrae ruta y conductor del mensaje
+ * Extrae ruta y conductor del mensaje - VERSIÓN MEJORADA
  */
 function extraerDatosDelMensaje($texto) {
-    $texto = strtolower(trim($texto));
+    $texto_original = $texto;
+    $texto = trim($texto);
     $resultado = [
         'ruta' => null,
         'conductor' => null,
@@ -138,34 +139,135 @@ function extraerDatosDelMensaje($texto) {
         'paciente' => null
     ];
     
-    // 1. Extraer conductor: "conductor [nombre]"
-    if (preg_match('/conductor\s+([\w\sáéíóúñ.]+)/i', $texto, $matches)) {
-        $resultado['conductor'] = ucwords(trim($matches[1]));
+    // ============================================================
+    // 1. EXTRAER CONDUCTOR - NUEVA LÓGICA MEJORADA
+    // ============================================================
+    
+    // Patrones para buscar "conductor" en cualquier variante
+    $patrones_conductor = [
+        '/\bconductor\b/i',           // conductor exacto
+        '/\bconductr\b/i',            // falta 'o'
+        '/\bconductór\b/i',           // con tilde
+        '/\bconduktor\b/i',           // error común
+        '/\bconductorr\b/i',          // doble r
+        '/\bconductores\b/i',         // plural
+        '/\bconduc\b/i',              // abreviado
+        '/\bcondcutor\b/i',           // error común
+        '/\bconductor\s+/i',          // con espacio
+    ];
+    
+    $nombre_conductor = null;
+    $posicion_conductor = -1;
+    $palabra_encontrada = '';
+    
+    // Buscar cualquier variante de "conductor"
+    foreach ($patrones_conductor as $patron) {
+        if (preg_match($patron, $texto, $matches, PREG_OFFSET_CAPTURE)) {
+            $pos = $matches[0][1];
+            $palabra = $matches[0][0];
+            
+            // Si encontramos una coincidencia más cercana al inicio, la preferimos
+            if ($posicion_conductor === -1 || $pos < $posicion_conductor) {
+                $posicion_conductor = $pos;
+                $palabra_encontrada = $palabra;
+            }
+        }
     }
     
-    // 2. Extraer paciente: "paciente [nombre]" o "de paciente [nombre]"
-    if (preg_match('/(?:paciente|de\s+paciente)\s+([\w\sáéíóúñ.]+?)(?:\s+desde|\s+a|\s+conductor|$)/i', $texto, $matches)) {
-        $resultado['paciente'] = ucwords(trim($matches[1]));
+    // Si encontramos "conductor", extraemos todo lo que está a la derecha
+    if ($posicion_conductor !== -1) {
+        // Tomamos todo el texto desde la posición de "conductor" + longitud de la palabra
+        $inicio_nombre = $posicion_conductor + strlen($palabra_encontrada);
+        $nombre_completo = trim(substr($texto, $inicio_nombre));
+        
+        // Limpiar el nombre: eliminar palabras clave que puedan aparecer después
+        $palabras_clave = [
+            '/\bdesde\b/i', '/\ba\b/i', '/\bhasta\b/i', 
+            '/\bhospital\b/i', '/\bicbf\b/i', '/\bsunny\b/i',
+            '/\bacpm\b/i', '/\bcava\b/i', '/\bp\.campaña\b/i',
+            '/\bp\.nazareth\b/i', '/\bp\.siapana\b/i',
+            '/\bburbuja\b/i', '/\bcamión\s+350\b/i', '/\bcamión\s+750\b/i',
+            '/\bcarrotanque\b/i', '/\bvolqueta\b/i', '/\bcamioneta\b/i',
+            '/\bcopetrana\b/i', '/\bpara\b/i', '/\ben\b/i'
+        ];
+        
+        // Eliminar palabras clave del nombre
+        foreach ($palabras_clave as $patron) {
+            $nombre_completo = preg_replace($patron, '', $nombre_completo);
+        }
+        
+        // Limpiar espacios múltiples y trim
+        $nombre_completo = preg_replace('/\s+/', ' ', $nombre_completo);
+        $nombre_completo = trim($nombre_completo);
+        
+        // Capitalizar correctamente (primer letra de cada palabra en mayúscula)
+        if (!empty($nombre_completo)) {
+            $nombre_completo = ucwords(strtolower($nombre_completo));
+            $resultado['conductor'] = $nombre_completo;
+        }
     }
     
-    // 3. Extraer ruta: "desde [origen] a [destino]"
-    if (preg_match('/desde\s+([\w\sáéíóúñ]+?)\s+a\s+([\w\sáéíóúñ]+?)(?:\s+conductor|\s+para|\s*$)/i', $texto, $matches)) {
-        $resultado['origen'] = ucwords(trim($matches[1]));
-        $resultado['destino'] = ucwords(trim($matches[2]));
+    // ============================================================
+    // 2. EXTRAER PACIENTE
+    // ============================================================
+    
+    // Primero, eliminar la parte del conductor del texto para buscar paciente
+    $texto_sin_conductor = $texto;
+    if ($resultado['conductor']) {
+        // Buscar y eliminar la parte del conductor
+        foreach ($patrones_conductor as $patron) {
+            if (preg_match($patron, $texto_sin_conductor, $matches, PREG_OFFSET_CAPTURE)) {
+                $pos = $matches[0][1];
+                $palabra = $matches[0][0];
+                $texto_sin_conductor = substr($texto_sin_conductor, 0, $pos) . 
+                                      substr($texto_sin_conductor, $pos + strlen($palabra) + strlen($resultado['conductor']));
+                break;
+            }
+        }
+    }
+    
+    if (preg_match('/(?:paciente|de\s+paciente)\s+([\w\sáéíóúñ.]+?)(?:\s+desde|\s+a|\s+para|\s*$)/i', $texto_sin_conductor, $matches)) {
+        $resultado['paciente'] = ucwords(strtolower(trim($matches[1])));
+    }
+    
+    // ============================================================
+    // 3. EXTRAER RUTA (origen - destino)
+    // ============================================================
+    
+    // Eliminar la parte del conductor para extraer ruta
+    $texto_para_ruta = $texto;
+    if ($resultado['conductor']) {
+        foreach ($patrones_conductor as $patron) {
+            if (preg_match($patron, $texto_para_ruta, $matches, PREG_OFFSET_CAPTURE)) {
+                $pos = $matches[0][1];
+                $palabra = $matches[0][0];
+                $texto_para_ruta = substr($texto_para_ruta, 0, $pos);
+                break;
+            }
+        }
+    }
+    
+    // Buscar ruta en el texto
+    if (preg_match('/desde\s+([\w\sáéíóúñ]+?)\s+a\s+([\w\sáéíóúñ]+?)(?:\s+conductor|\s+para|\s*$)/i', $texto_para_ruta, $matches)) {
+        $resultado['origen'] = ucwords(strtolower(trim($matches[1])));
+        $resultado['destino'] = ucwords(strtolower(trim($matches[2])));
         $resultado['ruta'] = $resultado['origen'] . '-' . $resultado['destino'];
     } 
-    elseif (preg_match('/([\w\s]+?)\s*[-–]\s*([\w\s]+)/i', $texto, $matches)) {
-        $resultado['origen'] = ucwords(trim($matches[1]));
-        $resultado['destino'] = ucwords(trim($matches[2]));
+    elseif (preg_match('/([\w\s]+?)\s*[-–]\s*([\w\s]+?)(?:\s+conductor|\s*$)/i', $texto_para_ruta, $matches)) {
+        $resultado['origen'] = ucwords(strtolower(trim($matches[1])));
+        $resultado['destino'] = ucwords(strtolower(trim($matches[2])));
         $resultado['ruta'] = $resultado['origen'] . '-' . $resultado['destino'];
     } 
-    elseif (preg_match('/([\w\s]+?)\s+(?:a|para)\s+([\w\s]+?)(?:\s+conductor|\s*$)/i', $texto, $matches)) {
-        $resultado['origen'] = ucwords(trim($matches[1]));
-        $resultado['destino'] = ucwords(trim($matches[2]));
+    elseif (preg_match('/([\w\s]+?)\s+(?:a|para)\s+([\w\s]+?)(?:\s+conductor|\s*$)/i', $texto_para_ruta, $matches)) {
+        $resultado['origen'] = ucwords(strtolower(trim($matches[1])));
+        $resultado['destino'] = ucwords(strtolower(trim($matches[2])));
         $resultado['ruta'] = $resultado['origen'] . '-' . $resultado['destino'];
     }
     
-    // 4. Extraer empresa
+    // ============================================================
+    // 4. EXTRAER EMPRESA
+    // ============================================================
+    
     $empresas = ['hospital', 'icbf', 'sunny app', 'acpm', 'cava', 'p.campaña', 'p.nazareth', 'p.siapana'];
     foreach ($empresas as $emp) {
         if (preg_match('/\b' . preg_quote($emp, '/') . '\b/i', $texto)) {
@@ -177,7 +279,10 @@ function extraerDatosDelMensaje($texto) {
         $resultado['empresa'] = 'Hospital';
     }
     
-    // 5. Extraer tipo de vehículo
+    // ============================================================
+    // 5. EXTRAER TIPO DE VEHÍCULO
+    // ============================================================
+    
     $vehiculos = ['burbuja', 'camión 350', 'camión 750', 'carrotanque', 'volqueta', 'camioneta', 'copetrana'];
     foreach ($vehiculos as $veh) {
         if (preg_match('/\b' . preg_quote($veh, '/') . '\b/i', $texto)) {
@@ -439,12 +544,16 @@ class BotHandler {
             $mensaje = "❌ No pude extraer la información correctamente.\n\n" .
                        "📝 Por favor usa el formato:\n" .
                        "<b>Traslado de paciente desde [origen] a [destino] conductor [nombre]</b>\n\n" .
-                       "📌 <b>Ejemplo:</b>\n" .
-                       "Traslado de paciente desde Paraíso a Nazareth conductor Franco Pimienta\n\n" .
-                       "💡 <b>Consejos:</b>\n" .
-                       "• Puedes agregar el tipo de vehículo (Burbuja, Camión 350, etc.)\n" .
-                       "• Puedes especificar la empresa (Hospital, ICBF, etc.)\n" .
-                       "• Escribe /help para más ayuda";
+                       "📌 <b>Ejemplos:</b>\n" .
+                       "• Traslado de paciente desde Paraíso a Nazareth conductor Mario Bocanegra\n" .
+                       "• conductor Jorge Palmar desde Maicao a Nazareth\n" .
+                       "• Desde Paraíso a Nazareth conductr Luis Hernandez\n\n" .
+                       "💡 <b>El bot reconoce:</b>\n" .
+                       "• 'conductor' en mayúscula/minúscula\n" .
+                       "• 'conductr' (sin 'o')\n" .
+                       "• 'conductór' (con tilde)\n" .
+                       "• 'conduktor' (error común)\n\n" .
+                       "📋 Escribe /help para más ayuda";
             
             return sendTelegramMessage($chat_id, $mensaje);
         }
@@ -453,7 +562,7 @@ class BotHandler {
         $this->user_data = [
             'step' => 'awaiting_image',
             'datos' => $datos,
-            'texto_original' => $texto  // ✅ Guardamos el mensaje original completo
+            'texto_original' => $texto
         ];
         $this->saveUserData();
         
@@ -515,17 +624,17 @@ class BotHandler {
         $chat_id = $this->chat_id;
         $datos = $this->user_data['datos'];
         $imagen_path = $this->user_data['imagen'] ?? null;
-        $texto_original = $this->user_data['texto_original'] ?? null; // ✅ Recuperamos el mensaje original
+        $texto_original = $this->user_data['texto_original'] ?? null;
         
         try {
-            // Preparar datos - Guarda mensaje original en whatsapp y solo nombre de imagen
+            // Preparar datos
             $viaje_data = [
                 'conductor' => $datos['conductor'],
                 'ruta' => $datos['ruta'],
                 'tipo_vehiculo' => $datos['tipo_vehiculo'] ?? 'Burbuja',
                 'empresa' => $datos['empresa'] ?? 'Hospital',
-                'imagen' => $imagen_path ? basename($imagen_path) : null, // ✅ Solo el nombre del archivo
-                'whatsapp' => $texto_original, // ✅ Mensaje completo y exacto del usuario
+                'imagen' => $imagen_path ? basename($imagen_path) : null,
+                'whatsapp' => $texto_original,
                 'fecha' => date('Y-m-d'),
                 'pagado' => 0
             ];
@@ -640,8 +749,10 @@ class BotHandler {
                    "4️⃣ Confirma y ¡listo!\n\n" .
                    "📌 <b>Formato del mensaje:</b>\n" .
                    "<code>Traslado de paciente desde [origen] a [destino] conductor [nombre]</code>\n\n" .
-                   "📌 <b>Ejemplo:</b>\n" .
-                   "Traslado de paciente desde Paraíso a Nazareth conductor Franco Pimienta\n\n" .
+                   "📌 <b>Ejemplos:</b>\n" .
+                   "• Traslado de paciente desde Paraíso a Nazareth conductor Mario Bocanegra\n" .
+                   "• conductor Jorge Palmar desde Maicao a Nazareth\n" .
+                   "• Desde Paraíso a Nazareth conductr Luis Hernandez\n\n" .
                    "📋 <b>Comandos disponibles:</b>\n" .
                    "/start - Iniciar bot\n" .
                    "/help - Mostrar ayuda\n" .
@@ -667,19 +778,23 @@ class BotHandler {
                    "🔹 <b>Paso 3: Confirmar</b>\n" .
                    "Revisa los datos y confirma para guardar.\n\n" .
                    "📌 <b>Ejemplos:</b>\n" .
-                   "• Traslado de paciente desde Nazareth a Maicao conductor Luis Hernández\n" .
-                   "• Traslado desde Paraíso a Nazareth conductor Franco Pimienta (sin 'paciente')\n" .
-                   "• Maicao - Nazareth conductor Guney González Hospital de campaña\n\n" .
+                   "• Traslado de paciente desde Paraíso a Nazareth conductor Mario Bocanegra\n" .
+                   "• conductor Jorge Palmar desde Maicao a Nazareth\n" .
+                   "• Desde Paraíso a Nazareth conductr Luis Hernandez\n" .
+                   "• Maicao - Nazareth conductor Guney González\n\n" .
                    "📋 <b>Comandos:</b>\n" .
                    "/start - Iniciar bot\n" .
                    "/help - Mostrar ayuda\n" .
                    "/conductores - Listar conductores registrados\n" .
                    "/rutas - Listar rutas registradas\n" .
                    "/cancel - Cancelar operación actual\n\n" .
-                   "💡 <b>Tips:</b>\n" .
-                   "• Puedes agregar el tipo de vehículo (Burbuja, Camión 350, etc.)\n" .
-                   "• Puedes especificar la empresa (Hospital, ICBF, Sunny app, etc.)\n" .
-                   "• El bot reconoce diferentes formatos de mensaje";
+                   "💡 <b>El bot reconoce estas variantes de 'conductor':</b>\n" .
+                   "• conductor (correcto)\n" .
+                   "• conductr (sin 'o')\n" .
+                   "• conductór (con tilde)\n" .
+                   "• conduktor (error común)\n" .
+                   "• conductorr (doble r)\n" .
+                   "• conductores (plural)";
         
         return sendTelegramMessage($chat_id, $mensaje);
     }
@@ -740,7 +855,7 @@ $update = json_decode($content, true);
 
 // Si no hay datos, responder con un mensaje de prueba
 if (!$update) {
-    die("Bot de Viajes funcionando correctamente. Versión 1.3");
+    die("Bot de Viajes funcionando correctamente. Versión 1.4");
 }
 
 // Procesar el mensaje
