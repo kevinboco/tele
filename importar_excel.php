@@ -41,6 +41,36 @@ function getDBConnection() {
     return $conn;
 }
 
+/**
+ * Elimina todos los registros con origen = 'excel'
+ */
+function eliminarRegistrosExcel() {
+    $conn = getDBConnection();
+    
+    // Verificar si existe la columna origen
+    $check = $conn->query("SHOW COLUMNS FROM viajes LIKE 'origen'");
+    if ($check->num_rows === 0) {
+        $conn->close();
+        throw new Exception("La columna 'origen' no existe. No se pueden identificar registros importados.");
+    }
+    
+    // Contar cuántos registros se van a eliminar
+    $count = $conn->query("SELECT COUNT(*) as total FROM viajes WHERE origen = 'excel'");
+    $total = $count->fetch_assoc()['total'];
+    
+    if ($total == 0) {
+        $conn->close();
+        return ['eliminados' => 0, 'mensaje' => 'No hay registros importados para eliminar.'];
+    }
+    
+    // Eliminar
+    $conn->query("DELETE FROM viajes WHERE origen = 'excel'");
+    $eliminados = $conn->affected_rows;
+    $conn->close();
+    
+    return ['eliminados' => $eliminados, 'mensaje' => "Se eliminaron $eliminados registros importados."];
+}
+
 // ============================================================
 // 3. FUNCIONES PARA LEER EXCEL
 // ============================================================
@@ -413,6 +443,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// Procesar eliminación de registros importados
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'eliminar_excel') {
+    try {
+        $resultado = eliminarRegistrosExcel();
+        if ($resultado['eliminados'] > 0) {
+            $mensaje = "🗑️ " . $resultado['mensaje'];
+        } else {
+            $mensaje = $resultado['mensaje'];
+        }
+    } catch (Exception $e) {
+        $error = "Error al eliminar: " . $e->getMessage();
+    }
+}
+
 // Si hay datos en sesión, mostrarlos
 if (isset($_SESSION['hojas_excel']) && !$archivo_cargado) {
     $hojas = $_SESSION['hojas_excel'];
@@ -448,6 +492,7 @@ $campos_tabla = [
         .card-header { background: #2c3e50; color: white; border-radius: 12px 12px 0 0; }
         .btn-primary { background: #2980b9; border-color: #2980b9; }
         .btn-success { background: #27ae60; border-color: #27ae60; }
+        .btn-danger { background: #c0392b; border-color: #c0392b; }
         .table-preview { font-size: 13px; }
         .table-preview td, .table-preview th { padding: 4px 8px; }
         .campo-multiple { background: #f8f9fa; padding: 8px; border-radius: 6px; border-left: 4px solid #2980b9; }
@@ -654,7 +699,7 @@ $campos_tabla = [
                 </div>
                 
                 <!-- ============================================================ -->
-                <!-- ESTADÍSTICAS DE LA TABLA -->
+                <!-- ESTADÍSTICAS DE LA TABLA + BOTÓN ELIMINAR -->
                 <!-- ============================================================ -->
                 <?php
                 try {
@@ -662,7 +707,9 @@ $campos_tabla = [
                     
                     // Verificar si existe la columna origen
                     $check = $conn->query("SHOW COLUMNS FROM viajes LIKE 'origen'");
-                    if ($check->num_rows > 0) {
+                    $tiene_origen = $check->num_rows > 0;
+                    
+                    if ($tiene_origen) {
                         $result = $conn->query("SELECT COUNT(*) as total, SUM(origen = 'excel') as excel, SUM(origen = 'telegram') as telegram FROM viajes");
                         $stats = $result->fetch_assoc();
                     } else {
@@ -675,25 +722,48 @@ $campos_tabla = [
                 ?>
                 <div class="card mt-4">
                     <div class="card-body">
-                        <h6 class="fw-bold">📊 Resumen de la tabla</h6>
-                        <div class="row text-center">
-                            <div class="col-4">
-                                <div class="border rounded p-2">
-                                    <h5 class="mb-0"><?php echo number_format($stats['total'] ?? 0); ?></h5>
-                                    <small class="text-muted">Total registros</small>
+                        <div class="row align-items-center">
+                            <div class="col-md-8">
+                                <h6 class="fw-bold">📊 Resumen de la tabla</h6>
+                                <div class="row text-center">
+                                    <div class="col-4">
+                                        <div class="border rounded p-2">
+                                            <h5 class="mb-0"><?php echo number_format($stats['total'] ?? 0); ?></h5>
+                                            <small class="text-muted">Total registros</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="border rounded p-2 bg-success bg-opacity-10">
+                                            <h5 class="mb-0 text-success"><?php echo number_format($stats['excel'] ?? 0); ?></h5>
+                                            <small class="text-muted">📁 Excel</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-4">
+                                        <div class="border rounded p-2 bg-primary bg-opacity-10">
+                                            <h5 class="mb-0 text-primary"><?php echo number_format($stats['telegram'] ?? 0); ?></h5>
+                                            <small class="text-muted">🤖 Telegram</small>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="col-4">
-                                <div class="border rounded p-2 bg-success bg-opacity-10">
-                                    <h5 class="mb-0 text-success"><?php echo number_format($stats['excel'] ?? 0); ?></h5>
-                                    <small class="text-muted">📁 Excel</small>
-                                </div>
-                            </div>
-                            <div class="col-4">
-                                <div class="border rounded p-2 bg-primary bg-opacity-10">
-                                    <h5 class="mb-0 text-primary"><?php echo number_format($stats['telegram'] ?? 0); ?></h5>
-                                    <small class="text-muted">🤖 Telegram</small>
-                                </div>
+                            <div class="col-md-4 text-center text-md-end mt-3 mt-md-0">
+                                <?php if ($tiene_origen && ($stats['excel'] ?? 0) > 0): ?>
+                                    <form method="POST" style="display:inline;" 
+                                          onsubmit="return confirm('⚠️ ¿Estás seguro de eliminar TODOS los registros importados desde Excel? Esta acción no se puede deshacer.');">
+                                        <input type="hidden" name="action" value="eliminar_excel">
+                                        <button type="submit" class="btn btn-danger">
+                                            🗑️ Eliminar <?php echo number_format($stats['excel']); ?> registros importados
+                                        </button>
+                                    </form>
+                                <?php elseif ($tiene_origen): ?>
+                                    <button class="btn btn-secondary" disabled>
+                                        ✅ No hay registros importados
+                                    </button>
+                                <?php else: ?>
+                                    <button class="btn btn-secondary" disabled>
+                                        ⚠️ Columna "origen" no existe
+                                    </button>
+                                <?php endif; ?>
                             </div>
                         </div>
                     </div>
