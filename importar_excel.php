@@ -2,7 +2,8 @@
 /**
  * Importador de Excel a la tabla viajes
  * Permite seleccionar hoja y mapear columnas manualmente
- * Soporta combinación de múltiples columnas para el nombre
+ * Soporte para crear nuevas columnas y eliminar registros importados
+ * Versión: 2.0
  */
 
 // Iniciar sesión al principio
@@ -39,6 +40,64 @@ function getDBConnection() {
     }
     $conn->set_charset("utf8mb4");
     return $conn;
+}
+
+/**
+ * Obtiene todas las columnas de la tabla viajes con caché en sesión
+ */
+function obtenerColumnasTabla() {
+    // Si ya están en sesión y no expiraron, usarlas
+    if (isset($_SESSION['columnas_tabla']) && isset($_SESSION['columnas_tabla_time']) && 
+        (time() - $_SESSION['columnas_tabla_time']) < 300) { // 5 minutos de caché
+        return $_SESSION['columnas_tabla'];
+    }
+    
+    $conn = getDBConnection();
+    $sql = "SHOW COLUMNS FROM viajes";
+    $result = $conn->query($sql);
+    $columnas = [];
+    while ($row = $result->fetch_assoc()) {
+        $columnas[] = $row['Field'];
+    }
+    $conn->close();
+    
+    // Guardar en sesión
+    $_SESSION['columnas_tabla'] = $columnas;
+    $_SESSION['columnas_tabla_time'] = time();
+    
+    return $columnas;
+}
+
+/**
+ * Agrega una nueva columna a la tabla viajes
+ */
+function agregarColumnaTabla($nombre, $tipo) {
+    $conn = getDBConnection();
+    
+    // Validar nombre de columna (solo letras, números y guión bajo)
+    if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $nombre)) {
+        throw new Exception("Nombre de columna inválido. Solo letras, números y guión bajo.");
+    }
+    
+    // Verificar que no exista
+    $check = $conn->query("SHOW COLUMNS FROM viajes LIKE '$nombre'");
+    if ($check->num_rows > 0) {
+        throw new Exception("La columna '$nombre' ya existe.");
+    }
+    
+    $sql = "ALTER TABLE viajes ADD COLUMN `$nombre` $tipo NULL";
+    
+    if ($conn->query($sql)) {
+        $conn->close();
+        // Limpiar caché de columnas
+        unset($_SESSION['columnas_tabla']);
+        unset($_SESSION['columnas_tabla_time']);
+        return true;
+    } else {
+        $error = $conn->error;
+        $conn->close();
+        throw new Exception("Error al crear columna: $error");
+    }
 }
 
 /**
@@ -151,6 +210,9 @@ function procesarImportacion($archivo, $hoja, $mapeo) {
     
     $conn = getDBConnection();
     
+    // Obtener columnas reales de la tabla
+    $columnas_tabla = obtenerColumnasTabla();
+    
     // Cargar el Excel
     $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($archivo);
     $worksheet = $spreadsheet->getSheetByName($hoja);
@@ -178,6 +240,11 @@ function procesarImportacion($archivo, $hoja, $mapeo) {
     // Construir mapeo de índices
     $indices = [];
     foreach ($mapeo as $campo => $config) {
+        // Saltar campos que no existen en la tabla
+        if (!in_array($campo, $columnas_tabla) && $campo !== 'origen') {
+            continue;
+        }
+        
         if (is_array($config)) {
             // Para campos con múltiples columnas (ej: nombre)
             $indices[$campo] = [];
@@ -191,7 +258,7 @@ function procesarImportacion($archivo, $hoja, $mapeo) {
             }
         } else {
             // Para campos con una sola columna
-            if ($config && $config !== 'auto') {
+            if ($config && $config !== 'auto' && $config !== '') {
                 $indice = array_search($config, $headers);
                 if ($indice !== false) {
                     $indices[$campo] = $indice;
@@ -217,7 +284,6 @@ function procesarImportacion($archivo, $hoja, $mapeo) {
                             $valores[] = trim($fila[$indice]);
                         }
                     }
-                    // Filtrar vacíos y unir con espacio
                     $valores = array_filter($valores);
                     $datos_insert[$campo] = !empty($valores) ? implode(' ', $valores) : null;
                 } else {
@@ -254,38 +320,40 @@ function procesarImportacion($archivo, $hoja, $mapeo) {
             $pago_parcial = !empty($datos_insert['pago_parcial']) ? intval(preg_replace('/[^0-9]/', '', $datos_insert['pago_parcial'])) : null;
             $empresa = $datos_insert['empresa'] ?? 'Hospital';
             $tipo_vehiculo = $datos_insert['tipo_vehiculo'] ?? 'Burbuja';
-            $imagen = $datos_insert['imagen'] ?? null;
-            $epicrisis = $datos_insert['epicrisis'] ?? null;
-            $whatsapp = $datos_insert['whatsapp'] ?? null;
-            $pagado = isset($datos_insert['pagado']) && $datos_insert['pagado'] !== '' ? intval($datos_insert['pagado']) : 0;
-            $color_fila = $datos_insert['color_fila'] ?? null;
             $origen = 'excel';
             
-            // Construir SQL dinámicamente
-            $campos = ['fecha', 'cedula', 'nombre', 'ruta', 'pago_parcial', 'empresa', 'tipo_vehiculo', 'origen', 'pagado'];
-            $valores = [$fecha, $cedula, $nombre, $ruta, $pago_parcial, $empresa, $tipo_vehiculo, $origen, $pagado];
-            $tipos = 'ssssssssi';
+            // Construir SQL dinámicamente con las columnas que existen
+            $campos = ['fecha', 'cedula', 'nombre', 'ruta', 'pago_parcial', 'empresa', 'tipo_vehiculo', 'origen'];
+            $valores = [$fecha, $cedula, $nombre, $ruta, $pago_parcial, $empresa, $tipo_vehiculo, $origen];
+            $tipos = 'ssssssss';
             
-            // Agregar campos opcionales si tienen valor
-            if ($imagen !== null) {
-                $campos[] = 'imagen';
-                $valores[] = $imagen;
-                $tipos .= 's';
+            // Agregar campos opcionales si existen en la tabla y tienen valor
+            $campos_opcionales = ['imagen', 'epicrisis', 'whatsapp', 'pagado', 'color_fila'];
+            foreach ($campos_opcionales as $campo_opcional) {
+                if (in_array($campo_opcional, $columnas_tabla) && isset($datos_insert[$campo_opcional]) && $datos_insert[$campo_opcional] !== null && $datos_insert[$campo_opcional] !== '') {
+                    $campos[] = $campo_opcional;
+                    if ($campo_opcional === 'pagado') {
+                        $valores[] = intval($datos_insert[$campo_opcional]);
+                        $tipos .= 'i';
+                    } else {
+                        $valores[] = $datos_insert[$campo_opcional];
+                        $tipos .= 's';
+                    }
+                }
             }
-            if ($epicrisis !== null) {
-                $campos[] = 'epicrisis';
-                $valores[] = $epicrisis;
-                $tipos .= 's';
-            }
-            if ($whatsapp !== null) {
-                $campos[] = 'whatsapp';
-                $valores[] = $whatsapp;
-                $tipos .= 's';
-            }
-            if ($color_fila !== null) {
-                $campos[] = 'color_fila';
-                $valores[] = $color_fila;
-                $tipos .= 's';
+            
+            // Agregar columnas personalizadas (las que no están en el mapeo fijo)
+            foreach ($columnas_tabla as $columna) {
+                // Saltar campos que ya están en el mapeo fijo
+                if (in_array($columna, ['id', 'fecha', 'cedula', 'nombre', 'ruta', 'pago_parcial', 'empresa', 'tipo_vehiculo', 'origen', 'imagen', 'epicrisis', 'whatsapp', 'pagado', 'color_fila'])) {
+                    continue;
+                }
+                // Si la columna tiene un valor en $datos_insert, agregarla
+                if (isset($datos_insert[$columna]) && $datos_insert[$columna] !== null && $datos_insert[$columna] !== '') {
+                    $campos[] = $columna;
+                    $valores[] = $datos_insert[$columna];
+                    $tipos .= 's';
+                }
             }
             
             $sql = "INSERT INTO viajes (" . implode(', ', $campos) . ") VALUES (" . implode(', ', array_fill(0, count($campos), '?')) . ")";
@@ -392,6 +460,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $archivo_cargado = true;
                 $hoja_actual = array_key_first($hojas);
                 $mensaje = "✅ Archivo cargado correctamente. Selecciona la hoja y mapea las columnas.";
+                
+                // Recargar columnas por si acaso
+                unset($_SESSION['columnas_tabla']);
+                unset($_SESSION['columnas_tabla_time']);
+                $columnas_tabla = obtenerColumnasTabla();
             } catch (Exception $e) {
                 $error = "Error al leer el archivo: " . $e->getMessage();
             }
@@ -457,6 +530,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// Procesar creación de nueva columna
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'crear_columna') {
+    $nombre_columna = trim($_POST['nombre_columna'] ?? '');
+    $tipo_columna = trim($_POST['tipo_columna'] ?? 'VARCHAR(255)');
+    
+    if (empty($nombre_columna)) {
+        $error = "Por favor, ingresa un nombre para la columna.";
+    } else {
+        try {
+            if (agregarColumnaTabla($nombre_columna, $tipo_columna)) {
+                $mensaje = "✅ Columna '$nombre_columna' creada exitosamente.";
+                // Forzar actualización de columnas
+                unset($_SESSION['columnas_tabla']);
+                unset($_SESSION['columnas_tabla_time']);
+                $columnas_tabla = obtenerColumnasTabla();
+            }
+        } catch (Exception $e) {
+            $error = "Error al crear columna: " . $e->getMessage();
+        }
+    }
+}
+
 // Si hay datos en sesión, mostrarlos
 if (isset($_SESSION['hojas_excel']) && !$archivo_cargado) {
     $hojas = $_SESSION['hojas_excel'];
@@ -464,21 +559,37 @@ if (isset($_SESSION['hojas_excel']) && !$archivo_cargado) {
     $hoja_actual = $_POST['hoja'] ?? array_key_first($hojas);
 }
 
-// Obtener campos de la tabla para el mapeo
-$campos_tabla = [
-    'fecha' => ['label' => '📅 fecha', 'tipo' => 'single', 'defecto' => 'auto'],
-    'cedula' => ['label' => '🆔 cedula', 'tipo' => 'single', 'defecto' => 'auto'],
-    'nombre' => ['label' => '👤 nombre (completo)', 'tipo' => 'multiple', 'defecto' => 'auto'],
-    'ruta' => ['label' => '🗺️ ruta', 'tipo' => 'single', 'defecto' => 'auto'],
-    'pago_parcial' => ['label' => '💰 pago_parcial', 'tipo' => 'single', 'defecto' => 'auto'],
-    'empresa' => ['label' => '🏢 empresa', 'tipo' => 'single', 'defecto' => 'auto'],
-    'tipo_vehiculo' => ['label' => '🚙 tipo_vehiculo', 'tipo' => 'single', 'defecto' => 'auto'],
-    'imagen' => ['label' => '📸 imagen', 'tipo' => 'single', 'defecto' => ''],
-    'epicrisis' => ['label' => '📄 epicrisis', 'tipo' => 'single', 'defecto' => ''],
-    'whatsapp' => ['label' => '💬 whatsapp', 'tipo' => 'single', 'defecto' => ''],
-    'pagado' => ['label' => '✅ pagado', 'tipo' => 'single', 'defecto' => '0'],
-    'color_fila' => ['label' => '🎨 color_fila', 'tipo' => 'single', 'defecto' => ''],
-];
+// Obtener columnas de la tabla (con caché)
+$columnas_tabla = obtenerColumnasTabla();
+
+// Campos de la tabla para el mapeo (TODOS los que existen)
+$campos_tabla = [];
+foreach ($columnas_tabla as $columna) {
+    // Saltar campos que no deben ser mapeados
+    if (in_array($columna, ['id', 'origen'])) {
+        continue;
+    }
+    
+    $tipo = 'single';
+    $label = $columna;
+    $defecto = '';
+    
+    if ($columna === 'nombre') {
+        $tipo = 'multiple';
+        $label = '👤 nombre (completo)';
+        $defecto = 'auto';
+    } elseif ($columna === 'empresa' || $columna === 'tipo_vehiculo') {
+        $defecto = 'auto';
+    } elseif ($columna === 'pagado') {
+        $defecto = '0';
+    }
+    
+    $campos_tabla[$columna] = [
+        'label' => $label,
+        'tipo' => $tipo,
+        'defecto' => $defecto
+    ];
+}
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -493,12 +604,15 @@ $campos_tabla = [
         .btn-primary { background: #2980b9; border-color: #2980b9; }
         .btn-success { background: #27ae60; border-color: #27ae60; }
         .btn-danger { background: #c0392b; border-color: #c0392b; }
+        .btn-warning { background: #f39c12; border-color: #f39c12; color: white; }
         .table-preview { font-size: 13px; }
         .table-preview td, .table-preview th { padding: 4px 8px; }
         .campo-multiple { background: #f8f9fa; padding: 8px; border-radius: 6px; border-left: 4px solid #2980b9; }
-        .campo-multiple select { margin-bottom: 4px; }
         .badge-excel { background: #217346; }
         .badge-telegram { background: #0088cc; }
+        .columna-existente { font-size: 12px; }
+        .columna-nueva { background: #d4edda; border-left: 4px solid #28a745; }
+        .alert { border-radius: 8px; }
     </style>
 </head>
 <body>
@@ -574,7 +688,7 @@ $campos_tabla = [
                                 </div>
                                 
                                 <?php if (isset($hojas[$hoja_actual])): 
-                                    $columnas = $hojas[$hoja_actual]['columnas'];
+                                    $columnas_excel = $hojas[$hoja_actual]['columnas'];
                                     $datos_preview = $hojas[$hoja_actual]['datos'];
                                 ?>
                                 
@@ -584,7 +698,7 @@ $campos_tabla = [
                                     <table class="table table-bordered table-sm table-preview">
                                         <thead class="table-light">
                                             <tr>
-                                                <?php foreach ($columnas as $col): ?>
+                                                <?php foreach ($columnas_excel as $col): ?>
                                                     <th><?php echo htmlspecialchars($col); ?></th>
                                                 <?php endforeach; ?>
                                             </tr>
@@ -613,12 +727,15 @@ $campos_tabla = [
                                             ⚡ <strong>Auto</strong>: El campo se detectará automáticamente.
                                             <br>
                                             📌 Los campos sin seleccionar se guardarán como NULL (vacío).
+                                            <br>
+                                            🆕 Las nuevas columnas creadas aparecerán automáticamente aquí.
                                         </p>
                                         
                                         <?php foreach ($campos_tabla as $campo => $config): ?>
                                             <div class="row g-3 mb-3 align-items-center">
                                                 <div class="col-md-3">
                                                     <label class="form-label fw-bold mb-0"><?php echo $config['label']; ?></label>
+                                                    <br><small class="text-muted"><?php echo $campo; ?></small>
                                                 </div>
                                                 <div class="col-md-9">
                                                     <?php if ($config['tipo'] === 'multiple'): ?>
@@ -626,17 +743,13 @@ $campos_tabla = [
                                                         <div class="campo-multiple">
                                                             <div class="row g-2">
                                                                 <?php
-                                                                // Columnas sugeridas para el nombre
                                                                 $sugeridas = ['PRIMER NOMBRE', 'SEGUNDO NOMBRE', 'PRIMER APELLIDO', 'SEGUNDO APELLIDO', 'CONDUCTOR'];
-                                                                $contador = 0;
                                                                 foreach ($sugeridas as $sugerida):
-                                                                    $contador++;
                                                                 ?>
                                                                 <div class="col-md-6 col-lg-3">
                                                                     <select name="mapeo[<?php echo $campo; ?>][]" class="form-select form-select-sm">
-                                                                        <option value="">-- Columna <?php echo $contador; ?> --</option>
-                                                                        <option value="">(vacío)</option>
-                                                                        <?php foreach ($columnas as $col): ?>
+                                                                        <option value="">-- Columna --</option>
+                                                                        <?php foreach ($columnas_excel as $col): ?>
                                                                             <option value="<?php echo htmlspecialchars($col); ?>" 
                                                                                 <?php echo (strtoupper($col) === $sugerida) ? 'selected' : ''; ?>>
                                                                                 <?php echo htmlspecialchars($col); ?>
@@ -646,7 +759,7 @@ $campos_tabla = [
                                                                 </div>
                                                                 <?php endforeach; ?>
                                                             </div>
-                                                            <small class="text-muted">💡 Selecciona las columnas que forman el nombre completo (se combinarán en orden)</small>
+                                                            <small class="text-muted">💡 Selecciona las columnas que forman el nombre completo</small>
                                                         </div>
                                                     <?php else: ?>
                                                         <!-- Campo SINGLE -->
@@ -657,7 +770,7 @@ $campos_tabla = [
                                                             <?php elseif ($config['defecto'] !== ''): ?>
                                                                 <option value="default_<?php echo $config['defecto']; ?>">🔹 Usar valor por defecto: <?php echo $config['defecto']; ?></option>
                                                             <?php endif; ?>
-                                                            <?php foreach ($columnas as $col): ?>
+                                                            <?php foreach ($columnas_excel as $col): ?>
                                                                 <option value="<?php echo htmlspecialchars($col); ?>"
                                                                     <?php echo (strtoupper($col) === strtoupper($campo) || strtoupper($col) === strtoupper($config['defecto'])) ? 'selected' : ''; ?>>
                                                                     <?php echo htmlspecialchars($col); ?>
@@ -698,6 +811,62 @@ $campos_tabla = [
                     </div>
                 </div>
                 
+                <!-- ============================================================ -->
+                <!-- GESTIÓN DE COLUMNAS -->
+                <!-- ============================================================ -->
+                <div class="card mt-4">
+                    <div class="card-header bg-warning text-white">
+                        <h6 class="mb-0">🔧 Gestión de columnas de la tabla</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-8">
+                                <h6 class="fw-bold">📋 Columnas actuales</h6>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <?php 
+                                    $columnas_principales = ['id', 'fecha', 'cedula', 'nombre', 'ruta', 'pago_parcial', 'empresa', 'tipo_vehiculo', 'origen', 'pagado', 'imagen', 'epicrisis', 'whatsapp', 'color_fila'];
+                                    foreach ($columnas_tabla as $col): 
+                                        $es_nueva = !in_array($col, $columnas_principales);
+                                    ?>
+                                        <span class="badge <?php echo $es_nueva ? 'bg-success' : 'bg-secondary'; ?> columna-existente p-2">
+                                            <?php echo htmlspecialchars($col); ?>
+                                            <?php if ($es_nueva): ?>
+                                                🆕
+                                            <?php endif; ?>
+                                        </span>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <form method="POST" class="mt-2 mt-md-0" onsubmit="return confirm('⚠️ ¿Estás seguro de crear esta nueva columna?');">
+                                    <input type="hidden" name="action" value="crear_columna">
+                                    <h6 class="fw-bold">➕ Agregar nueva columna</h6>
+                                    <div class="row g-2">
+                                        <div class="col-7">
+                                            <input type="text" class="form-control form-control-sm" name="nombre_columna" 
+                                                   placeholder="ej: paciente_nombre" required>
+                                        </div>
+                                        <div class="col-3">
+                                            <select name="tipo_columna" class="form-select form-select-sm">
+                                                <option value="VARCHAR(255)">VARCHAR</option>
+                                                <option value="TEXT">TEXT</option>
+                                                <option value="INT">INT</option>
+                                                <option value="DECIMAL(10,2)">DECIMAL</option>
+                                                <option value="DATE">DATE</option>
+                                                <option value="TINYINT(1)">TINYINT</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-2">
+                                            <button type="submit" class="btn btn-warning btn-sm w-100">➕</button>
+                                        </div>
+                                    </div>
+                                    <small class="text-muted">Solo letras, números y guión bajo. Ej: paciente_nombre</small>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- ============================================================ -->
                 <!-- ESTADÍSTICAS DE LA TABLA + BOTÓN ELIMINAR -->
                 <!-- ============================================================ -->
