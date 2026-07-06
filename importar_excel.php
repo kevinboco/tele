@@ -2,7 +2,7 @@
 /**
  * Importador de Excel a la tabla viajes
  * Permite seleccionar hoja y mapear columnas manualmente
- * Soporte para crear nuevas columnas y eliminar registros importados
+ * Soporta combinación de múltiples columnas para el nombre
  */
 
 // Iniciar sesión al principio
@@ -39,80 +39,6 @@ function getDBConnection() {
     }
     $conn->set_charset("utf8mb4");
     return $conn;
-}
-
-/**
- * Obtiene todas las columnas de la tabla viajes
- */
-function obtenerColumnasTabla() {
-    $conn = getDBConnection();
-    $sql = "SHOW COLUMNS FROM viajes";
-    $result = $conn->query($sql);
-    $columnas = [];
-    while ($row = $result->fetch_assoc()) {
-        $columnas[] = $row['Field'];
-    }
-    $conn->close();
-    return $columnas;
-}
-
-/**
- * Agrega una nueva columna a la tabla viajes
- */
-function agregarColumnaTabla($nombre, $tipo) {
-    $conn = getDBConnection();
-    
-    // Validar nombre de columna (solo letras, números y guión bajo)
-    if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $nombre)) {
-        throw new Exception("Nombre de columna inválido. Solo letras, números y guión bajo.");
-    }
-    
-    // Verificar que no exista
-    $check = $conn->query("SHOW COLUMNS FROM viajes LIKE '$nombre'");
-    if ($check->num_rows > 0) {
-        throw new Exception("La columna '$nombre' ya existe.");
-    }
-    
-    $sql = "ALTER TABLE viajes ADD COLUMN `$nombre` $tipo NULL";
-    
-    if ($conn->query($sql)) {
-        $conn->close();
-        return true;
-    } else {
-        $error = $conn->error;
-        $conn->close();
-        throw new Exception("Error al crear columna: $error");
-    }
-}
-
-/**
- * Elimina todos los registros con origen = 'excel'
- */
-function eliminarRegistrosExcel() {
-    $conn = getDBConnection();
-    
-    // Verificar si existe la columna origen
-    $check = $conn->query("SHOW COLUMNS FROM viajes LIKE 'origen'");
-    if ($check->num_rows === 0) {
-        $conn->close();
-        throw new Exception("La columna 'origen' no existe. No se pueden identificar registros importados.");
-    }
-    
-    // Contar cuántos registros se van a eliminar
-    $count = $conn->query("SELECT COUNT(*) as total FROM viajes WHERE origen = 'excel'");
-    $total = $count->fetch_assoc()['total'];
-    
-    if ($total == 0) {
-        $conn->close();
-        return ['eliminados' => 0, 'mensaje' => 'No hay registros importados para eliminar.'];
-    }
-    
-    // Eliminar
-    $conn->query("DELETE FROM viajes WHERE origen = 'excel'");
-    $eliminados = $conn->affected_rows;
-    $conn->close();
-    
-    return ['eliminados' => $eliminados, 'mensaje' => "Se eliminaron $eliminados registros importados."];
 }
 
 // ============================================================
@@ -195,9 +121,6 @@ function procesarImportacion($archivo, $hoja, $mapeo) {
     
     $conn = getDBConnection();
     
-    // Obtener columnas reales de la tabla
-    $columnas_tabla = obtenerColumnasTabla();
-    
     // Cargar el Excel
     $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($archivo);
     $worksheet = $spreadsheet->getSheetByName($hoja);
@@ -225,11 +148,6 @@ function procesarImportacion($archivo, $hoja, $mapeo) {
     // Construir mapeo de índices
     $indices = [];
     foreach ($mapeo as $campo => $config) {
-        // Saltar campos que no existen en la tabla
-        if (!in_array($campo, $columnas_tabla) && $campo !== 'origen') {
-            continue;
-        }
-        
         if (is_array($config)) {
             // Para campos con múltiples columnas (ej: nombre)
             $indices[$campo] = [];
@@ -269,6 +187,7 @@ function procesarImportacion($archivo, $hoja, $mapeo) {
                             $valores[] = trim($fila[$indice]);
                         }
                     }
+                    // Filtrar vacíos y unir con espacio
                     $valores = array_filter($valores);
                     $datos_insert[$campo] = !empty($valores) ? implode(' ', $valores) : null;
                 } else {
@@ -305,26 +224,38 @@ function procesarImportacion($archivo, $hoja, $mapeo) {
             $pago_parcial = !empty($datos_insert['pago_parcial']) ? intval(preg_replace('/[^0-9]/', '', $datos_insert['pago_parcial'])) : null;
             $empresa = $datos_insert['empresa'] ?? 'Hospital';
             $tipo_vehiculo = $datos_insert['tipo_vehiculo'] ?? 'Burbuja';
+            $imagen = $datos_insert['imagen'] ?? null;
+            $epicrisis = $datos_insert['epicrisis'] ?? null;
+            $whatsapp = $datos_insert['whatsapp'] ?? null;
+            $pagado = isset($datos_insert['pagado']) && $datos_insert['pagado'] !== '' ? intval($datos_insert['pagado']) : 0;
+            $color_fila = $datos_insert['color_fila'] ?? null;
             $origen = 'excel';
             
-            // Construir SQL dinámicamente con las columnas que existen
-            $campos = ['fecha', 'cedula', 'nombre', 'ruta', 'pago_parcial', 'empresa', 'tipo_vehiculo', 'origen'];
-            $valores = [$fecha, $cedula, $nombre, $ruta, $pago_parcial, $empresa, $tipo_vehiculo, $origen];
-            $tipos = 'ssssssss';
+            // Construir SQL dinámicamente
+            $campos = ['fecha', 'cedula', 'nombre', 'ruta', 'pago_parcial', 'empresa', 'tipo_vehiculo', 'origen', 'pagado'];
+            $valores = [$fecha, $cedula, $nombre, $ruta, $pago_parcial, $empresa, $tipo_vehiculo, $origen, $pagado];
+            $tipos = 'ssssssssi';
             
-            // Agregar campos opcionales si existen en la tabla y tienen valor
-            $campos_opcionales = ['imagen', 'epicrisis', 'whatsapp', 'pagado', 'color_fila'];
-            foreach ($campos_opcionales as $campo_opcional) {
-                if (in_array($campo_opcional, $columnas_tabla) && isset($datos_insert[$campo_opcional]) && $datos_insert[$campo_opcional] !== null) {
-                    $campos[] = $campo_opcional;
-                    if ($campo_opcional === 'pagado') {
-                        $valores[] = intval($datos_insert[$campo_opcional]);
-                        $tipos .= 'i';
-                    } else {
-                        $valores[] = $datos_insert[$campo_opcional];
-                        $tipos .= 's';
-                    }
-                }
+            // Agregar campos opcionales si tienen valor
+            if ($imagen !== null) {
+                $campos[] = 'imagen';
+                $valores[] = $imagen;
+                $tipos .= 's';
+            }
+            if ($epicrisis !== null) {
+                $campos[] = 'epicrisis';
+                $valores[] = $epicrisis;
+                $tipos .= 's';
+            }
+            if ($whatsapp !== null) {
+                $campos[] = 'whatsapp';
+                $valores[] = $whatsapp;
+                $tipos .= 's';
+            }
+            if ($color_fila !== null) {
+                $campos[] = 'color_fila';
+                $valores[] = $color_fila;
+                $tipos .= 's';
             }
             
             $sql = "INSERT INTO viajes (" . implode(', ', $campos) . ") VALUES (" . implode(', ', array_fill(0, count($campos), '?')) . ")";
@@ -482,40 +413,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-// Procesar eliminación de registros importados
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'eliminar_excel') {
-    try {
-        $resultado = eliminarRegistrosExcel();
-        if ($resultado['eliminados'] > 0) {
-            $mensaje = "🗑️ " . $resultado['mensaje'];
-        } else {
-            $mensaje = $resultado['mensaje'];
-        }
-    } catch (Exception $e) {
-        $error = "Error al eliminar: " . $e->getMessage();
-    }
-}
-
-// Procesar creación de nueva columna
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'crear_columna') {
-    $nombre_columna = trim($_POST['nombre_columna'] ?? '');
-    $tipo_columna = trim($_POST['tipo_columna'] ?? 'VARCHAR(255)');
-    
-    if (empty($nombre_columna)) {
-        $error = "Por favor, ingresa un nombre para la columna.";
-    } else {
-        try {
-            if (agregarColumnaTabla($nombre_columna, $tipo_columna)) {
-                $mensaje = "✅ Columna '$nombre_columna' creada exitosamente.";
-                // Actualizar la lista de columnas en sesión
-                $_SESSION['columnas_tabla'] = obtenerColumnasTabla();
-            }
-        } catch (Exception $e) {
-            $error = "Error al crear columna: " . $e->getMessage();
-        }
-    }
-}
-
 // Si hay datos en sesión, mostrarlos
 if (isset($_SESSION['hojas_excel']) && !$archivo_cargado) {
     $hojas = $_SESSION['hojas_excel'];
@@ -523,37 +420,21 @@ if (isset($_SESSION['hojas_excel']) && !$archivo_cargado) {
     $hoja_actual = $_POST['hoja'] ?? array_key_first($hojas);
 }
 
-// Obtener columnas de la tabla
-$columnas_tabla = $_SESSION['columnas_tabla'] ?? obtenerColumnasTabla();
-
-// Campos de la tabla para el mapeo (solo los que existen)
-$campos_tabla = [];
-foreach ($columnas_tabla as $columna) {
-    // Saltar campos que no deben ser mapeados
-    if (in_array($columna, ['id', 'origen'])) {
-        continue;
-    }
-    
-    $tipo = 'single';
-    $label = $columna;
-    $defecto = '';
-    
-    if ($columna === 'nombre') {
-        $tipo = 'multiple';
-        $label = '👤 nombre (completo)';
-        $defecto = 'auto';
-    } elseif ($columna === 'empresa' || $columna === 'tipo_vehiculo') {
-        $defecto = 'auto';
-    } elseif ($columna === 'pagado') {
-        $defecto = '0';
-    }
-    
-    $campos_tabla[$columna] = [
-        'label' => $label,
-        'tipo' => $tipo,
-        'defecto' => $defecto
-    ];
-}
+// Obtener campos de la tabla para el mapeo
+$campos_tabla = [
+    'fecha' => ['label' => '📅 fecha', 'tipo' => 'single', 'defecto' => 'auto'],
+    'cedula' => ['label' => '🆔 cedula', 'tipo' => 'single', 'defecto' => 'auto'],
+    'nombre' => ['label' => '👤 nombre (completo)', 'tipo' => 'multiple', 'defecto' => 'auto'],
+    'ruta' => ['label' => '🗺️ ruta', 'tipo' => 'single', 'defecto' => 'auto'],
+    'pago_parcial' => ['label' => '💰 pago_parcial', 'tipo' => 'single', 'defecto' => 'auto'],
+    'empresa' => ['label' => '🏢 empresa', 'tipo' => 'single', 'defecto' => 'auto'],
+    'tipo_vehiculo' => ['label' => '🚙 tipo_vehiculo', 'tipo' => 'single', 'defecto' => 'auto'],
+    'imagen' => ['label' => '📸 imagen', 'tipo' => 'single', 'defecto' => ''],
+    'epicrisis' => ['label' => '📄 epicrisis', 'tipo' => 'single', 'defecto' => ''],
+    'whatsapp' => ['label' => '💬 whatsapp', 'tipo' => 'single', 'defecto' => ''],
+    'pagado' => ['label' => '✅ pagado', 'tipo' => 'single', 'defecto' => '0'],
+    'color_fila' => ['label' => '🎨 color_fila', 'tipo' => 'single', 'defecto' => ''],
+];
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -567,14 +448,12 @@ foreach ($columnas_tabla as $columna) {
         .card-header { background: #2c3e50; color: white; border-radius: 12px 12px 0 0; }
         .btn-primary { background: #2980b9; border-color: #2980b9; }
         .btn-success { background: #27ae60; border-color: #27ae60; }
-        .btn-danger { background: #c0392b; border-color: #c0392b; }
-        .btn-warning { background: #f39c12; border-color: #f39c12; color: white; }
         .table-preview { font-size: 13px; }
         .table-preview td, .table-preview th { padding: 4px 8px; }
         .campo-multiple { background: #f8f9fa; padding: 8px; border-radius: 6px; border-left: 4px solid #2980b9; }
+        .campo-multiple select { margin-bottom: 4px; }
         .badge-excel { background: #217346; }
         .badge-telegram { background: #0088cc; }
-        .columna-existente { font-size: 12px; }
     </style>
 </head>
 <body>
@@ -695,7 +574,6 @@ foreach ($columnas_tabla as $columna) {
                                             <div class="row g-3 mb-3 align-items-center">
                                                 <div class="col-md-3">
                                                     <label class="form-label fw-bold mb-0"><?php echo $config['label']; ?></label>
-                                                    <br><small class="text-muted"><?php echo $campo; ?></small>
                                                 </div>
                                                 <div class="col-md-9">
                                                     <?php if ($config['tipo'] === 'multiple'): ?>
@@ -703,12 +581,16 @@ foreach ($columnas_tabla as $columna) {
                                                         <div class="campo-multiple">
                                                             <div class="row g-2">
                                                                 <?php
+                                                                // Columnas sugeridas para el nombre
                                                                 $sugeridas = ['PRIMER NOMBRE', 'SEGUNDO NOMBRE', 'PRIMER APELLIDO', 'SEGUNDO APELLIDO', 'CONDUCTOR'];
+                                                                $contador = 0;
                                                                 foreach ($sugeridas as $sugerida):
+                                                                    $contador++;
                                                                 ?>
                                                                 <div class="col-md-6 col-lg-3">
                                                                     <select name="mapeo[<?php echo $campo; ?>][]" class="form-select form-select-sm">
-                                                                        <option value="">-- Columna --</option>
+                                                                        <option value="">-- Columna <?php echo $contador; ?> --</option>
+                                                                        <option value="">(vacío)</option>
                                                                         <?php foreach ($columnas as $col): ?>
                                                                             <option value="<?php echo htmlspecialchars($col); ?>" 
                                                                                 <?php echo (strtoupper($col) === $sugerida) ? 'selected' : ''; ?>>
@@ -719,7 +601,7 @@ foreach ($columnas_tabla as $columna) {
                                                                 </div>
                                                                 <?php endforeach; ?>
                                                             </div>
-                                                            <small class="text-muted">💡 Selecciona las columnas que forman el nombre completo</small>
+                                                            <small class="text-muted">💡 Selecciona las columnas que forman el nombre completo (se combinarán en orden)</small>
                                                         </div>
                                                     <?php else: ?>
                                                         <!-- Campo SINGLE -->
@@ -772,56 +654,7 @@ foreach ($columnas_tabla as $columna) {
                 </div>
                 
                 <!-- ============================================================ -->
-                <!-- GESTIÓN DE COLUMNAS -->
-                <!-- ============================================================ -->
-                <div class="card mt-4">
-                    <div class="card-header bg-warning text-white">
-                        <h6 class="mb-0">🔧 Gestión de columnas de la tabla</h6>
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-8">
-                                <h6 class="fw-bold">📋 Columnas actuales</h6>
-                                <div class="d-flex flex-wrap gap-2">
-                                    <?php foreach ($columnas_tabla as $col): ?>
-                                        <span class="badge bg-secondary columna-existente p-2">
-                                            <?php echo htmlspecialchars($col); ?>
-                                        </span>
-                                    <?php endforeach; ?>
-                                </div>
-                            </div>
-                            <div class="col-md-4">
-                                <form method="POST" class="mt-2 mt-md-0" onsubmit="return confirm('¿Estás seguro de crear esta nueva columna?');">
-                                    <input type="hidden" name="action" value="crear_columna">
-                                    <h6 class="fw-bold">➕ Agregar nueva columna</h6>
-                                    <div class="row g-2">
-                                        <div class="col-7">
-                                            <input type="text" class="form-control form-control-sm" name="nombre_columna" 
-                                                   placeholder="nombre_columna" required>
-                                        </div>
-                                        <div class="col-3">
-                                            <select name="tipo_columna" class="form-select form-select-sm">
-                                                <option value="VARCHAR(255)">VARCHAR</option>
-                                                <option value="TEXT">TEXT</option>
-                                                <option value="INT">INT</option>
-                                                <option value="DECIMAL(10,2)">DECIMAL</option>
-                                                <option value="DATE">DATE</option>
-                                                <option value="TINYINT(1)">TINYINT</option>
-                                            </select>
-                                        </div>
-                                        <div class="col-2">
-                                            <button type="submit" class="btn btn-warning btn-sm w-100">➕</button>
-                                        </div>
-                                    </div>
-                                    <small class="text-muted">Solo letras, números y guión bajo. Ej: paciente_nombre</small>
-                                </form>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- ============================================================ -->
-                <!-- ESTADÍSTICAS DE LA TABLA + BOTÓN ELIMINAR -->
+                <!-- ESTADÍSTICAS DE LA TABLA -->
                 <!-- ============================================================ -->
                 <?php
                 try {
@@ -829,9 +662,7 @@ foreach ($columnas_tabla as $columna) {
                     
                     // Verificar si existe la columna origen
                     $check = $conn->query("SHOW COLUMNS FROM viajes LIKE 'origen'");
-                    $tiene_origen = $check->num_rows > 0;
-                    
-                    if ($tiene_origen) {
+                    if ($check->num_rows > 0) {
                         $result = $conn->query("SELECT COUNT(*) as total, SUM(origen = 'excel') as excel, SUM(origen = 'telegram') as telegram FROM viajes");
                         $stats = $result->fetch_assoc();
                     } else {
@@ -844,48 +675,25 @@ foreach ($columnas_tabla as $columna) {
                 ?>
                 <div class="card mt-4">
                     <div class="card-body">
-                        <div class="row align-items-center">
-                            <div class="col-md-8">
-                                <h6 class="fw-bold">📊 Resumen de la tabla</h6>
-                                <div class="row text-center">
-                                    <div class="col-4">
-                                        <div class="border rounded p-2">
-                                            <h5 class="mb-0"><?php echo number_format($stats['total'] ?? 0); ?></h5>
-                                            <small class="text-muted">Total registros</small>
-                                        </div>
-                                    </div>
-                                    <div class="col-4">
-                                        <div class="border rounded p-2 bg-success bg-opacity-10">
-                                            <h5 class="mb-0 text-success"><?php echo number_format($stats['excel'] ?? 0); ?></h5>
-                                            <small class="text-muted">📁 Excel</small>
-                                        </div>
-                                    </div>
-                                    <div class="col-4">
-                                        <div class="border rounded p-2 bg-primary bg-opacity-10">
-                                            <h5 class="mb-0 text-primary"><?php echo number_format($stats['telegram'] ?? 0); ?></h5>
-                                            <small class="text-muted">🤖 Telegram</small>
-                                        </div>
-                                    </div>
+                        <h6 class="fw-bold">📊 Resumen de la tabla</h6>
+                        <div class="row text-center">
+                            <div class="col-4">
+                                <div class="border rounded p-2">
+                                    <h5 class="mb-0"><?php echo number_format($stats['total'] ?? 0); ?></h5>
+                                    <small class="text-muted">Total registros</small>
                                 </div>
                             </div>
-                            <div class="col-md-4 text-center text-md-end mt-3 mt-md-0">
-                                <?php if ($tiene_origen && ($stats['excel'] ?? 0) > 0): ?>
-                                    <form method="POST" style="display:inline;" 
-                                          onsubmit="return confirm('⚠️ ¿Estás seguro de eliminar TODOS los registros importados desde Excel? Esta acción no se puede deshacer.');">
-                                        <input type="hidden" name="action" value="eliminar_excel">
-                                        <button type="submit" class="btn btn-danger">
-                                            🗑️ Eliminar <?php echo number_format($stats['excel']); ?> registros importados
-                                        </button>
-                                    </form>
-                                <?php elseif ($tiene_origen): ?>
-                                    <button class="btn btn-secondary" disabled>
-                                        ✅ No hay registros importados
-                                    </button>
-                                <?php else: ?>
-                                    <button class="btn btn-secondary" disabled>
-                                        ⚠️ Columna "origen" no existe
-                                    </button>
-                                <?php endif; ?>
+                            <div class="col-4">
+                                <div class="border rounded p-2 bg-success bg-opacity-10">
+                                    <h5 class="mb-0 text-success"><?php echo number_format($stats['excel'] ?? 0); ?></h5>
+                                    <small class="text-muted">📁 Excel</small>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="border rounded p-2 bg-primary bg-opacity-10">
+                                    <h5 class="mb-0 text-primary"><?php echo number_format($stats['telegram'] ?? 0); ?></h5>
+                                    <small class="text-muted">🤖 Telegram</small>
+                                </div>
                             </div>
                         </div>
                     </div>
