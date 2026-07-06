@@ -4,6 +4,11 @@
  * Permite seleccionar hoja y mapear columnas manualmente
  */
 
+// Iniciar sesión al principio
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
 // ============================================================
 // 1. CONFIGURACIÓN
 // ============================================================
@@ -36,18 +41,29 @@ function getDBConnection() {
 }
 
 // ============================================================
-// 3. FUNCIONES PARA LEER EXCEL (SIN LIBRERÍAS EXTERNAS)
+// 3. FUNCIONES PARA LEER EXCEL
 // ============================================================
 
-/**
- * Lee un archivo Excel (.xlsx) usando SimpleXLSX (librería incluida)
- * NOTA: Necesitas descargar SimpleXLSX.php o usar PHPSpreadsheet
- * 
- * Para este ejemplo, asumimos que usas PHPSpreadsheet
- * Instalación: composer require phpoffice/phpspreadsheet
- */
 function leerExcel($archivo) {
-    require_once 'vendor/autoload.php';
+    // Verificar si existe la librería
+    $autoloadPaths = [
+        __DIR__ . '/vendor/autoload.php',
+        __DIR__ . '/../vendor/autoload.php',
+        __DIR__ . '/../../vendor/autoload.php'
+    ];
+    
+    $loaded = false;
+    foreach ($autoloadPaths as $path) {
+        if (file_exists($path)) {
+            require_once $path;
+            $loaded = true;
+            break;
+        }
+    }
+    
+    if (!$loaded) {
+        throw new Exception("No se encontró PHPSpreadsheet. Instala con: composer require phpoffice/phpspreadsheet");
+    }
     
     $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($archivo);
     $hojas = [];
@@ -64,12 +80,14 @@ function leerExcel($archivo) {
         // Reindexar
         $datos = array_values($datos);
         
-        $hojas[$nombreHoja] = [
-            'nombre' => $nombreHoja,
-            'datos' => $datos,
-            'columnas' => !empty($datos) ? $datos[0] : [],
-            'total_filas' => count($datos) - 1 // Restar la cabecera
-        ];
+        if (!empty($datos)) {
+            $hojas[$nombreHoja] = [
+                'nombre' => $nombreHoja,
+                'datos' => $datos,
+                'columnas' => $datos[0],
+                'total_filas' => count($datos) - 1
+            ];
+        }
     }
     
     return $hojas;
@@ -80,10 +98,29 @@ function leerExcel($archivo) {
 // ============================================================
 
 function procesarImportacion($archivo, $hoja, $mapeo) {
+    // Verificar librería
+    $autoloadPaths = [
+        __DIR__ . '/vendor/autoload.php',
+        __DIR__ . '/../vendor/autoload.php',
+        __DIR__ . '/../../vendor/autoload.php'
+    ];
+    
+    $loaded = false;
+    foreach ($autoloadPaths as $path) {
+        if (file_exists($path)) {
+            require_once $path;
+            $loaded = true;
+            break;
+        }
+    }
+    
+    if (!$loaded) {
+        throw new Exception("No se encontró PHPSpreadsheet.");
+    }
+    
     $conn = getDBConnection();
     
     // Cargar el Excel
-    require_once 'vendor/autoload.php';
     $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($archivo);
     $worksheet = $spreadsheet->getSheetByName($hoja);
     
@@ -121,8 +158,6 @@ function procesarImportacion($archivo, $hoja, $mapeo) {
     // Detectar empresa y tipo de vehículo automáticamente si está configurado
     $detectar_empresa = isset($mapeo['empresa']) && $mapeo['empresa'] === 'auto';
     $detectar_vehiculo = isset($mapeo['tipo_vehiculo']) && $mapeo['tipo_vehiculo'] === 'auto';
-    $empresa_defecto = $mapeo['empresa_defecto'] ?? 'Hospital';
-    $vehiculo_defecto = $mapeo['tipo_vehiculo_defecto'] ?? 'Burbuja';
     
     $importados = 0;
     $errores = [];
@@ -143,7 +178,7 @@ function procesarImportacion($archivo, $hoja, $mapeo) {
                 $empresa = detectarEmpresa($ruta);
                 $datos_insert['empresa'] = $empresa;
             } else {
-                $datos_insert['empresa'] = $empresa_defecto;
+                $datos_insert['empresa'] = 'Hospital';
             }
             
             // Detectar tipo de vehículo automáticamente
@@ -152,11 +187,21 @@ function procesarImportacion($archivo, $hoja, $mapeo) {
                 $vehiculo = detectarVehiculo($ruta);
                 $datos_insert['tipo_vehiculo'] = $vehiculo;
             } else {
-                $datos_insert['tipo_vehiculo'] = $vehiculo_defecto;
+                $datos_insert['tipo_vehiculo'] = 'Burbuja';
             }
             
             // Asignar origen = 'excel'
             $datos_insert['origen'] = 'excel';
+            
+            // Limpiar valores
+            $fecha = !empty($datos_insert['fecha']) ? date('Y-m-d', strtotime($datos_insert['fecha'])) : date('Y-m-d');
+            $cedula = $datos_insert['cedula'] ?? null;
+            $nombre = $datos_insert['nombre'] ?? null;
+            $ruta = $datos_insert['ruta'] ?? null;
+            $pago_parcial = !empty($datos_insert['pago_parcial']) ? intval(preg_replace('/[^0-9]/', '', $datos_insert['pago_parcial'])) : null;
+            $empresa = $datos_insert['empresa'] ?? 'Hospital';
+            $tipo_vehiculo = $datos_insert['tipo_vehiculo'] ?? 'Burbuja';
+            $origen = 'excel';
             
             // Insertar en la base de datos
             $sql = "INSERT INTO viajes 
@@ -164,17 +209,6 @@ function procesarImportacion($archivo, $hoja, $mapeo) {
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)";
             
             $stmt = $conn->prepare($sql);
-            
-            // Limpiar valores
-            $fecha = !empty($datos_insert['fecha']) ? date('Y-m-d', strtotime($datos_insert['fecha'])) : date('Y-m-d');
-            $cedula = $datos_insert['cedula'] ?? null;
-            $nombre = $datos_insert['nombre'] ?? null;
-            $ruta = $datos_insert['ruta'] ?? null;
-            $pago_parcial = !empty($datos_insert['pago_parcial']) ? intval($datos_insert['pago_parcial']) : null;
-            $empresa = $datos_insert['empresa'] ?? 'Hospital';
-            $tipo_vehiculo = $datos_insert['tipo_vehiculo'] ?? 'Burbuja';
-            $origen = 'excel';
-            
             $stmt->bind_param(
                 "ssssssss",
                 $fecha,
@@ -190,13 +224,13 @@ function procesarImportacion($archivo, $hoja, $mapeo) {
             if ($stmt->execute()) {
                 $importados++;
             } else {
-                $errores[] = "Error en fila: " . $stmt->error;
+                $errores[] = "Error: " . $stmt->error;
             }
             
             $stmt->close();
             
         } catch (Exception $e) {
-            $errores[] = "Error en fila: " . $e->getMessage();
+            $errores[] = "Error: " . $e->getMessage();
         }
     }
     
@@ -260,6 +294,89 @@ function detectarVehiculo($ruta) {
     
     return 'Burbuja';
 }
+
+// ============================================================
+// 5. PROCESAR PETICIONES
+// ============================================================
+
+$mensaje = '';
+$error = '';
+$archivo_cargado = false;
+$hojas = [];
+$hoja_actual = '';
+
+// Procesar carga de archivo
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'cargar') {
+    if (isset($_FILES['archivo_excel']) && $_FILES['archivo_excel']['error'] === 0) {
+        $archivo = $_FILES['archivo_excel'];
+        $nombre_archivo = time() . '_' . basename($archivo['name']);
+        $ruta_archivo = UPLOAD_DIR . $nombre_archivo;
+        
+        if (move_uploaded_file($archivo['tmp_name'], $ruta_archivo)) {
+            try {
+                $hojas = leerExcel($ruta_archivo);
+                $_SESSION['archivo_excel'] = $ruta_archivo;
+                $_SESSION['hojas_excel'] = $hojas;
+                $archivo_cargado = true;
+                $hoja_actual = array_key_first($hojas);
+                $mensaje = "✅ Archivo cargado correctamente. Selecciona la hoja y mapea las columnas.";
+            } catch (Exception $e) {
+                $error = "Error al leer el archivo: " . $e->getMessage();
+            }
+        } else {
+            $error = "Error al mover el archivo.";
+        }
+    } else {
+        $error = "No se seleccionó ningún archivo o hubo un error al subirlo.";
+    }
+}
+
+// Cambiar hoja seleccionada
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'cambiar_hoja') {
+    $hoja_actual = $_POST['hoja'] ?? '';
+    if (isset($_SESSION['hojas_excel']) && isset($_SESSION['hojas_excel'][$hoja_actual])) {
+        $archivo_cargado = true;
+        $hojas = $_SESSION['hojas_excel'];
+    }
+}
+
+// Procesar guardado
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'guardar') {
+    $hoja_seleccionada = $_POST['hoja'] ?? '';
+    $mapeo = $_POST['mapeo'] ?? [];
+    $archivo = $_SESSION['archivo_excel'] ?? null;
+    
+    if (!$archivo) {
+        $error = "No se encontró el archivo. Por favor, cárgalo de nuevo.";
+    } elseif (!$hoja_seleccionada) {
+        $error = "Por favor, selecciona una hoja.";
+    } else {
+        try {
+            $resultado = procesarImportacion($archivo, $hoja_seleccionada, $mapeo);
+            
+            if ($resultado['importados'] > 0) {
+                $mensaje = "✅ Se importaron {$resultado['importados']} registros correctamente.";
+                if (!empty($resultado['errores'])) {
+                    $mensaje .= " Hubo " . count($resultado['errores']) . " errores.";
+                }
+            } else {
+                $error = "❌ No se importó ningún registro.";
+                if (!empty($resultado['errores'])) {
+                    $error .= " Errores: " . implode(", ", $resultado['errores']);
+                }
+            }
+        } catch (Exception $e) {
+            $error = "Error al importar: " . $e->getMessage();
+        }
+    }
+}
+
+// Si hay datos en sesión, mostrarlos
+if (isset($_SESSION['hojas_excel']) && !$archivo_cargado) {
+    $hojas = $_SESSION['hojas_excel'];
+    $archivo_cargado = true;
+    $hoja_actual = $_POST['hoja'] ?? array_key_first($hojas);
+}
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -277,6 +394,7 @@ function detectarVehiculo($ruta) {
         .table-preview td, .table-preview th { padding: 4px 8px; }
         .badge-excel { background: #217346; }
         .badge-telegram { background: #0088cc; }
+        .selected-row { background: #e8f0fe; }
     </style>
 </head>
 <body>
@@ -289,16 +407,16 @@ function detectarVehiculo($ruta) {
                     </div>
                     <div class="card-body">
                         
-                        <?php if (isset($_GET['mensaje'])): ?>
+                        <?php if ($mensaje): ?>
                             <div class="alert alert-success alert-dismissible fade show">
-                                <?php echo htmlspecialchars($_GET['mensaje']); ?>
+                                <?php echo htmlspecialchars($mensaje); ?>
                                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                             </div>
                         <?php endif; ?>
                         
-                        <?php if (isset($_GET['error'])): ?>
+                        <?php if ($error): ?>
                             <div class="alert alert-danger alert-dismissible fade show">
-                                <?php echo htmlspecialchars($_GET['error']); ?>
+                                <?php echo htmlspecialchars($error); ?>
                                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                             </div>
                         <?php endif; ?>
@@ -306,7 +424,7 @@ function detectarVehiculo($ruta) {
                         <!-- ============================================================ -->
                         <!-- PASO 1: SUBIR ARCHIVO -->
                         <!-- ============================================================ -->
-                        <form method="POST" enctype="multipart/form-data" action="">
+                        <form method="POST" enctype="multipart/form-data">
                             <input type="hidden" name="action" value="cargar">
                             
                             <div class="row g-3 align-items-end">
@@ -324,104 +442,19 @@ function detectarVehiculo($ruta) {
 
                         <hr>
 
-                        <?php
-                        // ============================================================
-                        // PROCESAR CARGA DE ARCHIVO
-                        // ============================================================
-                        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-                            
-                            if ($_POST['action'] === 'cargar' && isset($_FILES['archivo_excel'])) {
-                                $archivo = $_FILES['archivo_excel'];
-                                
-                                if ($archivo['error'] !== 0) {
-                                    echo '<div class="alert alert-danger">Error al subir el archivo: ' . $archivo['error'] . '</div>';
-                                } else {
-                                    // Mover archivo a uploads
-                                    $nombre_archivo = time() . '_' . basename($archivo['name']);
-                                    $ruta_archivo = UPLOAD_DIR . $nombre_archivo;
-                                    
-                                    if (move_uploaded_file($archivo['tmp_name'], $ruta_archivo)) {
-                                        try {
-                                            // Leer el Excel
-                                            $hojas = leerExcel($ruta_archivo);
-                                            
-                                            if (empty($hojas)) {
-                                                echo '<div class="alert alert-warning">No se encontraron hojas en el archivo.</div>';
-                                            } else {
-                                                // Guardar en sesión el archivo para usarlo después
-                                                $_SESSION['archivo_excel'] = $ruta_archivo;
-                                                $_SESSION['hojas_excel'] = $hojas;
-                                                
-                                                // Mostrar selector de hoja
-                                                mostrarSelectorHoja($hojas);
-                                            }
-                                        } catch (Exception $e) {
-                                            echo '<div class="alert alert-danger">Error al leer el archivo: ' . $e->getMessage() . '</div>';
-                                        }
-                                    } else {
-                                        echo '<div class="alert alert-danger">Error al mover el archivo.</div>';
-                                    }
-                                }
-                            }
-                            
-                            // ============================================================
-                            // PROCESAR MAPEO Y GUARDAR
-                            // ============================================================
-                            if ($_POST['action'] === 'guardar') {
-                                $hoja_seleccionada = $_POST['hoja'] ?? '';
-                                $mapeo = $_POST['mapeo'] ?? [];
-                                $archivo = $_SESSION['archivo_excel'] ?? null;
-                                
-                                if (!$archivo) {
-                                    echo '<div class="alert alert-danger">No se encontró el archivo. Por favor, cárgalo de nuevo.</div>';
-                                } elseif (!$hoja_seleccionada) {
-                                    echo '<div class="alert alert-danger">Por favor, selecciona una hoja.</div>';
-                                } else {
-                                    try {
-                                        $resultado = procesarImportacion($archivo, $hoja_seleccionada, $mapeo);
-                                        
-                                        if ($resultado['importados'] > 0) {
-                                            $mensaje = "✅ Se importaron {$resultado['importados']} registros correctamente.";
-                                            if (!empty($resultado['errores'])) {
-                                                $mensaje .= " Hubo " . count($resultado['errores']) . " errores.";
-                                            }
-                                            header("Location: ?mensaje=" . urlencode($mensaje));
-                                            exit;
-                                        } else {
-                                            $error = "❌ No se importó ningún registro.";
-                                            if (!empty($resultado['errores'])) {
-                                                $error .= " Errores: " . implode(", ", $resultado['errores']);
-                                            }
-                                            header("Location: ?error=" . urlencode($error));
-                                            exit;
-                                        }
-                                    } catch (Exception $e) {
-                                        header("Location: ?error=" . urlencode($e->getMessage()));
-                                        exit;
-                                    }
-                                }
-                            }
-                        }
-                        ?>
-
                         <!-- ============================================================ -->
-                        <!-- MOSTRAR HOJAS Y MAPEO (si hay archivo cargado) -->
+                        <!-- MOSTRAR HOJAS Y MAPEO -->
                         <!-- ============================================================ -->
-                        <?php if (isset($_SESSION['hojas_excel'])): ?>
-                            <?php
-                            $hojas = $_SESSION['hojas_excel'];
-                            $hoja_actual = $_POST['hoja'] ?? array_key_first($hojas);
-                            ?>
+                        <?php if ($archivo_cargado && !empty($hojas)): ?>
                             
                             <form method="POST" action="">
                                 <input type="hidden" name="action" value="guardar">
-                                <input type="hidden" name="archivo" value="<?php echo htmlspecialchars($_SESSION['archivo_excel']); ?>">
                                 
                                 <!-- Selector de hoja -->
                                 <div class="row g-3 align-items-end mb-4">
                                     <div class="col-md-6">
                                         <label class="form-label fw-bold">📋 Seleccionar hoja (libro)</label>
-                                        <select name="hoja" class="form-select" onchange="this.form.submit()">
+                                        <select name="hoja" class="form-select" onchange="this.form.action='?'; this.querySelector('input[name=action]').value='cambiar_hoja'; this.form.submit();">
                                             <?php foreach ($hojas as $nombre => $info): ?>
                                                 <option value="<?php echo htmlspecialchars($nombre); ?>" 
                                                     <?php echo ($nombre === $hoja_actual) ? 'selected' : ''; ?>>
@@ -432,14 +465,13 @@ function detectarVehiculo($ruta) {
                                         </select>
                                     </div>
                                     <div class="col-md-6 text-end">
-                                        <span class="badge bg-secondary">Total: <?php echo $hojas[$hoja_actual]['total_filas']; ?> registros</span>
+                                        <span class="badge bg-secondary">Total: <?php echo isset($hojas[$hoja_actual]) ? $hojas[$hoja_actual]['total_filas'] : 0; ?> registros</span>
                                     </div>
                                 </div>
                                 
-                                <?php
-                                // Obtener columnas de la hoja seleccionada
-                                $columnas = $hojas[$hoja_actual]['columnas'];
-                                $datos_preview = array_slice($hojas[$hoja_actual]['datos'], 0, 4);
+                                <?php if (isset($hojas[$hoja_actual])): 
+                                    $columnas = $hojas[$hoja_actual]['columnas'];
+                                    $datos_preview = $hojas[$hoja_actual]['datos'];
                                 ?>
                                 
                                 <!-- Previsualización -->
@@ -565,8 +597,8 @@ function detectarVehiculo($ruta) {
                                             
                                             <div class="col-md-6">
                                                 <label class="form-label fw-bold">📌 origen</label>
-                                                <select name="mapeo[origen]" class="form-select form-select-sm" disabled>
-                                                    <option value="excel" selected>📁 excel (fijo)</option>
+                                                <select class="form-select form-select-sm" disabled>
+                                                    <option selected>📁 excel (fijo)</option>
                                                 </select>
                                                 <input type="hidden" name="mapeo[origen]" value="excel">
                                             </div>
@@ -580,6 +612,8 @@ function detectarVehiculo($ruta) {
                                         💾 Guardar en la tabla
                                     </button>
                                 </div>
+                                
+                                <?php endif; ?>
                             </form>
                         <?php endif; ?>
                     </div>
@@ -626,11 +660,19 @@ function detectarVehiculo($ruta) {
     </div>
     
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Mantener el formulario visible al cambiar de hoja
+        document.querySelectorAll('select[name="hoja"]').forEach(function(select) {
+            select.addEventListener('change', function() {
+                var form = this.closest('form');
+                var input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'action';
+                input.value = 'cambiar_hoja';
+                form.appendChild(input);
+                form.submit();
+            });
+        });
+    </script>
 </body>
 </html>
-<?php
-// Iniciar sesión para guardar datos entre pasos
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-?>k
