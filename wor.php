@@ -14,6 +14,12 @@ define('DB_PASS', 'Bucaramanga3011');
 define('DB_NAME', 'u648222299_viajes');
 const UPLOAD_DIR = __DIR__ . '/uploads/';
 
+// Incluir autoload de Composer (desde la raíz del proyecto)
+require_once __DIR__ . '/../vendor/autoload.php';
+
+// ============================================
+// FUNCIONES
+// ============================================
 function db(): mysqli {
     $m = @new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
     if ($m->connect_errno) exit("Error DB: ".$m->connect_error);
@@ -69,11 +75,10 @@ $conn->close();
 $generar_reporte = isset($_GET['generar']) && $_GET['generar'] == 'word';
 
 if ($generar_reporte && $totalPagados > 0) {
-    // Requerir PHPWord
-    require_once 'vendor/autoload.php';
-    
+    // Usar PHPWord (ya incluido con el autoload)
     use PhpOffice\PhpWord\PhpWord;
     use PhpOffice\PhpWord\IOFactory;
+    use PhpOffice\PhpWord\Shared\Converter;
     
     // Obtener todos los préstamos pagados
     $conn = db();
@@ -81,6 +86,9 @@ if ($generar_reporte && $totalPagados > 0) {
         SELECT 
             id, deudor, prestamista, monto, fecha, imagen, pagado_at,
             empresa,
+            comision_origen_porcentaje,
+            comision_gestor_porcentaje,
+            comision_base_monto,
             CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS meses,
             (monto * 
                 CASE 
@@ -104,7 +112,7 @@ if ($generar_reporte && $totalPagados > 0) {
     
     // Crear documento Word
     $phpWord = new PhpWord();
-    $phpWord->getSettings()->setThemeFontLang(new \PhpOffice\PhpWord\Shared\Converter('es'));
+    $phpWord->getSettings()->setThemeFontLang(new Converter('es'));
     
     // Estilos
     $phpWord->addTitleStyle(1, ['size' => 18, 'bold' => true, 'color' => '1a237e']);
