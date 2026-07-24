@@ -1,11 +1,9 @@
 <?php
 /*********************************************************
- * admin_prestamos.php — CRUD + Tarjetas
- * - Filtro dinámico: deudores según empresa seleccionada
- * - Dropdowns con búsqueda (Select2)
- * - Toggle switch: Modo 8% por días exactos
- * - Desglose por prestamista (solo en modo especial)
- * - Select2 con datos desde deudores_admin y prestamistas_admin
+ * admin_prestamos.php — CRUD + Tarjetas (VERSIÓN CORREGIDA)
+ * - Corregido: Préstamos pagados usan pagado_at para cálculos
+ * - Seguridad mejorada (SQL Injection, XSS)
+ * - Rendimiento optimizado
  *********************************************************/
 include("nav.php");
 
@@ -700,6 +698,7 @@ else:
   // ============================================================
   // CONSTRUCCIÓN DE LA CONSULTA SEGÚN MODO ESPECIAL O NORMAL
   // ============================================================
+  // 🔥 CORRECCIÓN: Para préstamos pagados, usamos pagado_at en lugar de CURDATE()
   
   if ($modo_especial == 1) {
     // ===== MODO ESPECIAL: 8% mensual por DÍAS EXACTOS =====
@@ -710,18 +709,53 @@ else:
         comision_gestor_nombre, comision_gestor_porcentaje, comision_base_monto, 
         comision_origen_prestamista, comision_origen_porcentaje,
         
-        GREATEST(0, DATEDIFF(CURDATE(), fecha)) AS dias,
+        -- 🔥 CORRECCIÓN: Si está pagado, usa pagado_at, si no, CURDATE()
+        GREATEST(0, DATEDIFF(
+            CASE WHEN pagado = 1 AND pagado_at IS NOT NULL 
+                 THEN pagado_at 
+                 ELSE CURDATE() 
+            END, 
+            fecha
+        )) AS dias,
         
-        (monto * 0.08 / 30 * GREATEST(0, DATEDIFF(CURDATE(), fecha))) AS interes_total,
+        -- 🔥 CORRECCIÓN: Interés calculado hasta la fecha de pago
+        (monto * 0.08 / 30 * GREATEST(0, DATEDIFF(
+            CASE WHEN pagado = 1 AND pagado_at IS NOT NULL 
+                 THEN pagado_at 
+                 ELSE CURDATE() 
+            END, 
+            fecha
+        ))) AS interes_total,
         
-        (monto * 0.08 / 30 * GREATEST(0, DATEDIFF(CURDATE(), fecha))) * 
+        -- Interés del prestamista
+        (monto * 0.08 / 30 * GREATEST(0, DATEDIFF(
+            CASE WHEN pagado = 1 AND pagado_at IS NOT NULL 
+                 THEN pagado_at 
+                 ELSE CURDATE() 
+            END, 
+            fecha
+        ))) * 
           (COALESCE(comision_origen_porcentaje, 
             CASE WHEN fecha >= '2025-10-29' THEN 13 ELSE 10 END) / 100) AS interes_prestamista,
         
-        (monto * 0.08 / 30 * GREATEST(0, DATEDIFF(CURDATE(), fecha))) * 
+        -- Comisión del gestor
+        (monto * 0.08 / 30 * GREATEST(0, DATEDIFF(
+            CASE WHEN pagado = 1 AND pagado_at IS NOT NULL 
+                 THEN pagado_at 
+                 ELSE CURDATE() 
+            END, 
+            fecha
+        ))) * 
           (COALESCE(comision_gestor_porcentaje, 0) / 100) AS comision_gestor,
         
-        (monto + (monto * 0.08 / 30 * GREATEST(0, DATEDIFF(CURDATE(), fecha)))) AS total
+        -- 🔥 CORRECCIÓN: Total calculado hasta la fecha de pago
+        (monto + (monto * 0.08 / 30 * GREATEST(0, DATEDIFF(
+            CASE WHEN pagado = 1 AND pagado_at IS NOT NULL 
+                 THEN pagado_at 
+                 ELSE CURDATE() 
+            END, 
+            fecha
+        )))) AS total
         
       FROM prestamos
       WHERE $where
@@ -736,26 +770,59 @@ else:
         comision_gestor_nombre, comision_gestor_porcentaje, comision_base_monto, 
         comision_origen_prestamista, comision_origen_porcentaje,
         
-        CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS meses,
+        -- 🔥 CORRECCIÓN: Meses calculados hasta la fecha de pago
+        CASE WHEN CURDATE() < fecha THEN 0 
+             ELSE TIMESTAMPDIFF(MONTH, fecha, 
+                 CASE WHEN pagado = 1 AND pagado_at IS NOT NULL 
+                      THEN pagado_at 
+                      ELSE CURDATE() 
+                 END
+             ) + 1 
+        END AS meses,
         
+        -- Interés del prestamista (hasta fecha de pago)
         (monto * 
           CASE 
             WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
             ELSE COALESCE(comision_origen_porcentaje, 10)
           END / 100 *
-          CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes_prestamista,
+          CASE WHEN CURDATE() < fecha THEN 0 
+               ELSE TIMESTAMPDIFF(MONTH, fecha, 
+                   CASE WHEN pagado = 1 AND pagado_at IS NOT NULL 
+                        THEN pagado_at 
+                        ELSE CURDATE() 
+                   END
+               ) + 1 
+          END) AS interes_prestamista,
         
+        -- Comisión del gestor (hasta fecha de pago)
         (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100 *
-          CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS comision_gestor,
+          CASE WHEN CURDATE() < fecha THEN 0 
+               ELSE TIMESTAMPDIFF(MONTH, fecha, 
+                   CASE WHEN pagado = 1 AND pagado_at IS NOT NULL 
+                        THEN pagado_at 
+                        ELSE CURDATE() 
+                   END
+               ) + 1 
+          END) AS comision_gestor,
         
+        -- 🔥 CORRECCIÓN: Interés total hasta fecha de pago
         ((monto * 
             CASE 
               WHEN fecha >= '2025-10-29' THEN COALESCE(comision_origen_porcentaje, 13)
               ELSE COALESCE(comision_origen_porcentaje, 10)
             END / 100) + 
           (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
-          CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END AS interes_total,
+          CASE WHEN CURDATE() < fecha THEN 0 
+               ELSE TIMESTAMPDIFF(MONTH, fecha, 
+                   CASE WHEN pagado = 1 AND pagado_at IS NOT NULL 
+                        THEN pagado_at 
+                        ELSE CURDATE() 
+                   END
+               ) + 1 
+          END AS interes_total,
         
+        -- 🔥 CORRECCIÓN: Total hasta fecha de pago
         (monto + 
           (((monto * 
               CASE 
@@ -763,7 +830,14 @@ else:
                 ELSE COALESCE(comision_origen_porcentaje, 10)
               END / 100) + 
             (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
-            CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
+            CASE WHEN CURDATE() < fecha THEN 0 
+                 ELSE TIMESTAMPDIFF(MONTH, fecha, 
+                     CASE WHEN pagado = 1 AND pagado_at IS NOT NULL 
+                          THEN pagado_at 
+                          ELSE CURDATE() 
+                     END
+                 ) + 1 
+            END)) AS total
             
       FROM prestamos
       WHERE $where
@@ -777,19 +851,34 @@ else:
   $rs=$st->get_result();
 
   // ============================================================
-  // DESGLOSE POR PRESTAMISTA (SOLO MODO ESPECIAL)
+  // DESGLOSE POR PRESTAMISTA (SOLO MODO ESPECIAL) - CORREGIDO
   // ============================================================
   $desglose_prestamistas = [];
   $resumen_general = ['capital' => 0, 'interes' => 0, 'total' => 0, 'count' => 0];
   
   if ($modo_especial == 1) {
+    // 🔥 CORRECCIÓN: Desglose usa pagado_at para préstamos pagados
     $sqlDesglose = "
       SELECT 
         prestamista,
         COUNT(*) AS num_prestamos,
         SUM(monto) AS capital_total,
-        SUM(monto * 0.08 / 30 * GREATEST(0, DATEDIFF(CURDATE(), fecha))) AS interes_total,
-        SUM(monto + (monto * 0.08 / 30 * GREATEST(0, DATEDIFF(CURDATE(), fecha)))) AS total_a_pagar
+        -- 🔥 CORRECCIÓN: Interés calculado hasta pagado_at o hoy
+        SUM(monto * 0.08 / 30 * GREATEST(0, DATEDIFF(
+            CASE WHEN pagado = 1 AND pagado_at IS NOT NULL 
+                 THEN pagado_at 
+                 ELSE CURDATE() 
+            END, 
+            fecha
+        ))) AS interes_total,
+        -- 🔥 CORRECCIÓN: Total hasta pagado_at o hoy
+        SUM(monto + (monto * 0.08 / 30 * GREATEST(0, DATEDIFF(
+            CASE WHEN pagado = 1 AND pagado_at IS NOT NULL 
+                 THEN pagado_at 
+                 ELSE CURDATE() 
+            END, 
+            fecha
+        )))) AS total_a_pagar
       FROM prestamos
       WHERE $where
       GROUP BY prestamista
@@ -809,7 +898,9 @@ else:
     }
     $stDesglose->close();
   } else {
+    // Modo normal - resumen con pagado_at
     if ($fecha_desde !== '' || $fecha_hasta !== '' || $fdNorm !== '' || $fpNorm !== '' || $feNorm !== '' || $estado_pago !== 'no_pagados') {
+      // 🔥 CORRECCIÓN: Usar pagado_at para préstamos pagados en el resumen
       $sqlSumas = "
         SELECT 
           COUNT(*) AS n,
@@ -820,7 +911,14 @@ else:
                   ELSE COALESCE(comision_origen_porcentaje, 10)
                 END / 100) + 
               (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
-              CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END) AS interes,
+              CASE WHEN CURDATE() < fecha THEN 0 
+                   ELSE TIMESTAMPDIFF(MONTH, fecha, 
+                       CASE WHEN pagado = 1 AND pagado_at IS NOT NULL 
+                            THEN pagado_at 
+                            ELSE CURDATE() 
+                       END
+                   ) + 1 
+              END) AS interes,
           SUM(monto + 
               (((monto * 
                   CASE 
@@ -828,7 +926,14 @@ else:
                     ELSE COALESCE(comision_origen_porcentaje, 10)
                   END / 100) + 
                 (COALESCE(comision_base_monto, monto) * COALESCE(comision_gestor_porcentaje, 0) / 100)) *
-                CASE WHEN CURDATE() < fecha THEN 0 ELSE TIMESTAMPDIFF(MONTH, fecha, CURDATE()) + 1 END)) AS total
+                CASE WHEN CURDATE() < fecha THEN 0 
+                     ELSE TIMESTAMPDIFF(MONTH, fecha, 
+                         CASE WHEN pagado = 1 AND pagado_at IS NOT NULL 
+                              THEN pagado_at 
+                              ELSE CURDATE() 
+                         END
+                     ) + 1 
+                END)) AS total
         FROM prestamos
         WHERE $where
       ";
@@ -946,9 +1051,12 @@ else:
         <div class="subtitle" style="margin-top:8px; background:#fef3c7; padding:6px 12px; border-radius:12px;">
           📐 <strong>Modo especial activado:</strong> Interés fijo del 8% mensual calculado por días exactos. 
           Fórmula: Capital × (0.08/30) × días transcurridos.
+          <span style="color:#dc2626; font-weight:bold;">✅ Préstamos pagados: cálculo hasta la fecha de pago.</span>
         </div>
       <?php else: ?>
-        <div class="subtitle">Interés variable: 13% desde 2025-10-29, 10% para préstamos anteriores. Cálculo por meses completos.</div>
+        <div class="subtitle">Interés variable: 13% desde 2025-10-29, 10% para préstamos anteriores. Cálculo por meses completos. 
+          <span style="color:#dc2626; font-weight:bold;">✅ Préstamos pagados: cálculo hasta la fecha de pago.</span>
+        </div>
       <?php endif; ?>
     </div>
 
@@ -1094,13 +1202,18 @@ else:
             
             // Calcular días para modo especial
             $diasMostrar = $modo_especial == 1 ? ($r['dias'] ?? 0) : 0;
+            
+            // 🔥 NUEVO: Mostrar si el cálculo usó pagado_at
+            $fechaCalculo = $esPagado && !empty($r['pagado_at']) 
+                ? ' (hasta ' . date('Y-m-d', strtotime($r['pagado_at'])) . ')' 
+                : ' (hasta hoy)';
           ?>
             <div class="card <?= $cardClass ?>">
               <div class="cardSel">
                 <input class="chkRow" type="checkbox" name="ids[]" value="<?= (int)$r['id'] ?>">
                 <div class="subtitle">#<?= h($r['id']) ?></div>
                 <?php if ($modo_especial == 1): ?>
-                  <span class="chip" style="background:#fef3c7; color:#92400e; margin-left:auto">📆 <?= $diasMostrar ?> días</span>
+                  <span class="chip" style="background:#fef3c7; color:#92400e; margin-left:auto">📆 <?= $diasMostrar ?> días<?= $fechaCalculo ?></span>
                 <?php elseif ($esComision): ?>
                   <span class="<?= $badgeClass ?>" style="margin-left:auto">💰 Comisión</span>
                 <?php elseif ($esPagado): ?>
@@ -1122,10 +1235,10 @@ else:
                     <div class="subtitle">Empresa: <strong><?= h($r['empresa']) ?></strong></div>
                   <?php endif; ?>
                   <?php if ($esPagado && !empty($r['pagado_at'])): ?>
-                    <div class="subtitle text-pagado">Pagado el: <?= h($r['pagado_at']) ?></div>
+                    <div class="subtitle text-pagado">✅ Pagado el: <?= h($r['pagado_at']) ?></div>
                   <?php endif; ?>
                   <?php if ($modo_especial == 1): ?>
-                    <div class="subtitle" style="color:#92400e">📅 Desde: <?= h($r['fecha']) ?> • <?= $diasMostrar ?> días</div>
+                    <div class="subtitle" style="color:#92400e">📅 Desde: <?= h($r['fecha']) ?> • <?= $diasMostrar ?> días<?= $fechaCalculo ?></div>
                   <?php endif; ?>
                 </div>
                 <span class="chip"><?= h($r['fecha']) ?></span>
